@@ -26,6 +26,7 @@ _EFFORT_SCALE = "\n".join(
 MANUAL = f"""# Safwa
 - Safwa is a personal agile advisor in Telegram. The user keeps a workspace of Cards, commits to a Sprint of a fixed number of days, and learns from each Sprint in its retro.
 - The Advisor reads the workspace and advises. It saves nothing itself: it proposes, and only the user saves.
+- Its focus is open Goals of every Priority, ordered by urgent Deadline, Priority, Values in focus and Actions in Sprint or Today.
 
 # How a change happens
 - In words: the user asks the Advisor. It shows a review screen with "✅ Save" and "🗑 Discard". Nothing is saved before Save.

@@ -7,6 +7,7 @@ is the flag that asks for it.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -16,24 +17,23 @@ from tg_agent_shell.ai.messages import StateBlocks
 from tg_agent_shell.foundation.clock import utcnow
 
 from ...foundation.workspace import Workspace
-from ..cards.api import list_order
-from ..cards.model import Card, CardStage, Priority, effort_label
+from ..cards.model import Card, CardKind, CardStage, Priority, effort_label
 from ..planning.api import plan_load, today_actions
 from ..planning.model import Sprint
 from ..profile.model import UserProfile
 from ..tags.model import Tag
 from ..values.model import CardValue, Value
 
-# How many critical Cards the workspace state names before the model has to query for more.
-CONTEXT_CRITICAL_CARD_LIMIT = 10
+CONTEXT_PRIORITY_GOAL_LIMIT = 10
+PRIORITY_GOAL_DEADLINE_DAYS = 7
 
 def citation(name: str, kind: str, item_id: int) -> str:
     """The one shape an item takes in context, ready for the model to reuse in a reply."""
     return f"[{name}]({kind}:{item_id})"
 
 
-async def _critical_cards(session: AsyncSession) -> list[Card]:
-    """The critical Cards, those carrying an active Value first, each part in list order."""
+async def _priority_goals(session: AsyncSession, local_now: datetime) -> list[Card]:
+    """Open Goals in focus order, with urgent Deadlines before ordinary importance."""
     linked_active_value = (
         select(CardValue.card_id)
         .join(Value, Value.id == CardValue.value_id)
@@ -45,12 +45,32 @@ async def _critical_cards(session: AsyncSession) -> list[Card]:
     )
     rows = await session.execute(
         select(Card, linked_active_value).where(
-            Card.priority == Priority.CRITICAL.value,
+            Card.kind == CardKind.GOAL.value,
+            Card.parent_id.is_(None),
             Card.effective_stage != CardStage.DONE.value,
+            Card.archived_at.is_(None),
         )
     )
-    ordered = sorted(rows.unique(), key=lambda row: (not row[1], list_order(row[0])))
-    return [card for card, _ in ordered[:CONTEXT_CRITICAL_CARD_LIMIT]]
+    near = local_now.date() + timedelta(days=PRIORITY_GOAL_DEADLINE_DAYS)
+    ranks = list(Priority)
+
+    def focus_order(row):
+        goal, active_value = row
+        deadline = goal.deadline_at
+        urgent = deadline is not None and deadline.astimezone(local_now.tzinfo).date() <= near
+        return (
+            not urgent,
+            ranks.index(Priority(goal.priority)),
+            not active_value,
+            goal.effective_stage not in (CardStage.SPRINT.value, CardStage.TODAY.value),
+            deadline is None,
+            deadline or local_now,
+            goal.created_at,
+            goal.id,
+        )
+
+    ordered = sorted(rows.unique(), key=focus_order)
+    return [goal for goal, _ in ordered[:CONTEXT_PRIORITY_GOAL_LIMIT]]
 
 
 async def workspace_context(session: AsyncSession) -> StateBlocks:
@@ -72,6 +92,7 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
         else None
     )
     timezone = ZoneInfo(workspace.timezone if workspace else "Europe/Istanbul")
+    local_now = utcnow().astimezone(timezone)
     lines = [
         f"Workspace mode: {workspace.mode if workspace else 'planning'}",
         f"About me: {(profile.about_me if profile else '').strip()}",
@@ -98,17 +119,21 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
                 else "No Success criteria have been written yet."
             )
         )
-    critical = await _critical_cards(session)
+    goals = await _priority_goals(session, local_now)
     # An empty heading would read the owner's next line as its first item.
-    if critical:
-        lines.append("Critical Cards:")
+    if goals:
+        lines.append("Priority Goals:")
         lines.extend(
-            f"- {citation(card.title, 'card', card.id)} kind={card.kind} "
-            f"stage={card.effective_stage}"
-            for card in critical
+            f"- {citation(goal.title, 'card', goal.id)} priority={goal.priority} "
+            f"stage={goal.effective_stage}"
+            + (
+                f" deadline={goal.deadline_at.astimezone(timezone):%d.%m.%Y %H:%M}"
+                if goal.deadline_at else ""
+            )
+            for goal in goals
         )
     today = await today_actions(session)
-    local_day = utcnow().astimezone(timezone).date()
+    local_day = local_now.date()
     load = await plan_load(session, today, start_date=local_day, end_date=local_day)
     lines.append("Today Actions:")
     lines.append(f"Planned executions remaining today: {load.actions}" + (
@@ -135,5 +160,5 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
     )
     return StateBlocks(
         state="\n".join(lines),
-        clock=f"Current local time: {utcnow().astimezone(timezone):%Y-%m-%d %H:%M} ({timezone})",
+        clock=f"Current local time: {local_now:%Y-%m-%d %H:%M} ({timezone})",
     )

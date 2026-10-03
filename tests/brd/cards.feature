@@ -263,12 +263,11 @@ Feature: Cards
     And Safwa only ever asks for the branch, and Cards calls that destructive, so a proposal
       to do it is confirmed a second time
 
-  Scenario: CD-CONTEXT-028 — The critical Cards Safwa is handed are the ones still to do
-    Given critical Cards, some of them Done and some still open
-    Then only the ones still open are among the ones Safwa is handed, chosen as VL-READ-003 says
-    And each of them says what kind it is and which stage it is in now
-    And a Card that is not critical is not among them at all: Safwa looks those up when it needs
-      them
+  Scenario: CD-CONTEXT-028 — The Priority Goals Safwa is handed are the ones still open
+    Given Goals of every Priority, some of them Done and some still open
+    Then only open root Goals are handed over as Priority Goals, chosen as WS-CONTEXT-008 says
+    And each says its Priority, current stage and compiled Deadline when there is one
+    And a Subgoal or an Action is not in that list: Safwa reads those separately when needed
 
   Scenario: CD-VIEW-031 — A Card opens compact, and full editing is one button away
     Given a Card the owner opens from anywhere

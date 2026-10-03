@@ -523,8 +523,8 @@ async def test_pl_context_020_todays_actions_are_handed_over_in_planning_as_in_a
 
     handed = running.split("Today Actions:")[1]
 
-    # The Actions in Today with the effort each carries, most important first: the Action
-    # still in Sprint and the Goal above them are both looked up rather than handed over.
+    # The Actions in Today carry their effort and order; an Action still in Sprint is
+    # looked up, while open Goals are handed over separately.
     assert [line for line in handed.splitlines() if line.startswith("- [")] == [
         f"- [The dentist](card:{fixed.id}) effort=1 schedule_at={fixed_at:%d.%m %H:%M}",
         f"- [Ship it](card:{today.id}) effort=5",
@@ -532,7 +532,7 @@ async def test_pl_context_020_todays_actions_are_handed_over_in_planning_as_in_a
         f"- [Sometime](card:{low.id}) effort=1",
     ]
     assert planning.split("Today Actions:")[1] == handed
-    assert "The release" not in running
+    assert "The release" in running.split("Today Actions:")[0]
 
 
 async def test_pl_end_012_finishing_early_leaves_the_work_where_it_is(sessions):

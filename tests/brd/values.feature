@@ -20,11 +20,12 @@ Feature: Values
     Then Safwa has been told Fitness is in focus, and not Tidiness
     And the Value arrives as something Safwa can hand straight back to the owner as a link
 
-  Scenario: VL-READ-003 — A critical Card that serves a Value in focus is shown to Safwa first
-    Given the owner has more critical Cards than Safwa is handed (CONTEXT_CRITICAL_CARD_LIMIT = 10)
-    When they are picked
-    Then a critical Card that serves a Value in focus comes before one that does not
-    And among the rest they follow the order of every Card list: an appointment or a Deadline first, the sooner one before, then the older one
+  Scenario: VL-READ-003 — A Goal that serves a Value in focus comes before an otherwise equal Goal
+    Given open Goals with the same Deadline urgency and Priority
+    When Safwa chooses its Priority Goals
+    Then a Goal directly carrying a Value in focus comes before one that does not
+    And a Value out of focus gives its Goal no advantage
+    And this comes before whether the Goal has Actions in Sprint or Today
 
   Scenario: VL-LINK-004 — One Value is carried by many things, which is what it is for
     Given a Value named "Health"

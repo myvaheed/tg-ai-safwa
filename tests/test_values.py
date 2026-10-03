@@ -15,6 +15,9 @@ from safwa.features.cards.use_cases import (
     toggle_card_check,
     toggle_card_value,
 )
+from safwa.features.cards.use_cases import (
+    create_card as create_domain_card,
+)
 from safwa.features.checks.model import Check, CheckOutcome
 from safwa.features.checks.use_cases import (
     archive_check,
@@ -23,15 +26,11 @@ from safwa.features.checks.use_cases import (
     resolve_check,
     toggle_check_value,
 )
-from safwa.features.schedules.api import set_schedule
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.model import CardValue, CheckValue, Value
 from safwa.features.values.use_cases import create_value, delete_value, update_value_fields
 from safwa.features.workspace_mutator.remove import RemoveToolInput
-from safwa.features.workspace_mutator.state import (
-    CONTEXT_CRITICAL_CARD_LIMIT,
-    workspace_context,
-)
+from safwa.features.workspace_mutator.state import workspace_context
 from tg_agent_shell.ai.sql import create_ai_views
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.references import resolve_references
@@ -245,32 +244,30 @@ async def test_safwa_is_told_which_values_are_in_focus(sessions):
     assert tags_line == f"Available Tags: [Family](tag:{family.id})"
 
 
-async def test_a_critical_card_serving_a_focus_is_shown_to_safwa_first(sessions):
+async def test_a_goal_serving_a_focus_comes_before_other_equal_goals(sessions):
     """VL-READ-003 — tests/brd/values.feature"""
     async with sessions() as session:
         focus = await create_value(session, "Health", active=True)
-        plain = await _action(session, "Plain critical", priority="critical")
-        served = await _action(session, "Serves the focus", priority="critical")
+        inactive = await create_value(session, "Tidiness", active=False)
+        planned = await create_domain_card(session, kind="goal", title="Planned")
+        await create_domain_card(
+            session, kind="action", title="Next step", parent_id=planned.id, stage="today"
+        )
+        plain = await create_domain_card(session, kind="goal", title="Plain")
+        served = await create_domain_card(session, kind="goal", title="Serves the focus")
         await toggle_card_value(session, served.id, focus.id)
-        # More critical Cards than Safwa is handed, so the ordering has to choose.
-        for index in range(CONTEXT_CRITICAL_CARD_LIMIT):
-            await _action(session, f"Filler {index}", priority="critical")
-        # An appointment goes before older Cards; a quota's period is no appointment.
-        await _action(session, "Audit", priority="critical", schedule="31.12.2099 10:00")
-        quota = await _action(session, "Water", priority="critical")
-        await set_schedule(session, quota, "five times a day", {"kind": "quota", "period": "day", "count": 5})
+        await create_domain_card(session, kind="goal", title="Inactive", value_ids={inactive.id})
+        await create_domain_card(session, kind="goal", title="Critical", priority="critical")
         await session.commit()
 
         context = await workspace_context(session)
 
+    goals = context.state.split("Priority Goals:\n", 1)[1].split("Today Actions:", 1)[0]
     titles = [
         line.split("](")[0].removeprefix("- [")
-        for line in context.state.splitlines()
-        if line.startswith("- [")
+        for line in goals.splitlines()
     ]
-    assert len(titles) == CONTEXT_CRITICAL_CARD_LIMIT
-    assert titles[:3] == ["Serves the focus", "Audit", plain.title]
-    assert "Water" not in titles
+    assert titles == ["Critical", served.title, planned.title, plain.title, "Inactive"]
 
 
 async def test_a_value_is_deleted_not_archived(sessions):
