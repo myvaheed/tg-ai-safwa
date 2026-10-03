@@ -35,3 +35,11 @@ async def attach_values(session: AsyncSession, card_id: int, value_ids: Iterable
     """Put a Card's Value links in place. The Card owns the operation, this row is ours."""
     for value_id in sorted(set(value_ids)):
         session.add(CardValue(card_id=card_id, value_id=value_id))
+
+
+async def value_names(session: AsyncSession) -> dict[int, str]:
+    """Every Value's name by its id."""
+    return {
+        value_id: name
+        for value_id, name in await session.execute(select(Value.id, Value.name))
+    }

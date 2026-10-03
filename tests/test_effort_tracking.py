@@ -38,7 +38,7 @@ from safwa.features.profile.telegram import command_profile
 from safwa.features.profile.telegram.review import ProfileProposalPresenter
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.retro.analysis import overview_text, shares_text
-from safwa.features.retro.records import aggregate, records_by_number
+from safwa.features.retro.records import aggregate, sprint_records, sprints_by_number
 from safwa.features.retro.telegram import open_retro
 from safwa.features.retro.use_cases import analysis_input
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner
@@ -269,7 +269,8 @@ async def test_rt_ep_016_partial_estimates_are_kept_but_not_used_as_percentages(
         await finish_action(session, unestimated.id, tracked_mins=30)
         await finish_sprint(session)
         await session.commit()
-        record = (await records_by_number(session, [sprint.number]))[sprint.number]
+        chosen = await sprints_by_number(session, [sprint.number])
+        record = (await sprint_records(session, chosen))[sprint.number]
         assert record["actions_taken"] == 2 and record["actions_finished"] == 1
         assert "effort_taken" not in record and "capacity" not in record
         assert "done_share_percent" not in aggregate({sprint.number: record}, "sum")
@@ -289,7 +290,8 @@ async def test_rt_ep_016_partial_estimates_are_kept_but_not_used_as_percentages(
         await update_card_fields(session, unestimated.id, {"effort_points": 3})
         assert (await session.scalar(select(SprintCommitment).where(SprintCommitment.card_id == unestimated.id))).effort_snapshot is None
         assert (await session.get(Card, estimated.id)).effort_points == 8
-        record = (await records_by_number(session, [sprint.number]))[sprint.number]
+        chosen = await sprints_by_number(session, [sprint.number])
+        record = (await sprint_records(session, chosen))[sprint.number]
         assert record["unestimated_actions"] == 1 and "effort_taken" not in record
         await session.commit()
     await open_retro(message, services, sprint.id)

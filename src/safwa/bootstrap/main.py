@@ -190,6 +190,17 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
     media = MediaLibrary(database.sessions, provider) if settings.image_input else None
     if media is not None:
         logger.info("Image input enabled: %s reads the photos", settings.ai_model)
+    timers: set[asyncio.Task[None]] = set()
+
+    def spawn(work: Coroutine[None, None, None], name: str) -> asyncio.Task[None]:
+        """A Toast timer, held so that shutdown ends it rather than leaving it running."""
+        timer = asyncio.create_task(work, name=name)
+        timers.add(timer)
+        timer.add_done_callback(timers.discard)
+        return timer
+
+    # Before the advisor: a subagent's read tool may send pictures to the chat itself.
+    chat = ChatHost(TelegramNotes(database.sessions), spawn=spawn)
     # The advisor is built after the history source because a subagent reads through it.
     advisor = REGISTRY.root_session(
         database.sessions,
@@ -211,6 +222,8 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
                 sessions=database.sessions,
                 media=media,
                 switches=REGISTRY.hooks.agent_related,
+                chat=chat,
+                bot=bot,
             )
         ),
         helpers=REGISTRY.helper_ports(provider, query_runner),
@@ -224,16 +237,6 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
         chars_per_token=settings.token_chars_estimate,
     )
     turn = TurnManager()
-    timers: set[asyncio.Task[None]] = set()
-
-    def spawn(work: Coroutine[None, None, None], name: str) -> asyncio.Task[None]:
-        """A Toast timer, held so that shutdown ends it rather than leaving it running."""
-        timer = asyncio.create_task(work, name=name)
-        timers.add(timer)
-        timer.add_done_callback(timers.discard)
-        return timer
-
-    chat = ChatHost(TelegramNotes(database.sessions), spawn=spawn)
     # Home is a feature now, and `/start` leads the published list, so its commands come first.
     commands = (*FEATURE_COMMANDS, *SHELL_COMMANDS)
     transcriber = build_transcriber(

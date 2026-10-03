@@ -252,6 +252,12 @@ async def test_rt_stats_003_the_record_keeps_counts_shares_and_days(sessions) ->
     assert statistics.by_category["self"].done_count == 1
     assert statistics.by_energy["cognitive"].done_effort == 3
     assert statistics.by_energy["none"].count == 1
+    # The two together: "Both" is in work and cognitive, and in self and cognitive.
+    for category in ("work", "self"):
+        pair = statistics.by_category_energy[category]["cognitive"]
+        assert (pair.effort, pair.done_effort, pair.done_count) == (3, 3, 1)
+    assert statistics.by_category_energy["none"]["none"].count == 1
+    assert statistics.by_category_energy["work"]["none"].count == 0
     # Two local days: yesterday with nothing, today with one Action in Today and one finished.
     assert [day.day for day in statistics.days] == [
         (_today() - timedelta(days=1)).isoformat(),
@@ -655,6 +661,7 @@ async def test_rt_ai_008_what_the_run_leaves_behind(sessions, tmp_path) -> None:
         "❌ Not met",
         "🔁 Analyse again",
         "📊 Analysis",
+        "📈 Charts",
         "↩️ Menu",
     ]
 

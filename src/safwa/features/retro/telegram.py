@@ -5,19 +5,23 @@ The list is the menu's Retro, newest first. One Sprint's retro is what the list 
 the owner's word on whether its Success criteria were met. From it the owner starts the
 analysis — one run, watched on one progress message — and reads what the last run made of
 the Sprint on a screen of its own. Opened from the list, both lead back to the page it was
-opened from.
+opened from. One retro puts its Sprint's charts up as one album, and the list those of the
+newest Sprints, with a message below it that leads back. The list is also the way into Life
+in weeks.
 """
 
 from __future__ import annotations
 
+import asyncio
 import html
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.enums import ChatAction
+from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.errors import DomainError
@@ -27,6 +31,7 @@ from tg_agent_shell.telegram import (
     CallbackHandler,
     Progress,
     Services,
+    dismiss_prior_ui,
     menu_row,
     paginate,
     paging_row,
@@ -39,6 +44,7 @@ from ..cards.api import effort_label, minutes_label
 from ..planning.closing import Bucket, RetroStatistics
 from ..planning.model import Sprint
 from ..profile.api import effort_tracking_on
+from .charts import CHART_SPRINTS_READABLE, ChartSprint, covered, render_charts
 from .records import ended_sprints
 from .use_cases import analysis_input, mark_criterion, record_analysis, require_ended_sprint
 
@@ -174,6 +180,29 @@ async def render_retro_list(message: Message, services: Services, *, page: int =
             ]
             for sprint in window.items
         ]
+        if window.items:
+            rows.append(
+                [
+                    await token_button(
+                        session,
+                        services.owner_id,
+                        "📈 Charts of recent Sprints",
+                        "retro_charts",
+                        {"page": window.index},
+                    )
+                ]
+            )
+        rows.append(
+            [
+                await token_button(
+                    session,
+                    services.owner_id,
+                    "⏳ Life in weeks",
+                    "life_open",
+                    {"page": window.index},
+                )
+            ]
+        )
         rows.extend(await paging_row(session, services.owner_id, window, "retro_list", {}))
         await session.commit()
     text = (
@@ -244,6 +273,17 @@ async def _retro_buttons(
             )
         )
     rows.append(analysis)
+    rows.append(
+        [
+            await token_button(
+                session,
+                services.owner_id,
+                "📈 Charts",
+                "retro_charts",
+                {"id": sprint.id, "page": page},
+            )
+        ]
+    )
     return rows + await _back_rows(session, services, page)
 
 
@@ -271,6 +311,62 @@ async def render_retro(
         text,
         kind=MessageKind.DASHBOARD,
         markup=InlineKeyboardMarkup(inline_keyboard=rows) if rows else None,
+    )
+
+
+async def send_charts(
+    message: Message,
+    services: Services,
+    sprint_ids: Sequence[int] | None = None,
+    *,
+    page: int | None = None,
+) -> None:
+    """The charts of these ended Sprints, or of the newest, as one album above a message that
+    leads back: to the one retro, or to the list page they were asked for from."""
+    async with services.sessions() as session:
+        every = await ended_sprints(session)
+        ended = (
+            every[:CHART_SPRINTS_READABLE]
+            if sprint_ids is None
+            else [sprint for sprint in every if sprint.id in sprint_ids]
+        )
+        if not ended:
+            raise DomainError("No Sprint has ended yet")
+        sprints = [ChartSprint.of(sprint) for sprint in reversed(ended)]
+        effort_tracking = await effort_tracking_on(session)
+        back = await token_button(
+            session,
+            services.owner_id,
+            "↩️ Back",
+            "retro_charts_back",
+            {"id": ended[0].id if sprint_ids is not None and len(ended) == 1 else None,
+             "page": page},
+        )
+        await session.commit()
+    await message.bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_PHOTO)
+    pictures = await asyncio.to_thread(render_charts, sprints, effort_tracking=effort_tracking)
+    # An album cannot go above a message already in the chat, so the screen it was asked
+    # from is taken out and the album and its words are drawn below.
+    if message.from_user and message.from_user.is_bot:
+        await services.chat.remove_screen(message, message.message_id)
+    await services.chat.send_photos(
+        message,
+        [BufferedInputFile(png, filename=f"{name}.png") for name, png in pictures],
+        kind=MessageKind.DASHBOARD.value,
+    )
+    text = f"<b>📈 Charts</b>\n{html.escape(covered(sprints))}"
+    if sprint_ids is None and len(every) > len(ended):
+        text += (
+            f"\nThe newest {len(ended)} of the {len(every)} Sprints that ended. Ask Safwa in "
+            "words for others."
+        )
+    await send_registered(
+        message,
+        services,
+        text,
+        kind=MessageKind.DASHBOARD,
+        markup=InlineKeyboardMarkup(inline_keyboard=[[back], menu_row()]),
+        replace=False,
     )
 
 
@@ -402,6 +498,27 @@ async def _on_analysis(context: CallbackContext) -> None:
     )
 
 
+async def _on_charts(context: CallbackContext) -> None:
+    sprint_id = context.payload.get("id")
+    await send_charts(
+        context.message,
+        context.services,
+        None if sprint_id is None else [int(sprint_id)],
+        page=context.payload.get("page"),
+    )
+
+
+async def _on_charts_back(context: CallbackContext) -> None:
+    """The album goes with the charts' words, and the screen they were asked from comes back
+    in place of those words."""
+    await dismiss_prior_ui(context.message, context.services)
+    sprint_id, page = context.payload.get("id"), context.payload.get("page")
+    if sprint_id is None:
+        await render_retro_list(context.message, context.services, page=int(page or 0))
+    else:
+        await render_retro(context.message, context.services, int(sprint_id), page=page)
+
+
 async def _on_mark(context: CallbackContext) -> None:
     sprint_id = int(context.payload["id"])
     async with context.sessions() as session:
@@ -461,4 +578,6 @@ RETRO_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "retro_mark": _on_mark,
     "retro_analyse": _on_analyse,
     "retro_analysis": _on_analysis,
+    "retro_charts": _on_charts,
+    "retro_charts_back": _on_charts_back,
 }

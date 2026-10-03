@@ -129,6 +129,10 @@ All four are `ReferenceSpec`s: adding another means adding a spec, not a special
 Values are its own statement about what it measures; nothing is derived between them and the Values
 of the Cards that Check belongs to.
 
+An Action **serves** the Values it carries and those its Goal and Subgoal carry: a Value on a Goal
+says why the work under it is there. `every_finished_action` in the Cards door is where that is
+worked out, and Life in weeks counts a Value's Actions by it.
+
 ## Versions, and what invalidates what
 
 Entities carry a `version`, and `workspace.revision` is what a pending proposal is checked against

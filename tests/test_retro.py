@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, date, datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 from schedule_helpers import create_card, create_check
@@ -24,9 +25,11 @@ from safwa.features.planning.closing import RetroStatistics, SeriesTally
 from safwa.features.planning.model import Sprint
 from safwa.features.planning.use_cases import finish_sprint, start_sprint
 from safwa.features.retro.agent import RETRO_AGENT
-from safwa.features.retro.records import SUMMED, aggregate
+from safwa.features.retro.records import RETRO_DATA_MAX, SUMMED, aggregate
 from safwa.features.retro.telegram import RETRO_LIST_PAGE_SIZE, open_retro, render_retro_list
 from safwa.features.values.use_cases import create_value
+from safwa.foundation.workspace import require_workspace
+from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.telegram import callback_token_handler
 from tg_agent_shell.telegram.manifest import AgentContext
@@ -59,7 +62,9 @@ async def test_rt_open_001_a_sprint_that_ended_keeps_a_screen_of_its_own(session
     assert "Ship v2" in text
     assert "Taken 2 EP, finished 0 EP (0%)" in text
     assert "Met: not marked yet" in text
-    assert button_texts(markup) == ["✅ Met", "❌ Not met", "🔎 Analyse with AI", "↩️ Menu"]
+    assert button_texts(markup) == [
+        "✅ Met", "❌ Not met", "🔎 Analyse with AI", "📈 Charts", "↩️ Menu"
+    ]
 
 
 async def test_rt_stats_003_the_retro_adds_the_sprint_up_from_its_record(sessions, effort_on) -> None:
@@ -158,6 +163,7 @@ async def test_rt_list_012_every_sprint_that_ended_is_one_tap_from_the_menu(sess
     empty = FakeMessage(500, bot_message=True)
     await render_retro_list(empty, services)
     assert "No Sprint has ended yet. A retro is written when a Sprint ends." in empty.edits[-1][0]
+    assert button_texts(empty.edits[-1][1]) == ["⏳ Life in weeks", "↩️ Menu"]
 
     ended = await _ended(sessions, RETRO_LIST_PAGE_SIZE + 1)
     async with sessions() as session:
@@ -178,7 +184,9 @@ async def test_rt_list_012_every_sprint_that_ended_is_one_tap_from_the_menu(sess
     assert labels[0] == (
         f"{newest.number} · {newest.planned_start_date:%d.%m}–{newest.planned_end_date:%d.%m} · —"
     )
-    assert labels[RETRO_LIST_PAGE_SIZE:] == ["Next ▶", "↩️ Menu"]
+    assert labels[RETRO_LIST_PAGE_SIZE:] == [
+        "📈 Charts of recent Sprints", "⏳ Life in weeks", "Next ▶", "↩️ Menu"
+    ]
     assert not any(running.number in label for label in labels)
 
     await _tap(message, services, "Next ▶")
@@ -188,7 +196,15 @@ async def test_rt_list_012_every_sprint_that_ended_is_one_tap_from_the_menu(sess
         f"{oldest.number} · {oldest.planned_start_date:%d.%m}–{oldest.planned_end_date:%d.%m} "
         "· ✅ 🔎"
     )
-    assert button_texts(markup) == [oldest_label, "◀ Previous", "↩️ Menu"]
+    assert button_texts(markup) == [
+        oldest_label, "📈 Charts of recent Sprints", "⏳ Life in weeks", "◀ Previous", "↩️ Menu"
+    ]
+    # Life in weeks leads back to the page it was opened from.
+    await _tap(message, services, "⏳ Life in weeks")
+    assert "<b>⏳ Life in weeks</b>" in message.edits[-1][0]
+    await _tap(message, services, "↩️ Back")
+    text, markup = message.edits[-1]
+    assert "page 2/2" in text
 
     await _tap(message, services, oldest_label)
     text, markup = message.edits[-1]
@@ -288,3 +304,96 @@ async def test_rt_ask_014_a_date_finds_the_sprint_whose_days_it_falls_in(
         await session.commit()
     today = await on(running.planned_start_date.isoformat())
     assert running.number in today["error"] and "retro is written when it ends" in today["error"]
+
+
+async def _ended_on(session, monkeypatch, first: date, ended: date) -> Sprint:
+    """A 14-day Sprint that started on `first` and was finished on `ended`."""
+    sprint = await start_sprint(
+        session, success_criteria="Ship", start_date=first, length_days=14
+    )
+    sprint.actual_started_at = datetime(first.year, first.month, first.day, 6, tzinfo=UTC)
+    with monkeypatch.context() as patched:
+        patched.setattr(
+            planning_use_cases,
+            "utcnow",
+            lambda: datetime(ended.year, ended.month, ended.day, 12, tzinfo=UTC),
+        )
+        await finish_sprint(session)
+    return sprint
+
+
+async def test_rt_ask_017_sprints_are_chosen_by_number_by_two_dates_or_all_of_them(
+    sessions, monkeypatch
+) -> None:
+    """RT-ASK-017 — tests/brd/retro.feature"""
+    async with sessions() as session:
+        await create_card(session, kind="action", title="Planned", stage="sprint", effort_points=2)
+        early = await _ended_on(session, monkeypatch, date(2025, 9, 1), date(2025, 9, 12))
+        late = await _ended_on(session, monkeypatch, date(2025, 9, 15), date(2025, 9, 28))
+        await start_sprint(session, success_criteria="Ship v3")
+        workspace = await require_workspace(session)
+        today = utcnow().astimezone(ZoneInfo(workspace.timezone)).date()
+        await session.commit()
+    context = AgentContext(
+        owner_id=42,
+        timezone="Europe/Istanbul",
+        query_runner=None,  # type: ignore[arg-type]
+        history=None,  # type: ignore[arg-type]
+        sessions=sessions,
+    )
+    tools = {tool.name: tool for tool in RETRO_AGENT.read_tools(context)}
+
+    async def call(name: str, **arguments) -> dict:
+        return await tools[name].run(
+            ToolCall(id=name, name=name, arguments_json=json.dumps(arguments))
+        )
+
+    # Two dates choose every Sprint with a day between them, whole; neither chooses every
+    # Sprint that ended, and never the running one.
+    both = await call("get_retro_data", start_date="2025-09-10", end_date="2025-09-16")
+    assert list(both) == [late.number, early.number]
+    one = await call("get_retro_data", start_date="2025-09-20", end_date="2025-09-20")
+    assert list(one) == [late.number]
+    assert list(await call("get_retro_data")) == [late.number, early.number]
+    total = await call("get_aggregate", op="sum", start_date="2025-08-01", end_date=str(today))
+    assert total["sprint_count"] == 2
+    assert total["sprints"] == [both[late.number]["link"], both[early.number]["link"]]
+    assert (await call("get_aggregate", op="mean"))["sprint_count"] == 2
+
+    # Dates no Sprint ran in are not a mistake.
+    assert await call("get_aggregate", op="mean", start_date="2025-09-13", end_date="2025-09-14") == {
+        "sprint_count": 0,
+        "note": "No Sprint that ended has a day from 2025-09-13 to 2025-09-14. "
+        "The Sprints that ended ran from 2025-09-01 to 2025-09-28.",
+    }
+
+    # A choice mixed up is refused with the call to make instead, built from what was sent.
+    async def hint(**arguments) -> str:
+        refused = await call("get_retro_data", **arguments)
+        assert refused["status"] == "error", arguments
+        return refused["hint"]
+
+    assert await hint(numbers=[early.number], start_date="2025-09-01") == (
+        f'Retry with {{"numbers": ["{early.number}"]}}, or with start_date and end_date and '
+        "no numbers."
+    )
+    assert await hint(start_date="2025-09-01") == (
+        f'Retry with {{"start_date": "2025-09-01", "end_date": "{today}"}}.'
+    )
+    assert await hint(end_date="2025-09-20") == (
+        'Retry with {"start_date": "2025-09-01", "end_date": "2025-09-20"}.'
+    )
+    assert await hint(start_date="01.09.2025", end_date="2025-09-20") == (
+        f'Retry with "start_date" as YYYY-MM-DD, like "{today}".'
+    )
+    assert await hint(start_date="2025-09-20", end_date="2025-09-01") == (
+        'Retry with {"start_date": "2025-09-01", "end_date": "2025-09-20"}.'
+    )
+
+    # More Sprints than one read holds: their numbers come back, and the sum takes them all.
+    many = [early.number, late.number, *(f"99.0{index}-01" for index in range(RETRO_DATA_MAX - 1))]
+    refused = await call("get_retro_data", numbers=many)
+    assert refused["status"] == "error"
+    assert ", ".join(many) in refused["error"]
+    assert "get_aggregate" in refused["hint"]
+    assert (await call("get_aggregate", op="sum", numbers=many))["sprint_count"] == 2

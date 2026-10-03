@@ -11,7 +11,7 @@ Feature: Retro
       it was given
     And below them, what the Sprint added up to (RT-STATS-003)
     And it arrives as its own message, offering the owner's mark on the criteria (RT-CRIT-004),
-      the analysis (RT-AI-005) and the way back to the menu
+      the analysis (RT-AI-005), its charts (RT-CHART-018) and the way back to the menu
     And a Sprint still running has no retro: asked for it, Safwa says it is written when the Sprint ends
 
   Scenario: RT-OPEN-002 — The retro opens the way every other cited item does
@@ -31,8 +31,9 @@ Feature: Retro
     And the record also keeps, for the analysis to read: how many Actions were taken in, how many
       of the Actions the Success criterion rests on there were, how many of them finished and how
       many Actions the model had not yet told key or not, the effort and the Actions taken in and
-      finished by Category and by Energy type — an Action with two of either counts in both, and one
-      with none counts as none — and one row per local day the Sprint ran: the Actions in Today that
+      finished by Category, by Energy type and by each Category and Energy type together — an
+      Action with two of either counts in both, and one with none counts as none — and one row per
+      local day the Sprint ran: the Actions in Today that
       morning, the Actions finished that day, and how those fell by Category and Energy type
     And the days run from the day the Sprint started to the day it ended or its planned end,
       whichever came first, and are there even when every Action of the Sprint was deleted
@@ -143,6 +144,8 @@ Feature: Retro
     Then the three are listed newest first, ten to a page (RETRO_LIST_PAGE_SIZE = 10)
     And each shows its number, its dates, its Success criteria mark and whether it was analysed
     And the running Sprint is not listed
+    And below them, the charts of the newest Sprints that ended (RT-CHART-018)
+    And the way into Life in weeks (LF-OPEN-001), there whether or not a Sprint has ended
     When the owner taps one
     Then its retro screen replaces the list, with a way back to the same page
     When no Sprint has ended yet
@@ -182,3 +185,89 @@ Feature: Retro
     Then the screen names partial totals and missing estimates, with no effort percentage or EP per hour
     And incomplete Sprints are left out of effort averages, with the number of included Sprints stated
     And time and Action counts are available in either mode
+
+  Scenario: RT-ASK-017 — Sprints are chosen by number, by two dates, or all of them
+    Given Sprints have ended and one is running
+    When Safwa reads their records or adds them up
+    Then it chooses them by their numbers, by a first and a last date, or by neither
+    And two dates choose every Sprint with a day between them, whole, as one date finds the
+      Sprint it fell in (RT-ASK-014)
+    And neither chooses every Sprint that ended
+    And the running Sprint is never chosen, since it has no record yet (RT-OPEN-001)
+    And dates no Sprint ran in are not a mistake: the answer says no Sprint that ended has a day
+      between them, and when the Sprints that ended ran
+    When the choice is numbers and dates together, one date without the other, a date that is
+      not one, or a first date after the last
+    Then nothing is read, and the refusal names the call to make instead, built from what was
+      sent: the numbers or the dates alone, today as the missing last date, the first day of the
+      first Sprint that ended as the missing first, the date written as YYYY-MM-DD, or the two
+      dates swapped
+    When more Sprints are chosen than one read of whole records holds (RETRO_DATA_MAX = 6)
+    Then the refusal lists their numbers and points to the sum and the mean, which take any
+      number of Sprints
+
+  Scenario: RT-CHART-018 — The charts of the Sprints that ended arrive as one album
+    Given Sprints have ended
+    When the owner taps "📈 Charts" on a Sprint's retro, or "📈 Charts of recent Sprints" on the
+      Retro list
+    Then the charts of that Sprint, or of the newest 12 Sprints that ended
+      (CHART_SPRINTS_READABLE = 12), arrive as one album in place of the screen they were asked
+      from
+    And while they are drawn, the chat shows a photo being sent
+    And below it one message names the Sprints and the days they cover, says how many of how
+      many ended when there are more, and leads back to that retro or that page of the list, and
+      to the menu
+    And each chart names the Sprints it covers and the days from the first one's start to the last
+      one's end
+    And every number on them is read off the Sprints' records (RT-STATS-003) by code; no model
+      draws or counts anything
+
+  Scenario: RT-CHART-019 — The album holds the charts its Sprints carry
+    Given the Sprints chosen for the charts
+    Then the album always holds the Actions finished day by day against the Actions each Sprint
+      took, what was taken and finished by Category and by Energy type, and the Actions finished
+      a day on each weekday
+    And once a record keeps Category and Energy type together and anything finished, how what
+      finished in each Category went to each Energy type
+    And with two Sprints or more, the Actions each one took and finished with the owner's mark on
+      its Success criteria, and the Category mix of what each one finished
+    And with two Sprints or more and Effort Points on, the initial plan, what was added, what
+      finished and the capacity of each Sprint estimated in full that knew its Schedule
+      quantities; the chart says how many were left out
+    And with a Sprint that ended with Time tracking on, the time tracked in all, a day and as a
+      share of the active day, by Category, and the 3 longest Actions, saying over how many
+      Sprints it is
+    And with a Check tied to a Value answered while they ran, its Passed and Missed, the most
+      answered first and at most 8 by name (CHECKS_SHOWN = 8)
+    And what was taken and finished counts Effort Points when they are on and every chosen Sprint
+      was estimated in full and knew its Schedule quantities, and Actions otherwise
+    And when a chosen Sprint's Schedule quantities are unknown, what was taken is written as at
+      least so much, with no share finished, and the chart says its planned totals are lower
+      bounds (RT-STATS-003)
+    And each Sprint's own numbers are written on the charts only up to 12 Sprints
+      (CHART_SPRINTS_READABLE = 12), and there they do not overlap
+    And a Check is named by its title over its Values, clear of its bars
+    And text the owner wrote, a Check's title, a Value or an Action's title, is drawn without
+      the characters the font cannot draw, such as emoji
+    And the album never holds more than Telegram allows (TELEGRAM_ALBUM_LIMIT = 10)
+
+  Scenario: RT-CHART-020 — A Category and an Energy type look the same on every chart
+    Given a chart that shows Categories or Energy types
+    Then each one carries its emoji as Cards show it, and a colour of its own, the same on every
+      chart
+    And no two of them share a colour, and an Action with none of either is grey
+
+  Scenario: RT-CHART-021 — Charts asked for in words go to the chat before Safwa's line about them
+    Given Sprints have ended
+    When the owner asks Safwa for charts of some of them, or for one chart by its name
+    Then the Sprints are chosen as RT-ASK-017 chooses them, a choice made wrong is refused the
+      same way, and any number of them is drawn
+    And the charts of RT-CHART-019, or only the one asked for, go to the chat as they are drawn,
+      with no message of words or buttons of their own, the chat showing a photo being sent
+      meanwhile
+    And Safwa's answer follows them, in one short line
+    And they stay in the chat as a message: the next screen does not take them out
+    When a number names no Sprint that ended
+    Then nothing is sent, and the refusal says why and asks for the numbers of Sprints that ended
+    When the chart asked for is not one the chosen Sprints carry
+    Then nothing is sent, and the refusal names the ones they do

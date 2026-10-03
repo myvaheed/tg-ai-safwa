@@ -54,6 +54,8 @@ Feature: Agents — the session, the hand-over, and what comes back
       the message that part writes: retold, or printed as they are when the subagent is declared
       so, by AG-RECEIPT-044
     And that part writes the single message the owner reads, keeping the links to any item named
+    And a subagent's read tool may send pictures to the chat itself, with no words or buttons of
+      their own
 
   Scenario: AG-RECEIPT-007 — Work that breaks comes back as a report, not as a silence
     Given a subagent fails part-way through the work it was handed

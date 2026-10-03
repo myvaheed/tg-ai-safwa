@@ -9,11 +9,13 @@ Planning's, which is what keeps the two acyclic.
 from __future__ import annotations
 
 from collections.abc import Collection, Iterable
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from tg_agent_shell.ai.sql import UnsafeQueryError, validated_read
 from tg_agent_shell.foundation.errors import DomainError
@@ -129,6 +131,64 @@ async def finished_actions(session: AsyncSession, limit: int) -> list[Card]:
             .limit(limit)
         )
     )
+
+
+@dataclass(frozen=True, slots=True)
+class FinishedAction:
+    """One finished Action as a count over time reads it."""
+
+    completed_at: datetime
+    effort_points: float | None
+    categories: frozenset[str]
+    energy_types: frozenset[str]
+    # The Values it serves: its own, and those its Goal and Subgoal carry.
+    value_ids: frozenset[int]
+
+
+async def every_finished_action(session: AsyncSession) -> list[FinishedAction]:
+    """Every Action ever finished, archived or not, oldest first."""
+    parents = {
+        card.id: card
+        for card in await session.scalars(
+            select(Card)
+            .where(Card.kind != CardKind.ACTION.value)
+            .options(selectinload(Card.values))
+        )
+    }
+
+    def served(card: Card) -> frozenset[int]:
+        ids: set[int] = set()
+        current: Card | None = card
+        while current is not None:
+            ids.update(link.value_id for link in current.values)
+            current = parents.get(current.parent_id) if current.parent_id else None
+        return frozenset(ids)
+
+    actions = await session.scalars(
+        select(Card)
+        .where(
+            Card.kind == CardKind.ACTION.value,
+            Card.effective_stage == CardStage.DONE.value,
+            Card.completed_at.is_not(None),
+        )
+        .options(
+            selectinload(Card.values),
+            selectinload(Card.categories),
+            selectinload(Card.energy_types),
+        )
+        .order_by(Card.completed_at, Card.id)
+    )
+    return [
+        FinishedAction(
+            completed_at=action.completed_at,
+            effort_points=action.effort_points,
+            categories=frozenset(link.category for link in action.categories),
+            energy_types=frozenset(link.energy_type for link in action.energy_types),
+            value_ids=served(action),
+        )
+        for action in actions
+        if action.completed_at is not None
+    ]
 
 
 async def open_goal_titles(session: AsyncSession) -> list[str]:

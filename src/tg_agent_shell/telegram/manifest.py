@@ -14,7 +14,10 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from functools import partial
 
+from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from telegram_llm import ChatHost
 
 from ..ai.autoapproval import AutoApprovalRule
 from ..ai.mini import ReadToolSpec
@@ -47,6 +50,10 @@ class AgentContext:
     media: MediaLibrary | None = None
     # The automatic reactions the owner switches, as the application's registry lists them.
     switches: tuple[HookSpec, ...] = ()
+    # The owner's chat, for a read tool that sends pictures there itself; None where no tool
+    # does, and a tool that would is not handed out.
+    chat: ChatHost | None = None
+    bot: Bot | None = None
 
 
 @dataclass(frozen=True, slots=True)

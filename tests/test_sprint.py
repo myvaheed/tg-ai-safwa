@@ -74,7 +74,7 @@ from safwa.features.profile.api import morning_time
 from safwa.features.profile.model import SPRINT_LENGTH_DAYS, ProfileField
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.reminders.model import Reminder
-from safwa.features.retro.records import aggregate, records_by_number
+from safwa.features.retro.records import aggregate, sprint_records, sprints_by_number
 from safwa.features.schedules.api import set_schedule
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.workspace import Workspace
@@ -459,7 +459,9 @@ async def test_pl_capacity_027_a_sprint_keeps_the_capacity_it_started_with(sessi
 
         assert (await session.get(Sprint, kept.id)).capacity_effort_points == 20
         assert (await session.get(Sprint, none.id)).capacity_effort_points is None
-        records = await records_by_number(session, [kept.number, none.number])
+        records = await sprint_records(
+            session, await sprints_by_number(session, [kept.number, none.number])
+        )
 
     assert records[kept.number]["capacity"] == 20
     assert records[none.number]["capacity"] == "off"

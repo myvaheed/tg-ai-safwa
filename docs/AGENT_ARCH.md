@@ -124,6 +124,7 @@ wallets and entries, with none of Safwa's nouns in it.
 | hooks, if it has any | `Registry.of(…, hooks=…)`; `bind_committed`; `hand_on_start(registry.hooks, …)` after `recover_startup`, where a `Run` on `OnStarted()` reconciles what a feature owns; and the Cue poll and the tick poll, `BACKGROUND_TASKS` in `cues/module.py` — whose import declares the `cues` table | `HOOKS`; `hand_on_start` once the commits are bound, so what the start ends is handed on: `planning.sprint_expiry` and `reminders.start` |
 | a Home message, if it wants one | a `Run` on `OnTick(every=…)` that publishes text of kind `home`: the chat is cleared down to it and the conversation starts after it (`TG-HOME-023`) | `home.dashboard`, after the Profile's quiet time |
 | photos, if it takes them | a `MediaLibrary` on `Services.media`, `AgentContext.media` and `root_session(media=…)`, and the media `MODULE` among its features | `MEDIA_FEATURE`, enabled by `image_input`; Diary entries can carry photos |
+| pictures a read tool sends itself, if one does | `AgentContext.chat` and `AgentContext.bot`: the `ChatHost` is built before the root session, and the pictures go with no words or buttons of their own | Retro's `show_charts` |
 | a shutdown | cancel the loops it started, close the provider and the bot | the polling `finally` |
 
 Everything else is the application's own: the persona, the provider, the product dependencies,

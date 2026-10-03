@@ -1,6 +1,6 @@
 """What a Sprint adds up to when it closes, written down with its end and never again: the
-effort it took and finished, the Actions it holds, how both fell by Category and Energy
-type and by day, the Checks tied to a Value answered while it ran, and — when Time tracking
+effort it took and finished, the Actions it holds, how both fell by Category, by Energy
+type, by the two together and by day, the Checks tied to a Value answered while it ran, and — when Time tracking
 was on as it closed — the time its finished Actions took. The retro screen
 shows this record and the retro analysis reads it; what happens to those Actions and
 Checks afterwards is another Sprint's story."""
@@ -120,6 +120,8 @@ class RetroStatistics:
     longest: tuple[TimedAction, ...] = ()
     unestimated: int = 0
     unknown_schedules: int = 0
+    # Each Category's Actions by Energy type; a record written before it kept none.
+    by_category_energy: dict[str, dict[str, Bucket]] = field(default_factory=dict)
 
     @property
     def day_share(self) -> int | None:
@@ -147,7 +149,7 @@ class RetroStatistics:
 
     @classmethod
     def from_record(cls, record: dict[str, Any]) -> RetroStatistics:
-        nested = {"series", "by_category", "by_energy", "days", "longest"}
+        nested = {"series", "by_category", "by_energy", "by_category_energy", "days", "longest"}
         return cls(
             **{key: value for key, value in record.items() if key not in nested},
             by_category={name: Bucket(**bucket) for name, bucket in record["by_category"].items()},
@@ -160,6 +162,10 @@ class RetroStatistics:
                 for tally in record["series"]
             ),
             longest=tuple(TimedAction(**action) for action in record.get("longest", ())),
+            by_category_energy={
+                category: {name: Bucket(**bucket) for name, bucket in energies.items()}
+                for category, energies in record.get("by_category_energy", {}).items()
+            },
         )
 
 
@@ -205,6 +211,15 @@ async def sprint_closing(
         key_unknown=sum(item.quantity - item.removed_quantity for item in held if item.key_action is None),
         by_category=_buckets(commitments, labels[0], CATEGORY_BUCKETS, minutes),
         by_energy=_buckets(commitments, labels[1], ENERGY_BUCKETS, minutes),
+        by_category_energy={
+            category: _buckets(
+                [item for item in commitments if category in labels[0][item.card_id]],
+                labels[1],
+                ENERGY_BUCKETS,
+                minutes,
+            )
+            for category in CATEGORY_BUCKETS
+        },
         days=await _day_tallies(session, sprint, commitments, labels, tz),
         series=await _series_tallies(session, sprint),
         time_tracking=tracking,

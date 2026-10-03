@@ -47,6 +47,7 @@ from ..features.heavy_analyzer.module import HEAVY_ANALYZER_HOOK
 from ..features.heavy_analyzer.module import MODULE as HEAVY_ANALYZER
 from ..features.home.module import HOME_HOOK
 from ..features.home.module import MODULE as HOME
+from ..features.life.module import MODULE as LIFE
 from ..features.memory.module import MEMORY_RETRO_HOOK
 from ..features.memory.module import MODULE as MEMORY
 from ..features.onboarding.module import MODULE as ONBOARDING
@@ -96,6 +97,7 @@ MODULES: tuple[FeatureModule, ...] = (
     TAGS,
     PLANNING,
     RETRO,
+    LIFE,
     DIARY,
     PROFILE,
     REMINDERS,

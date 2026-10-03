@@ -1,5 +1,6 @@
-"""What the retro subagent reads of the Sprints that ended: the one a day fell in, each
-one's record as its retro keeps it, and the sums and means of several.
+"""What the retro subagent reads of the Sprints that ended: the one a day fell in, the ones
+whose days two dates hold, each one's record as its retro keeps it, and the sums and means of
+several.
 
 Every number here is read off a Sprint's record as it was written when the Sprint ended
 (RT-STATS-003). A model of 4B to 12B adds and divides unreliably, so a total or an average
@@ -8,7 +9,7 @@ over several Sprints is worked out here and never left to it.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import Any, Literal
 
@@ -58,6 +59,35 @@ async def ended_sprints(session: AsyncSession, limit: int | None = None) -> list
         .order_by(Sprint.actual_ended_at.desc(), Sprint.id.desc())
     )
     return list(await session.scalars(query if limit is None else query.limit(limit)))
+
+
+async def ended_between(session: AsyncSession, first: date, last: date) -> list[Sprint]:
+    """The Sprints that ended with a day from `first` to `last`, whole, the newest first.
+
+    A Sprint's days are the ones its record counts (RT-STATS-003), so one date finds the
+    Sprint it fell in and two find every Sprint that ran between them.
+    """
+    return [
+        sprint
+        for sprint in await ended_sprints(session)
+        if _overlaps(RetroStatistics.from_record(sprint.retro), first, last)
+    ]
+
+
+def _overlaps(statistics: RetroStatistics, first: date, last: date) -> bool:
+    return statistics.first_day <= last and first <= statistics.last_day
+
+
+async def ended_span(session: AsyncSession) -> tuple[date, date] | None:
+    """The first day of the first Sprint that ended and the last of the newest; None before
+    any ended."""
+    ended = await ended_sprints(session)
+    if not ended:
+        return None
+    return (
+        RetroStatistics.from_record(ended[-1].retro).first_day,
+        RetroStatistics.from_record(ended[0].retro).last_day,
+    )
 
 
 def sprint_record(sprint: Sprint, *, effort_tracking: bool = False) -> dict[str, Any]:
@@ -114,28 +144,38 @@ def _normalized(number: str) -> str:
     return text[len("sprint") :].strip() if text.lower().startswith("sprint") else text
 
 
-async def records_by_number(
+async def sprints_by_number(
     session: AsyncSession, numbers: Sequence[str]
-) -> dict[str, dict[str, Any]]:
-    """Each named Sprint's record by its number, or why there is none."""
+) -> dict[str, Sprint | str]:
+    """Each named Sprint that ended by its number, or why there is none."""
     wanted = [_normalized(number) for number in numbers]
     rows = {
         sprint.number: sprint
         for sprint in await session.scalars(select(Sprint).where(Sprint.number.in_(wanted)))
     }
-    found: dict[str, dict[str, Any]] = {}
-    effort_tracking = await effort_tracking_on(session)
+    found: dict[str, Sprint | str] = {}
     for number in wanted:
         sprint = rows.get(number)
         if sprint is None:
-            found[number] = {"error": f"No Sprint has the number {number}."}
+            found[number] = f"No Sprint has the number {number}."
         elif sprint.retro is None:
-            found[number] = {
-                "error": f"Sprint {number} is still running: its retro is written when it ends."
-            }
+            found[number] = f"Sprint {number} is still running: its retro is written when it ends."
         else:
-            found[number] = sprint_record(sprint, effort_tracking=effort_tracking)
+            found[number] = sprint
     return found
+
+
+async def sprint_records(
+    session: AsyncSession, chosen: Mapping[str, Sprint | str]
+) -> dict[str, dict[str, Any]]:
+    """Each chosen Sprint's record by its number, or why there is none."""
+    effort_tracking = await effort_tracking_on(session)
+    return {
+        number: {"error": sprint}
+        if isinstance(sprint, str)
+        else sprint_record(sprint, effort_tracking=effort_tracking)
+        for number, sprint in chosen.items()
+    }
 
 
 def aggregate(
@@ -200,15 +240,16 @@ async def sprint_on(session: AsyncSession, day: date, today: date) -> dict[str, 
     A Sprint's days run from the day it started to the day it ended or its planned end,
     whichever came first, as its record counts them (RT-STATS-003).
     """
-    for sprint in await ended_sprints(session):
+    found = await ended_between(session, day, day)
+    if found:
+        sprint = found[0]
         statistics = RetroStatistics.from_record(sprint.retro)
-        if statistics.first_day <= day <= statistics.last_day:
-            return {
-                "number": sprint.number,
-                "id": sprint.id,
-                "link": retro_link(sprint),
-                "ran": f"{statistics.first_day.isoformat()} – {statistics.last_day.isoformat()}",
-            }
+        return {
+            "number": sprint.number,
+            "id": sprint.id,
+            "link": retro_link(sprint),
+            "ran": f"{statistics.first_day.isoformat()} – {statistics.last_day.isoformat()}",
+        }
     workspace = await require_workspace(session)
     running = (
         await session.get(Sprint, workspace.active_sprint_id)
