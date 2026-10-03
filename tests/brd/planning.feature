@@ -187,7 +187,7 @@ Feature: Planning — the Sprint, and the mode without one
 
   Scenario: PL-ENERGY-022 — A Sprint that leaves out a kind of energy the Backlog has is brought up
     Given a Sprint starts, and the chat is free
-    When one of the four energy types (Physical, Cognitive, Social, Values) is on no open Action in the Sprint and is on an open Action in Backlog
+    When one of the four energy types (Physical, Cognitive, Emotional, Spiritual) is on no open Action in the Sprint and is on an open Action in Backlog
     Then the Advisor is asked once, in one message about every such type, naming for each up to three Backlog Actions that carry it (ENERGY_CANDIDATES = 3), Critical first
     And the same is asked for the Rest category: no open Action of it in the Sprint while Backlog holds one
     And it is asked to suggest one of each into the Sprint, for a spread of energy over the Sprint; nothing is moved before the owner's answer

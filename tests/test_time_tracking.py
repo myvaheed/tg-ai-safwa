@@ -459,7 +459,7 @@ async def _sprint(sessions, spent: dict[str, tuple[int | None, float, tuple[str,
 
 SPENT = {
     "Quarterly report": (120, 3, ("work",)),
-    "Move": (60, 5, ("work", "self")),
+    "Move": (60, 5, ("work", "growth")),
     "Tax return": (60, 2, ()),
     "Walk": (30, 1, ("rest",)),
     "Call": (None, 1, ("work",)),
@@ -484,9 +484,9 @@ async def test_rt_time_009_a_sprint_that_ends_with_time_tracking_on_keeps_its_ti
     assert statistics.longest == (
         TimedAction("Quarterly report", 120), TimedAction("Move", 60), TimedAction("Tax return", 60)
     )
-    work, self_, none = (statistics.by_category[name] for name in ("work", "self", "none"))
+    work, growth, none = (statistics.by_category[name] for name in ("work", "growth", "none"))
     assert (work.minutes, work.timed_count, work.timed_effort) == (180, 2, 8)
-    assert (self_.minutes, self_.timed_count, none.minutes, none.timed_count) == (60, 1, 60, 1)
+    assert (growth.minutes, growth.timed_count, none.minutes, none.timed_count) == (60, 1, 60, 1)
     assert statistics.by_energy["none"].minutes == 270
     assert statistics.day_share == round(100 * 270 / (13 * 60))
 
@@ -519,7 +519,7 @@ async def test_rt_time_010_the_retro_shows_how_the_sprints_time_went(sessions, e
         "2.5 EP an hour; recorded on 5 of 6 finished Actions (83%)",
         "By Category: time · share · per Action · EP an hour",
         "work 3h 15m · 57% · 1h 5m · 2.8",
-        "self 1h · 17% · 1h · 5.0",
+        "growth 1h · 17% · 1h · 5.0",
         "none 1h · 17% · 1h · 2.0",
         "rest 30m · 9% · 30m · 2.0",
         "By Energy type: time · share · per Action · EP an hour",
@@ -529,7 +529,7 @@ async def test_rt_time_010_the_retro_shows_how_the_sprints_time_went(sessions, e
         assert line in text, line
     assert text.index("<b>Actions</b>") < text.index("<b>Time</b>")
     # A bucket with no time on it is not shown.
-    assert "contribution" not in text and "cognitive" not in text
+    assert "people" not in text and "cognitive" not in text
 
     untracked = await _sprint(sessions, {"Walk again": (30, 1, ())})
     message = FakeMessage(331, bot_message=True)

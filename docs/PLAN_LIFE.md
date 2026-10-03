@@ -59,9 +59,9 @@ Life отдаёт через `life/api.py`.
 ```
 show_life
   chart     enum, необязателен: feeling | actions | effort | sprints | category | energy | value
-  category  enum self | contribution | work | rest      — только с chart=category
-  energy    enum physical | cognitive | social | values — только с chart=energy
-  value     строка, имя Value                          — только с chart=value
+  category  enum growth | people | work | chores | rest      — только с chart=category
+  energy    enum physical | cognitive | emotional | spiritual — только с chart=energy
+  value     строка, имя Value                                — только с chart=value
 ```
 
 У каждого поля свой enum, так маленькая модель видит точные значения; общее поле `focus`

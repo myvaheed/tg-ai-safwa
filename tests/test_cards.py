@@ -35,13 +35,17 @@ from safwa.features.cards.hooks import (
     today_stale_request,
 )
 from safwa.features.cards.model import (
+    CATEGORY_MEANINGS,
     EFFORT_RUNGS,
+    ENERGY_MEANINGS,
     Card,
     CardCategory,
     CardCheck,
     CardEnergyType,
     CardKind,
     CardStage,
+    Category,
+    EnergyType,
     TodayDay,
     effort_label,
 )
@@ -399,7 +403,7 @@ async def test_cd_link_012_a_card_is_created_with_all_of_its_links_or_not_at_all
             kind=CardKind.ACTION,
             title="Sleep 8 hours",
             effort_points=2,
-            categories={"self"},
+            categories={"growth"},
             energy_types={"physical"},
             value_ids={health.id},
             tag_ids={home.id},
@@ -411,7 +415,7 @@ async def test_cd_link_012_a_card_is_created_with_all_of_its_links_or_not_at_all
         stored = await session.get(Card, card.id)
         assert stored is not None
         assert stored.title == "Sleep 8 hours"
-        assert await session.get(CardCategory, {"card_id": card.id, "category": "self"}) is not None
+        assert await session.get(CardCategory, {"card_id": card.id, "category": "growth"}) is not None
         assert (
             await session.get(CardEnergyType, {"card_id": card.id, "energy_type": "physical"})
             is not None
@@ -1312,6 +1316,44 @@ def test_cd_effort_008_every_rung_says_what_it_costs():
         assert f"{effort_label(points)} " in described
     # A rung is what it costs, never how long it takes.
     assert "min" not in described and "hour" not in described
+
+
+def test_cd_axes_045_a_category_says_what_it_gives_an_energy_type_what_it_costs():
+    """CD-AXES-045 — tests/brd/cards.feature"""
+    assert list(Category) == ["growth", "people", "work", "chores", "rest"]
+    assert list(EnergyType) == ["physical", "cognitive", "emotional", "spiritual"]
+    assert list(CATEGORY_MEANINGS) == list(Category)
+    assert list(ENERGY_MEANINGS) == list(EnergyType)
+    # One wording: the model's field descriptions spell what the screens offer.
+    for field, meanings in (("categories", CATEGORY_MEANINGS), ("energy_types", ENERGY_MEANINGS)):
+        described = CardToolInput.model_fields[field].description
+        for kind, meaning in meanings.items():
+            assert f"{kind}: {meaning}." in described
+
+
+async def test_cd_axes_045_an_action_carries_several_of_each_or_none(sessions):
+    """CD-AXES-045 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        both = await create_card(
+            session,
+            kind="action",
+            title="Cook for the family",
+            categories={"chores", "people"},
+            energy_types={"physical", "emotional"},
+        )
+        bare = await create_card(session, kind="action", title="Sort the mail")
+        await session.flush()
+        carried = await session.scalars(
+            select(CardCategory.category).where(CardCategory.card_id == both.id)
+        )
+        assert set(carried) == {"chores", "people"}
+        carried = await session.scalars(
+            select(CardEnergyType.energy_type).where(CardEnergyType.card_id == both.id)
+        )
+        assert set(carried) == {"physical", "emotional"}
+        assert not list(
+            await session.scalars(select(CardCategory).where(CardCategory.card_id == bare.id))
+        )
 
 async def test_cd_delete_025_deleting_a_goal_alone_leaves_its_children_standing(sessions):
     """CD-DELETE-025 — tests/brd/cards.feature"""

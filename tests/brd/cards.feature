@@ -76,6 +76,16 @@ Feature: Cards
     And the screens offer each rung with that wording, and the model's field description
       spells the same scale
 
+  Scenario: CD-AXES-045 — A Category says what an Action gives, an Energy type what it costs
+    Given an Action is being written
+    Then its Categories are Growth, People, Work, Chores and Rest, in that order, and each says
+      what the Action gives (CATEGORY_MEANINGS)
+    And its Energy types are Physical, Cognitive, Emotional and Spiritual, in that order, and
+      each says what the Action costs (ENERGY_MEANINGS)
+    And an Action may carry several of each, or none
+    And the screens offer each one with that wording, and the model's field description spells
+      the same words
+
   Scenario: CD-TITLE-009 — A Card has to be called something
     Given a Card is being written or renamed
     When the title is empty, or nothing but spaces

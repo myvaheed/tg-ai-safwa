@@ -127,8 +127,8 @@ async def test_citations_use_compact_labels_from_saved_items(sessions, effort_on
             title="Бегать 3 км",
             parent_id=goal.id,
             effort_points=2,
-            categories={"self"},
-            energy_types={"physical", "social"},
+            categories={"growth"},
+            energy_types={"physical", "emotional"},
         )
         value = await create_value(session, "Свобода")
         tag = await create_tag(session, "Здоровье")
@@ -161,7 +161,7 @@ async def test_citations_use_compact_labels_from_saved_items(sessions, effort_on
 
     expected = {
         f"card-{goal.id}": "🎯 Быть здоровым · ⚡0/2",
-        f"card-{action.id}": "⭐️ Бегать 3 км · 💪🤝·🌱·⚡2",
+        f"card-{action.id}": "⭐️ Бегать 3 км · 💪🎭·🌱·⚡2",
         f"value-{value.id}": "💎 Свобода",
         f"tag-{tag.id}": "🏷 Здоровье",
         f"tag-{long_tag.id}": f"🏷 {'x' * 24}…",

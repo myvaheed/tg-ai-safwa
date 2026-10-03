@@ -73,9 +73,9 @@ _ENERGY_FILLS = {**ENERGY_COLORS, NONE_BUCKET: NONE_COLOR}
 # Fills too light for white words on them.
 _LIGHT_FILLS = frozenset(
     {
-        CATEGORY_COLORS[Category.SELF.value],
+        CATEGORY_COLORS[Category.GROWTH.value],
         CATEGORY_COLORS[Category.WORK.value],
-        CATEGORY_COLORS[Category.CONTRIBUTION.value],
+        CATEGORY_COLORS[Category.PEOPLE.value],
         NONE_COLOR,
     }
 )

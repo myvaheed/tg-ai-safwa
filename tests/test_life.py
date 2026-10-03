@@ -98,11 +98,11 @@ def _action(
 # Eight weeks: 8 August to 2 October. Weeks of 8 and 15 August, then 19 and 26 September.
 ACTIONS = (
     _action(date(2026, 8, 8), 2, ("work",), ("cognitive",), ("Health",)),
-    _action(date(2026, 8, 9), None, ("self",), ("physical",)),
+    _action(date(2026, 8, 9), None, ("growth",), ("physical",)),
     _action(date(2026, 8, 16), 3, ("work",), values=("Health",)),
     _action(date(2026, 8, 16), 1, ("work",)),
     _action(date(2026, 8, 16)),
-    _action(date(2026, 9, 20), None, ("self",), values=("Craft",)),
+    _action(date(2026, 9, 20), None, ("growth",), values=("Craft",)),
     _action(date(2026, 9, 27), 5, ("work",), values=("Health",)),
 )
 FEELINGS = {
@@ -317,7 +317,7 @@ async def test_lf_paint_004_a_repeated_action_counts_each_time_it_was_finished(s
     async with sessions() as session:
         card = await create_scheduled_card(
             session, kind="action", title="Stretch", stage="today", effort_points=2,
-            categories={"self"}, schedule="after completion",
+            categories={"growth"}, schedule="after completion",
         )
         again = (await finish_action(session, card.id)).successor_ids[0]
         await finish_action(session, again)
@@ -325,8 +325,8 @@ async def test_lf_paint_004_a_repeated_action_counts_each_time_it_was_finished(s
     async with sessions() as session:
         records = await life_records(session, utcnow())
     assert [(action.effort, action.categories) for action in records.actions] == [
-        (2, frozenset({"self"})),
-        (2, frozenset({"self"})),
+        (2, frozenset({"growth"})),
+        (2, frozenset({"growth"})),
     ]
 
 
@@ -378,14 +378,14 @@ def test_lf_share_005_categories_energy_and_values_show_the_mix_or_one_share() -
     assert (august.color, august.mix) == (CATEGORY_COLORS["work"], ((CATEGORY_COLORS["work"], 1.0),))
     # A tie goes to the one listed first.
     first = mixed[_week(date(2026, 8, 8))]
-    assert first.color == CATEGORY_COLORS["self"]
-    assert first.mix == ((CATEGORY_COLORS["self"], 0.5), (CATEGORY_COLORS["work"], 0.5))
+    assert first.color == CATEGORY_COLORS["growth"]
+    assert first.mix == ((CATEGORY_COLORS["growth"], 0.5), (CATEGORY_COLORS["work"], 0.5))
 
     work = picture(LifeChart.CATEGORY, RECORDS, GRID, "work").paints
     assert work[_week(date(2026, 8, 15))] == type(august)(tint(CATEGORY_COLORS["work"], 2 / 3), "67")
     assert work[_week(date(2026, 9, 19))].label == "0"
 
-    assert focuses(LifeChart.CATEGORY, RECORDS) == ("self", "work")
+    assert focuses(LifeChart.CATEGORY, RECORDS) == ("growth", "work")
     assert focuses(LifeChart.VALUE, RECORDS) == ("Health", "Craft")
     with pytest.raises(DomainError, match="No Value is called Sleep"):
         picture(LifeChart.VALUE, RECORDS, GRID, "Sleep")
@@ -439,7 +439,7 @@ async def test_lf_album_006_a_picture_arrives_as_an_album_of_the_whole_life_and_
         today = await local_today(session, utcnow())
         await set_birth_date(session, BORN, today)
         await create_diary_entry(session, entry_date=today, body="Fine.", feeling_score=6)
-        for title, categories in (("Write", {"work"}), ("Walk", {"self"})):
+        for title, categories in (("Write", {"work"}), ("Walk", {"growth"})):
             card = await create_card(session, kind="action", title=title, categories=categories)
             await finish_action(session, card.id)
         await session.commit()
@@ -469,13 +469,13 @@ async def test_lf_album_006_a_picture_arrives_as_an_album_of_the_whole_life_and_
     await _tap(words, services, "🏷 Categories")
     mix = life.sent[-1]
     assert mix.text.endswith("Tap one to see its share of each week.")
-    assert mix.buttons() == ["✓ All", "🌱 Self", "💰 Work", "↩️ Back", "↩️ Menu"]
+    assert mix.buttons() == ["✓ All", "🌱 Growth", "💰 Work", "↩️ Back", "↩️ Menu"]
     album = [sent.message_id for sent in life.sent[:-1] if sent.photo]
     await _tap(mix, services, "💰 Work")
     assert {mix.message_id, *album} <= set(life.bot.deleted)
     work = life.sent[-1]
     assert work.text.startswith("<b>⏳ Life in weeks · Category: Work</b>\nWork: 1 Action, 50% of all")
-    assert work.buttons() == ["All", "🌱 Self", "✓ 💰 Work", "↩️ Back", "↩️ Menu"]
+    assert work.buttons() == ["All", "🌱 Growth", "✓ 💰 Work", "↩️ Back", "↩️ Menu"]
 
     # The best week carries the star.
     shown = picture(LifeChart.FEELING, RECORDS, GRID)
@@ -551,7 +551,7 @@ async def test_lf_ask_008_a_picture_asked_for_in_words_goes_to_the_chat_before_s
         await set_birth_date(session, BORN, await local_today(session, utcnow()))
         health = await create_value(session, "Health")
         card = await create_card(
-            session, kind="action", title="Walk", categories={"self"}, value_ids={health.id}
+            session, kind="action", title="Walk", categories={"growth"}, value_ids={health.id}
         )
         await finish_action(session, card.id)
         await session.commit()
@@ -569,15 +569,15 @@ async def test_lf_ask_008_a_picture_asked_for_in_words_goes_to_the_chat_before_s
     # One picture, and one Category or Value alone.
     mix = await show(chart="category")
     assert mix["sent"] == "Life in weeks · Categories" and "others" not in mix
-    assert (await show(category="self"))["sent"] == "Life in weeks · Category: Self"
+    assert (await show(category="growth"))["sent"] == "Life in weeks · Category: Growth"
     assert (await show(chart="value", value="health"))["sent"] == "Life in weeks · Value: Health"
     album = [sent.message_id for sent in owner.sent]
 
     # A choice made wrong is refused with the call to make instead, and nothing is sent.
     sent_before = len(owner.bot.photos_sent)
-    crossed = await show(chart="energy", category="self")
-    assert crossed["hint"] == 'Retry with {"chart": "category", "category": "self"}.'
-    assert (await show(category="self", value="Health"))["code"] == "invalid_arguments"
+    crossed = await show(chart="energy", category="growth")
+    assert crossed["hint"] == 'Retry with {"chart": "category", "category": "growth"}.'
+    assert (await show(category="growth", value="Health"))["code"] == "invalid_arguments"
     assert (await show(chart="pie"))["code"] == "invalid_arguments"
     assert (await show(category="leisure"))["code"] == "invalid_arguments"
     nobody = await show(value="Family")
@@ -616,8 +616,8 @@ def test_lf_stats_007_the_heading_says_what_the_picture_adds_up_to() -> None:
         "Sprint 26.09-01 running, day 14 of 14",
     )
     assert stats(LifeChart.CATEGORY) == (
-        "Work leads: 4 Actions, 57% · Rest least: 0 Actions, 0%",
-        "Weeks led: Self 2 · Work 2",
+        "Work leads: 4 Actions, 57% · People least: 0 Actions, 0%",
+        "Weeks led: Growth 2 · Work 2",
     )
     assert stats(LifeChart.CATEGORY, "work") == (
         "Work: 4 Actions, 57% of all · highest 100%, week of 26 Sep · absent 1 of 4 weeks",

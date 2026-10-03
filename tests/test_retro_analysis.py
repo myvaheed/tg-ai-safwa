@@ -77,7 +77,7 @@ async def _ended_sprint(sessions, *, criteria: str, days: int = 3, titles=("Run"
                 title=title,
                 stage="sprint",
                 effort_points=2,
-                categories={"work"} if title == "Write" else {"self"},
+                categories={"work"} if title == "Write" else {"growth"},
                 energy_types={"cognitive"} if title == "Write" else {"physical"},
             )
             for title in titles
@@ -226,7 +226,7 @@ async def test_rt_stats_003_the_record_keeps_counts_shares_and_days(sessions) ->
             title="Both",
             stage="sprint",
             effort_points=3,
-            categories={"work", "self"},
+            categories={"work", "growth"},
             energy_types={"cognitive"},
         )
         await create_card(session, kind="action", title="Plain", stage="sprint", effort_points=1)
@@ -249,11 +249,11 @@ async def test_rt_stats_003_the_record_keeps_counts_shares_and_days(sessions) ->
     work, none = statistics.by_category["work"], statistics.by_category["none"]
     assert (work.effort, work.done_effort, work.count, work.done_count) == (3, 3, 1, 1)
     assert (none.effort, none.done_effort, none.count, none.done_count) == (1, 0, 1, 0)
-    assert statistics.by_category["self"].done_count == 1
+    assert statistics.by_category["growth"].done_count == 1
     assert statistics.by_energy["cognitive"].done_effort == 3
     assert statistics.by_energy["none"].count == 1
     # The two together: "Both" is in work and cognitive, and in self and cognitive.
-    for category in ("work", "self"):
+    for category in ("work", "growth"):
         pair = statistics.by_category_energy[category]["cognitive"]
         assert (pair.effort, pair.done_effort, pair.done_count) == (3, 3, 1)
     assert statistics.by_category_energy["none"]["none"].count == 1
@@ -266,7 +266,7 @@ async def test_rt_stats_003_the_record_keeps_counts_shares_and_days(sessions) ->
     yesterday, today = statistics.days
     assert (yesterday.planned, yesterday.done) == (0, 0)
     assert (today.planned, today.done) == (1, 1)
-    assert today.done_by_category == {"work": 1, "self": 1}
+    assert today.done_by_category == {"work": 1, "growth": 1}
     assert today.done_by_energy == {"cognitive": 1}
     # "Plain" was never told key or not; "Both" was.
     assert statistics.key_unknown == 1

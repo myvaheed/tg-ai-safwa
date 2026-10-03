@@ -18,7 +18,14 @@ from ui_harness import (
 )
 
 from safwa.constants import SELECTOR_PAGE_SIZE
-from safwa.features.cards.model import Card, CardStage
+from safwa.features.cards.model import (
+    CATEGORY_MEANINGS,
+    ENERGY_MEANINGS,
+    Card,
+    CardStage,
+    Category,
+    EnergyType,
+)
 from safwa.features.cards.telegram import (
     render_card,
     render_card_choices,
@@ -595,14 +602,14 @@ async def test_card_creation_choosers_show_kind_category_and_energy_emojis(sessi
     assert not any("Subgoal" in text for text in kinds)
 
     await handle_card_creation_chooser(message, services, "card_create_choose_categories")
-    assert {"🌱 Self", "❤️ Contribution", "💰 Work", "🔋 Rest"} <= set(
-        button_texts(message.edits[-1][1])
-    )
+    assert [label.split(" · ")[0] for label in button_texts(message.edits[-1][1])[:5]] == [
+        "🌱 Growth", "🫂 People", "💰 Work", "🧺 Chores", "🔋 Rest"
+    ]
 
     await handle_card_creation_chooser(message, services, "card_create_choose_energy")
-    assert {"💪 Physical", "🧠 Cognitive", "🤝 Social", "💎 Values"} <= set(
-        button_texts(message.edits[-1][1])
-    )
+    assert [label.split(" · ")[0] for label in button_texts(message.edits[-1][1])[:4]] == [
+        "💪 Physical", "🧠 Cognitive", "🎭 Emotional", "🕊️ Spiritual"
+    ]
 
 
 async def test_card_overview_uses_derived_progress_and_relationship_navigation(sessions, effort_on) -> None:
@@ -812,6 +819,36 @@ async def test_cd_effort_008_the_effort_selector_names_what_each_rung_costs(sess
     labels = button_texts(markup)
     assert "0.5 · done in passing, the load is barely noticed" in labels
     assert "✓ 2 · a little tired, but able to carry on without a rest" in labels
+
+
+async def test_cd_axes_045_the_selectors_say_what_each_one_gives_or_costs(sessions) -> None:
+    """CD-AXES-045 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        card = await create_card(
+            session, kind="action", title="Run", categories={"rest"}, energy_types={"physical"}
+        )
+        await session.commit()
+        card_id = card.id
+
+    services = services_for(sessions)
+    message = FakeMessage(321, bot_message=True)
+    await render_card_choices(message, services, "card_choose_categories", card_id)
+    text, markup = message.edits[-1]
+    assert "what it gives you" in text
+    labels = button_texts(markup)[: len(CATEGORY_MEANINGS)]
+    assert [label.removeprefix("✓ ").split(" · ")[1] for label in labels] == list(
+        CATEGORY_MEANINGS.values()
+    )
+    assert labels[-1] == f"✓ 🔋 Rest · {CATEGORY_MEANINGS[Category.REST]}"
+
+    await render_card_choices(message, services, "card_choose_energy", card_id)
+    text, markup = message.edits[-1]
+    assert "what it costs you" in text
+    labels = button_texts(markup)[: len(ENERGY_MEANINGS)]
+    assert [label.removeprefix("✓ ").split(" · ")[1] for label in labels] == list(
+        ENERGY_MEANINGS.values()
+    )
+    assert labels[0] == f"✓ 💪 Physical · {ENERGY_MEANINGS[EnergyType.PHYSICAL]}"
 
 
 async def test_cd_delete_025_a_card_with_children_is_deleted_whole_or_alone(sessions) -> None:

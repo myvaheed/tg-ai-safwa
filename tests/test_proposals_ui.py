@@ -71,7 +71,7 @@ async def test_card_proposal_uses_full_card_editor_with_human_diffs(sessions, ef
         )
         session.add(card)
         await session.flush()
-        session.add(CardCategory(card_id=card.id, category="self"))
+        session.add(CardCategory(card_id=card.id, category="growth"))
         workspace = await session.get(Workspace, 1)
         proposal = store.open_proposal(
             message="Change the Action's energy profile",
@@ -83,8 +83,8 @@ async def test_card_proposal_uses_full_card_editor_with_human_diffs(sessions, ef
                     entity_id=card.id,
                     expected_version=card.version,
                     values={
-                    "categories": ["contribution", "rest"],
-                    "energy_types": ["physical", "social"],
+                    "categories": ["people", "rest"],
+                    "energy_types": ["physical", "emotional"],
                     },
                 )
             ],
@@ -100,8 +100,8 @@ async def test_card_proposal_uses_full_card_editor_with_human_diffs(sessions, ef
     assert "Kind: ⭐️ Action" in text
     assert "Title: <b>Evening walk</b>" in text
     assert "Effort: 3" in text
-    assert "Categories: 🌱 Self → ❤️ Contribution, 🔋 Rest" in text
-    assert "Energy: — → 💪 Physical, 🤝 Social" in text
+    assert "Categories: 🌱 Growth → 🫂 People, 🔋 Rest" in text
+    assert "Energy: — → 💪 Physical, 🎭 Emotional" in text
     buttons = button_texts(markup)
     assert buttons == ["✅ Save", "🗑 Discard"]
     assert "↩️ Back" not in buttons
@@ -269,7 +269,7 @@ async def test_card_creation_proposal_has_no_proposed_changes_section(sessions) 
                     "kind": "action",
                     "title": "Evening walk",
                     "effort_points": 3,
-                    "categories": ["self"],
+                    "categories": ["growth"],
                     },
                 )
             ],
@@ -284,7 +284,7 @@ async def test_card_creation_proposal_has_no_proposed_changes_section(sessions) 
     assert "Card overview" in text
     assert "Kind: ⭐️ Action" in text
     assert "Title: <b>Evening walk</b>" in text
-    assert "Categories: 🌱 Self" in text
+    assert "Categories: 🌱 Growth" in text
     assert "<b>Proposed changes</b>" not in text
     assert button_texts(markup) == ["✅ Save", "🗑 Discard"]
 
@@ -331,7 +331,7 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
         await session.flush()
         session.add_all(
             [
-                CardCategory(card_id=card.id, category="self"),
+                CardCategory(card_id=card.id, category="growth"),
                 CardEnergyType(card_id=card.id, energy_type="cognitive"),
             ]
         )
@@ -354,7 +354,7 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
                     "effort_points": 5,
                     "parent_id": parent.id,
                     "categories": ["rest", "work"],
-                    "energy_types": ["physical", "social"],
+                    "energy_types": ["physical", "emotional"],
                     "value_ids": [value.id],
                     "tag_ids": [tag.id],
                     },
@@ -404,7 +404,7 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
             await session.scalars(
                 select(CardEnergyType.energy_type).where(CardEnergyType.card_id == card_id)
             )
-        ) == {"physical", "social"}
+        ) == {"physical", "emotional"}
         assert set(
             await session.scalars(select(CardValue.value_id).where(CardValue.card_id == card_id))
         ) == {value.id}

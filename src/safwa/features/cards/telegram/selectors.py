@@ -23,7 +23,9 @@ from ...profile.api import effort_tracking_on
 from ...tags.model import CardTag, Tag
 from ...values.model import CardValue, Value
 from ..model import (
+    CATEGORY_MEANINGS,
     EFFORT_RUNGS,
+    ENERGY_MEANINGS,
     Card,
     CardCategory,
     CardEnergyType,
@@ -107,8 +109,8 @@ CHOICE_TITLES = {
     "stage": "Choose Stage",
     "priority": "Choose Priority",
     "effort": "Choose Effort — how much the whole thing takes in your usual state",
-    "categories": "Categories",
-    "energy": "Energy",
+    "categories": "Categories — what it gives you",
+    "energy": "Energy — what it costs you",
     "values": "Direct Values",
     "tags": "Tags",
 }
@@ -153,9 +155,15 @@ async def _choice_options(session: AsyncSession, field: str) -> list[tuple[str, 
             ],
         ]
     if field == "categories":
-        return [(typed_label(item, CATEGORY_EMOJIS), item.value) for item in Category]
+        return [
+            (f"{typed_label(item, CATEGORY_EMOJIS)} · {meaning}", item.value)
+            for item, meaning in CATEGORY_MEANINGS.items()
+        ]
     if field == "energy":
-        return [(typed_label(item, ENERGY_EMOJIS), item.value) for item in EnergyType]
+        return [
+            (f"{typed_label(item, ENERGY_EMOJIS)} · {meaning}", item.value)
+            for item, meaning in ENERGY_MEANINGS.items()
+        ]
     if field not in {"values", "tags"}:
         raise DomainError("Unknown Card selector")
     model = Value if field == "values" else Tag

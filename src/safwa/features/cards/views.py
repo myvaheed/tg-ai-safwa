@@ -64,8 +64,8 @@ AI_CARDS = SqlView(
   - on a goal or a subgoal, `stage`, `effort_points` and `tracked_mins` are what the cards under it add up to
   - to total effort or time always add `WHERE kind = 'action'`, or each action is counted again inside every parent
   - open Card rows are not planned execution counts; use `ai_current_sprint_metrics` for Sprint load and `get_scheduled` for calendar quantities
-  - `categories` self | contribution | work | rest
-  - `energy_types` physical | cognitive | social | values
+  - `categories` growth | people | work | chores | rest
+  - `energy_types` physical | cognitive | emotional | spiritual
   - `schedule` is the original timing text, not computed dates or counts; on a goal or a subgoal it is the deadline
   - `blocked_description` NULL = unblocked; non-NULL = blocked; filter with `IS NOT NULL`
   - on a blocked goal or subgoal, `blocked_description` is an empty string; read reasons from its actions

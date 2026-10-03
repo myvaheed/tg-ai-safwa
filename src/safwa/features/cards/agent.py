@@ -10,7 +10,7 @@ from tg_agent_shell.ai.autoapproval import RELATIONSHIP_LINK, SCALAR_UPDATE, Aut
 from tg_agent_shell.ai.contracts import ToolInput
 from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
 
-from .model import TRACKED_MINS_MAX
+from .model import CATEGORY_MEANINGS, ENERGY_MEANINGS, TRACKED_MINS_MAX
 
 
 class CardToolInput(ToolInput):
@@ -61,8 +61,16 @@ class CardToolInput(ToolInput):
             "user said, never an estimate. On update, null removes it."
         ),
     )
-    categories: list[Literal["self", "contribution", "work", "rest"]] | None = None
-    energy_types: list[Literal["physical", "cognitive", "social", "values"]] | None = None
+    categories: list[Literal["growth", "people", "work", "chores", "rest"]] | None = Field(
+        default=None,
+        description="What the Action gives. "
+        + " ".join(f"{name}: {meaning}." for name, meaning in CATEGORY_MEANINGS.items()),
+    )
+    energy_types: list[Literal["physical", "cognitive", "emotional", "spiritual"]] | None = Field(
+        default=None,
+        description="What the Action costs the user. "
+        + " ".join(f"{name}: {meaning}." for name, meaning in ENERGY_MEANINGS.items()),
+    )
     value_id: PositiveInt | None = None
     value_ids: list[PositiveInt] | None = None
     value_query: str | list[str] | None = Field(

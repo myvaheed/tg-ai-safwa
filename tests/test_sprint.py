@@ -721,10 +721,10 @@ async def test_pl_energy_022_the_request_names_each_kind_the_sprint_lacks_and_th
         climb = await create_card(
             session, title="Climb", energy_types={"physical"}, priority="critical"
         )
-        help_out = await create_card(session, title="Help out", energy_types={"values"})
+        help_out = await create_card(session, title="Help out", energy_types={"spiritual"})
         nap = await create_card(session, title="Nap", categories={"rest"})
         # Cognitive is in the Sprint already; a finished one is not open in the Backlog;
-        # nothing anywhere carries Social.
+        # nothing anywhere carries Emotional.
         await create_card(session, title="Read a paper", energy_types={"cognitive"})
         walked = await create_card(session, title="Walked", categories={"rest"})
         await finish_action(session, walked.id)
@@ -737,11 +737,11 @@ async def test_pl_energy_022_the_request_names_each_kind_the_sprint_lacks_and_th
         assert ENERGY_CANDIDATES == 3
         for line in (
             f"- Physical energy: #{climb.id} «Climb» (Critical), #{run.id} «Run», #{swim.id} «Swim»",
-            f"- Values energy: #{help_out.id} «Help out»",
+            f"- Spiritual energy: #{help_out.id} «Help out»",
             f"- Rest: #{nap.id} «Nap»",
         ):
             assert line in request
-        for absent in ("Hike", "Cognitive", "Social", "Read a paper", "Walked"):
+        for absent in ("Hike", "Cognitive", "Emotional", "Read a paper", "Walked"):
             assert absent not in request
         assert "Do not move anything without their answer" in request
 

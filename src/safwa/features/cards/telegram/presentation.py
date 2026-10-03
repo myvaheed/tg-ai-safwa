@@ -36,9 +36,10 @@ _KIND_EMOJIS = {
 
 
 CATEGORY_EMOJIS = {
-    Category.SELF.value: "🌱",
-    Category.CONTRIBUTION.value: "❤️",
+    Category.GROWTH.value: "🌱",
+    Category.PEOPLE.value: "🫂",
     Category.WORK.value: "💰",
+    Category.CHORES.value: "🧺",
     Category.REST.value: "🔋",
 }
 
@@ -46,23 +47,24 @@ CATEGORY_EMOJIS = {
 ENERGY_EMOJIS = {
     EnergyType.PHYSICAL.value: "💪",
     EnergyType.COGNITIVE.value: "🧠",
-    EnergyType.SOCIAL.value: "🤝",
-    EnergyType.VALUES.value: "💎",
+    EnergyType.EMOTIONAL.value: "🎭",
+    EnergyType.SPIRITUAL.value: "🕊️",
 }
 
 # Each Category and Energy type keeps its colour on every chart, in the order they stack:
 # neighbours stay apart for a colour-blind eye too.
 CATEGORY_COLORS = {
-    Category.SELF.value: "#1baf7a",
-    Category.REST.value: "#2a78d6",
+    Category.GROWTH.value: "#1baf7a",
+    Category.PEOPLE.value: "#e87ba4",
     Category.WORK.value: "#eda100",
-    Category.CONTRIBUTION.value: "#e87ba4",
+    Category.CHORES.value: "#863748",
+    Category.REST.value: "#2a78d6",
 }
 ENERGY_COLORS = {
     EnergyType.PHYSICAL.value: "#eb6834",
     EnergyType.COGNITIVE.value: "#4a3aa7",
-    EnergyType.SOCIAL.value: "#008300",
-    EnergyType.VALUES.value: "#e34948",
+    EnergyType.EMOTIONAL.value: "#008300",
+    EnergyType.SPIRITUAL.value: "#e34948",
 }
 
 

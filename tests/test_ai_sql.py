@@ -36,13 +36,13 @@ def test_card_tool_modes_reject_ambiguous_mutations():
         {
             "mode": "update",
             "id": 42,
-            "categories": ["contribution", "rest"],
-            "energy_types": ["physical", "social"],
+            "categories": ["people", "rest"],
+            "energy_types": ["physical", "emotional"],
         },
     )
     assert change.values == {
-        "categories": ["contribution", "rest"],
-        "energy_types": ["physical", "social"],
+        "categories": ["people", "rest"],
+        "energy_types": ["physical", "emotional"],
     }
     root = PROPOSALS.change_from_tool("card", {"mode": "update", "id": 42, "parent_id": None})
     assert root.values == {"parent_id": None}
@@ -71,7 +71,7 @@ def test_tool_inputs_drop_incidental_null_placeholders_from_every_mutation():
             "blocked": False,
             "blocked_description": None,
             "effort_points": 1,
-            "categories": ["self"],
+            "categories": ["growth"],
             "energy_types": ["physical"],
             "value_id": None,
             "value_ids": None,
@@ -94,7 +94,7 @@ def test_tool_inputs_drop_incidental_null_placeholders_from_every_mutation():
         "priority": "medium",
         "blocked": False,
         "effort_points": 1,
-        "categories": ["self"],
+        "categories": ["growth"],
         "energy_types": ["physical"],
     }
 
@@ -203,13 +203,13 @@ def test_collection_arguments_recover_scalars_and_double_encoded_arrays():
         {
             "mode": "update",
             "id": 42,
-            "categories": "self",
+            "categories": "growth",
             "energy_types": '["physical", null, "none"]',
             "value_ids": [3, None, "null"],
         },
     )
     assert change.values == {
-        "categories": ["self"],
+        "categories": ["growth"],
         "energy_types": ["physical"],
         "value_ids": [3],
     }

@@ -75,7 +75,7 @@ async def test_invalid_create_returns_minimal_repair_arguments_to_the_model(e2e_
                 "blocked": False,
                 "blocked_description": "",
                 "effort_points": 1,
-                "categories": ["self"],
+                "categories": ["growth"],
                 "energy_types": ["physical"],
                 "value_id": 1,
                 "value_ids": [],
@@ -103,7 +103,7 @@ async def test_invalid_create_returns_minimal_repair_arguments_to_the_model(e2e_
                 "schedule": None,
                 "blocked": False,
                 "effort_points": 1,
-                "categories": ["self"],
+                "categories": ["growth"],
                 "energy_types": ["physical"],
             },
         )
@@ -127,7 +127,7 @@ async def test_invalid_create_returns_minimal_repair_arguments_to_the_model(e2e_
         "priority": "medium",
         "blocked": False,
         "effort_points": 1,
-        "categories": ["self"],
+        "categories": ["growth"],
         "energy_types": ["physical"],
     }
     assert "id" not in repair_result["expected_arguments"]
@@ -461,7 +461,7 @@ async def test_current_request_progress_includes_current_card_update_diffs(e2e_h
             title="Evening walk",
             note="Before dinner",
             effort_points=2,
-            categories={"self"},
+            categories={"growth"},
         )
         await session.commit()
 
@@ -502,7 +502,7 @@ async def test_current_request_progress_includes_current_card_update_diffs(e2e_h
     assert saved["affected_ids"] == [card.id]
     assert saved["summary"] == f"Update Card #{card.id}"
     assert "Note: Before dinner → After dinner" in saved["fields"]
-    assert "Categories: self → rest" in saved["fields"]
+    assert "Categories: growth → rest" in saved["fields"]
 
 
 async def test_child_proposal_fails_cleanly_when_earlier_parent_is_discarded(e2e_harness):
@@ -1539,7 +1539,7 @@ async def test_a_new_card_receipt_names_every_field_that_was_chosen(e2e_harness)
                         "title": "Тренировка бега",
                         "effort_points": 5,
                         "priority": "critical",
-                        "categories": ["self"],
+                        "categories": ["growth"],
                         "energy_types": ["physical"],
                         "tag_query": "спорт",
                     },
@@ -1553,7 +1553,7 @@ async def test_a_new_card_receipt_names_every_field_that_was_chosen(e2e_harness)
         description = await advisor.describe_proposal(session, outcome.proposal_id)
     assert description.summary == (
         "New Action “Тренировка бега” "
-        "(Critical · 5 EP · self · physical · Tag “спорт”)"
+        "(Critical · 5 EP · growth · physical · Tag “спорт”)"
     )
 
 

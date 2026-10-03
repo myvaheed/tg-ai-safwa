@@ -12,7 +12,7 @@ from tg_agent_shell.ai.contracts import AgentChange, ChangeAction, ToolInput
 from tg_agent_shell.proposals.api import MutationToolSpec
 from tg_agent_shell.telegram.manifest import AgentSpec
 
-from ..cards.model import EFFORT_RUNGS, effort_label
+from ..cards.model import CATEGORY_MEANINGS, EFFORT_RUNGS, ENERGY_MEANINGS, effort_label
 from ..schedules.api import ACTION_DAILY_EXECUTIONS_MAX
 
 # Enough of the conversation to see its own earlier tips; what is older than the Summary is
@@ -22,6 +22,10 @@ ONBOARDING_HISTORY_MESSAGES = 100
 _EFFORT_SCALE = "\n".join(
     f"- {effort_label(points)} EP: {meaning}." for points, meaning in EFFORT_RUNGS.items()
 )
+_CATEGORIES = ", ".join(
+    f"{kind.title()} ({meaning})" for kind, meaning in CATEGORY_MEANINGS.items()
+)
+_ENERGY = ", ".join(f"{kind.title()} ({meaning})" for kind, meaning in ENERGY_MEANINGS.items())
 
 MANUAL = f"""# Safwa
 - Safwa is a personal agile advisor in Telegram. The user keeps a workspace of Cards, commits to a Sprint of a fixed number of days, and learns from each Sprint in its retro.
@@ -42,7 +46,9 @@ MANUAL = f"""# Safwa
 - Priority: Critical, Medium, Low.
 - Effort Points (EP) are optional and off at first. An Action can be created, edited and finished without an estimate. Turn them on in the Profile to estimate load.
 - Time spent is how long an Action took, as "5h 31m". A Goal shows the time of the Actions under it. With Time tracking on in the Profile, "⌛ Time spent" in "✏️ Full editing" records it; in words it is recorded either way.
-- Categories (Self, Contribution, Work, Rest) and energy (Physical, Cognitive, Social, Values) describe an Action.
+- Categories say what an Action gives: {_CATEGORIES}.
+- Energy says what an Action costs: {_ENERGY}.
+- An Action may carry several Categories and several Energy types. Their selectors show these words on each button.
 - Schedule holds an Action's timing in plain words: once a week, five times a day, Tuesday at 15:00. Quotas need no clock. Calendar weeks start Monday in the workspace timezone.
 - Typed into "⏱ Schedule", it is read at once: the Card shows how it was understood, and a missing detail is asked on the same screen. Proposed in words, it is read after Save, and the Advisor asks once for a missing detail. Until it is read, the Action cannot be finished.
 - An Action repeats at most {ACTION_DAILY_EXECUTIONS_MAX} times a day; more often is a Check.

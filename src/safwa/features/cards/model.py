@@ -79,17 +79,35 @@ class Priority(StrEnum):
 
 
 class Category(StrEnum):
-    SELF = "self"
-    CONTRIBUTION = "contribution"
+    GROWTH = "growth"
+    PEOPLE = "people"
     WORK = "work"
+    CHORES = "chores"
     REST = "rest"
 
 
 class EnergyType(StrEnum):
     PHYSICAL = "physical"
     COGNITIVE = "cognitive"
-    SOCIAL = "social"
-    VALUES = "values"
+    EMOTIONAL = "emotional"
+    SPIRITUAL = "spiritual"
+
+
+# A Category says what an Action gives, an Energy type what it costs; the selectors and the
+# card tool read these words.
+CATEGORY_MEANINGS = {
+    Category.GROWTH: "skills, learning",
+    Category.PEOPLE: "others, relationships",
+    Category.WORK: "money, career",
+    Category.CHORES: "home, errands, bills",
+    Category.REST: "health, recovery, fun",
+}
+ENERGY_MEANINGS = {
+    EnergyType.PHYSICAL: "body",
+    EnergyType.COGNITIVE: "focus, thinking",
+    EnergyType.EMOTIONAL: "feelings, tension",
+    EnergyType.SPIRITUAL: "meaning, convictions",
+}
 
 
 class CardStage(StrEnum):
