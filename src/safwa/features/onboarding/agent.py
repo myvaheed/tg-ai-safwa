@@ -58,7 +58,7 @@ MANUAL = f"""# Safwa
 - Not at all: moving an Action straight to Done. Finish it with "✅ Done".
 
 # Effort Points (EP)
-- "🔢 Effort Points" in the Profile switches the estimates, Sprint capacity and Today overload warnings on or off. Switching off keeps saved estimates and capacity. It does not change Time tracking.
+- "🔢 Effort Points" in the Profile switches the estimates, Sprint capacity, Today overload warnings and Effort Points reminder on or off. Switching off keeps saved estimates and capacity. It does not change Time tracking.
 - With EP off, Card screens and lists hide estimates, and Sprint and retro show Action counts. No estimate is saved: asked for one, the Advisor says to turn Effort Points on.
 - EP estimate how much an Action takes out of the user and what recovery they need afterwards. They measure physical, cognitive or emotional load, not hours or importance.
 {_EFFORT_SCALE}
@@ -67,6 +67,7 @@ MANUAL = f"""# Safwa
 - Planned load counts every scheduled execution left from today to the Sprint's last day: 5 EP repeated three times takes 3 Actions and 15 EP. A week the window covers in part counts its share of the days: three times a week over 2 of its days is 1. An Action on the plan counts at least once. Planning uses the Sprint length in the Profile; Today uses today's remaining executions. Unknown quantities are marked as incomplete totals.
 - EP totals help compare planned load with capacity. They do not convert to hours or predict recovery exactly.
 - With EP on, the Advisor proposes an estimate with each new Action. "🔢 Effort" in full editing or Card creation sets one; "No estimate" clears it. A Goal shows the total of its Actions. Partial totals name the Actions without estimates and show no completion percentage or EP per hour.
+- After an Action is Done without an estimate, the Advisor asks for its EP. The answer is recorded on that finished Action, including a finished repeat. If the user does not know, it stays empty. "Effort Points reminder" in Profile → Hooks switches this question off or on.
 
 # Checks
 - A Check asks whether something held: "posture straight?", or "milk" under "Go to the market". It is an observation, not a task: no effort, no stage.
@@ -122,11 +123,11 @@ MANUAL = f"""# Safwa
 - Deleting is the only way to stop one.
 
 # Automatic reactions
-- Safwa speaks first on its own: about a blocked Action, an Action finished without its time, a day holding too much, Goals with no Action, scheduled Actions the plan does not hold, energy and rest in the Sprint, an Action stuck in Today, a Check Missed again and again, the Diary, the day's summary, a Sprint's end, a Success criterion out of reach, a read too heavy for the Advisor, what stands in Today and the Sprint when the user writes after 14 days or more away, and these onboarding tips.
+- Safwa speaks first on its own: about a blocked Action, an Action finished without its time or effort estimate, a day holding too much, Goals with no Action, scheduled Actions the plan does not hold, energy and rest in the Sprint, an Action stuck in Today, a Check Missed again and again, the Diary, the day's summary, a Sprint's end, a Success criterion out of reach, a read too heavy for the Advisor, what stands in Today and the Sprint when the user writes after 14 days or more away, and these onboarding tips.
 - Open "⚙️ Profile" → "🔔 Hooks" to list the reactions by title and state. Choose one to read its description and switch it off or on on its own screen.
-- Hooks: "Schedule clarification", "Helper offer", "Blocker follow-up", "Time tracking reminder", "Goal completion follow-up", "Today overload", "Goals without Actions", "Schedule outside the plan", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Diary nudge", "Daily summary", "Sprint end warning", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
+- Hooks: "Schedule clarification", "Helper offer", "Blocker follow-up", "Time tracking reminder", "Effort Points reminder", "Goal completion follow-up", "Today overload", "Goals without Actions", "Schedule outside the plan", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Diary nudge", "Daily summary", "Sprint end warning", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
 - "Time tracking reminder" is in Hooks only while Time tracking is on, and asks nothing while it is off.
-- "Today overload" is in Hooks only while Effort Points are on, and asks nothing while they are off.
+- "Today overload" and "Effort Points reminder" are in Hooks only while Effort Points are on, and ask nothing while they are off.
 
 # Profile
 - "⚙️ Profile": About me and Advisor instructions (what the Advisor must know and follow), Sprint length, Sprint capacity while Effort Points are on, Morning time, Diary time, Diary instruction, Daily summary, Home after, Time tracking, Effort Points, and "🔔 Hooks".

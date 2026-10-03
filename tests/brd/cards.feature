@@ -359,7 +359,7 @@ Feature: Cards
     And two Actions finished before it is said make one question about both
     And an Action reopened, archived, deleted or given a time before then is left out, and a question with nothing in it is not asked
     And an Action finished with its time in the same proposal asks nothing
-    And for a repeating Action the question is about the instance that was finished, not the open one after it, and its time is the one change Safwa may propose on that finished instance
+    And for a repeating Action the question is about the instance that was finished, not the open one after it, and Safwa may propose its time and Effort Points on that finished instance
     But with Time tracking off, or the reminder switched off, nothing is asked, and a question not yet said is not said
 
   Scenario: CD-CLOSE-042 — Finished Actions prompt a choice about their open parents
@@ -381,3 +381,15 @@ Feature: Cards
     And its screen and its draft show the date it was read as
     And it never blocks Done, adds no planned executions, is not reported by get_scheduled and is not compared with the Actions under it
     And in a list a Card with a Deadline comes before one without, the sooner one first
+
+  Scenario: CD-EFFORT-044 — After an Action is finished without an estimate, Safwa asks for its Effort Points
+    Given Effort Points are on in the Profile, and so is the Effort Points reminder
+    When an Action with no estimate is finished — by hand or by a proposal the owner saved — and the chat is free
+    Then the Advisor is asked once to ask for its Effort Points and, if the owner says, to record them on that Action
+    And two Actions finished before it is said make one question about both
+    And an Action reopened, archived, deleted or given an estimate before then is left out, and a question with nothing in it is not asked
+    And an Action already carrying an estimate asks nothing
+    And for a repeating Action the question and the saved estimate belong to the finished instance, not its open successor; its time and estimate may be proposed together
+    And nothing is estimated without the owner's answer; if the owner does not know, the estimate stays empty
+    And rolling back completion asks nothing
+    But with Effort Points off, or the reminder switched off, nothing is asked, and a question not yet said is not said

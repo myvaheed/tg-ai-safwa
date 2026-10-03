@@ -296,12 +296,14 @@ class CardProposalHandler:
         self, context: PreparationContext, change: Any
     ) -> PreparedChange:
         card, expected_version = await require_target(context, change, Card)
-        # The time an Action took belongs to the instance that was finished: its successor
-        # was copied without one, so a closed repeat takes that and nothing else.
-        time_only = change.action is ChangeAction.UPDATE and set(change.values) == {
-            "tracked_mins"
-        }
-        if card is not None and not time_only:
+        # Time and effort supplied after completion belong to the finished instance;
+        # its successor was already copied, so other edits still target the open repeat.
+        accounting_only = (
+            change.action is ChangeAction.UPDATE
+            and bool(change.values)
+            and set(change.values) <= {"tracked_mins", "effort_points"}
+        )
+        if card is not None and not accounting_only:
             refusal = await closed_repeat_refusal(context.session, card, change.entity)
             if refusal is not None:
                 raise ToolPreparationError(*refusal)

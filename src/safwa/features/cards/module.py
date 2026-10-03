@@ -9,6 +9,7 @@ from tg_agent_shell.telegram.manifest import FeatureModule, ProposalContribution
 
 from . import agent, proposal, telegram, views
 from .hooks import BLOCKER_HOOK as BLOCKER_HOOK
+from .hooks import EFFORT_TRACKING_REMINDER_HOOK as EFFORT_TRACKING_REMINDER_HOOK
 from .hooks import EMPTY_PARENTS_HOOK as EMPTY_PARENTS_HOOK
 from .hooks import ENERGY_BALANCE_HOOK as ENERGY_BALANCE_HOOK
 from .hooks import PARENT_COMPLETION_HOOK as PARENT_COMPLETION_HOOK

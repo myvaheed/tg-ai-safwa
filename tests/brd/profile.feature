@@ -137,8 +137,8 @@ Feature: Profile
     Then Effort Points are off, and Time tracking has its own independent switch
     And Card estimates, Sprint capacity and Today overload are hidden from screens and AI reads
     When the owner switches Effort Points on in the Profile or saves a Profile proposal
-    Then optional estimates and Sprint capacity are available, and Today overload follows its own hook switch
-    And with Effort Points off, Today overload is not in Hooks, is not evaluated and delivers no pending question, as the Time tracking reminder does (PS-TIME-017)
+    Then optional estimates and Sprint capacity are available, and Today overload and the Effort Points reminder follow their own hook switches
+    And with Effort Points off, Today overload and the Effort Points reminder are not in Hooks, are not evaluated and deliver no pending question, as the Time tracking reminder does (PS-TIME-017)
     And its own disabled switch is kept when Effort Points are switched on again
     And with Effort Points off a proposal carries no estimate: one sent anyway is left out, and a change that was only an estimate is refused
     When Effort Points are switched off again

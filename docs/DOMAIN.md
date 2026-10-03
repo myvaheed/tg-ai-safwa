@@ -65,10 +65,11 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
   description alike. The column is a float because 0.5 is a rung; recovery does not add
   up, so a Sprint total is a load signal of the right order and never a percentage base.
 - **Effort Points** (`UserProfile.effort_tracking`) are off by default. The Profile switch
-  controls the estimate selectors, Card/list/citation displays, Sprint capacity and Today
-  overload. Off, Sprint and retro screens and AI context use Action counts; AI read views
-  hide stored effort with NULL, and a proposal carries no estimate. Today overload follows
-  the switch the way the Time tracking reminder follows Time tracking. Switching off
+  controls the estimate selectors, Card/list/citation displays, Sprint capacity, Today
+  overload and the Effort Points reminder after Done without an estimate. Off, Sprint and
+  retro screens and AI context use Action counts; AI read views hide stored effort with NULL,
+  and a proposal carries no estimate. Both effort hooks follow the switch the way the Time
+  tracking reminder follows Time tracking. Switching off
   preserves estimates and configured capacity and leaves Time tracking alone. On, the model
   proposes an estimate with each new Action; saving without one stays allowed.
 - A Sprint commitment freezes the estimate as it joins, including NULL for an unestimated
@@ -82,7 +83,8 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
   written on creation. The column and the `card` tool field always exist, because the prompt
   prefix cannot follow a Profile setting; **Time tracking** in the Profile governs only the
   "⌛ Time spent" button, whether a closing Sprint keeps its time for the retro, and the
-  question after Done. A finished repeat takes its own time and no other change.
+  question after Done. A finished repeat takes its own time and effort estimate; other
+  proposed edits belong to its open successor.
 
 ## Checks
 

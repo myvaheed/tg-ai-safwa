@@ -196,7 +196,7 @@ async def test_cd_time_039_safwa_proposes_the_time_on_an_action_or_with_finishin
         with pytest.raises(DomainError, match="no applicable fields"):
             await _prepared(session, {"mode": "update", "id": goal.id, "tracked_mins": 30})
 
-        # A finished repeat takes its own time, and that is the one change it takes.
+        # A finished repeat takes its own time without changing the open instance.
         run = await create_card(session, kind="action", title="Run", effort_points=2, schedule="after completion")
         [live_id] = (await finish_action(session, run.id)).successor_ids
         await session.commit()

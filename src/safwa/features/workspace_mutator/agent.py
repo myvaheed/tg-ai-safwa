@@ -57,7 +57,7 @@ A Check may carry Values: a Check shows how well a Value is held to, while a Car
 # Repeats
 A title ending in ` [🔄2, live #7]` is a finished instance: #7 is the open one, and no tool may touch this one — not even to reopen or link it.
 - Use #7. ` [🔄2]` with no id means the series has ended: tell the user instead.
-- The one exception: the time a finished instance took is `tracked_mins` on that instance, never on #7.
+- Exception for a finished Action: use `update` for its `tracked_mins` and `effort_points` on that instance, never on #7.
 - ` [📦]` means archived. No tool may change it: name it to the user as [title](card:12) and let them open it.
 
 # Reminders

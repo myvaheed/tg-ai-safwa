@@ -1,5 +1,5 @@
 """What the Cards ask the Advisor to raise on their own: a parent whose Actions are all
-finished, a blocker just set, an Action finished without the time it took, a day loaded
+finished, a blocker just set, an Action finished without its time or effort estimate, a day loaded
 past what it is meant to hold, a Sprint started without a kind of energy the Backlog has,
 an Action found in Today morning after morning, and — each morning, and when a Sprint
 starts — the Goals and Subgoals that still have no Action under them, the Schedules the
@@ -29,7 +29,13 @@ from tg_agent_shell.hooks.contracts import (
 )
 
 from ..planning.api import SPRINT_STARTED, active_sprint_end_date, plan_load, sprint_is_active
-from ..profile.api import TIME_TRACKING_REMINDER, TODAY_OVERLOAD, effort_tracking_on, morning_time
+from ..profile.api import (
+    EFFORT_TRACKING_REMINDER,
+    TIME_TRACKING_REMINDER,
+    TODAY_OVERLOAD,
+    effort_tracking_on,
+    morning_time,
+)
 from ..schedules.api import workspace_zone
 from .api import PLANNED_STAGES, SCHEDULE_NOTICE_DAYS, actions_on_stages
 from .hierarchy import branch_actions
@@ -103,6 +109,14 @@ TIME_TRACKING_REQUEST = (
     "Finished without the time they took:\n{cards}\n"
     "Ask the user in one message how long each took. If they tell you, route to "
     "workspace_mutator to record it on that exact Card, not on its open repeat. "
+    "If they do not know, leave it."
+)
+
+EFFORT_TRACKING_REQUEST = (
+    "Finished without an Effort Points estimate:\n{cards}\n"
+    "Ask the user in one message how many EP each cost in their usual state. "
+    "If they tell you, route to workspace_mutator to record effort_points on that exact "
+    "Card, not on its open repeat. Do not estimate without their answer. "
     "If they do not know, leave it."
 )
 
@@ -248,6 +262,34 @@ TIME_TRACKING_REMINDER_HOOK = HookSpec(
     effect=Advise(prepare=time_tracking_request),
     title="Time tracking reminder",
     description="After an Action is Done without its time, asks how long it took.",
+)
+
+
+async def effort_tracking_request(session: AsyncSession, items: Sequence[int]) -> str | None:
+    """The request about the Actions still Done, not archived and without an estimate."""
+    cards = await session.scalars(
+        select(Card)
+        .where(
+            Card.id.in_([int(item) for item in items]),
+            Card.kind == CardKind.ACTION.value,
+            Card.effective_stage == CardStage.DONE.value,
+            Card.archived_at.is_(None),
+            Card.effort_points.is_(None),
+        )
+        .order_by(Card.id)
+    )
+    lines = "\n".join(f"- #{card.id} «{card.title}»" for card in cards)
+    return EFFORT_TRACKING_REQUEST.format(cards=lines) if lines else None
+
+
+EFFORT_TRACKING_REMINDER_HOOK = HookSpec(
+    name=EFFORT_TRACKING_REMINDER,
+    owner="cards",
+    on=(OnCommitted(kind=CARD_DONE),),
+    evaluate=finished_cards,
+    effect=Advise(prepare=effort_tracking_request),
+    title="Effort Points reminder",
+    description="After an Action is Done without an estimate, asks how many Effort Points it cost.",
 )
 
 

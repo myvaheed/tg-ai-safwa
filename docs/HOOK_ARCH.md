@@ -176,9 +176,12 @@ agent_related у определения). Профиль показывает к
 [profile/api.py](../src/safwa/features/profile/api.py): решает Профиль, и он остаётся листом
 графа.
 
-Так же Today overload следует за Effort Points ([PS-EP-021](../tests/brd/profile.feature)):
-вторая проверка в `hook_switched_on`, имя — `TODAY_OVERLOAD`. Остальные реакции и Time
-tracking от этого переключателя не зависят.
+Так же Today overload и Effort Points reminder следуют за Effort Points
+([PS-EP-021](../tests/brd/profile.feature), [CD-EFFORT-044](../tests/brd/cards.feature)):
+проверка в `hook_switched_on`, имена — `TODAY_OVERLOAD` и `EFFORT_TRACKING_REMINDER`.
+Напоминание после Done спрашивает об оценке, которой ещё нет, и сохраняет ответ на
+завершённом экземпляре Действия, включая повтор. Остальные реакции и Time tracking от
+этого переключателя не зависят.
 
 **Зависимый хук следует за чужим выключателем.** Поле switch у определения называет хук, чьим
 выключателем этот включается и выключается. Реестр при сборке проверяет, что названный хук
