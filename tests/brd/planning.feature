@@ -68,7 +68,7 @@ Feature: Planning — the Sprint, and the mode without one
     When the owner moves a 2-point Backlog Action into Sprint or Today
     Then those 2 points are counted as added, and what the Sprint committed to does not change
     And an Action created straight into Sprint or Today is counted the same way
-    And the next copy of a repeating Action is counted the same way
+    And a generated copy carries its series' remaining reserved executions instead of adding them twice (PL-REPEAT-032)
 
   Scenario: PL-SCOPE-008 — Work sent back to the Backlog is counted as removed, and bringing it back undoes that
     Given a running Sprint that committed to a 5-point Action
@@ -176,14 +176,11 @@ Feature: Planning — the Sprint, and the mode without one
     When no Sprint is running
     Then there is no Today at all, by PL-MODE-001, and nothing of it is handed over
 
-  Scenario: PL-HARDTIME-021 — An Action whose Hard Time the plan does not hold is brought up
-    Given a Sprint runs, and open Actions carry a Hard Time
-    When the Sprint starts, and each day when the Profile's Morning time passes (MORNING_TIME_DEFAULT = "09:00"), and the chat is free
-    Then the Advisor is asked once, in one message about all of them, naming each with its next Hard Time and the stage it is in: the ones whose Hard Time falls by the Sprint's planned last day and that are in Backlog, and the ones whose Hard Time is today or tomorrow (HARD_TIME_NOTICE_DAYS = 1) and that are not in Today
-    And it is asked whether to take each into the Sprint, and the near ones into Today; nothing is moved before the owner's answer
-    And the list is read when the question is about to be said: one already in Today, one in the Sprint whose Hard Time is later than tomorrow, one finished or archived, and one whose Hard Time has passed — the moment, earlier today as much as yesterday — are left out; with none left, nothing is asked
-    And in Planning, with no Sprint running, the morning asks nothing
-    And a day is the workspace's local day
+  Scenario: PL-HARDTIME-021 — The schedule report names planned Actions
+    Given Actions with compiled Schedules
+    When the Advisor queries a local date range
+    Then the report names their instances and planned counts
+    And a generated successor is placed from its next period relative to the active Sprint
 
   Scenario: PL-ENERGY-022 — A Sprint that leaves out a kind of energy the Backlog has is brought up
     Given a Sprint starts, and the chat is free
@@ -214,8 +211,8 @@ Feature: Planning — the Sprint, and the mode without one
 
   Scenario: PL-KEY-025 — Today is ordered by what the day cannot move
     Given Actions in Today
-    Then the Today screen and the Today list the Advisor reads put first the ones whose Hard Time is today or tomorrow (HARD_TIME_NOTICE_DAYS = 1), then Critical ones, then key ones, then the rest
-    And within each group a Card with a Hard Time comes first, then the more important one, then the one written earlier
+    Then the Today screen and the Today list the Advisor reads put first the ones whose Schedule appointment is today or tomorrow (SCHEDULE_NOTICE_DAYS = 1), then Critical ones, then key ones, then the rest
+    And within each group a Card with an appointment comes first, then the more important one, then the one written earlier
     And a day is the workspace's local day
 
   Scenario: PL-ASK-026 — A question about the Sprint is answered from the Sprint as it stands
@@ -257,6 +254,42 @@ Feature: Planning — the Sprint, and the mode without one
     Given Effort Points are off, with estimated and unestimated Actions in the workspace
     Then the plan and Sprint show Action counts, with no EP or capacity controls or warnings
     And the plan has no EP column, and its Action buttons show titles alone
-    And a Sprint can start, Actions can join and finish, and each Action is counted once
+    And a Sprint can start, Actions can join and finish, and each scheduled execution is counted once
     When Effort Points are switched on
     Then missing estimates are named beside partial totals and are never presented as zero load
+
+  Scenario: PL-REPEAT-031 — Planned Actions and EP include calendar executions
+    Given a 5 EP Action scheduled once a day, selected for a Sprint of 3 days in the Profile
+    Then Planning, its proposal preview and AI context show 3 Actions and 15 EP
+    And changing the Profile length changes the next plan's quantity, not a running Sprint's dates
+    And a partial week keeps its whole weekly quota, without inventing daily allocations
+    And a current overdue appointment counts once, while a future appointment outside the window counts zero
+    And the weighted load is compared with capacity and still counts executions with EP off
+
+  Scenario: PL-REPEAT-032 — Generating a repeat consumes its reservation without adding scope twice
+    Given a Sprint reserves 3 executions of a 5 EP Action
+    When it finishes once and opens its next copy
+    Then committed load stays 3 Actions and 15 EP, with 1 Done Action and 5 Done EP
+    And its successor carries the remaining 2 executions, the same scope, key mark and frozen unit estimate
+    And a series added during the Sprint carries its whole quantity as added only once
+    And removing or returning the open copy removes or restores its remaining quantity
+    And an actual execution beyond the reservation counts as added once
+    And planned Category, Energy, key, blocked and remaining quantities use the same execution count
+    And actual Done, tracked time and EP of finished copies are not multiplied
+
+  Scenario: PL-REPEAT-033 — Today and its morning plan account for repeated executions
+    Given an Action of 5 EP scheduled five times a day in Today
+    Then Today load is 25 EP and the overload check names five executions
+    When one copy finishes
+    Then the remaining four cost 20 EP and today's completed 5 EP keep the whole day at 25 EP
+    And a second morning read does not add the successor to that day's plan again
+    And Home and AI context show the remaining daily executions
+    And retro keeps 5 planned executions that morning and 1 actual completion
+
+  Scenario: PL-REPEAT-034 — Unknown timing is explicit and compilation refreshes the forecast
+    Given a selected Action has unfinished setup or undated after-completion repetition
+    Then planned totals are marked as lower bounds, without completion percentages or planned shares
+    When its Schedule is compiled or edited
+    Then only the open copy's quantity is refreshed, with completed results and unit EP snapshots unchanged
+    And compiling a Card in Today rechecks its load through the existing Today hook
+    And clearing Schedule restores the ordinary one-execution quantity

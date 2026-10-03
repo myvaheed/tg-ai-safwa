@@ -7,6 +7,7 @@ commitment rows are the Sprint's, and Cards never touches one itself.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -18,8 +19,8 @@ from tg_agent_shell.foundation.clock import utcnow
 
 from ...foundation.workspace import Workspace, WorkspaceMode, require_workspace
 from ..cards.api import (
-    HARD_TIME_NOTICE_DAYS,
     PLANNED_STAGES,
+    SCHEDULE_NOTICE_DAYS,
     TERMINAL_STAGES,
     Card,
     CardStage,
@@ -27,6 +28,8 @@ from ..cards.api import (
     planned_actions,
 )
 from ..cards.model import CardKind, Priority
+from ..profile.api import sprint_length_days
+from ..schedules.api import remaining_occurrences
 from .model import Sprint, SprintCommitment
 
 # The stages an Action has to be on for a Sprint to have anything to say about it.
@@ -79,13 +82,34 @@ def sprint_day(sprint: Sprint, today: date) -> tuple[int, int]:
     )
 
 
-async def active_sprint_end_date(session: AsyncSession) -> date | None:
-    """The planned last day of the running Sprint, or None in Planning."""
-    workspace = await session.get(Workspace, 1)
-    if workspace is None or not workspace.active_sprint_id:
-        return None
-    sprint = await session.get(Sprint, workspace.active_sprint_id)
-    return sprint.planned_end_date if sprint is not None else None
+@dataclass(frozen=True)
+class PlanLoad:
+    counts: dict[int, int | None]
+    actions: int
+    effort: float
+    unestimated: int
+    unknown_schedules: int
+
+
+async def plan_load(
+    session: AsyncSession, cards: list[Card],
+    *, start_date: date | None = None, end_date: date | None = None,
+) -> PlanLoad:
+    """Use the active Sprint's dates, or the Profile's next Sprint starting today."""
+    if start_date is None:
+        workspace = await require_workspace(session)
+        sprint = await session.get(Sprint, workspace.active_sprint_id) if workspace.active_sprint_id else None
+        start_date = sprint.planned_start_date if sprint else utcnow().astimezone(ZoneInfo(workspace.timezone)).date()
+        end_date = sprint.planned_end_date if sprint else start_date + timedelta(days=await sprint_length_days(session) - 1)
+    counts = {card.id: await remaining_occurrences(session, card, start_date, end_date) for card in cards}
+    quantities = {id: count or 0 for id, count in counts.items()}
+    return PlanLoad(
+        counts=counts,
+        actions=sum(quantities.values()),
+        effort=sum((card.effort_points or 0) * quantities[card.id] for card in cards),
+        unestimated=sum(quantities[card.id] for card in cards if card.effort_points is None),
+        unknown_schedules=sum(count is None for count in counts.values()),
+    )
 
 
 async def sync_commitment_for_stage(
@@ -104,11 +128,13 @@ async def sync_commitment_for_stage(
     current = CardStage(card.effective_stage)
     was_planned = previous_stage in PLANNED_STAGES if previous_stage else False
     if current in SPRINT_SCOPE and commitment is None:
+        sprint = await session.get(Sprint, workspace.active_sprint_id)
         session.add(
             SprintCommitment(
                 sprint_id=workspace.active_sprint_id,
                 card_id=card.id,
                 effort_snapshot=card.effort_points,
+                planned_count=await remaining_occurrences(session, card, sprint.planned_start_date, sprint.planned_end_date),
                 scope_kind="added",
                 added_at=utcnow(),
             )
@@ -130,6 +156,44 @@ async def sync_commitment_for_stage(
         record_change(session, SPRINT_JOINED, card.id)
 
 
+async def sync_successor_commitment(session: AsyncSession, previous: Card, successor: Card) -> None:
+    """Transfer the reserved executions; opening a copy does not add the plan twice."""
+    workspace = await require_workspace(session)
+    if not workspace.active_sprint_id:
+        return
+    source = await session.scalar(select(SprintCommitment).where(
+        SprintCommitment.sprint_id == workspace.active_sprint_id,
+        SprintCommitment.card_id == previous.id,
+    ))
+    if source is None or source.removed_at is not None:
+        await sync_commitment_for_stage(session, successor)
+        return
+    if CardStage(successor.effective_stage) not in PLANNED_STAGES:
+        return
+    remaining = max(0, source.planned_count - 1) if source.planned_count is not None else None
+    source.planned_count = 1
+    session.add(SprintCommitment(
+        sprint_id=source.sprint_id, card_id=successor.id,
+        effort_snapshot=source.effort_snapshot, planned_count=remaining,
+        scope_kind=source.scope_kind, added_at=source.added_at, key_action=source.key_action,
+    ))
+    if source.key_action is None:
+        record_change(session, SPRINT_JOINED, successor.id)
+
+
+async def refresh_schedule_commitment(session: AsyncSession, card: Card) -> None:
+    """Refresh the open copy's forecast; completed copies and their estimates stay fixed."""
+    workspace = await require_workspace(session)
+    if not workspace.active_sprint_id:
+        return
+    commitment = await session.scalar(select(SprintCommitment).where(
+        SprintCommitment.sprint_id == workspace.active_sprint_id, SprintCommitment.card_id == card.id,
+    ))
+    if commitment is not None and commitment.result is None and commitment.removed_at is None:
+        sprint = await session.get(Sprint, workspace.active_sprint_id)
+        commitment.planned_count = await remaining_occurrences(session, card, sprint.planned_start_date, sprint.planned_end_date)
+
+
 async def record_sprint_result(session: AsyncSession, card_id: int) -> None:
     """What the running Sprint says this Action came to."""
     workspace = await require_workspace(session)
@@ -142,6 +206,8 @@ async def record_sprint_result(session: AsyncSession, card_id: int) -> None:
         )
     )
     if commitment:
+        if commitment.planned_count == 0:
+            commitment.planned_count, commitment.scope_kind = 1, "added"
         commitment.result = CardStage.DONE.value
 
 
@@ -151,9 +217,9 @@ def effort_sums(commitments: Iterable[SprintCommitment]) -> dict[str, float]:
     closes."""
     items = list(commitments)
     return {
-        "committed": sum(i.effort_snapshot or 0 for i in items if i.scope_kind == "initial"),
-        "added": sum(i.effort_snapshot or 0 for i in items if i.scope_kind == "added"),
-        "removed": sum(i.effort_snapshot or 0 for i in items if i.removed_at is not None),
+        "committed": sum((i.effort_snapshot or 0) * i.quantity for i in items if i.scope_kind == "initial"),
+        "added": sum((i.effort_snapshot or 0) * i.quantity for i in items if i.scope_kind == "added"),
+        "removed": sum((i.effort_snapshot or 0) * i.removed_quantity for i in items),
         "completed": sum(i.effort_snapshot or 0 for i in items if i.result == CardStage.DONE.value),
     }
 
@@ -162,11 +228,12 @@ def action_counts(commitments: Iterable[SprintCommitment]) -> dict[str, int]:
     """Count Actions independently of whether they carry an estimate."""
     items = list(commitments)
     return {
-        "committed": sum(i.scope_kind == "initial" for i in items),
-        "added": sum(i.scope_kind == "added" for i in items),
-        "removed": sum(i.removed_at is not None for i in items),
+        "committed": sum(i.quantity for i in items if i.scope_kind == "initial"),
+        "added": sum(i.quantity for i in items if i.scope_kind == "added"),
+        "removed": sum(i.removed_quantity for i in items),
         "completed": sum(i.result == CardStage.DONE.value for i in items),
-        "unestimated": sum(i.effort_snapshot is None for i in items),
+        "unestimated": sum(i.quantity for i in items if i.effort_snapshot is None),
+        "unknown_schedules": sum(i.planned_count is None for i in items),
     }
 
 
@@ -221,18 +288,18 @@ async def key_action_ids(session: AsyncSession) -> set[int]:
 async def today_actions(session: AsyncSession, *, now: datetime | None = None) -> list[Card]:
     """The open Actions in Today, in the order the day cannot move.
 
-    A Hard Time today or tomorrow first, then Critical, then the ones key to the Sprint,
-    then the rest — each group in Today's own order: a Hard Time, then importance, then age.
+    An appointment today or tomorrow first, then Critical, then the ones key to the Sprint,
+    then the rest — each group in Today's own order: an appointment, then importance, then age.
     """
     cards = await actions_on_stages(session, CardStage.TODAY)
     keys = await key_action_ids(session)
     tz = ZoneInfo((await require_workspace(session)).timezone)
     today = (now or utcnow()).astimezone(tz).date()
-    near = today + timedelta(days=HARD_TIME_NOTICE_DAYS)
+    near = today + timedelta(days=SCHEDULE_NOTICE_DAYS)
     ranks = list(Priority)
 
     def cannot_move(card: Card) -> tuple[int, bool, float, int, datetime]:
-        when = card.hard_time_at.astimezone(tz).date() if card.hard_time_at else None
+        when = card.scheduled_at.astimezone(tz).date() if card.scheduled_at else None
         if when is not None and today <= when <= near:
             group = 0
         elif card.priority == Priority.CRITICAL.value:
@@ -243,8 +310,8 @@ async def today_actions(session: AsyncSession, *, now: datetime | None = None) -
             group = 3
         return (
             group,
-            card.hard_time_at is None,
-            card.hard_time_at.timestamp() if card.hard_time_at else 0.0,
+            card.scheduled_at is None,
+            card.scheduled_at.timestamp() if card.scheduled_at else 0.0,
             ranks.index(Priority(card.priority)),
             card.created_at,
         )

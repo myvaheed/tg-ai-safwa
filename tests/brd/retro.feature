@@ -38,6 +38,8 @@ Feature: Retro
       whichever came first, and are there even when every Action of the Sprint was deleted
     And the effort on the Sprint screen while it runs and the effort in its record are added up by
       the same code
+    And planned counts and EP include reserved repetitions, including Category, Energy, key, blocked and morning quantities; actual Done and time count once per finished copy (PL-REPEAT-032, PL-REPEAT-033)
+    And unknown schedule quantities mark planned totals as lower bounds and suppress exact planned shares and completion percentages (PL-REPEAT-034)
 
   Scenario: RT-CRIT-004 — Whether the Success criteria were met is the owner's word
     Given the retro screen of a Sprint that ended

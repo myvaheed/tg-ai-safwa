@@ -21,15 +21,17 @@ from tg_agent_shell.foundation.errors import DomainError
 
 from ...constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
 from ...foundation.workspace import Workspace, WorkspaceMode, require_workspace
-from ..cards.api import CardStage, action_titles, effort_label, planned_actions
+from ..cards.api import action_titles, effort_label, planned_actions
 from ..cards.use_cases import archive_settled_cards
 from ..checks.use_cases import archive_settled_checks
 from ..profile.api import capacity_effort_points, effort_tracking_on
 from ..profile.api import sprint_length_days as _profile_sprint_length_days
+from ..schedules.api import remaining_occurrences
 from .api import (
     SPRINT_ENDED,
     SPRINT_STARTED,
     criteria_refusal,
+    sprint_counts,
     sprint_metrics,
     start_refusal,
 )
@@ -98,6 +100,7 @@ async def start_sprint(
                 sprint_id=sprint.id,
                 card_id=card.id,
                 effort_snapshot=card.effort_points,
+                planned_count=await remaining_occurrences(session, card, sprint.planned_start_date, sprint.planned_end_date),
                 scope_kind="initial",
             )
         )
@@ -181,8 +184,10 @@ async def sprint_summary(session: AsyncSession, sprint: Sprint) -> str:
             select(SprintCommitment).where(SprintCommitment.sprint_id == sprint.id)
         )
     )
-    finished = sum(1 for item in commitments if item.result == CardStage.DONE.value)
-    open_ids = [item.card_id for item in commitments if item.result is None]
+    counts = await sprint_counts(session, sprint.id)
+    finished = counts["completed"]
+    open_ids = [item.card_id for item in commitments if item.result is None and item.removed_at is None and item.quantity]
+    remaining = sum(item.quantity for item in commitments if item.result is None and item.removed_at is None)
     open_titles = await action_titles(session, open_ids)
     shown = open_titles[:SUMMARY_OPEN_TITLES]
     if len(open_titles) > len(shown):
@@ -205,9 +210,11 @@ async def sprint_summary(session: AsyncSession, sprint: Sprint) -> str:
                 )
             )
             + ".",
-            f"Unestimated Actions: {sum(item.effort_snapshot is None for item in commitments)}."]
+            f"Unestimated Actions: {counts['unestimated']}."]
             if effort_tracking else []),
-            f"Actions: {finished} finished, {len(open_titles)} still open.",
+            f"Actions: {finished} finished, {remaining} still open.",
+            *(["Schedule quantities are unknown for some Actions; these totals are lower bounds."]
+              if counts["unknown_schedules"] else []),
             "Still open: " + (", ".join(shown) if shown else "nothing"),
             "Tell the owner how the Sprint went in a few sentences. Use only the numbers "
             "above. Ask what to do with what is still open, and about the next Sprint. "

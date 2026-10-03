@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import Boolean, ForeignKey, Integer, Select, String, select
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import ForeignKey, Integer, Select, String, Text, select
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from ...foundation.models import Base, TimestampMixin, UtcDateTime
@@ -25,6 +25,7 @@ CHECK_OUTCOME_LABELS = {
     CheckOutcome.MISSED.value: "Missed",
 }
 
+
 class Check(Base, TimestampMixin):
     """One state observation: "did this hold?", answered once and then replaced.
 
@@ -38,7 +39,12 @@ class Check(Base, TimestampMixin):
     __tablename__ = "checks"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String(500))
-    repeatable: Mapped[bool] = mapped_column(Boolean, default=False)
+    schedule: Mapped[str | None] = mapped_column(Text)
+    schedule_id: Mapped[int | None] = mapped_column(ForeignKey("schedules.id"), index=True)
+    period_start: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    schedule_record: Mapped["ScheduleDefinition | None"] = relationship(  # noqa: F821, UP037
+        "ScheduleDefinition", lazy="joined"
+    )
     outcome: Mapped[str | None] = mapped_column(String(20), index=True)
     resolved_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     resolved_by: Mapped[str | None] = mapped_column(String(20))
@@ -49,9 +55,14 @@ class Check(Base, TimestampMixin):
     archived_at: Mapped[datetime | None] = mapped_column(UtcDateTime, index=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
 
+    @property
+    def scheduled_at(self) -> datetime | None:
+        rule = self.schedule_record.rule if self.schedule_record else None
+        return self.period_start if rule and rule["kind"] == "fixed" else None
+
     def is_closed_repeat(self) -> bool:
         """A repeat instance that already ended, so its series continues on a newer row."""
-        return self.repeatable and self.outcome is not None
+        return self.series_id is not None and self.outcome is not None
 
     def live_instance_query(self) -> Select[tuple[int]]:
         """The open Check of this series. Only the newest instance can be open."""

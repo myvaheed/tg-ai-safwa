@@ -47,6 +47,7 @@ lines start at 001.
 | Home — the menu and the way in | `HM` | The workspace | `WS` |
 | Retro | `RT` | The Advisor | `AD` |
 | Diagnostics | `DG` | Onboarding | `OB` |
+| Schedules | `SCH` | | |
 
 `src/tg_agent_shell/`:
 

@@ -54,7 +54,8 @@ Feature: Home
   Scenario: HM-ACTIONS-006 — The dashboard opens with the next 5 Actions
     Given open Actions in Today
     Then the first 5 in Today's order (PL-KEY-025) are on the dashboard (HOME_ACTIONS_SHOWN = 5), each a link that opens it
-    And the heading says Today, and how many Actions Today holds
+    And the heading says Today, and how many Card rows it holds
+    And Today and Sprint show planned execution counts, and EP load while enabled, including repeats (PL-REPEAT-031, PL-REPEAT-033)
     When Today holds none
     Then the first 5 of the Sprint are shown, in the Sprint's own order, under a heading that says Sprint
     And with the Sprint empty too, the first 5 of the Backlog, under a heading that says Backlog

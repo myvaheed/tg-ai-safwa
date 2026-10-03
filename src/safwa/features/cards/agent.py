@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import Field, PositiveInt, field_validator, model_validator
+from pydantic import Field, PositiveInt, model_validator
 
 from tg_agent_shell.ai.autoapproval import RELATIONSHIP_LINK, SCALAR_UPDATE, AutoApprovalRule
 from tg_agent_shell.ai.contracts import ToolInput
@@ -14,8 +14,8 @@ from .model import TRACKED_MINS_MAX
 
 
 class CardToolInput(ToolInput):
-    content_fields = frozenset({"title", "note", "blocked_description", "hard_time_description"})
-    semantic_null_fields = frozenset({"parent_id", "hard_time", "tracked_mins", "effort_points"})
+    content_fields = frozenset({"title", "note", "blocked_description", "schedule"})
+    semantic_null_fields = frozenset({"parent_id", "schedule", "tracked_mins", "effort_points"})
 
     mode: Literal["create", "update", "move", "complete", "reopen", "link", "unlink"] = Field(
         description=(
@@ -30,16 +30,13 @@ class CardToolInput(ToolInput):
     note: str | None = None
     stage: Literal["backlog", "sprint", "today", "done"] | None = None
     priority: Literal["critical", "medium", "low"] | None = None
-    hard_time: str | None = Field(
+    schedule: str | None = Field(
         default=None,
         description=(
-            "When the Card must happen, in plain words: 'Tuesday at 15:00', 'every weekday "
-            "at 09:00'. Omit it when nothing fixes the time. On update, send null to remove it."
+            "Schedule in the user's words: 'once a week', 'five times a day', "
+            "'Tuesday at 15:00', 'repeat after completion'. Never invent a clock. "
+            "On update, null removes the schedule."
         ),
-    )
-    hard_time_description: str | None = Field(
-        default=None,
-        description="What fixes the time, in a few words: 'the clinic closes at 18:00'.",
     )
     blocked: bool | None = None
     blocked_description: str | None = None
@@ -65,7 +62,6 @@ class CardToolInput(ToolInput):
             "user said, never an estimate. On update, null removes it."
         ),
     )
-    repeatable: bool | None = None
     categories: list[Literal["self", "contribution", "work", "rest"]] | None = None
     energy_types: list[Literal["physical", "cognitive", "social", "values"]] | None = None
     value_id: PositiveInt | None = None
@@ -98,12 +94,6 @@ class CardToolInput(ToolInput):
         ),
     )
 
-    @field_validator("hard_time", mode="before")
-    @classmethod
-    def a_flag_is_no_time(cls, value: Any) -> Any:
-        # A slot-filling model sends `false` where it means nothing at all.
-        return None if value is False else value
-
     @model_validator(mode="after")
     def validate_target(self) -> CardToolInput:
         supplied = set(self.model_fields_set) - {"mode", "id"}
@@ -126,13 +116,11 @@ class CardToolInput(ToolInput):
             "note",
             "stage",
             "priority",
-            "hard_time",
-            "hard_time_description",
+            "schedule",
             "blocked",
             "blocked_description",
             "effort_points",
             "tracked_mins",
-            "repeatable",
             "categories",
             "energy_types",
             "value_id",
@@ -215,12 +203,10 @@ def _card_repair(arguments: dict[str, Any]) -> dict[str, Any]:
         "note",
         "stage",
         "priority",
-        "hard_time",
-        "hard_time_description",
+        "schedule",
         "blocked",
         "blocked_description",
         "effort_points",
-        "repeatable",
         "categories",
         "energy_types",
     )
@@ -277,13 +263,11 @@ CARD_AUTOAPPROVALS = {
                 "title",
                 "note",
                 "priority",
-                "hard_time",
-                "hard_time_description",
+                "schedule",
                 "blocked",
                 "blocked_description",
                 "effort_points",
                 "tracked_mins",
-                "repeatable",
             }
         ),
     ),

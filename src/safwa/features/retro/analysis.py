@@ -362,9 +362,11 @@ def overview_text(columns: Sequence[SprintColumn], *, effort_tracking: bool = Fa
             f"{stats.remaining} still open, {stats.blocked} of them blocked",
             *([f"- Effort: finished {stats.done:g} of {stats.taken:g} EP ({stats.done_share}%); "
                f"added {stats.added:g} EP, taken out {stats.removed:g} EP"]
-              if effort_tracking and not stats.unestimated else []),
+              if effort_tracking and not (stats.unestimated or stats.unknown_schedules) else []),
             *([f"- {stats.unestimated} Actions have no estimate; compare Action counts."]
               if effort_tracking and stats.unestimated else []),
+            *(["- Schedule quantities are unknown; planned totals are lower bounds."]
+              if stats.unknown_schedules else []),
             f'- Success criteria: "{column.criteria}" — met: {_met(column.met)}; '
             f"key Actions finished {stats.key_finished} of {stats.key_total}"
             + (
@@ -392,7 +394,7 @@ def shares_text(
     for position, column in enumerate(columns):
         stats = column.statistics
         by_bucket: dict[str, Bucket] = getattr(stats, buckets)
-        estimated = effort_tracking and not stats.unestimated
+        estimated = effort_tracking and not (stats.unestimated or stats.unknown_schedules)
         lines.append(
             f"{_heading(column, position, len(columns))}: taken in "
             + (f"{stats.taken:g} EP, " if estimated else "")
@@ -400,6 +402,8 @@ def shares_text(
             + (f"{stats.done:g} EP, " if estimated else "")
             + f"{stats.finished} Actions"
         )
+        if stats.unknown_schedules:
+            lines.append("Schedule quantities are unknown; taken counts are lower bounds, without planned shares.")
         sums = [
             sum(bucket.effort for bucket in by_bucket.values()),
             sum(bucket.count for bucket in by_bucket.values()),
@@ -407,7 +411,9 @@ def shares_text(
             sum(bucket.done_count for bucket in by_bucket.values()),
         ]
         for name, bucket in by_bucket.items():
-            taken = (f"EP {_share(bucket.effort, sums[0])} " if estimated else "") + f"n {_share(bucket.count, sums[1])}"
+            taken = (f"EP {_share(bucket.effort, sums[0])} " if estimated else "") + (
+                f"n ≥{bucket.count}" if stats.unknown_schedules else f"n {_share(bucket.count, sums[1])}"
+            )
             done = (
                 (f"EP {_share(bucket.done_effort, sums[2])} " if estimated else "")
                 + f"n {_share(bucket.done_count, sums[3])}"
@@ -433,6 +439,8 @@ def days_text(batch: Sequence[tuple[DayTally, DiaryDay | None]]) -> str:
             f"- Actions: {tally.planned} in Today that morning, {tally.done} finished; "
             f"finished by Category: {_counts(tally.done_by_category)}; "
             f"by Energy type: {_counts(tally.done_by_energy)}",
+            *(["- Schedule quantities are unknown; the morning plan is a lower bound."]
+              if tally.unknown_schedules else []),
             f"- Diary: {entry.body if entry and entry.body else 'nothing written'}",
         ]
     return "\n".join(lines)

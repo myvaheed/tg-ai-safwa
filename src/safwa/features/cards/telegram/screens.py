@@ -24,9 +24,9 @@ from ....foundation.marks import live_repeat_instance_id, title_marks
 from ....foundation.workspace import Workspace
 from ...checks.use_cases import card_checks
 from ...profile.api import effort_tracking_on, time_tracking_on
+from ...schedules.api import schedule_progress
 from ...tags.model import CardTag, Tag
 from ...values.model import CardValue, Value
-from ..hard_time import hard_time_text
 from ..hierarchy import blocking_actions, card_progress
 from ..model import Card, CardCategory, CardEnergyType, CardKind, CardStage
 from .presentation import card_overview_text, card_title_marks
@@ -104,20 +104,12 @@ async def render_card(
                 ("📝 Note", "card_edit_text", {"id": card.id, "field": "note"}),
                 ("⚠️ Priority", "card_choose_priority", {"id": card.id}),
                 (
-                    "⏱ Hard Time",
+                    "⏱ Schedule",
                     "card_edit_text",
-                    {"id": card.id, "field": "hard_time"},
+                    {"id": card.id, "field": "schedule"},
                 ),
             ]
         )
-        if full and not archived and card.hard_time is not None:
-            field_specs.append(
-                (
-                    "📝 Hard Time note",
-                    "card_edit_text",
-                    {"id": card.id, "field": "hard_time_description"},
-                )
-            )
         if full and card.kind == CardKind.ACTION.value and not archived:
             field_specs.insert(2, ("📍 Stage", "card_choose_stage", {"id": card.id}))
             field_specs.append(
@@ -139,15 +131,12 @@ async def render_card(
                 )
             field_specs.extend(
                 [
-                    (
-                        "🔁 Repeat",
-                        "card_toggle_field",
-                        {"id": card.id, "field": "repeatable"},
-                    ),
                     ("🏷 Categories", "card_choose_categories", {"id": card.id}),
                     ("⚡ Energy", "card_choose_energy", {"id": card.id}),
                 ]
             )
+        if card.kind != CardKind.ACTION.value or card.completed_at is not None:
+            field_specs = [field for field in field_specs if field[2].get("field") != "schedule"]
         if full and not archived:
             field_specs.extend(
                 [
@@ -384,13 +373,14 @@ async def render_card(
                 "closed_at": f"{closed_at.astimezone(tz):%Y-%m-%d %H:%M}" if closed_at else None,
                 "note": card.note,
                 "priority": card.priority,
-                "hard_time": hard_time_text(card.hard_time, tz=tz),
-                "hard_time_description": card.hard_time_description,
+                "schedule": card.schedule,
+                "schedule_status": card.schedule_record.status if card.schedule_record else None,
+                "schedule_progress": await schedule_progress(session, card),
+                "schedule_question": card.schedule_record.question if card.schedule_record else None,
                 "blocked": card.blocked,
                 "blocked_description": card.blocked_description,
                 "effort_points": card.effort_points,
                 "tracked_mins": card.tracked_mins,
-                "repeatable": card.repeatable,
                 "categories": categories,
                 "energy_types": energy_types,
                 "value_names": [value.name for value in direct_values],

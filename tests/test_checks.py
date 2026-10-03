@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import pytest
 from hook_helpers import changes_of
+from schedule_helpers import create_card as create_domain_card
+from schedule_helpers import create_check
 from sqlalchemy import select
 
 from safwa.features.cards.model import Card, CardStage
-from safwa.features.cards.use_cases import create_card as create_domain_card
 from safwa.features.cards.use_cases import finish_action, move_card, toggle_card_check
 from safwa.features.checks.agent import CheckToolInput
 from safwa.features.checks.hooks import MISSED_RUN, MISSED_RUN_HOOK, missed_run_request
@@ -15,17 +16,12 @@ from safwa.features.checks.use_cases import (
     archive_check,
     card_checks,
     check_card_id,
-    check_value_ids,
-    create_check,
     delete_check,
     pending_checks,
     resolve_check,
-    toggle_check_value,
-    unobserved_series,
     update_check_fields,
 )
 from safwa.features.planning.use_cases import archive_settled_items, finish_sprint, start_sprint
-from safwa.features.values.use_cases import create_value
 from safwa.foundation.log_events import LogEvent
 from safwa.foundation.marks import live_repeat_instance_id, title_marks
 from tg_agent_shell.foundation.changes import Committed, take_changes
@@ -58,17 +54,17 @@ async def run_sprints(session, count: int) -> None:
 async def test_a_check_is_an_observation_not_a_task(sessions):
     """CH-WRITE-001 — tests/brd/checks.feature"""
     async with sessions() as session:
-        check = await create_check(session, title="Slept seven hours?", repeatable=True)
+        check = await create_check(session, title="Slept seven hours?", schedule="after completion")
         await session.commit()
 
         assert check.title == "Slept seven hours?"
-        assert check.repeatable is True
+        assert check.schedule == "after completion"
         # Nothing on a Check says how big it is, where it sits, or how much it matters.
         for field in ("effort_points", "stage", "effective_stage", "priority", "hard_time"):
             assert not hasattr(check, field)
 
     # The model reaches a Check through one contract, and that contract says the same.
-    assert set(CheckToolInput.model_fields) >= {"mode", "id", "title", "repeatable"}
+    assert set(CheckToolInput.model_fields) >= {"mode", "id", "title", "schedule"}
     assert not {"effort_points", "stage", "priority"} & set(CheckToolInput.model_fields)
 
 
@@ -199,33 +195,26 @@ async def test_finishing_a_card_answers_its_checks_at_the_same_time(sessions):
         assert (await session.get(Check, milk.id)).resolved_at is not None
 
 
-async def test_a_repeating_check_needs_one_answer_before_its_card_can_close(sessions):
+async def test_a_linked_check_needs_its_own_answer_before_its_card_can_close(sessions):
     """CH-GATE-008 — tests/brd/checks.feature"""
     async with sessions() as session:
         card = await create_action(session, title="Posture")
-        check = await linked_check(session, card.id, title="Posture straight?", repeatable=True)
-        await session.commit()
-
-        # Never answered on this Card, so it holds the Card.
-        with pytest.raises(DomainError) as error:
+        check = await linked_check(session, card.id, title="Posture straight?")
+        with pytest.raises(DomainError, match="Posture straight"):
             await finish_action(session, card.id)
-        assert f"#{check.id} Posture straight?" in str(error.value)
-
         _, successor = await resolve_check(session, check.id, CheckOutcome.PASSED)
-        await session.commit()
-        assert successor is not None
-        # The open instance belongs to the next cycle, not to this completion.
-        assert await unobserved_series(session, card.id) == []
+        assert successor is None
         await finish_action(session, card.id)
-        await session.commit()
-        assert (await session.get(Card, card.id)).effective_stage == CardStage.DONE.value
+        assert card.effective_stage == "done"
+
+
 
 
 async def test_an_answer_on_the_previous_action_does_not_close_the_next_one(sessions):
     """CH-GATE-008 — tests/brd/checks.feature"""
     async with sessions() as session:
-        card = await create_action(session, title="Posture", repeatable=True)
-        check = await linked_check(session, card.id, title="Posture straight?", repeatable=True)
+        card = await create_action(session, title="Posture", schedule="after completion")
+        check = await linked_check(session, card.id, title="Posture straight?")
         await session.commit()
 
         result = await finish_action(
@@ -238,40 +227,25 @@ async def test_an_answer_on_the_previous_action_does_not_close_the_next_one(sess
             await finish_action(session, successor_card_id)
 
 
-async def test_answering_a_repeating_check_opens_the_next_one(sessions):
+async def test_answering_a_scheduled_check_opens_one_independent_successor(sessions):
     """CH-REPEAT-009 — tests/brd/checks.feature"""
     async with sessions() as session:
-        card = await create_action(session, title="Posture")
-        check = await linked_check(session, card.id, title="Posture straight?", repeatable=True)
-        await session.commit()
-
+        check = await create_check(session, title="Posture straight?", schedule="after completion")
         answered, successor = await resolve_check(session, check.id, CheckOutcome.MISSED)
-        await session.commit()
-
-        assert answered.outcome == CheckOutcome.MISSED.value
-        assert successor is not None
-        assert successor.outcome is None
-        assert successor.title == "Posture straight?"
-        assert successor.repeatable is True
-        assert successor.series_id == check.series_id
-        assert successor.source_instance_id == check.id
-        assert await check_card_id(session, successor.id) == card.id
-
-        # The series already has one open instance, so answering the old one adds none.
+        assert answered.outcome == "missed" and successor.outcome is None
+        assert successor.series_id == check.id and successor.source_instance_id == check.id
+        assert await check_card_id(session, successor.id) is None
         _, again = await resolve_check(session, check.id, CheckOutcome.PASSED)
-        await session.commit()
         assert again is None
-        assert len(await pending_checks(session, card.id)) == 1
+        assert await live_repeat_instance_id(session, check) == successor.id
 
-        assert answered.is_closed_repeat() is True
-        assert successor.is_closed_repeat() is False
-        assert await live_repeat_instance_id(session, answered) == successor.id
+
 
 
 async def test_a_repeating_check_on_no_card_opens_the_next_one_just_the_same(sessions):
     """CH-REPEAT-009 — tests/brd/checks.feature"""
     async with sessions() as session:
-        check = await create_check(session, title="Posture straight?", repeatable=True)
+        check = await create_check(session, title="Posture straight?", schedule="after completion")
         await session.commit()
 
         _, successor = await resolve_check(session, check.id, CheckOutcome.MISSED)
@@ -281,32 +255,25 @@ async def test_a_repeating_check_on_no_card_opens_the_next_one_just_the_same(ses
         assert await check_card_id(session, successor.id) is None
 
 
-async def test_closing_a_card_deletes_its_unanswered_check(sessions):
+async def test_closing_a_card_keeps_its_answer_and_does_not_touch_independent_checks(sessions):
     """CH-CLOSE-010 — tests/brd/checks.feature"""
     async with sessions() as session:
         card = await create_action(session, title="Posture")
-        check = await linked_check(session, card.id, title="Posture straight?", repeatable=True)
-        await session.commit()
-
-        _, successor = await resolve_check(session, check.id, CheckOutcome.PASSED)
-        await session.commit()
-        successor_id = successor.id
-
-        await finish_action(session, card.id)
-        await session.commit()
-
-        assert (await session.get(Card, card.id)).effective_stage == CardStage.DONE.value
-        assert await session.get(Check, successor_id) is None
-        # The answered instance is the record of the cycle, so it stays on the Card.
+        check = await linked_check(session, card.id, title="Posture straight?")
+        independent = await create_check(session, title="Mood?", schedule="after completion")
+        await finish_action(session, card.id, check_outcomes={check.id: CheckOutcome.PASSED})
         assert [item.id for item in await card_checks(session, card.id)] == [check.id]
+        assert independent.outcome is None
+
+
 
 
 async def test_a_repeating_card_gives_fresh_checks_to_the_next_one(sessions):
     """CH-CLOSE-011 — tests/brd/checks.feature"""
     async with sessions() as session:
-        card = await create_action(session, title="Go to the market", repeatable=True)
+        card = await create_action(session, title="Go to the market", schedule="after completion")
         plain = await linked_check(session, card.id, title="Milk")
-        repeating = await linked_check(session, card.id, title="Posture", repeatable=True)
+        repeating = await linked_check(session, card.id, title="Posture")
         await session.commit()
 
         result = await finish_action(
@@ -320,7 +287,7 @@ async def test_a_repeating_card_gives_fresh_checks_to_the_next_one(sessions):
         copies = await card_checks(session, successor_card_id)
         assert sorted(copy.title for copy in copies) == ["Milk", "Posture"]
         assert all(copy.outcome is None for copy in copies)
-        assert {copy.repeatable for copy in copies} == {False, True}
+        assert {copy.schedule for copy in copies} == {None}
         assert {copy.series_id for copy in copies} == {plain.series_id, repeating.series_id}
         # The answered instances stay with the Action that closed.
         assert sorted(item.id for item in await card_checks(session, card.id)) == sorted(
@@ -335,15 +302,15 @@ async def test_a_repeating_card_gives_fresh_checks_to_the_next_one(sessions):
 async def test_a_repeat_successor_gets_one_row_per_series(sessions):
     """CH-CLOSE-011 — tests/brd/checks.feature"""
     async with sessions() as session:
-        card = await create_action(session, title="Posture round", repeatable=True)
-        check = await linked_check(session, card.id, title="Posture", repeatable=True)
+        card = await create_action(session, title="Posture round", schedule="after completion")
+        check = await linked_check(session, card.id, title="Posture")
         await session.commit()
 
         # Answering inside the cycle leaves the answered instance plus its open successor
         # on the same Card; the clone must still produce exactly one row for the series.
         _, spawned = await resolve_check(session, check.id, CheckOutcome.PASSED)
         await session.commit()
-        assert spawned is not None
+        assert spawned is None
 
         result = await finish_action(session, card.id)
         await session.commit()
@@ -353,50 +320,25 @@ async def test_a_repeat_successor_gets_one_row_per_series(sessions):
         assert copies[0].outcome is None
 
 
-async def test_reopening_a_card_brings_its_checks_back(sessions):
+async def test_reopening_a_card_brings_its_linked_checks_back(sessions):
     """CH-REOPEN-012 — tests/brd/checks.feature"""
     async with sessions() as session:
-        card = await create_action(session, title="Go to the market")
-        plain = await linked_check(session, card.id, title="Milk")
-        repeating = await linked_check(session, card.id, title="Posture", repeatable=True)
-        await session.commit()
-
-        await finish_action(
-            session,
-            card.id,
-            check_outcomes={plain.id: CheckOutcome.PASSED, repeating.id: CheckOutcome.MISSED},
-        )
-        await session.commit()
-
+        card = await create_action(session, title="Market")
+        check = await linked_check(session, card.id, title="Milk")
+        await finish_action(session, card.id, check_outcomes={check.id: CheckOutcome.PASSED})
         await move_card(session, card.id, CardStage.TODAY)
-        await session.commit()
-
-        # The plain Check is that same Check, asked again.
-        restored = await session.get(Check, plain.id)
-        assert restored.outcome is None
-        assert restored.resolved_at is None
-        assert restored.resolved_by is None
-        # The repeating series keeps its answer and opens a fresh instance instead.
-        answered = await session.get(Check, repeating.id)
-        assert answered.outcome == CheckOutcome.MISSED.value
-        opened = [
-            item
-            for item in await pending_checks(session, card.id)
-            if item.series_id == repeating.series_id
-        ]
-        assert len(opened) == 1
-        assert opened[0].id != repeating.id
-
-        with pytest.raises(DomainError, match="Resolve these Pending Checks") as error:
+        assert check.outcome is None and check.resolved_at is None and check.resolved_by is None
+        with pytest.raises(DomainError, match="Milk"):
             await finish_action(session, card.id)
-        assert "Milk" in str(error.value) and "Posture" in str(error.value)
+
+
 
 
 async def test_a_repeating_action_cannot_be_reopened_and_its_checks_do_not_move(sessions):
     """CH-REOPEN-012 — tests/brd/checks.feature"""
     async with sessions() as session:
-        card = await create_action(session, title="Posture round", repeatable=True)
-        check = await linked_check(session, card.id, title="Posture", repeatable=True)
+        card = await create_action(session, title="Posture round", schedule="after completion")
+        check = await linked_check(session, card.id, title="Posture")
         await session.commit()
 
         await finish_action(
@@ -436,34 +378,21 @@ async def test_an_answered_check_is_archived_two_sprints_later(sessions):
 async def test_an_archived_answer_still_counts_for_the_gate(sessions):
     """CH-ARCHIVE-013 — tests/brd/checks.feature"""
     async with sessions() as session:
-        card = await create_action(session, title="Posture round")
-        check = await linked_check(session, card.id, title="Posture", repeatable=True)
-        value = await create_value(session, "Health")
-        await toggle_check_value(session, check.id, value.id)
-        await session.commit()
-
-        _answered, successor = await resolve_check(session, check.id, CheckOutcome.PASSED)
-        await session.commit()
-        assert successor is not None
-
+        card = await create_action(session, title="Posture")
+        check = await linked_check(session, card.id, title="Posture straight?")
+        await resolve_check(session, check.id, CheckOutcome.PASSED)
         await archive_check(session, check.id)
-        await session.commit()
-
-        # The answer left the screens, not the count: the series is still observed here.
-        assert await unobserved_series(session, card.id) == []
+        assert await pending_checks(session, card.id) == []
         await finish_action(session, card.id)
-        await session.commit()
+        assert check.outcome == "passed" and check.archived_at is not None
 
-        assert (await session.get(Card, card.id)).effective_stage == CardStage.DONE.value
-        assert await session.get(Check, successor.id) is None
-        # R2 hands the deleted instance's Values back, and an archived answer still takes them.
-        assert await check_value_ids(session, check.id) == [value.id]
+
 
 
 async def test_a_repeating_card_copies_a_series_whose_answer_was_archived(sessions):
     """CH-CLOSE-011 — tests/brd/checks.feature"""
     async with sessions() as session:
-        card = await create_action(session, title="Weekly review", repeatable=True)
+        card = await create_action(session, title="Weekly review", schedule="after completion")
         check = await linked_check(session, card.id, title="Desk clear?")
         await resolve_check(session, check.id, CheckOutcome.PASSED)
         await archive_check(session, check.id)
@@ -526,48 +455,19 @@ async def test_pl_end_014_nothing_is_archived_while_the_workspace_is_in_planning
         assert (await session.get(Check, check.id)).archived_at is None
 
 
-async def test_ch_repeat_015_every_instance_names_its_series_and_the_cards(read_views):
+async def test_ch_repeat_015_linked_copies_name_their_card_series(read_views):
     """CH-REPEAT-015 — tests/brd/checks.feature"""
     sessions, runner = read_views
     async with sessions() as session:
-        card = await create_action(session, title="Pull up 20 times", repeatable=True)
-        check = await linked_check(session, card.id, title="Pulled up today?", repeatable=True)
-        _, second = await resolve_check(session, check.id, CheckOutcome.PASSED)
-        await resolve_check(session, second.id, CheckOutcome.MISSED)
-        result = await finish_action(session, card.id)
-        successor_card = result.successor_ids[0]
-        loose = await linked_check(session, None, title="Weighed in?")
+        card = await create_action(session, title="Pull-ups", schedule="after completion")
+        check = await linked_check(session, card.id, title="Twenty?")
+        await finish_action(session, card.id, check_outcomes={check.id: CheckOutcome.PASSED})
         await session.commit()
-        card_id, check_id, loose_id = card.id, check.id, loose.id
+    rows = (await runner.run("SELECT series_id, card_series_id, status FROM ai_checks ORDER BY id")).rows
+    assert rows == [{"series_id": check.id, "card_series_id": card.id, "status": "passed"},
+                    {"series_id": check.id, "card_series_id": card.id, "status": "pending"}]
 
-    rows = (
-        await runner.run(
-            "SELECT id, title, status, series_id, card_id, card_series_id FROM ai_checks "
-            "ORDER BY id"
-        )
-    ).rows
-    by_id = {row["id"]: row for row in rows}
 
-    # Every instance of the series names the same series, whichever copy of the Card it
-    # landed on, and a Check that was never copied names itself.
-    series = {row["series_id"] for row in rows if row["id"] != loose_id}
-    assert series == {check_id}
-    assert by_id[loose_id]["series_id"] == loose_id
-    assert by_id[loose_id]["card_series_id"] is None
-
-    # Counting every answer across every copy of that Action reads one list and joins nothing.
-    counted = (
-        await runner.run(
-            f"SELECT status, count(*) AS n FROM ai_checks WHERE card_series_id = {card_id} "
-            "GROUP BY status ORDER BY status"
-        )
-    ).rows
-    assert counted == [{"status": "missed", "n": 1}, {"status": "passed", "n": 1},
-                       {"status": "pending", "n": 1}]
-    assert {row["card_id"] for row in rows if row["id"] != loose_id} == {card_id, successor_card}
-
-    answered = by_id[check_id]
-    assert answered["title"].startswith("Pulled up today? [🔄1, live #")
 
 
 async def test_ch_repeat_015_a_card_finds_its_checks_by_naming_the_card(sessions):
@@ -609,8 +509,7 @@ async def test_ch_missed_017_a_run_of_missed_is_raised_at_every_multiple_of_thre
     assert MISSED_RUN_HOOK.on == (OnCommitted(kind=CHECK_MISSED),)
     assert MISSED_RUN == 3
     async with sessions() as session:
-        card = await create_action(session, title="Morning run")
-        live = await linked_check(session, card.id, title="Ran before work?", repeatable=True)
+        live = await create_check(session, title="Ran before work?", schedule="after completion")
         answered: list[Check] = []
 
         async def answer(outcome: CheckOutcome) -> Check:
@@ -633,7 +532,7 @@ async def test_ch_missed_017_a_run_of_missed_is_raised_at_every_multiple_of_thre
         third = await answer(CheckOutcome.MISSED)
         request = await missed_run_request(session, [third.id])
         assert request is not None
-        assert f"#{third.id} «Ran before work?» on Card «Morning run»: Missed 3 times in a row, since" in request
+        assert f"#{third.id} «Ran before work?» on no Card: Missed 3 times in a row, since" in request
         assert "what gets in the way" in request
         # The Pending instance on top was not counted; a fourth and a fifth ask nothing.
         for _ in range(2):
@@ -652,10 +551,9 @@ async def test_ch_missed_017_a_run_of_missed_is_raised_at_every_multiple_of_thre
 async def test_ch_missed_017_the_request_names_each_series_still_due_and_nothing_else(sessions):
     """CH-MISSED-017 — tests/brd/checks.feature"""
     async with sessions() as session:
-        card = await create_action(session, title="Evenings")
 
         async def missed_thrice(title: str) -> Check:
-            live = await linked_check(session, card.id, title=title, repeatable=True)
+            live = await create_check(session, title=title, schedule="after completion")
             for _ in range(MISSED_RUN):
                 done, live = await resolve_check(session, live.id, CheckOutcome.MISSED)
             await session.commit()

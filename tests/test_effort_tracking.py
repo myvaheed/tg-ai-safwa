@@ -191,7 +191,9 @@ async def test_cd_effort_008_a_draft_and_a_proposal_save_without_an_estimate(ses
             expected_version=manual.version, values=prepared.values,
         ))
         assert manual.effort_points is None
-        await update_card_fields(session, manual.id, {"repeatable": True})
+        await update_card_fields(session, manual.id, {"schedule": "after completion"})
+        from schedule_helpers import configure
+        await configure(session, manual)
         [next_id] = (await finish_action(session, manual.id)).successor_ids
         assert (await session.get(Card, next_id)).effort_points is None
 
@@ -215,6 +217,7 @@ async def test_pl_ep_030_sprint_and_plan_count_actions_with_ep_off(sessions):
         await finish_action(session, joined.id)
         assert await sprint_counts(session, sprint.id) == {
             "committed": 2, "added": 1, "removed": 0, "completed": 1, "unestimated": 2,
+            "unknown_schedules": 0,
         }
         assert await today_overload_request(session, [joined.id]) is None
         await session.commit()

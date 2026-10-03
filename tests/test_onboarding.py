@@ -15,13 +15,14 @@ from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
+from schedule_helpers import create_card, create_check
 from sqlalchemy import select
 from ui_harness import FakeMessage, kind_of, services_for
 
 from safwa.bootstrap.modules import AGENTS, FEATURE_COMMANDS, PROPOSALS, REGISTRY
 from safwa.features.cards.hooks import BLOCKER_HOOK
-from safwa.features.cards.use_cases import create_card, finish_action
-from safwa.features.checks.use_cases import create_check, resolve_check
+from safwa.features.cards.use_cases import finish_action
+from safwa.features.checks.use_cases import resolve_check
 from safwa.features.onboarding.agent import MANUAL, ONBOARDING_AGENT
 from safwa.features.onboarding.hooks import (
     NOTICE_HOOK,
@@ -299,7 +300,7 @@ async def test_ob_tip_002_many_items_are_cited_up_to_five_and_the_rest_counted(s
 async def test_ob_tip_002_each_item_is_one_line_with_its_state_as_it_is_now(sessions):
     """OB-TIP-002 — tests/brd/onboarding.feature"""
     async with sessions() as session:
-        milk = await create_check(session, title="Milk", repeatable=True)
+        milk = await create_check(session, title="Milk")
         posture = await create_check(session, title="Posture straight?")
         market = await create_card(
             session, kind="action", title="Go to the market", stage="today", effort_points=1,

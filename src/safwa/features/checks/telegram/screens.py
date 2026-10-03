@@ -24,6 +24,7 @@ from tg_agent_shell.telegram import (
 from ....constants import SELECTOR_PAGE_SIZE
 from ....foundation.marks import live_repeat_instance_id, title_marks
 from ...cards.api import card_labels, card_title
+from ...schedules.api import schedule_progress
 from ...values.model import Value
 from ..model import CHECK_OUTCOME_LABELS, Check, CheckOutcome
 from ..use_cases import card_checks, check_card_id, check_value_ids
@@ -175,34 +176,31 @@ async def render_check(
         linked_value_ids = await check_value_ids(session, check.id)
         payload = {"id": check.id, "card_id": card_id, "back": back}
         current = check_status(check)
-        # The owner sets only what they alone know: whether it repeats, and how it turned out.
-        rows: list[list[InlineKeyboardButton]] = (
-            []
-            if archived
-            else [
+        rows: list[list[InlineKeyboardButton]] = []
+        if not archived:
+            if linked_card_id is None and check.outcome is None:
+                rows.append(
+                    [
+                        await token_button(
+                            session, services.owner_id, "⏱ Schedule", "check_edit_schedule", payload
+                        )
+                    ]
+                )
+            rows.append(
                 [
                     await token_button(
                         session,
                         services.owner_id,
-                        f"🔁 Repeat: {'On' if check.repeatable else 'Off'}",
-                        "check_toggle_repeat",
-                        payload,
-                    )
-                ],
-                [
-                    await token_button(
-                        session,
-                        services.owner_id,
-                        outcome_button_label(
-                            outcome, CHECK_OUTCOME_LABELS[outcome], current=current
-                        ),
+                        outcome_button_label(outcome, CHECK_OUTCOME_LABELS[outcome], current=current),
                         "check_set_status",
                         {**payload, "outcome": outcome},
                     )
                     for outcome in SETTABLE_OUTCOMES
-                ],
-            ]
-        )
+                ]
+            )
+        progress = await schedule_progress(session, check)
+        setup = check.schedule_record.status if check.schedule_record else None
+        question = check.schedule_record.question if check.schedule_record else None
         live_id = (
             await live_repeat_instance_id(session, check) if check.is_closed_repeat() else None
         )
@@ -269,11 +267,17 @@ async def render_check(
         [
             f"<b>Check</b>: {html.escape(check.title + check_marks)}",
             f"Status: {check_status_label(check)}",
-            f"Repeatable: {'Yes' if check.repeatable else 'No'}",
+            f"Schedule: {html.escape(check.schedule or '—')}",
             f"Cards: {html.escape(', '.join(card_titles)) or '—'}",
             f"Values: {html.escape(', '.join(value_names)) or '—'}",
         ]
     )
+    if progress:
+        body += "\n" + html.escape(progress)
+    if setup in {"pending", "needs_clarification", "error"}:
+        body += "\nSchedule setup: " + setup.replace("_", " ")
+    if question:
+        body += "\n" + html.escape(question)
     await deliver(
         message,
         services,

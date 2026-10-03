@@ -23,7 +23,7 @@ from ...constants import WEEKDAY_NAMES
 from ...foundation.workspace import require_workspace
 from ..cards.api import CardStage, actions_on_stages, effort_label
 from ..profile.api import capacity_effort_points, effort_tracking_on, sprint_length_days
-from .api import sprint_counts, sprint_day, sprint_metrics, start_refusal
+from .api import plan_load, sprint_counts, sprint_day, sprint_metrics, start_refusal
 from .model import Sprint
 
 SPRINT_PROMPT = """You run the user's Sprint: you start it, finish it, and write the next Sprint's Success criteria. You also answer questions about the Sprint.
@@ -32,6 +32,7 @@ SPRINT_PROMPT = """You run the user's Sprint: you start it, finish it, and write
 The last message lists the Sprint as it stands now: the mode, its days, its Actions, its effort and capacity while Effort Points are on, and the Profile's Sprint length.
 Answer a question about the Sprint from that message: its dates, its length, which day it is, how many days are left.
 Read the Actions with `query_data` only when the question is about them.
+Planned Action counts and EP already include scheduled executions. Use these totals directly; an open Card is not necessarily one execution.
 
 # The `sprint` tool
 - `mode="update"` with `success_criteria`: write the next Sprint's Success criteria. Only in Planning.
@@ -78,19 +79,22 @@ async def sprint_now(context: AgentContext) -> str:
         if sprint is None:
             criteria = workspace.sprint_success_criteria.strip()
             planned = await actions_on_stages(session, CardStage.SPRINT, CardStage.TODAY)
-            effort = sum(card.effort_points or 0 for card in planned)
+            load = await plan_load(session, planned, start_date=today, end_date=today + timedelta(days=length - 1))
+            effort = load.effort
             capacity = await capacity_effort_points(session)
             refusal = await start_refusal(session, criteria)
             lines += [
                 "Mode: Planning. No Sprint is running.",
                 f"Next Sprint's Success criteria: {criteria or 'not written yet'}",
-                f"Planned: {len(planned)} Actions."
+                f"Planned: {load.actions} Actions."
                 + (f" Estimated load: {effort_label(effort)} EP. Capacity: {_capacity(capacity)}. "
-                   f"Unestimated Actions: {sum(card.effort_points is None for card in planned)}."
+                   f"Unestimated Actions: {load.unestimated}."
                    if effort_tracking else ""),
                 f"Sprint length in the Profile: {length} days. Started today, the Sprint "
                 f"runs {today.isoformat()} – {(today + timedelta(days=length - 1)).isoformat()}.",
                 "It can start now." if refusal is None else f"It cannot start now: {refusal}.",
+                *(["Schedule quantities are unknown for some Actions; these totals are lower bounds."]
+                  if load.unknown_schedules else []),
             ]
             return "\n".join(lines)
         counts = await sprint_counts(session, sprint.id)
@@ -118,6 +122,8 @@ async def sprint_now(context: AgentContext) -> str:
             *([f"Capacity it started with: {_capacity(sprint.capacity_effort_points)}.",
                f"Unestimated Actions: {counts['unestimated']}."] if effort_tracking else []),
             f"Sprint length in the Profile, for the next Sprint: {length} days.",
+            *(["Schedule quantities are unknown for some Actions; these totals are lower bounds."]
+              if counts["unknown_schedules"] else []),
         ]
         return "\n".join(lines)
 

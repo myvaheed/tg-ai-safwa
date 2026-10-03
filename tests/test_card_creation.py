@@ -2,18 +2,17 @@ from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
+from schedule_helpers import create_card, create_check
 
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.cards.agent import CardToolInput
 from safwa.features.cards.model import Card, Priority
 from safwa.features.cards.use_cases import (
-    create_card,
     finish_action,
     toggle_card_check,
     update_card_fields,
 )
 from safwa.features.checks.model import Check, CheckOutcome
-from safwa.features.checks.use_cases import create_check
 from safwa.features.planning.model import Sprint
 from safwa.features.saved_requests.model import SavedRequest
 from safwa.features.tags.model import Tag
@@ -54,9 +53,9 @@ async def test_no_proposal_may_touch_a_closed_repeat(sessions):
     """The proposal path is the only one that guesses which instance it meant."""
     async with sessions() as session:
         card = await create_card(
-            session, kind="action", title="Run", stage="today", effort_points=3, repeatable=True
+            session, kind="action", title="Run", stage="today", effort_points=3, schedule="after completion"
         )
-        check = await create_check(session, title="Posture straight?", repeatable=True)
+        check = await create_check(session, title="Posture straight?")
         await toggle_card_check(session, card.id, check.id)
         result = await finish_action(
             session, card.id, check_outcomes={check.id: CheckOutcome.PASSED}

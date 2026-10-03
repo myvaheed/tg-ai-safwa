@@ -23,7 +23,7 @@ from ..cards.model import CardCategory, CardEnergyType, Category, EnergyType, To
 from ..checks.model import Check, CheckOutcome
 from ..profile.api import active_day_minutes, time_tracking_on
 from ..values.model import CheckValue, Value
-from .api import effort_sums
+from .api import action_counts, effort_sums
 from .model import Sprint, SprintCommitment
 
 # The bucket an Action with no Category, or no Energy type, falls into: the shares of a
@@ -81,6 +81,7 @@ class DayTally:
     done: int
     done_by_category: dict[str, int] = field(default_factory=dict)
     done_by_energy: dict[str, int] = field(default_factory=dict)
+    unknown_schedules: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +119,7 @@ class RetroStatistics:
     timed_effort: float = 0.0
     longest: tuple[TimedAction, ...] = ()
     unestimated: int = 0
+    unknown_schedules: int = 0
 
     @property
     def day_share(self) -> int | None:
@@ -171,19 +173,15 @@ async def sprint_closing(
         )
     )
     effort = effort_sums(commitments)
+    counts = action_counts(commitments)
     finished = sum(1 for item in commitments if item.result == CardStage.DONE.value)
     open_ids = [
         item.card_id for item in commitments if item.result is None and item.removed_at is None
     ]
     blocked = 0
     if open_ids:
-        blocked = len(
-            list(
-                await session.scalars(
-                    select(Card.id).where(Card.id.in_(open_ids), Card.blocked.is_(True))
-                )
-            )
-        )
+        blocked_ids = set(await session.scalars(select(Card.id).where(Card.id.in_(open_ids), Card.blocked.is_(True))))
+        blocked = sum(item.quantity for item in commitments if item.card_id in blocked_ids)
     held = [item for item in commitments if item.removed_at is None]
     key = [item for item in held if item.key_action]
     labels = await _labels(session, [item.card_id for item in commitments])
@@ -198,13 +196,13 @@ async def sprint_closing(
         initial=effort["committed"],
         added=effort["added"],
         removed=effort["removed"],
-        planned=len(commitments),
+        planned=counts["committed"] + counts["added"],
         finished=finished,
-        remaining=len(open_ids),
+        remaining=sum(item.quantity for item in held if item.result is None),
         blocked=blocked,
-        key_total=len(key),
+        key_total=sum(item.quantity - item.removed_quantity for item in key),
         key_finished=sum(1 for item in key if item.result == CardStage.DONE.value),
-        key_unknown=sum(1 for item in held if item.key_action is None),
+        key_unknown=sum(item.quantity - item.removed_quantity for item in held if item.key_action is None),
         by_category=_buckets(commitments, labels[0], CATEGORY_BUCKETS, minutes),
         by_energy=_buckets(commitments, labels[1], ENERGY_BUCKETS, minutes),
         days=await _day_tallies(session, sprint, commitments, labels, tz),
@@ -214,7 +212,8 @@ async def sprint_closing(
         minutes=sum(minutes.values()),
         timed=len(timed),
         timed_effort=sum(effort_of[card_id] or 0 for card_id in minutes),
-        unestimated=sum(item.effort_snapshot is None for item in commitments),
+        unestimated=counts["unestimated"],
+        unknown_schedules=counts["unknown_schedules"],
         longest=tuple(TimedAction(title, spent) for _, title, spent in timed[:LONGEST_SHOWN]),
     )
 
@@ -271,7 +270,7 @@ def _buckets(
     for item in commitments:
         spent = minutes.get(item.card_id)
         for name in labelled[item.card_id]:
-            sums[name].update(effort=item.effort_snapshot or 0, count=1)
+            sums[name].update(effort=(item.effort_snapshot or 0) * item.quantity, count=item.quantity)
             if item.result == CardStage.DONE.value:
                 sums[name].update(done_effort=item.effort_snapshot or 0, done_count=1)
             if spent is not None:
@@ -298,14 +297,16 @@ async def _day_tallies(
     last = max(first, min(ended.astimezone(tz).date(), sprint.planned_end_date))
     card_ids = [item.card_id for item in commitments]
     mornings: dict[date, int] = {}
+    unknown: dict[date, int] = {}
     by_day: dict[date, list[int]] = {}
     if card_ids:
         for row in await session.execute(
-            select(TodayDay.day).where(
+            select(TodayDay.day, TodayDay.planned_count).where(
                 TodayDay.card_id.in_(card_ids), TodayDay.day >= first, TodayDay.day <= last
             )
         ):
-            mornings[row.day] = mornings.get(row.day, 0) + 1
+            mornings[row.day] = mornings.get(row.day, 0) + (row.planned_count or 0)
+            unknown[row.day] = unknown.get(row.day, 0) + (row.planned_count is None)
         finished = await session.execute(
             select(Card.id, Card.completed_at).where(
                 Card.id.in_(card_ids), Card.completed_at.is_not(None)
@@ -324,6 +325,7 @@ async def _day_tallies(
                 done=len(done_ids),
                 done_by_category=_count_labels(done_ids, labels[0]),
                 done_by_energy=_count_labels(done_ids, labels[1]),
+                unknown_schedules=unknown.get(day, 0),
             )
         )
         day += timedelta(days=1)

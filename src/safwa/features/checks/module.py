@@ -9,7 +9,7 @@ from tg_agent_shell.telegram.manifest import FeatureModule, ProposalContribution
 from . import agent, proposal, telegram, views
 from .hooks import MISSED_RUN_HOOK as MISSED_RUN_HOOK
 from .model import Check
-from .telegram import CHECK_CALLBACK_ACTIONS, render_check
+from .telegram import CHECK_CALLBACK_ACTIONS, CHECK_TEXT_INPUTS, render_check
 
 MODULE = FeatureModule(
     name="checks",
@@ -32,4 +32,5 @@ MODULE = FeatureModule(
         ),
     ),
     callback_actions=CHECK_CALLBACK_ACTIONS,
+    text_inputs=CHECK_TEXT_INPUTS,
 )

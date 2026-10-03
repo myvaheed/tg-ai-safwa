@@ -27,7 +27,9 @@ AI_CARDS = SqlView(
     "ai_cards",
     f"""SELECT c.id,
                c.title
-                 || CASE WHEN c.repeatable AND c.effective_stage IN ({_TERMINAL_STAGE_SQL})
+                 || CASE WHEN c.repeat_series_id IS NOT NULL AND c.schedule IS NOT NULL
+                              AND COALESCE(json_extract(s.rule, '$.timing.schedule_kind'), '') != 'once'
+                              AND c.effective_stage IN ({_TERMINAL_STAGE_SQL})
                          THEN printf('{MARKER_FORMAT}',
                               (SELECT count(*) FROM cards p
                                WHERE COALESCE(p.repeat_series_id, p.id)
@@ -37,10 +39,10 @@ AI_CARDS = SqlView(
                          ELSE '' END
                  || CASE WHEN c.archived_at IS NULL THEN '' ELSE '{ARCHIVE_MARKER}' END AS title,
                c.note, c.kind, c.effective_stage AS stage, c.priority,
-               c.hard_time_at, c.hard_time_description, c.blocked, c.blocked_description,
+               c.schedule, c.blocked, c.blocked_description,
                CASE WHEN (SELECT effort_tracking FROM user_profile WHERE id=1)
                     THEN c.effort_points END AS effort_points,
-               c.tracked_mins, c.repeatable, c.parent_id,
+               c.tracked_mins, c.parent_id,
                COALESCE(c.repeat_series_id, c.id) AS series_id,
                (SELECT group_concat(cc.category, ',') FROM card_categories cc
                 WHERE cc.card_id=c.id) AS categories,
@@ -51,19 +53,20 @@ AI_CARDS = SqlView(
                (SELECT group_concat(t.name, ',') FROM card_tags ct
                 JOIN tags t ON t.id=ct.tag_id WHERE ct.card_id=c.id) AS direct_tags,
                c.created_at, c.updated_at
-        FROM cards c""",
-    doc="""- `ai_cards(id, title, note, kind, stage, priority, hard_time_at, hard_time_description, blocked, blocked_description, effort_points, tracked_mins, repeatable, parent_id, series_id, categories, energy_types, direct_values, direct_tags, created_at, updated_at)`
+        FROM cards c LEFT JOIN schedules s ON s.id=c.schedule_id""",
+    doc="""- `ai_cards(id, title, note, kind, stage, priority, schedule, blocked, blocked_description, effort_points, tracked_mins, parent_id, series_id, categories, energy_types, direct_values, direct_tags, created_at, updated_at)`
   - `kind` goal | subgoal | action
   - `stage` backlog | sprint | today | done
   - `priority` critical | medium | low
-  - `effort_points` 0.5 | 1 | 2 | 3 | 5 | 8 | 13, what one action costs the user; NULL when unestimated or Effort Points are off
+  - `effort_points` 0.5 | 1 | 2 | 3 | 5 | 8 | 13, cost of one execution; NULL when unestimated or Effort Points are off
   - `tracked_mins` is the minutes the user spent on an action, NULL when not recorded
   - on a goal or a subgoal, `stage`, `blocked`, `effort_points` and `tracked_mins` are what the cards under it add up to
   - to total effort or time always add `WHERE kind = 'action'`, or each action is counted again inside every parent
+  - open Card rows are not planned execution counts; use `ai_current_sprint_metrics` for Sprint load and `get_scheduled` for calendar quantities
   - `categories` self | contribution | work | rest
   - `energy_types` physical | cognitive | social | values
-  - `hard_time_at` is when the card must happen, UTC, NULL when nothing fixes it; `hard_time_description` says what fixes it
-  - `blocked`, `repeatable` 0 | 1
+  - `schedule` is the original timing text, not computed dates or counts
+  - `blocked` 0 | 1
   - `categories`, `energy_types`, `direct_values` and `direct_tags` are comma-joined names, so match one with `LIKE '%Health%'`
   - `series_id` is the whole repeat series of one card; a card that never repeated is its own series
   - the checks on a card are `ai_checks WHERE card_id = <id>`""",

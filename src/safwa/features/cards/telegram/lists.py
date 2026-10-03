@@ -9,6 +9,7 @@ from typing import Any
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import (
@@ -23,10 +24,10 @@ from tg_agent_shell.telegram import (
 )
 
 from ....foundation.workspace import Workspace
-from ...planning.api import today_actions
+from ...planning.api import plan_load, today_actions
 from ...profile.api import effort_tracking_on
+from ...schedules.api import workspace_zone
 from ..api import actions_on_stages, list_order
-from ..hard_time import workspace_zone
 from ..hierarchy import card_children
 from ..model import Card, CardStage, effort_label
 from .presentation import card_title_marks, kind_label, paginate_cards
@@ -40,6 +41,7 @@ async def card_list_rows(
     page: int,
     back: dict[str, Any],
     prefix: Callable[[Card], str] | None = None,
+    counts: dict[int, int | None] | None = None,
 ) -> tuple[Page, list[str], list[list[InlineKeyboardButton]]]:
     """One Card list: the page, its plain-text lines, and one full-width button per Card."""
     tz = await workspace_zone(session)
@@ -53,12 +55,16 @@ async def card_list_rows(
             kind_label(card.kind),
             card.priority.title(),
         ]
+        quantity = counts[card.id] if counts is not None else 1
+        if quantity != 1:
+            metadata.append(f"× {quantity if quantity is not None else '?'}")
         if effort_tracking:
-            metadata.append(f"{effort_label(card.effort_points)} EP")
-        if card.hard_time_at is not None:
-            metadata.append(f"⏱ {card.hard_time_at.astimezone(tz):%d.%m %H:%M}")
-        if card.repeatable:
-            metadata.append("Repeat")
+            effort = card.effort_points * quantity if card.effort_points is not None and quantity is not None else None
+            metadata.append(f"{effort_label(effort)} EP")
+        if card.scheduled_at is not None:
+            metadata.append(f"⏱ {card.scheduled_at.astimezone(tz):%d.%m %H:%M}")
+        if card.schedule:
+            metadata.append("Schedule")
         if card.blocked:
             metadata.append("Blocked")
         marks = await card_title_marks(session, card)
@@ -110,12 +116,27 @@ async def stage_list_block(
         if stage is CardStage.TODAY
         else sorted(await actions_on_stages(session, stage), key=list_order)
     )
+    load = None
+    if stage in {CardStage.TODAY, CardStage.SPRINT}:
+        day = utcnow().astimezone(await workspace_zone(session)).date()
+        load = await plan_load(session, cards, **(
+            {"start_date": day, "end_date": day} if stage is CardStage.TODAY else {}
+        ))
+        planned = f"Planned: {'at least ' if load.unknown_schedules else ''}{load.actions} Actions"
+        if await effort_tracking_on(session):
+            planned += f" · {effort_label(load.effort)} EP"
+            if load.unestimated:
+                planned += f" · {load.unestimated} Actions have no estimate; EP total is partial"
+        if load.unknown_schedules:
+            planned += " · Schedule quantities are unknown"
+        header = "\n".join(filter(None, [header, planned]))
     current, descriptions, rows = await card_list_rows(
         session,
         services,
         cards,
         page=page,
         back={"action": action, **payload},
+        counts=load.counts if load is not None else None,
     )
     rows.extend(await paging_row(session, services.owner_id, current, action, payload))
     return (

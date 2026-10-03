@@ -7,16 +7,15 @@ the Checks that gate completion and the repeat successor are the packets after t
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
-from zoneinfo import ZoneInfo
 
 import pytest
 from hook_helpers import changes_of
 from pydantic import ValidationError
+from schedule_helpers import create_card, create_check
 from sqlalchemy import func, select
 
 from safwa.bootstrap.modules import PROPOSALS, SYSTEM_PROMPT
 from safwa.features.cards.agent import CardToolInput
-from safwa.features.cards.hard_time import typed_hard_time, workspace_zone
 from safwa.features.cards.hierarchy import blocking_actions, card_children, card_progress
 from safwa.features.cards.hooks import (
     BLOCKER_HOOK,
@@ -46,14 +45,12 @@ from safwa.features.cards.model import (
     TodayDay,
     effort_label,
 )
-from safwa.features.cards.telegram.presentation import paginate_cards
 from safwa.features.cards.use_cases import (
     CARD_BLOCKED,
     CARD_TODAY,
     CARD_TODAY_MORNING,
     EFFORT_POINTS,
     archive_subtree,
-    create_card,
     delete_one_card,
     delete_subtree,
     edit_card_text,
@@ -68,12 +65,13 @@ from safwa.features.cards.use_cases import (
     update_card_fields,
 )
 from safwa.features.checks.model import Check, CheckOutcome
-from safwa.features.checks.use_cases import check_card_id, create_check, toggle_check_value
+from safwa.features.checks.use_cases import check_card_id, toggle_check_value
 from safwa.features.planning.model import SprintCommitment
 from safwa.features.planning.use_cases import finish_sprint, start_sprint
 from safwa.features.profile.api import morning_time
 from safwa.features.profile.model import MORNING_TIME_DEFAULT, ProfileField, UserProfile
 from safwa.features.profile.use_cases import set_profile_field
+from safwa.features.schedules.api import workspace_zone
 from safwa.features.tags.model import CardTag, Tag
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.model import CardValue, Value
@@ -248,7 +246,7 @@ async def test_cd_field_007_a_goal_is_saved_without_the_fields_that_are_an_actio
             kind="goal",
             title="Release VrWalk",
             effort_points=5,
-            repeatable=True,
+            schedule="after completion",
             categories={"work"},
             energy_types={"cognitive"},
             blocked=True,
@@ -257,7 +255,7 @@ async def test_cd_field_007_a_goal_is_saved_without_the_fields_that_are_an_actio
         await session.flush()
 
         assert goal.effort_points is None
-        assert goal.repeatable is False
+        assert goal.schedule is None
         assert goal.blocked is False
         assert goal.blocked_description == ""
         assert not list(
@@ -632,7 +630,7 @@ async def test_cd_stage_017_reopening_an_action_undoes_what_closing_it_did(sessi
         assert (await session.get(Card, goal.id)).effective_stage == CardStage.TODAY.value
 
         repeating = await create_card(
-            session, kind="action", title="Posture", effort_points=1, stage="today", repeatable=True
+            session, kind="action", title="Posture", effort_points=1, stage="today", schedule="after completion"
         )
         await finish_action(session, repeating.id)
         await session.commit()
@@ -708,86 +706,21 @@ async def test_cd_blocked_019_a_goal_shows_the_blocked_actions_under_it(sessions
         assert (await session.get(Card, goal.id)).blocked is False
 
 
-async def test_cd_hardtime_033_a_hard_time_is_a_schedule_and_what_fixes_it(sessions):
+async def test_cd_hardtime_033_schedule_supplies_the_next_appointment(sessions):
     """CD-HARDTIME-033 — tests/brd/cards.feature"""
-    zone = ZoneInfo("Europe/Istanbul")
     async with sessions() as session:
-        clinic = await create_card(
-            session,
-            kind="action",
-            title="Call the clinic",
-            effort_points=1,
-            hard_time=await typed_hard_time(session, "Mon Wed 09:00"),
-            hard_time_description="They only answer in the morning",
-        )
-        plain = await create_card(session, kind="action", title="Read", effort_points=1)
-        await session.commit()
+        daily = await create_card(session, kind="action", title="Pills", schedule="daily 09:00")
+        first_at = daily.scheduled_at
+        result = await finish_action(session, daily.id)
+        successor = await session.get(Card, result.successor_ids[0])
+        assert successor.scheduled_at > first_at
+        assert successor.scheduled_at.astimezone(await workspace_zone(session)).strftime("%H:%M") == "09:00"
+        once = await create_card(session, kind="action", title="Passport", schedule="31.12.2099 10:00")
+        assert (await finish_action(session, once.id)).successor_ids == []
+        await update_card_fields(session, successor.id, {"schedule": None})
+        assert successor.schedule is None and successor.scheduled_at is None
 
-        # The schedule is a Reminder's, and the next occurrence is a Monday or a Wednesday.
-        assert clinic.hard_time["schedule_kind"] == "weekly"
-        assert clinic.hard_time["weekdays"] == ["Mon", "Wed"]
-        local = clinic.hard_time_at.astimezone(zone)
-        assert (local.strftime("%a"), local.strftime("%H:%M")) in {("Mon", "09:00"), ("Wed", "09:00")}
-        assert clinic.hard_time_description == "They only answer in the morning"
-        assert clinic.hard_time_at > datetime.now(UTC)
 
-        with pytest.raises(DomainError, match="Cannot read"):
-            await typed_hard_time(session, "sometime soon")
-        with pytest.raises(DomainError, match="need a time"):
-            await typed_hard_time(session, "Mon")
-
-        # Sorted: the Hard Time first, the sooner of two first.
-        later = await create_card(
-            session,
-            kind="action",
-            title="Dentist",
-            effort_points=1,
-            hard_time=await typed_hard_time(session, "31.12.2099 10:00"),
-        )
-        assert [card.title for card in paginate_cards([plain, later, clinic], 0).items] == [
-            "Call the clinic",
-            "Dentist",
-            "Read",
-        ]
-
-        # Removing the Hard Time takes the description with it.
-        await update_card_fields(session, clinic.id, {"hard_time": None})
-        assert (clinic.hard_time, clinic.hard_time_at, clinic.hard_time_description) == (
-            None,
-            None,
-            "",
-        )
-
-        # A repeating schedule carries to the next instance at its next occurrence; one
-        # moment does not.
-        daily = await create_card(
-            session,
-            kind="action",
-            title="Pills",
-            effort_points=0.5,
-            repeatable=True,
-            hard_time=await typed_hard_time(session, "daily 09:00"),
-            hard_time_description="With breakfast",
-        )
-        once = await create_card(
-            session,
-            kind="action",
-            title="Renew the passport",
-            effort_points=2,
-            repeatable=True,
-            hard_time=await typed_hard_time(session, "31.12.2099 10:00"),
-        )
-        first_at = daily.hard_time_at
-        next_daily = await session.get(
-            Card, (await finish_action(session, daily.id)).successor_ids[0]
-        )
-        next_once = await session.get(
-            Card, (await finish_action(session, once.id)).successor_ids[0]
-        )
-        assert next_daily.hard_time_at > first_at
-        assert next_daily.hard_time_at.astimezone(zone).strftime("%H:%M") == "09:00"
-        assert next_daily.hard_time_description == "With breakfast"
-        assert (next_once.hard_time, next_once.hard_time_at) == (None, None)
 
 
 async def test_cd_blocked_020_being_blocked_does_not_stop_anything(sessions):
@@ -926,7 +859,7 @@ async def test_cd_archive_024_only_a_closed_card_can_be_archived_by_hand(session
         assert (await session.get(Card, action.id)).archived_at is None
 
         repeating = await create_card(
-            session, kind="action", title="Posture", effort_points=1, stage="today", repeatable=True
+            session, kind="action", title="Posture", effort_points=1, stage="today", schedule="after completion"
         )
         await finish_action(session, repeating.id)
         await archive_subtree(session, repeating.id)
@@ -1044,7 +977,7 @@ async def test_cd_delete_025_deleting_a_card_deletes_everything_under_it(session
 async def test_cd_repeat_026_a_closed_repeat_names_its_place_and_the_open_one(sessions):
     """CD-REPEAT-026 — tests/brd/cards.feature"""
     async with sessions() as session:
-        first = await create_card(session, kind="action", title="Run", effort_points=2, repeatable=True, stage="today")
+        first = await create_card(session, kind="action", title="Run", effort_points=2, schedule="after completion", stage="today")
         result = await finish_action(session, first.id)
         second = await session.get(Card, result.successor_ids[0])
         result = await finish_action(session, second.id)
@@ -1071,7 +1004,7 @@ async def test_cd_repeat_026_the_views_name_the_series_and_the_open_one(read_vie
     """CD-REPEAT-026 — tests/brd/cards.feature"""
     sessions, runner = read_views
     async with sessions() as session:
-        first = await create_card(session, kind="action", title="Run", effort_points=2, repeatable=True, stage="today")
+        first = await create_card(session, kind="action", title="Run", effort_points=2, schedule="after completion", stage="today")
         result = await finish_action(session, first.id)
         plain = await create_card(session, kind="action", title="Once", effort_points=1, stage="today")
         await session.commit()
@@ -1148,17 +1081,17 @@ async def test_parent_stage_propagation_and_reopen(sessions):
 
 async def test_repeat_completion_clones_the_action(sessions):
     async with sessions() as session:
-        card = await a_card(session, title="Run", repeatable=True, stage="today")
+        card = await a_card(session, title="Run", schedule="after completion", stage="today")
         result = await finish_action(session, card.id)
         await session.commit()
         successor = await session.get(Card, result.successor_ids[0])
-        assert successor.effective_stage == CardStage.TODAY.value
+        assert successor.effective_stage == CardStage.BACKLOG.value
         assert successor.repeat_series_id == card.repeat_series_id
 
 
 async def test_a_closed_repeat_cannot_be_reopened_and_points_at_the_open_one(sessions):
     async with sessions() as session:
-        first = await a_card(session, title="Run", repeatable=True, stage="today")
+        first = await a_card(session, title="Run", schedule="after completion", stage="today")
         result = await finish_action(session, first.id)
         second = await session.get(Card, result.successor_ids[0])
         result = await finish_action(session, second.id)
@@ -1494,6 +1427,8 @@ async def test_cd_empty_035_the_request_names_the_parents_old_enough_and_still_w
 async def test_cd_today_036_entering_today_is_the_change_a_hook_follows_up(sessions):
     """CD-TODAY-036 — tests/brd/cards.feature"""
     async with sessions() as session:
+        await create_card(session, kind="action", title="Sprint scope", stage="sprint")
+        await start_sprint(session, success_criteria="Keep the schedule")
         born = await create_card(
             session, kind="action", title="Born today", stage="today", effort_points=1
         )
@@ -1509,7 +1444,7 @@ async def test_cd_today_036_entering_today_is_the_change_a_hook_follows_up(sessi
         assert changes_of(session, CARD_TODAY) == [Committed(CARD_TODAY, planned.id)]
         # The next instance of a finished repeating Action opens where it was: in Today.
         habit = await create_card(
-            session, kind="action", title="Habit", stage="today", effort_points=1, repeatable=True
+            session, kind="action", title="Habit", stage="today", effort_points=1, schedule="after completion"
         )
         take_changes(session.info)
         result = await finish_action(session, habit.id)
@@ -1621,6 +1556,8 @@ async def test_cd_stale_038_a_morning_in_today_is_written_down_once_and_handed_o
     assert isinstance(TODAY_MORNINGS_HOOK.effect, Run)
     morning = datetime(2026, 9, 18, 6, 30, tzinfo=UTC)
     async with sessions() as session:
+        await create_card(session, kind="action", title="Sprint scope", stage="sprint")
+        await start_sprint(session, success_criteria="Keep the schedule")
         chosen = await create_card(
             session, kind="action", title="Chosen", stage="today", effort_points=1
         )
@@ -1631,7 +1568,7 @@ async def test_cd_stale_038_a_morning_in_today_is_written_down_once_and_handed_o
         done = await create_card(session, kind="action", title="Done", stage="today", effort_points=1)
         await finish_action(session, done.id)
         habit = await create_card(
-            session, kind="action", title="Habit", stage="today", effort_points=1, repeatable=True
+            session, kind="action", title="Habit", stage="today", effort_points=1, schedule="after completion"
         )
         take_changes(session.info)
 

@@ -40,7 +40,7 @@ from ....foundation.workspace import Workspace
 from ...cards.api import CardStage, actions_on_stages, effort_label, list_order
 from ...cards.model import Card
 from ...profile.api import capacity_effort_points, effort_tracking_on
-from ..api import sprint_counts, sprint_day, sprint_metrics, today_actions
+from ..api import PlanLoad, plan_load, sprint_counts, sprint_day, sprint_metrics, today_actions
 from ..model import Sprint, SprintCommitment
 from ..use_cases import set_sprint_success_criteria, sprint_length_days
 
@@ -73,6 +73,11 @@ async def render_sprint(
         effort_tracking = await effort_tracking_on(session)
         remaining = sorted(await actions_on_stages(session, CardStage.SPRINT), key=list_order)
         today = await today_actions(session)
+        local_today = utcnow().astimezone(ZoneInfo(workspace.timezone)).date()
+        today_load = await plan_load(session, today, start_date=local_today, end_date=local_today)
+        commitments = {item.card_id: item for item in await session.scalars(
+            select(SprintCommitment).where(SprintCommitment.sprint_id == sprint.id)
+        )}
         done = sorted(
             await session.scalars(
                 select(Card).join(SprintCommitment, SprintCommitment.card_id == Card.id).where(
@@ -95,30 +100,46 @@ async def render_sprint(
             ),
         }
         label, cards, empty = lists[view]
+        quantities = {
+            key: {
+                card.id: (today_load.counts[card.id] if key == "today" else
+                          1 if key == "done" else commitments[card.id].planned_count)
+                for card in items
+            }
+            for key, (_, items, _) in lists.items()
+        }
+        list_counts = {
+            key: sum(count or 0 for count in values.values())
+            for key, values in quantities.items()
+        }
         shown = paginate(cards, page)
         descriptions = []
         for card in shown.items:
             mark = "✓" if view == "done" else "⛔" if card.blocked else "•"
             line = f"{mark} {html.escape(card.title)}"
+            quantity = quantities[view][card.id]
+            if quantity != 1:
+                line += f" × {quantity if quantity is not None else '?'}"
             if effort_tracking:
-                line += f" · {effort_label(card.effort_points)} EP"
+                estimate = commitments[card.id].effort_snapshot
+                effort = estimate * quantity if estimate is not None and quantity is not None else None
+                line += f" · {effort_label(effort)} EP"
             if view == "blocked":
                 line += f"\n<i>Reason: {html.escape(card.blocked_description)}</i>"
             descriptions.append(line)
         rows = []
         buttons = []
-        for key, (name, items, _) in lists.items():
+        for key, (name, _items, _) in lists.items():
             buttons.append(
                 await token_button(
                     session, services.owner_id,
-                    f"{'✓ ' if key == view else ''}{name} · {len(items)}",
+                    f"{'✓ ' if key == view else ''}{name} · {list_counts[key]}",
                     "sprint_page", {"view": key},
                 )
             )
         rows.extend([buttons[:2], buttons[2:]])
         rows.extend(await paging_row(session, services.owner_id, shown, "sprint_page", {"view": view}))
         # On the last day ending the Sprint is not early, and the button says so.
-        local_today = utcnow().astimezone(ZoneInfo(workspace.timezone)).date()
         day, length = sprint_day(sprint, local_today)
         page_label = f" · {shown.label}" if shown.count > 1 else ""
         totals = (
@@ -129,12 +150,14 @@ async def render_sprint(
             f"Taken <b>{counts['committed'] + counts['added']} Actions</b> · "
             f"Done <b>{counts['completed']} Actions</b>"
         )
+        if counts['unknown_schedules']:
+            totals += "\nSchedule quantities are unknown; planned totals are lower bounds."
         block = (
             f"<b>Sprint {sprint.number}</b>\n"
             f"{sprint.planned_start_date:%d.%m} – {sprint.planned_end_date:%d.%m} · Day {day} of {length}\n\n"
             f"<b>Success criteria:</b> {html.escape(sprint.success_criteria)}\n\n"
             f"{totals}\n\n"
-            f"<b>{label} · {len(cards)}</b>{page_label}\n"
+            f"<b>{label} · {list_counts[view]}</b>{page_label}\n"
             + ("\n".join(descriptions) or empty)
         )
         finishing = "⏹ Finish Sprint" if local_today >= sprint.planned_end_date else "⏹ Finish early"
@@ -194,6 +217,7 @@ async def _render_planning(
         effort_tracking = await effort_tracking_on(session)
         length = await sprint_length_days(session)
         planned = await actions_on_stages(session, CardStage.SPRINT, CardStage.TODAY)
+        load = await plan_load(session, planned)
         criteria = (workspace.sprint_success_criteria or "").strip() if workspace else ""
         rows = [
             [
@@ -219,7 +243,7 @@ async def _render_planning(
             )
         rows.append(menu_row())
         await session.commit()
-    cost, warning = plan_cost(planned, capacity, effort_tracking=effort_tracking)
+    cost, warning = plan_cost(load, capacity, effort_tracking=effort_tracking)
     text = with_notice(
         "<b>Planning</b>\n"
         f"Success criteria: {html.escape(criteria) if criteria else 'not set yet'}\n"
@@ -241,7 +265,7 @@ async def _render_planning(
 
 
 def plan_cost(
-    planned: list[Card], capacity: float | None, *, effort_tracking: bool = False
+    load: PlanLoad, capacity: float | None, *, effort_tracking: bool = False
 ) -> tuple[str, str]:
     """What the plan costs and, beside it, the capacity the owner set for a Sprint.
 
@@ -249,15 +273,18 @@ def plan_cost(
     number, and the warning is advice: nothing about it stops a Sprint from starting.
     """
     if not effort_tracking:
-        return f"{len(planned)} Actions", ""
-    effort = sum(card.effort_points or 0 for card in planned)
-    unestimated = sum(card.effort_points is None for card in planned)
+        return f"{'At least ' if load.unknown_schedules else ''}{load.actions} Actions" + (
+            " · Schedule quantities are unknown" if load.unknown_schedules else ""
+        ), ""
+    effort, unestimated = load.effort, load.unestimated
     line = (
-        f"{len(planned)} Actions · {effort_label(effort)} EP · "
+        f"{'At least ' if load.unknown_schedules else ''}{load.actions} Actions · {effort_label(effort)} EP · "
         f"capacity {effort_label(capacity)} EP"
     )
     if unestimated:
         line += f" · {unestimated} Actions have no estimate"
+    if load.unknown_schedules:
+        line += " · Schedule quantities are unknown; EP totals are partial"
     above = (
         f"⚠️ Above configured capacity ({effort_label(capacity)} EP)."
         if capacity and effort > capacity

@@ -67,11 +67,10 @@ def test_tool_inputs_drop_incidental_null_placeholders_from_every_mutation():
             "note": None,
             "stage": "backlog",
             "priority": "medium",
-            "hard_time": None,
+            "schedule": None,
             "blocked": False,
             "blocked_description": None,
             "effort_points": 1,
-            "repeatable": False,
             "categories": ["self"],
             "energy_types": ["physical"],
             "value_id": None,
@@ -95,7 +94,6 @@ def test_tool_inputs_drop_incidental_null_placeholders_from_every_mutation():
         "priority": "medium",
         "blocked": False,
         "effort_points": 1,
-        "repeatable": False,
         "categories": ["self"],
         "energy_types": ["physical"],
     }
@@ -105,10 +103,10 @@ def test_tool_inputs_drop_incidental_null_placeholders_from_every_mutation():
             "mode": "create",
             "id": None,
             "title": "Form is safe",
-            "repeatable": False,
+            "schedule": None,
         }
     )
-    assert check.model_fields_set == {"mode", "title", "repeatable"}
+    assert check.model_fields_set == {"mode", "title"}
 
 
 def test_zero_id_placeholders_are_ignored_but_real_ids_must_be_positive():
@@ -143,8 +141,8 @@ def test_zero_id_placeholders_are_ignored_but_real_ids_must_be_positive():
     [
         (
             "check",
-            {"mode": "create", "id": None, "title": "Form is safe", "repeatable": False},
-            {"title": "Form is safe", "repeatable": False},
+            {"mode": "create", "id": None, "title": "Form is safe", "schedule": None},
+            {"title": "Form is safe"},
         ),
         (
             "value",
@@ -397,8 +395,8 @@ def _runner_over_cards(tmp_path, count: int, note: str = "", **caps):
         for index in range(count):
             connection.exec_driver_sql(
                 "INSERT INTO cards(id,kind,title,note,manual_stage,effective_stage,priority,"
-                "repeatable,blocked,blocked_description,hard_time_description,version,created_at,"
-                "updated_at) VALUES (?,'action',?,?,'backlog','backlog','medium',0,0,'','',1,"
+                "blocked,blocked_description,version,created_at,"
+                "updated_at) VALUES (?,'action',?,?,'backlog','backlog','medium',0,'',1,"
                 "CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
                 (index + 1, f"Card {index:03d}", note),
             )

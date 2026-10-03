@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from agent_turns import PLAN, mutation_turn, route_turn
+from schedule_helpers import create_card
 
 from safwa.features.cards.model import Card
-from safwa.features.cards.use_cases import create_card
 
 
 async def create_manual_card(session, **overrides) -> Card:

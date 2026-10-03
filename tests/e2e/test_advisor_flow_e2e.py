@@ -49,11 +49,10 @@ async def test_placeholder_heavy_card_tool_payload_stays_a_root_action(e2e_harne
                 "note": "",
                 "stage": "backlog",
                 "priority": "medium",
-                "hard_time": False,
+                "schedule": None,
                 "blocked": False,
                 "blocked_description": "",
                 "effort_points": 1,
-                "repeatable": False,
                 "categories": ["self"],
                 "energy_types": ["physical"],
                 "value_id": 0,
@@ -137,7 +136,7 @@ async def test_ai_card_proposal_reaches_the_sprint_it_was_planned_into(e2e_harne
                 "kind": "action",
                 "title": "Push ups 30 times",
                 "parent_query": "SELECT id FROM ai_cards WHERE title = 'To be fit'",
-                "repeatable": True,
+                "schedule": "after completion",
                 "categories": ["self"],
                 "energy_types": ["physical"],
                 "value_query": "Fitness",
@@ -165,7 +164,9 @@ async def test_ai_card_proposal_reaches_the_sprint_it_was_planned_into(e2e_harne
         assert action is not None
         assert action.title == "Push ups 30 times"
         assert action.parent_id == goal.id
-        assert action.repeatable is True
+        assert action.schedule == "after completion"
+        from schedule_helpers import configure
+        await configure(session, action)
         assert action.effort_points == 2
         assert (
             await session.scalar(
@@ -209,7 +210,7 @@ async def test_ai_card_proposal_reaches_the_sprint_it_was_planned_into(e2e_harne
 
         assert await sprint_metrics(session, sprint.id) == {
             "committed": 2,
-            "added": 2,
+            "added": 0,
             "removed": 0,
             "completed": 2,
         }
@@ -346,7 +347,7 @@ async def test_read_and_mutation_in_one_turn_rejects_only_the_mutation(e2e_harne
     assert tool_results["card"]["retryable"] is True
 
 
-async def test_repeatable_action_preserves_tags_in_e2e_flow(e2e_harness):
+async def test_scheduled_action_preserves_tags_in_e2e_flow(e2e_harness):
     async with e2e_harness.sessions() as session:
         tag = Tag(name="Health")
         session.add(tag)
@@ -355,7 +356,7 @@ async def test_repeatable_action_preserves_tags_in_e2e_flow(e2e_harness):
             title="Run outside",
             stage=CardStage.TODAY.value,
             effort_points=2,
-            repeatable=True,
+            schedule="after completion",
         )
         session.add(CardTag(card_id=action.id, tag_id=tag.id))
         await session.flush()
@@ -437,6 +438,7 @@ async def test_advisor_sends_layered_system_blocks_and_canonical_dialogue(e2e_ha
     assert isinstance(tools, list) and [tool["function"]["name"] for tool in tools] == [
         "query_data",
         "open",
+        "get_scheduled",
         "route",
     ]
 

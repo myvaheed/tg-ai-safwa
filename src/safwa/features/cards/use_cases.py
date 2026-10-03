@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.changes import record_change
@@ -36,13 +36,23 @@ from ..checks.use_cases import (
 from ..planning.api import (
     delete_commitments_of_cards,
     record_sprint_result,
+    refresh_schedule_commitment,
     sync_commitment_for_stage,
+    sync_successor_commitment,
+)
+from ..schedules.api import (
+    close_deleted_schedules,
+    prepare_occurrence,
+    remaining_occurrences,
+    scheduled_stage,
+    set_schedule,
+    successor_slot,
+    workspace_zone,
 )
 from ..tags.api import Tag, attach_tags, unlinkable_tag_id
 from ..tags.model import CardTag
 from ..values.api import Value, attach_values, unlinkable_value_id
 from ..values.model import CardValue
-from .hard_time import HardTime, following_hard_time, hard_time_columns, workspace_zone
 from .hierarchy import branch_actions, card_children, propagate_ancestors, settle_archive
 from .model import (
     EFFORT_POINTS,
@@ -66,7 +76,7 @@ from .model import (
 ACTION_ONLY_FIELDS = (
     "effort_points",
     "tracked_mins",
-    "repeatable",
+    "schedule",
     "blocked",
     "blocked_description",
 )
@@ -88,12 +98,10 @@ async def create_card(
     note: str = "",
     stage: CardStage | str = CardStage.BACKLOG,
     priority: Priority | str = Priority.MEDIUM,
-    hard_time: HardTime | None = None,
-    hard_time_description: str = "",
+    schedule: str | None = None,
     blocked: bool = False,
     blocked_description: str = "",
     effort_points: float | None = None,
-    repeatable: bool = False,
     parent_id: int | None = None,
     categories: set[Category | str] | None = None,
     energy_types: set[EnergyType | str] | None = None,
@@ -119,7 +127,7 @@ async def create_card(
         # branch is in, so anything asked for here is dropped rather than refused.
         card_stage = CardStage.BACKLOG
         effort_points = None
-        repeatable = False
+        schedule = None
         blocked = False
         clean_description = ""
         category_values.clear()
@@ -127,7 +135,7 @@ async def create_card(
     validate_action_fields(
         card_kind,
         effort_points,
-        repeatable,
+        schedule,
         category_values,
         energy_values,
         blocked=blocked,
@@ -143,6 +151,8 @@ async def create_card(
         check = await session.get(Check, check_id)
         if check is None or check.archived_at is not None:
             raise DomainError(f"Check #{check_id} does not exist or is archived")
+        if check.schedule:
+            raise DomainError("A Check with its own Schedule must stay independent")
         if (held_by := await check_card_id(session, check_id)) is not None:
             raise DomainError(f"Check #{check_id} already belongs to Card #{held_by}")
 
@@ -154,15 +164,13 @@ async def create_card(
         manual_stage=card_stage.value,
         effective_stage=card_stage.value,
         priority=card_priority.value,
-        **hard_time_columns(hard_time),
-        hard_time_description=hard_time_description.strip() if hard_time else "",
         blocked=blocked,
         blocked_description=clean_description if blocked else "",
         effort_points=effort_points,
-        repeatable=repeatable,
     )
     session.add(card)
     await session.flush()
+    await set_schedule(session, card, schedule)
     for category in sorted(category_values):
         session.add(CardCategory(card_id=card.id, category=category))
     for energy_type in sorted(energy_values):
@@ -185,9 +193,9 @@ async def create_card(
 
 
 async def edit_card_text(session: AsyncSession, card_id: int, field: str, value: str) -> Card:
-    if field not in {"title", "note", "blocked_description", "hard_time_description"}:
+    if field not in {"title", "note", "blocked_description", "schedule"}:
         raise DomainError(
-            "Only a Card title, Note, blocked description or Hard Time description can be "
+            "Only a Card title, Note, blocked description or Schedule can be "
             "edited as text"
         )
     card = await session.get(Card, card_id)
@@ -197,11 +205,13 @@ async def edit_card_text(session: AsyncSession, card_id: int, field: str, value:
     if field == "title" and not normalized:
         raise DomainError("Card title cannot be empty")
     before = snapshot(card)
-    setattr(card, field, normalized)
+    if field == "schedule":
+        await set_schedule(session, card, normalized)
+        await refresh_schedule_commitment(session, card)
+    else:
+        setattr(card, field, normalized)
     if not card.blocked:
         card.blocked_description = ""
-    if card.hard_time is None:
-        card.hard_time_description = ""
     validate_blocked_fields(card.blocked, card.blocked_description)
     card.version += 1
     await record_card_event(session, card, f"edit_{field}", ActorType.USER_UI, before)
@@ -224,13 +234,11 @@ async def update_card_fields(
         "title",
         "note",
         "priority",
-        "hard_time",
-        "hard_time_description",
+        "schedule",
         "blocked",
         "blocked_description",
         "effort_points",
         "tracked_mins",
-        "repeatable",
     }
     unknown = set(fields) - allowed
     if unknown:
@@ -245,21 +253,19 @@ async def update_card_fields(
             raise DomainError("Goal and Subgoal cards cannot have Action-only fields")
     before = snapshot(card)
     for name, value in fields.items():
-        if name in {"title", "note", "hard_time_description"}:
+        if name in {"title", "note"}:
             value = str(value).strip()
         if name == "title" and not value:
             raise DomainError("Card title cannot be empty")
         if name == "priority":
             value = Priority(value).value
-        if name == "hard_time":
-            for column, stored in hard_time_columns(value).items():
-                setattr(card, column, stored)
+        if name == "schedule":
+            await set_schedule(session, card, value)
+            await refresh_schedule_commitment(session, card)
             continue
         setattr(card, name, value)
-    if card.hard_time is None:
-        card.hard_time_description = ""
     if card.kind == CardKind.ACTION.value:
-        validate_action_fields(card.kind, card.effort_points, card.repeatable, blocked=card.blocked)
+        validate_action_fields(card.kind, card.effort_points, card.schedule, blocked=card.blocked)
         validate_tracked_mins(card.tracked_mins)
         if not card.blocked:
             card.blocked_description = ""
@@ -398,6 +404,8 @@ async def toggle_card_check(
     if check is None or check.archived_at is not None:
         raise DomainError("Check does not exist or is archived")
     link = await session.get(CardCheck, (card_id, check_id))
+    if link is None and check.schedule:
+        raise DomainError("A Check with its own Schedule must stay independent")
     if link is None and (held_by := await check_card_id(session, check_id)) is not None:
         raise DomainError(f"Check #{check_id} already belongs to Card #{held_by}")
     before = snapshot(card)
@@ -485,7 +493,7 @@ async def holds_subgoals(session: AsyncSession, card_id: int) -> bool:
 def validate_action_fields(
     kind: CardKind | str,
     effort_points: float | None,
-    repeatable: bool,
+    schedule: str | None,
     categories: set[str] | None = None,
     energy_types: set[str] | None = None,
     *,
@@ -499,7 +507,7 @@ def validate_action_fields(
                 + ", ".join(effort_label(rung) for rung in sorted(EFFORT_POINTS))
             )
         return
-    if effort_points is not None or repeatable or categories or energy_types or blocked:
+    if effort_points is not None or schedule or categories or energy_types or blocked:
         raise DomainError("Goal and Subgoal cards cannot have Action-only fields")
 
 
@@ -547,10 +555,12 @@ async def record_today_morning(
         )
         .order_by(Card.id)
     )
-    written = set(await session.scalars(select(TodayDay.card_id).where(TodayDay.day == day)))
-    found = [card for card in in_today if card.id not in written]
+    written = set(await session.scalars(select(func.coalesce(Card.repeat_series_id, Card.id))
+                                       .join(TodayDay, TodayDay.card_id == Card.id).where(TodayDay.day == day)))
+    found = [card for card in in_today if (card.repeat_series_id or card.id) not in written]
     for card in found:
-        session.add(TodayDay(card_id=card.id, day=day))
+        session.add(TodayDay(card_id=card.id, day=day,
+                             planned_count=await remaining_occurrences(session, card, day, day)))
         record_change(session, CARD_TODAY_MORNING, card.id)
     return found
 
@@ -607,10 +617,12 @@ async def move_card(
     return result
 
 
-async def _copy_repeat_successor(session: AsyncSession, card: Card, live_stage: CardStage) -> Card:
+async def _copy_repeat_successor(
+    session: AsyncSession, card: Card, live_stage: CardStage, slot: datetime | None
+) -> Card:
     series_id = card.repeat_series_id or card.id
     card.repeat_series_id = series_id
-    following = await following_hard_time(session, card)
+    live_stage = CardStage(await scheduled_stage(session, card, slot, live_stage.value))
     successor = Card(
         parent_id=card.parent_id,
         kind=card.kind,
@@ -619,12 +631,12 @@ async def _copy_repeat_successor(session: AsyncSession, card: Card, live_stage: 
         manual_stage=live_stage.value,
         effective_stage=live_stage.value,
         priority=card.priority,
-        **hard_time_columns(following),
-        hard_time_description=card.hard_time_description if following else "",
+        schedule=card.schedule,
+        schedule_record=card.schedule_record,
+        period_start=slot,
         blocked=card.blocked,
         blocked_description=card.blocked_description,
         effort_points=card.effort_points,
-        repeatable=True,
         repeat_series_id=series_id,
         source_instance_id=card.id,
     )
@@ -643,7 +655,7 @@ async def _copy_repeat_successor(session: AsyncSession, card: Card, live_stage: 
     await clone_checks_for_successor(session, card.id, successor.id)
     if live_stage is CardStage.TODAY:
         record_change(session, CARD_TODAY, successor.id)
-    await sync_commitment_for_stage(session, successor)
+    await sync_successor_commitment(session, card, successor)
     return successor
 
 
@@ -666,6 +678,7 @@ async def finish_action(
     validate_tracked_mins(tracked_mins)
     # Asked before anything is written, so a refusal leaves the Action where it was.
     resolutions = await require_check_answers(session, card.id, check_outcomes)
+    await prepare_occurrence(session, card)
     previous_live_stage = CardStage(card.effective_stage)
     before = snapshot(card)
     card.manual_stage = CardStage.DONE.value
@@ -681,8 +694,9 @@ async def finish_action(
     if card.blocked:
         result.warnings.append(f"Blocked: {card.blocked_description}")
     await settle_checks(session, card.id, resolutions, actor=actor)
-    if card.repeatable:
-        successor = await _copy_repeat_successor(session, card, previous_live_stage)
+    repeats, slot = await successor_slot(session, card)
+    if repeats:
+        successor = await _copy_repeat_successor(session, card, previous_live_stage, slot)
         result.successor_ids.append(successor.id)
     result.ancestor_ids = await propagate_ancestors(session, card.parent_id)
     parent_id = card.parent_id
@@ -806,6 +820,7 @@ async def _purge_cards(session: AsyncSession, ids: list[int], actor: ActorType) 
     # Every link and commitment is deleted by name rather than left to the FK cascade,
     # which is a connection pragma and not guaranteed here. The events stay, and each
     # Card's deletion is one more.
+    await close_deleted_schedules(session, Card, ids)
     for card in await session.scalars(select(Card).where(Card.id.in_(ids))):
         await record_card_event(session, card, DELETE, actor, snapshot(card))
     await delete_checks_of_cards(session, ids)

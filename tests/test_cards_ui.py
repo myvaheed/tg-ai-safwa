@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from schedule_helpers import create_card, create_check
 from sqlalchemy import select
 from ui_harness import (
     CALLBACK_ACTIONS,
@@ -33,13 +34,12 @@ from safwa.features.cards.telegram.selectors import (
 from safwa.features.cards.use_cases import (
     EFFORT_POINTS,
     archive_subtree,
-    create_card,
     finish_action,
     move_card,
     toggle_card_check,
     toggle_card_value,
 )
-from safwa.features.checks.use_cases import create_check
+from safwa.features.planning.use_cases import start_sprint
 from safwa.features.tags.telegram import render_tag
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.telegram import render_value
@@ -71,11 +71,10 @@ async def test_card_note_input_updates_same_creation_message(sessions) -> None:
                     "note": "",
                     "stage": "backlog",
                     "priority": "medium",
-                    "hard_time": None,
+                    "schedule": None,
                     "blocked": False,
                     "blocked_description": "",
                     "effort_points": 2,
-                    "repeatable": False,
                     "categories": [],
                     "energy_types": [],
                     "value_ids": [],
@@ -350,8 +349,10 @@ async def test_card_text_field_prompt_replaces_creation_message(sessions) -> Non
 
 async def test_a_closed_card_shows_when_it_closed_and_where_its_series_went(sessions) -> None:
     async with sessions() as session:
+        await create_card(session, kind="action", title="Sprint scope", stage="sprint")
+        await start_sprint(session, success_criteria="Keep the schedule")
         card = await create_card(
-            session, kind="action", title="Run", stage="today", effort_points=1, repeatable=True
+            session, kind="action", title="Run", stage="today", effort_points=1, schedule="after completion"
         )
         result = await finish_action(session, card.id)
         await session.commit()
@@ -497,7 +498,7 @@ async def test_cd_tree_005_no_screen_can_change_a_cards_parent(sessions) -> None
 
 async def test_cd_field_007_a_goal_draft_is_not_offered_an_actions_controls(sessions, effort_on) -> None:
     """CD-FIELD-007 — tests/brd/cards.feature"""
-    action_only = {"🚧 Blocked", "🔢 Effort", "🔁 Repeat", "🏷 Categories", "⚡ Energy"}
+    action_only = {"🚧 Blocked", "🔢 Effort", "⏱ Schedule", "🏷 Categories", "⚡ Energy"}
     async with sessions() as session:
         editor = UiSession(
             owner_id=42,
@@ -769,7 +770,7 @@ async def test_cd_archive_027_an_archived_card_reads_as_archived(sessions) -> No
         await finish_action(session, plain.id)
         await archive_subtree(session, plain.id)
         repeating = await create_card(
-            session, kind="action", title="Run", effort_points=2, stage="today", repeatable=True
+            session, kind="action", title="Run", effort_points=2, stage="today", schedule="after completion"
         )
         await finish_action(session, repeating.id)
         await archive_subtree(session, repeating.id)
@@ -937,7 +938,7 @@ async def test_cd_view_031_a_card_opens_compact_with_full_editing_one_button_awa
         button
         for row in markup.inline_keyboard
         for button in row
-        if button.text == "🔁 Repeat"
+        if button.text == "🚧 Blocked"
     )
     await callback_token_handler(
         FakeCallback(repeat.callback_data.split(":", 1)[1], message), services
@@ -949,8 +950,10 @@ async def test_cd_view_031_a_card_opens_compact_with_full_editing_one_button_awa
 async def test_cd_repeat_032_a_repeating_action_says_its_series_was_done_today(sessions) -> None:
     """CD-REPEAT-032 — tests/brd/cards.feature"""
     async with sessions() as session:
+        await create_card(session, kind="action", title="Sprint scope", stage="sprint")
+        await start_sprint(session, success_criteria="Keep the schedule")
         first = await create_card(
-            session, kind="action", title="Run", effort_points=2, repeatable=True, stage="today"
+            session, kind="action", title="Run", effort_points=2, schedule="after completion", stage="today"
         )
         result = await finish_action(session, first.id)
         await session.commit()

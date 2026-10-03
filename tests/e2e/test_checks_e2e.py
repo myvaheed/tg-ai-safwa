@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 from advisor_e2e_helpers import PLAN, route_turn
 from database_key import keyed
+from schedule_helpers import create_card, create_check
 from sqlalchemy import select
 from ui_harness import spawn_timer
 
@@ -19,11 +20,10 @@ from safwa.bootstrap.modules import (
     SCREENS,
 )
 from safwa.features.cards.model import Card, CardStage
-from safwa.features.cards.use_cases import create_card, finish_action, toggle_card_check
+from safwa.features.cards.use_cases import finish_action, toggle_card_check
 from safwa.features.checks.model import Check, CheckOutcome
 from safwa.features.checks.use_cases import (
     check_card_id,
-    create_check,
     pending_checks,
     resolve_check,
 )
@@ -279,7 +279,7 @@ async def test_a_cited_item_opens_its_manual_screen(e2e_harness):
     await render_home(message, services)
     assert "<b>Check</b>: Milk" in message.sent[-1]
     assert "Go to the market" in message.sent[-1]
-    assert {"check_toggle_repeat", "check_set_status"} <= await _live_actions(e2e_harness)
+    assert {"check_set_status"} <= await _live_actions(e2e_harness)
 
     await _claim(
         e2e_harness, "check_set_status", message, services, id=check_ids[0], outcome="passed"
@@ -293,13 +293,11 @@ async def test_a_cited_item_opens_its_manual_screen(e2e_harness):
 
 async def test_a_closed_repeat_is_marked_everywhere_it_is_read(e2e_harness):
     async with e2e_harness.sessions() as session:
-        card = await create_card(session, title="Posture", kind="action", effort_points=1)
-        first = await create_check(session, title="Posture straight?", repeatable=True)
-        await toggle_card_check(session, card.id, first.id)
+        first = await create_check(session, title="Posture straight?", schedule="after completion")
         await session.commit()
         _, second = await resolve_check(session, first.id, CheckOutcome.PASSED)
         run = await create_card(
-            session, title="Run", kind="action", stage="today", effort_points=1, repeatable=True
+            session, title="Run", kind="action", stage="today", effort_points=1, schedule="after completion"
         )
         closed_run = await finish_action(session, run.id)
         await session.commit()
@@ -395,7 +393,7 @@ async def test_ai_can_create_and_read_checks(e2e_harness):
         [
             route_turn("workspace_mutator"),
             mutation_turn(
-                ("check", {"mode": "create", "title": "Posture straight?", "repeatable": True})
+                ("check", {"mode": "create", "title": "Posture straight?"})
             ),
             "Added the Check.",
             "Added the Check.",
@@ -411,7 +409,7 @@ async def test_ai_can_create_and_read_checks(e2e_harness):
     async with e2e_harness.sessions() as session:
         created = await session.scalar(select(Check).where(Check.title == "Posture straight?"))
         assert created is not None
-        assert created.repeatable is True
+        assert created.schedule is None
         assert created.outcome is None
         # The check tool never attaches; a new Check starts unlinked.
         assert await check_card_id(session, created.id) is None
@@ -419,7 +417,7 @@ async def test_ai_can_create_and_read_checks(e2e_harness):
 
     # ai_checks must be reachable, since it is the only route to a Check with no Card.
     rows = await advisor.adapters.query_runner.run(
-        "SELECT id, title, status, repeatable FROM ai_checks ORDER BY id"
+        "SELECT id, title, status, schedule FROM ai_checks ORDER BY id"
     )
     assert rows.rows[0]["status"] == "pending"
     assert rows.rows[0]["title"] == "Posture straight?"
@@ -509,7 +507,6 @@ async def test_manual_check_screens_only_repeat_and_answer(e2e_harness):
 
     await render_check(message, services, check_ids[0], card_id=card_id, back=back)
     assert (await _live_actions(e2e_harness)) - listed == {
-        "check_toggle_repeat",
         "check_set_status",
         "check_choose_values",
         "check_list",

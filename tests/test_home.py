@@ -100,7 +100,8 @@ async def test_the_dashboard_opens_with_the_first_actions_of_today(sessions) -> 
     assert _link("card", subgoal.id) not in body
     assert body.index(_link("card", domain.id)) < body.index(_link("card", critical.id))
     assert body.index(_link("card", critical.id)) < body.index(_link("card", plain.id))
-    assert [line.startswith("    ") for line in lines[1:4]] == [False, True, True]
+    assert lines[1] == f"Planned: {total} Actions"
+    assert [line.startswith("    ") for line in lines[2:5]] == [False, True, True]
     assert sum(_link("card", card.id) in body for card in (plain, post, critical, domain, *extra)) == (
         HOME_ACTIONS_SHOWN
     )
@@ -123,7 +124,8 @@ async def test_without_today_the_dashboard_takes_the_sprint_then_the_backlog(ses
         await session.commit()
     lines = _block(await _text(sessions), "Sprint")
     assert lines[0] == "<b>🏃 Sprint · 1 of 1</b>"
-    assert _link("card", planned.id) in lines[1]
+    assert lines[1] == "Planned: 1 Actions"
+    assert _link("card", planned.id) in lines[2]
 
 
 class Words:

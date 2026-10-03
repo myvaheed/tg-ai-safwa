@@ -34,7 +34,7 @@ from ...checks.telegram import (
     SETTABLE_OUTCOMES,
     outcome_button_label,
 )
-from ...checks.use_cases import unobserved_series
+from ...checks.use_cases import pending_checks
 from ..api import live_card_title
 from ..use_cases import finish_card
 from .screens import render_card
@@ -51,12 +51,10 @@ async def render_check_resolution(
     outcomes: dict[str, str | None] | None = None,
     notice: str | None = None,
 ) -> None:
-    """A repeating series already answered on this Card is not asked again: its open
-    instance belongs to the next cycle.
-    """
+    """Answer every Pending linked Check before completing its Card."""
     async with services.sessions() as session:
         card_name = await live_card_title(session, card_id)
-        pending = await unobserved_series(session, card_id)
+        pending = await pending_checks(session, card_id)
         if not pending:
             raise DomainError("This Card has no Pending Checks")
         # Nothing is prefilled: the gate may only be cleared by an answer the user gave.

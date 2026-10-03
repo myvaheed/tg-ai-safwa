@@ -60,7 +60,7 @@ class CheckProposalHandler:
             created = await create_check(
                 session,
                 title=str(values["title"]),
-                repeatable=bool(values.get("repeatable", False)),
+                schedule=values.get("schedule"),
                 actor=ActorType.AI,
             )
             return [created.id]
@@ -69,7 +69,7 @@ class CheckProposalHandler:
             raise StaleStateError("A Check changed; refresh this proposal")
         if change.action is ChangeAction.UPDATE:
             scalar_fields = {
-                name: value for name, value in values.items() if name in {"title", "repeatable"}
+                name: value for name, value in values.items() if name in {"title", "schedule"}
             }
             if scalar_fields:
                 await update_check_fields(

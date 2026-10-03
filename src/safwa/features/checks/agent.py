@@ -12,18 +12,25 @@ from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
 
 
 class CheckToolInput(ToolInput):
-    content_fields = frozenset({"title"})
+    content_fields = frozenset({"title", "schedule"})
+    semantic_null_fields = frozenset({"schedule"})
 
     mode: Literal["create", "update", "complete", "cancel", "link", "unlink"] = Field(
         description=(
             "complete answers the Check Passed and cancel answers it Missed; update renames it "
-            "or changes repeatable; link and unlink put a Value on this Check or take it off. "
+            "or changes schedule; link and unlink put a Value on this Check or take it off. "
             "Archiving is the remove tool."
         )
     )
     id: PositiveInt | None = None
     title: str | None = None
-    repeatable: bool | None = None
+    schedule: str | None = Field(
+        default=None,
+        description=(
+            "Independent Check timing in plain words, e.g. five times a day. "
+            "Null clears it on update. A scheduled Check cannot be attached to a Card."
+        ),
+    )
     value_id: PositiveInt | None = None
     value_ids: list[PositiveInt] | None = None
     value_query: str | list[str] | None = Field(
@@ -38,13 +45,13 @@ class CheckToolInput(ToolInput):
                 raise ValueError("a new Check must not include an id")
             if not (self.title or "").strip():
                 raise ValueError("a new Check needs a title")
-            if supplied - {"title", "repeatable"}:
-                raise ValueError("a new Check accepts only title and repeatable")
+            if supplied - {"title", "schedule"}:
+                raise ValueError("a new Check accepts only title and schedule")
             return self
         if self.id is None:
             raise ValueError(f"check mode '{self.mode}' needs an id")
         if self.mode == "update":
-            editable = {"title", "repeatable"}
+            editable = {"title", "schedule"}
             if not supplied:
                 raise ValueError("an updated Check needs at least one proposed field")
             if unsupported := supplied - editable:
@@ -62,7 +69,7 @@ class CheckToolInput(ToolInput):
 
 
 CHECK_AUTOAPPROVALS = {
-    "update": AutoApprovalRule(SCALAR_UPDATE, frozenset({"title", "repeatable"}))
+    "update": AutoApprovalRule(SCALAR_UPDATE, frozenset({"title", "schedule"}))
 }
 
 CHECK_TOOL = MutationToolSpec(

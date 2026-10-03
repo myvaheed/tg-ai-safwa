@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,15 +24,8 @@ from tg_agent_shell.proposals.api import (
 
 from ...enums import ActorType
 from ...foundation.marks import closed_repeat_refusal
-from ..checks.use_cases import unobserved_series
-from ..reminders.api import (
-    Schedule,
-    ScheduleError,
-    resolve_schedule,
-    schedule_payload,
-)
+from ..checks.use_cases import pending_checks
 from .api import CardQueryError, normalize_card_query
-from .hard_time import resolve_hard_time
 from .model import (
     TERMINAL_STAGES,
     Card,
@@ -75,7 +66,7 @@ PARENT_HINT = (
 ACTION_ONLY_FIELDS = (
     "effort_points",
     "tracked_mins",
-    "repeatable",
+    "schedule",
     "categories",
     "energy_types",
     "blocked",
@@ -88,13 +79,11 @@ CARD_SCALAR_FIELDS = frozenset(
         "title",
         "note",
         "priority",
-        "hard_time",
-        "hard_time_description",
+        "schedule",
         "blocked",
         "blocked_description",
         "effort_points",
         "tracked_mins",
-        "repeatable",
     }
 )
 
@@ -202,30 +191,6 @@ async def _resolve_parent_reference(
         )
 
 
-async def _resolve_hard_time(
-    context: PreparationContext, phrase: str, title: str
-) -> Schedule:
-    """Plain words into a schedule, by the Reminders' own setup session.
-
-    An unresolvable phrase becomes a retryable tool error carrying the question to ask.
-    """
-    try:
-        return await resolve_schedule(
-            context.provider,
-            when=phrase,
-            instruction=title,
-            now=datetime.now(UTC),
-            tz=ZoneInfo(context.world.timezone),
-        )
-    except ScheduleError as error:
-        raise ToolPreparationError(
-            "schedule_unclear",
-            str(error),
-            "Ask the user this exact question, then call card again with their answer in "
-            "hard_time. Never invent a time.",
-        ) from error
-
-
 async def _guard_pending_checks(
     session: AsyncSession, change: Any, values: dict[str, Any]
 ) -> None:
@@ -239,7 +204,7 @@ async def _guard_pending_checks(
     )
     if not completing or change.id is None:
         return
-    pending = await unobserved_series(session, int(change.id))
+    pending = await pending_checks(session, int(change.id))
     if not pending:
         return
     listed_checks = ", ".join(f"#{check.id} “{check.title}”" for check in pending)
@@ -382,12 +347,6 @@ class CardProposalHandler:
             if change.action is ChangeAction.UPDATE and not values:
                 raise DomainError("The Card proposal contains no applicable fields")
         await _resolve_parent_reference(context, values, str(proposed_kind))
-        if isinstance(values.get("hard_time"), str):
-            values["hard_time"] = schedule_payload(
-                await _resolve_hard_time(
-                    context, values["hard_time"], values.get("title") or getattr(card, "title", "")
-                )
-            )
         if card is not None and card.kind == CardKind.GOAL.value and values.get("parent_id"):
             if await holds_subgoals(context.session, card.id):
                 raise ToolPreparationError(
@@ -413,12 +372,10 @@ class CardProposalHandler:
                 note=values.get("note", ""),
                 stage=values.get("stage", CardStage.BACKLOG.value),
                 priority=values.get("priority", "medium"),
-                hard_time=await resolve_hard_time(session, values.get("hard_time")),
-                hard_time_description=str(values.get("hard_time_description") or ""),
+                schedule=values.get("schedule"),
                 blocked=bool(values.get("blocked", False)),
                 blocked_description=values.get("blocked_description", ""),
                 effort_points=values.get("effort_points"),
-                repeatable=bool(values.get("repeatable", False)),
                 parent_id=(
                     int(values["parent_id"]) if values.get("parent_id") is not None else None
                 ),
@@ -453,10 +410,6 @@ class CardProposalHandler:
                 for name, value in change.values.items()
                 if name in CARD_SCALAR_FIELDS
             }
-            if "hard_time" in scalar_fields:
-                scalar_fields["hard_time"] = await resolve_hard_time(
-                    session, scalar_fields["hard_time"]
-                )
             if scalar_fields:
                 await update_card_fields(session, card.id, scalar_fields, actor=ActorType.AI)
             if "parent_id" in change.values:

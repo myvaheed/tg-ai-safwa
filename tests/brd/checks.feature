@@ -10,13 +10,13 @@ Feature: Checks
 
   Scenario: CH-WRITE-001 — A Check is an observation, not a task
     Given the owner wants to record whether something held
-    Then a Check carries a title and whether it repeats, and nothing else
+    Then a Check carries a title and an optional plain-language Schedule
     And it has no effort, no stage, no priority, and never counts towards a Sprint
 
   Scenario: CH-WRITE-002 — Safwa writes a Check, and either of them answers it
     Given a Check that exists
     Then writing one, renaming one and linking one to a Card are proposals the owner saved
-    And its own screen answers it and turns repeat on or off, and offers nothing else
+    And its own screen answers it and edits its Schedule when independent, and offers nothing else
     And Safwa may propose the answer too, and it reaches the owner as a screen to save
     And a Check title that is empty, or nothing but spaces, is refused
 
@@ -52,46 +52,37 @@ Feature: Checks
     When the owner finishes it and answers both in the same act
     Then the Action is Done and both Checks carry their answers
 
-  Scenario: CH-GATE-008 — A repeating Check needs one answer before its Card can close
-    Given an Action carrying a repeating Check that was answered once, so the next one is Pending
-    When the owner finishes the Action as Done
-    Then it is allowed, and the Pending instance does not hold it
-    Given instead an Action whose repeating Check has never been answered on it
-    When the owner finishes it as Done
-    Then it is refused, and the refusal names that Check
-    And an answer given on the Action this one repeated from does not count
+  Scenario: CH-GATE-008 — Each linked Check needs an answer on this Card
+    Given an Action carrying a plain Check
+    When the Action is finished without answering that Check
+    Then it is refused
+    And an answer on the previous Action does not count for the successor
 
-  Scenario: CH-REPEAT-009 — Answering a repeating Check opens the next one
-    Given a repeating Check on a live Card
-    When the owner answers it
-    Then the answered one keeps its answer and stays where it is
-    And a fresh Pending instance opens on that same Card, with the same title, still repeating
-    And answering the answered one again opens no second instance
-    And a repeating Check on no Card opens the next one just the same
+  Scenario: CH-REPEAT-009 — A scheduled Check opens an independent successor
+    Given an independent Check with a compiled recurring Schedule
+    When it is first answered Passed or Missed
+    Then it keeps its answer and one Pending successor opens in the same series
+    And neither instance belongs to a Card
+    And correcting the old answer opens no second successor
 
-  Scenario: CH-CLOSE-010 — Closing a Card deletes its unanswered Check
-    Given an Action that does not repeat, carrying a repeating Check answered once, so one is Pending
-    When the owner finishes the Action
-    Then the Action closes and the Pending instance is deleted outright
-    And the answered ones stay on it
+  Scenario: CH-CLOSE-010 — Closing a Card preserves its answers and independent observations
+    Given an Action with a linked Check and a separate independent scheduled Check
+    When the linked Check is answered and the Action is completed
+    Then its answer stays with the Action
+    And the independent Check remains unchanged
 
-  Scenario: CH-CLOSE-011 — A repeating Card gives fresh Checks to the next one
-    Given a repeating Action carrying a plain Check and a repeating Check, both answered
-    When the owner finishes the Action
-    Then a successor Action is made, and each series lands on it as exactly one Pending instance
-    And the plain Check is written fresh there too, unanswered
-    And the answered instances stay with the Action that closed
-    And the successor cannot be finished until each of them has been answered once, by CH-GATE-008
+  Scenario: CH-CLOSE-011 — A recurring Action gives fresh plain Checks to its successor
+    Given an Action with a compiled recurring Schedule and linked plain Checks
+    When the Action is completed after those Checks are answered
+    Then its successor receives one Pending copy per linked Check series
+    And the old answers stay on the completed Action
+    And each copied Check must be answered on the successor
 
-  Scenario: CH-REOPEN-012 — Reopening a Card brings its Checks back
-    Given an Action that does not repeat, closed on a plain Check and on a repeating Check
-    When the owner reopens it
-    Then the plain Check is that same Check, Pending again, with its answer and its answer time wiped
-    And the repeating series opens a fresh Pending instance on the Card, leaving its answers alone
-    And the Action cannot be finished again until both have been answered again
-    Given instead an Action that repeats
-    When anything tries to reopen it
-    Then it is refused by CD-STAGE-017, and no Check on it changes
+  Scenario: CH-REOPEN-012 — Reopening a Card resets its linked Checks
+    Given an ordinary Action closed after its linked Checks were answered
+    When it is reopened
+    Then those same Checks return to Pending with their answer times cleared
+    And a closed recurring Action cannot be reopened while its series continues
 
   Scenario: CH-ARCHIVE-013 — An answered Check is archived two Sprints later
     Given a Check that was answered
@@ -102,10 +93,10 @@ Feature: Checks
     And a Check that is still Pending cannot be archived
 
   Scenario: CH-REPEAT-015 — A Check names its own series and the Card's
-    Given a repeating Check answered twice on a repeating Action that has been finished once
+    Given plain linked Checks copied by a recurring Action and independent scheduled Checks
     Then every instance names the same Check series, and one never copied names itself
     And every instance also names the series of the Card it hangs on, and none if it hangs on none
-    And counting every answer across every copy of that Action reads one list and joins nothing
+    And answers can be counted by the Check series or the Card series
     And the Checks on a Card are found by naming that Card, and in no other place
     And an answered instance is titled "[🔄2, live #7]" and the Pending one plainly (REPEAT_MARKER)
 

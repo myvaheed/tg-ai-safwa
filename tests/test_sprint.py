@@ -9,31 +9,27 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from hook_helpers import changes_of
+from schedule_helpers import create_card as create_domain_card
 from sqlalchemy import select
 from ui_harness import FakeMessage, services_for
 
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
 from safwa.bootstrap.modules import REGISTRY
-from safwa.features.cards.api import HARD_TIME_NOTICE_DAYS
-from safwa.features.cards.hard_time import typed_hard_time
+from safwa.features.cards.api import SCHEDULE_NOTICE_DAYS
 from safwa.features.cards.hooks import (
     ENERGY_BALANCE_HOOK,
     ENERGY_CANDIDATES,
-    HARD_TIME_HOOK,
     PLAN_CHECK,
     energy_balance_request,
-    hard_time_request,
 )
 from safwa.features.cards.model import Card, CardStage
 from safwa.features.cards.telegram import command_today
 from safwa.features.cards.use_cases import (
-    archive_subtree,
     delete_subtree,
     finish_action,
     move_card,
     update_card_fields,
 )
-from safwa.features.cards.use_cases import create_card as create_domain_card
 from safwa.features.planning.agent import sprint_now
 from safwa.features.planning.api import (
     SPRINT_ENDED,
@@ -71,7 +67,6 @@ from safwa.features.planning.use_cases import (
     sprint_metrics,
     start_sprint,
 )
-from safwa.features.profile.api import morning_time
 from safwa.features.profile.model import SPRINT_LENGTH_DAYS, ProfileField
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.reminders.model import Reminder
@@ -507,9 +502,9 @@ async def test_pl_context_020_todays_actions_are_handed_over_only_while_a_sprint
         # A Hard Time outranks all of it: least important, written last, still first.
         fixed = await create_card(
             session, title="The dentist", stage="today", effort_points=1,
-            priority="low", hard_time=await typed_hard_time(session, "09:00"),
+            priority="low", schedule="09:00",
         )
-        fixed_at = fixed.hard_time_at.astimezone(ZoneInfo("Europe/Istanbul"))
+        fixed_at = fixed.scheduled_at.astimezone(ZoneInfo("Europe/Istanbul"))
         await create_card(session, title="Later", stage="sprint", effort_points=3)
         await create_domain_card(session, title="The release", kind="goal", stage="today")
         await start_sprint(session, success_criteria="Ship v2")
@@ -525,10 +520,10 @@ async def test_pl_context_020_todays_actions_are_handed_over_only_while_a_sprint
     # The Actions in Today with the effort each carries, most important first: the Action
     # still in Sprint and the Goal above them are both looked up rather than handed over.
     assert [line for line in handed.splitlines() if line.startswith("- [")] == [
-        f"- [The dentist](card:{fixed.id}) effort=1 hard_time={fixed_at:%d.%m %H:%M}",
-        f"- [Ship it](card:{today.id}) effort=5",
-        f"- [Middling](card:{medium.id}) effort=2",
-        f"- [Sometime](card:{low.id}) effort=1",
+        f"- [The dentist](card:{fixed.id}) executions=0 effort=1 schedule_at={fixed_at:%d.%m %H:%M}",
+        f"- [Ship it](card:{today.id}) executions=1 effort=5",
+        f"- [Middling](card:{medium.id}) executions=1 effort=2",
+        f"- [Sometime](card:{low.id}) executions=1 effort=1",
     ]
     assert "Today Actions:" not in planning
     assert "The release" not in running
@@ -631,67 +626,17 @@ async def test_pl_scope_008_returning_to_sprint_scope_cancels_the_earlier_remova
         assert (await sprint_metrics(session, sprint.id))["removed"] == 0
 
 
-async def test_pl_hardtime_021_the_request_names_the_hard_times_the_plan_does_not_hold(sessions):
+async def test_pl_hardtime_021_the_schedule_report_names_planned_actions(sessions):
     """PL-HARDTIME-021 — tests/brd/planning.feature"""
-    assert HARD_TIME_HOOK.agent_related
-    assert HARD_TIME_HOOK.on == (OnCommitted(kind=SPRINT_STARTED), OnTick(at=morning_time))
-    tz = ZoneInfo("Europe/Istanbul")
-    today = datetime.now(tz).date()
-    # The question is asked at the last minute of the day: a Hard Time then is now, not past.
-    late = datetime.combine(today, time(23, 59), tzinfo=tz)
-
-    def on(days: int) -> str:
-        return f"{today + timedelta(days=days):%d.%m.%Y} 23:59"
-
+    from safwa.features.schedules.api import get_scheduled
     async with sessions() as session:
-        async def fixed(title: str, days: int, **overrides):
-            return await create_card(
-                session, title=title, hard_time=await typed_hard_time(session, on(days)),
-                **overrides,
-            )
+        action = await create_card(session, kind="action", title="Train", schedule="daily 09:00")
+        day = action.scheduled_at.astimezone(ZoneInfo("Europe/Istanbul")).date()
+        report = await get_scheduled(session, day, day, "card")
+        assert report["items"][0]["id"] == action.id
+        assert report["items"][0]["range"]["planned"] == 1
 
-        dentist = await fixed("Dentist", 1)
-        # In Planning there is no plan to hold anything.
-        assert await hard_time_request(session, [PLAN_CHECK], now=late) is None
-        await plan_one(session)
-        sprint = await start_sprint(session, success_criteria="Ship v2", length_days=7)
-        assert changes_of(session, SPRINT_STARTED) == [Committed(SPRINT_STARTED, sprint.id)]
-        await session.commit()
 
-        tax = await fixed("Tax office", 5)
-        await fixed("Concert", 20)
-        call = await fixed("Call mom", 0, stage="sprint")
-        await fixed("Report", 3, stage="sprint")
-        await fixed("Gym", 1, stage="today")
-        train = await fixed("Missed train", 1)
-        train.hard_time_at = late - timedelta(days=1)
-        meeting = await fixed("Morning meeting", 0)
-        meeting.hard_time_at = late - timedelta(hours=14)
-        paid = await fixed("Paid", 2)
-        await finish_action(session, paid.id)
-        shelved = await fixed("Shelved", 2)
-        await finish_action(session, shelved.id)
-        await archive_subtree(session, shelved.id)
-        await session.commit()
-
-        request = await hard_time_request(session, [PLAN_CHECK], now=late)
-        assert request is not None
-        for line in (
-            f"#{dentist.id} «Dentist»: {today + timedelta(days=1):%Y-%m-%d} 23:59, in Backlog",
-            f"#{tax.id} «Tax office»: {today + timedelta(days=5):%Y-%m-%d} 23:59, in Backlog",
-            f"#{call.id} «Call mom»: {today:%Y-%m-%d} 23:59, in Sprint",
-        ):
-            assert line in request
-        for absent in ("Concert", "Report", "Gym", "Missed train", "Morning meeting", "Paid", "Shelved"):
-            assert absent not in request
-        assert "Do not move anything without their answer" in request
-
-        # Taken into the plan before it is said, each is left out; with none left, nothing.
-        await move_card(session, dentist.id, CardStage.TODAY)
-        await move_card(session, tax.id, CardStage.SPRINT)
-        await move_card(session, call.id, CardStage.TODAY)
-        await session.commit()
-        assert await hard_time_request(session, [PLAN_CHECK], now=late) is None
 
 
 async def test_pl_energy_022_the_request_names_each_kind_the_sprint_lacks_and_the_backlog_has(
@@ -1029,7 +974,7 @@ async def test_pl_key_024_a_sprint_with_no_key_action_open_or_finished_is_warned
 
 async def test_pl_key_025_today_is_ordered_by_what_the_day_cannot_move(sessions):
     """PL-KEY-025 — tests/brd/planning.feature"""
-    assert HARD_TIME_NOTICE_DAYS == 1
+    assert SCHEDULE_NOTICE_DAYS == 1
     tz = ZoneInfo("Europe/Istanbul")
     today = datetime.now(tz).date()
 
@@ -1041,12 +986,12 @@ async def test_pl_key_025_today_is_ordered_by_what_the_day_cannot_move(sessions)
         key = await create_card(session, title="Key", stage="today")
         await create_card(
             session, title="Later this week", stage="today", priority="low",
-            hard_time=await typed_hard_time(session, on(4)),
+            schedule=on(4),
         )
         await create_card(session, title="Critical", stage="today", priority="critical")
         soon = await create_card(
             session, title="Tomorrow", stage="today", priority="low",
-            hard_time=await typed_hard_time(session, on(HARD_TIME_NOTICE_DAYS)),
+            schedule=on(SCHEDULE_NOTICE_DAYS),
         )
         await create_card(session, title="In the Sprint", stage="sprint")
         await start_sprint(session, success_criteria="Ship v2")
@@ -1076,6 +1021,6 @@ async def test_pl_key_025_today_is_ordered_by_what_the_day_cannot_move(sessions)
     async with sessions() as session:
         # A Hard Time that passed yesterday holds nothing today.
         soon = await session.get(Card, soon.id)
-        soon.hard_time_at = utcnow() - timedelta(days=1)
+        soon.period_start = utcnow() - timedelta(days=1)
         await session.commit()
         assert [card.title for card in await today_actions(session)][:2] == ["Critical", "Key"]

@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from datetime import date, timedelta
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.ai.contracts import AgentChange
@@ -22,8 +23,8 @@ from tg_agent_shell.proposals.model import ChangeAction
 from ....foundation.workspace import Workspace, require_workspace
 from ...cards.api import CardStage, actions_on_stages
 from ...profile.api import capacity_effort_points, effort_tracking_on
-from ..api import sprint_counts, sprint_day, sprint_metrics
-from ..model import Sprint
+from ..api import plan_load, sprint_counts, sprint_day, sprint_metrics
+from ..model import Sprint, SprintCommitment
 from ..use_cases import sprint_length_days
 from .sprint import plan_cost
 
@@ -76,8 +77,9 @@ class SprintProposalPresenter:
         if change.action is ChangeAction.CREATE:
             length = await sprint_length_days(session)
             planned = await actions_on_stages(session, CardStage.SPRINT, CardStage.TODAY)
+            load = await plan_load(session, planned)
             cost, warning = plan_cost(
-                planned, await capacity_effort_points(session),
+                load, await capacity_effort_points(session),
                 effort_tracking=await effort_tracking_on(session),
             )
             last = today + timedelta(days=length - 1)
@@ -106,7 +108,13 @@ class SprintProposalPresenter:
         unit = "EP" if effort_tracking else "Actions"
         missing = (f"\n{counts['unestimated']} Actions have no estimate. EP totals are partial."
                    if effort_tracking and counts['unestimated'] else "")
-        still_open = await actions_on_stages(session, CardStage.SPRINT, CardStage.TODAY)
+        remaining = sum(item.quantity for item in await session.scalars(
+            select(SprintCommitment).where(SprintCommitment.sprint_id == sprint.id,
+                                          SprintCommitment.result.is_(None),
+                                          SprintCommitment.removed_at.is_(None))
+        ))
+        if counts["unknown_schedules"]:
+            missing += "\nSchedule quantities are unknown; planned totals are lower bounds."
         return ProposalScreen(
             mode="Finish",
             item=f"Sprint {sprint.number}",
@@ -114,6 +122,6 @@ class SprintProposalPresenter:
                 f"{sprint.planned_start_date} – {sprint.planned_end_date}, day {day} of {days}",
                 f"Committed {metrics['committed']} · Added {metrics['added']} · "
                 f"Done {metrics['completed']} {unit}" + missing,
-                f"{len(still_open)} Actions are still open. They keep their stage.",
+                f"{remaining} Actions are still open. They keep their stage.",
             ),
         )

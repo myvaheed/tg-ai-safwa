@@ -28,19 +28,19 @@ from .model import minutes_label as minutes_label
 from .views import AI_CARDS
 
 PLANNED_STAGES = (CardStage.SPRINT, CardStage.TODAY)
-# How many days ahead a Hard Time is near enough to belong in Today: today and tomorrow.
-HARD_TIME_NOTICE_DAYS = 1
+# How many days ahead an appointment is near enough to belong in Today: today and tomorrow.
+SCHEDULE_NOTICE_DAYS = 1
 
 
 _PRIORITY_ORDER = {Priority.CRITICAL.value: 0, Priority.MEDIUM.value: 1, Priority.LOW.value: 2}
 
 
 def list_order(card: Card) -> tuple[bool, datetime, int, datetime]:
-    """Hard Time first and the sooner one before, then priority, then oldest: the
+    """Appointment first and the sooner one before, then priority, then oldest: the
     ordering of every Card list but Today, which is in the order the day cannot move."""
     return (
-        card.hard_time_at is None,
-        card.hard_time_at or card.created_at,
+        card.scheduled_at is None,
+        card.scheduled_at or card.created_at,
         _PRIORITY_ORDER[card.priority],
         card.created_at,
     )

@@ -20,8 +20,6 @@ from safwa.bootstrap.modules import REGISTRY, SCREENS
 from safwa.features.cards.hooks import (
     EMPTY_PARENT_GRACE_DAYS,
     EMPTY_PARENTS_HOOK,
-    HARD_TIME_HOOK,
-    PLAN_CHECK,
     REST_TODAY_HOOK,
 )
 from safwa.features.cards.use_cases import create_card
@@ -69,7 +67,6 @@ async def test_cd_empty_035_the_morning_question_is_said_and_read_back_on_the_ne
     # down again and is still worded once.
     morning = [
         (EMPTY_PARENTS_HOOK.name, [MORNING_TIME_DEFAULT]),
-        (HARD_TIME_HOOK.name, [PLAN_CHECK]),
         (REST_TODAY_HOOK.name, [MORNING_TIME_DEFAULT]),
     ]
 

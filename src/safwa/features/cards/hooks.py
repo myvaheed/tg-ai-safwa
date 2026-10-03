@@ -3,7 +3,7 @@ finished, a blocker just set, an Action
 finished without the time it took, a day loaded past what it is meant to hold, a Sprint
 started without a kind of energy the Backlog has, an Action found in Today morning after
 morning, and — each morning, and when a Sprint starts — the Goals and Subgoals that still
-have no Action under them, the Hard Times the plan does not hold, and a day planned without
+have no Action under them, and a day planned without
 the rest the Sprint holds.
 
 The mornings themselves are written down by work of its own on the same tick, on whether
@@ -29,10 +29,10 @@ from tg_agent_shell.hooks.contracts import (
     Tick,
 )
 
-from ..planning.api import SPRINT_STARTED, active_sprint_end_date, sprint_is_active
+from ..planning.api import SPRINT_STARTED, plan_load, sprint_is_active
 from ..profile.api import TIME_TRACKING_REMINDER, TODAY_OVERLOAD, effort_tracking_on, morning_time
-from .api import HARD_TIME_NOTICE_DAYS, PLANNED_STAGES, actions_on_stages
-from .hard_time import workspace_zone
+from ..schedules.api import workspace_zone
+from .api import PLANNED_STAGES, actions_on_stages
 from .hierarchy import branch_actions
 from .model import (
     TERMINAL_STAGES,
@@ -73,12 +73,6 @@ ENERGY_KINDS = {
 # How many mornings in a row an open Action stands in Today before it is asked about, and
 # again at each multiple.
 TODAY_STALE_DAYS = 3
-
-HARD_TIME_REQUEST = (
-    "Hard Times the plan does not hold:\n{cards}\n"
-    "Ask the user in one message whether to take each into the Sprint, and the ones due "
-    "today or tomorrow into Today. Do not move anything without their answer."
-)
 
 TODAY_OVERLOAD_REQUEST = (
     "Today holds {total} EP, over the {capacity} EP a day is meant to hold; {done} EP of "
@@ -285,13 +279,19 @@ async def today_overload_request(
             Card.completed_at < day_start + timedelta(days=1),
         )
     )
-    total = sum(card.effort_points or 0 for card in open_today) + (finished or 0)
+    day = day_start.astimezone(await workspace_zone(session)).date()
+    load = await plan_load(session, open_today, start_date=day, end_date=day)
+    total = load.effort + (finished or 0)
     if total <= TODAY_CAPACITY_EP:
         return None
     lines = "\n".join(
-        f"- #{card.id} «{card.title}» ({effort_label(card.effort_points)} EP)"
+        f"- #{card.id} «{card.title}» ("
+        + (f"{load.counts[card.id] if load.counts[card.id] is not None else '?'} executions × " if load.counts[card.id] != 1 else "")
+        + f"{effort_label(card.effort_points)} EP)"
         for card in open_today
     )
+    if load.unknown_schedules:
+        lines += "\nSchedule quantities are unknown; this total is a lower bound."
     return TODAY_OVERLOAD_REQUEST.format(
         total=effort_label(total),
         capacity=TODAY_CAPACITY_EP,
@@ -313,61 +313,6 @@ TODAY_OVERLOAD_HOOK = HookSpec(
 
 async def plan_check_due(event: Committed | Tick) -> tuple[str, ...]:
     return (PLAN_CHECK,)
-
-
-async def hard_time_request(
-    session: AsyncSession, items: Sequence[str], *, now: datetime | None = None
-) -> str | None:
-    """The request about the open Actions whose Hard Time comes before the plan holds them.
-
-    Two windows, read on the workspace's local days as the question is about to be said:
-    a Hard Time by the Sprint's last day while the Action sits in Backlog, and one today
-    or tomorrow while it is not in Today. In Planning there is no plan to hold them.
-    """
-    end = await active_sprint_end_date(session)
-    if end is None:
-        return None
-    tz = await workspace_zone(session)
-    moment = now or utcnow()
-    today = moment.astimezone(tz).date()
-    near = today + timedelta(days=HARD_TIME_NOTICE_DAYS)
-    cards = await session.scalars(
-        select(Card)
-        .where(
-            Card.kind == CardKind.ACTION.value,
-            Card.archived_at.is_(None),
-            Card.effective_stage.not_in([stage.value for stage in TERMINAL_STAGES]),
-            Card.hard_time_at.is_not(None),
-        )
-        .order_by(Card.hard_time_at, Card.id)
-    )
-    lines: list[str] = []
-    for card in cards:
-        assert card.hard_time_at is not None
-        when = card.hard_time_at.astimezone(tz)
-        stage = CardStage(card.effective_stage)
-        if card.hard_time_at < moment:
-            continue
-        outside_sprint = when.date() <= end and stage is CardStage.BACKLOG
-        outside_today = when.date() <= near and stage is not CardStage.TODAY
-        if outside_sprint or outside_today:
-            lines.append(
-                f"- #{card.id} «{card.title}»: {when:%Y-%m-%d %H:%M}, in {stage.value.capitalize()}"
-            )
-    if not lines:
-        return None
-    return HARD_TIME_REQUEST.format(cards="\n".join(lines))
-
-
-HARD_TIME_HOOK = HookSpec(
-    name="cards.hard_time_plan",
-    owner="cards",
-    on=(OnCommitted(kind=SPRINT_STARTED), OnTick(at=morning_time)),
-    evaluate=plan_check_due,
-    effect=Advise(prepare=hard_time_request),
-    title="Hard Time outside the plan",
-    description="When a Sprint starts and each morning, asks about the Actions whose Hard Time comes before the plan holds them.",
-)
 
 
 async def check_due(event: Tick) -> tuple[str, ...]:

@@ -2,31 +2,58 @@
 
 from __future__ import annotations
 
+from schedule_helpers import create_card, create_check
 from ui_harness import FakeCallback, FakeMessage, button_texts, services_for
 
 from safwa.features.cards.model import Card
-from safwa.features.cards.use_cases import create_card, toggle_card_check
+from safwa.features.cards.use_cases import toggle_card_check
 from safwa.features.checks.model import Check, CheckOutcome
 from safwa.features.checks.telegram import render_check
 from safwa.features.checks.use_cases import (
     archive_check,
-    create_check,
     resolve_check,
     toggle_check_value,
 )
 from safwa.features.values.model import Value
 from safwa.features.values.use_cases import create_value
 from tg_agent_shell.telegram import callback_token_handler
+from tg_agent_shell.telegram.dialogue import ordinary_text
+
+
+async def test_an_independent_check_schedule_is_edited_and_cleared_in_its_text_editor(sessions):
+    """CH-WRITE-002 — tests/brd/checks.feature"""
+    async with sessions() as session:
+        check = await create_check(session, title="Posture?")
+        check_id = check.id
+        await session.commit()
+    services = services_for(sessions)
+    message = FakeMessage(590, bot_message=True)
+    for index, (text, expected, status) in enumerate(
+        [("five times a day", "five times a day", "pending"), ("off", None, "disabled")]
+    ):
+        await render_check(message, services, check_id)
+        button = next(
+            button
+            for row in message.edits[-1][1].inline_keyboard
+            for button in row
+            if button.text == "⏱ Schedule"
+        )
+        await callback_token_handler(
+            FakeCallback(button.callback_data.split(":", 1)[1], message), services
+        )
+        typed = FakeMessage(591 + index, text=text, bot_message=False, bot=message.bot)
+        await ordinary_text(typed, services)
+        assert typed.was_deleted
+        async with sessions() as session:
+            check = await session.get(Check, check_id)
+            assert check.schedule == expected
+            assert check.schedule_record.status == status
 
 
 async def test_ch_archive_016_an_archived_check_keeps_its_answer(sessions) -> None:
     """CH-ARCHIVE-016 — tests/brd/checks.feature"""
     async with sessions() as session:
-        card = await create_card(
-            session, kind="action", title="Posture", effort_points=2, stage="today"
-        )
-        check = await create_check(session, title="Sat straight?", repeatable=True)
-        await toggle_card_check(session, card.id, check.id)
+        check = await create_check(session, title="Sat straight?", schedule="after completion")
         await resolve_check(session, check.id, CheckOutcome.PASSED)
         await archive_check(session, check.id)
         await session.commit()

@@ -122,13 +122,14 @@ def card_overview_text(
     if state.get("closed_at"):
         lines.append(f"Completed at: {html.escape(str(state['closed_at']))}")
     lines.append(f"Note: {html.escape(str(state.get('note') or '—'))}")
-    # A Hard Time is when, which is exactly what a day needs to see; it is not an
-    # Action-only field, so it stays where Priority is.
-    if state.get("hard_time") or not compact:
-        hard_time = html.escape(str(state.get("hard_time") or "No"))
-        if state.get("hard_time_description"):
-            hard_time += f" — {html.escape(str(state['hard_time_description']))}"
-        lines.append(f"Hard Time: {hard_time}")
+    if state.get("schedule") or not compact:
+        lines.append(f"Schedule: {html.escape(str(state.get('schedule') or '—'))}")
+        if state.get("schedule_progress"):
+            lines.append(html.escape(state["schedule_progress"]))
+        if state.get("schedule_status") in {"pending", "needs_clarification", "error"}:
+            lines.append(f"Schedule setup: {state['schedule_status'].replace('_', ' ')}")
+        if state.get("schedule_question"):
+            lines.append(html.escape(state["schedule_question"]))
     if not compact:
         lines.extend(
             [
@@ -158,7 +159,6 @@ def card_overview_text(
         if not compact:
             lines.extend(
                 [
-                    f"Repeatable: {'Yes' if state.get('repeatable') else 'No'}",
                     f"Categories: "
                     f"{html.escape(category_expression(state.get('categories', [])))}",
                     f"Energy: "
@@ -209,7 +209,7 @@ async def card_title_marks(session: AsyncSession, card: Card) -> str:
     there: the successor is still open, and finishing it again today is allowed.
     """
     marks = await title_marks(session, card)
-    if card.repeat_series_id is None and not card.repeatable:
+    if card.repeat_series_id is None and not card.schedule:
         return marks
     workspace = await session.get(Workspace, 1)
     tz = ZoneInfo(workspace.timezone if workspace else "UTC")

@@ -27,14 +27,9 @@ from tg_agent_shell.telegram.model import UiSession
 
 from ...home.api import menu_markup
 from ...profile.api import effort_tracking_on
+from ...schedules.api import SCHEDULE_INSTRUCTION
 from ...tags.model import Tag
 from ...values.model import Value
-from ..hard_time import (
-    HARD_TIME_INSTRUCTION,
-    hard_time_text,
-    resolve_hard_time,
-    workspace_zone,
-)
 from ..model import CardKind
 from ..use_cases import create_card
 from .draft import (
@@ -59,18 +54,16 @@ async def card_creation_markup(
         ("✏️ Title", "card_create_edit_text", {"field": "title"}),
         ("📝 Note", "card_create_edit_text", {"field": "note"}),
         ("⚠️ Priority", "card_create_choose_priority", {}),
-        ("⏱ Hard Time", "card_create_edit_text", {"field": "hard_time"}),
+        ("⏱ Schedule", "card_create_edit_text", {"field": "schedule"}),
     ]
-    if state.get("hard_time") is not None:
-        fields.append(
-            ("📝 Hard Time note", "card_create_edit_text", {"field": "hard_time_description"})
-        )
     if state["kind"] == CardKind.ACTION.value:
         fields.insert(2, ("📍 Stage", "card_create_choose_stage", {}))
+    else:
+        fields = [field for field in fields if field[2].get("field") != "schedule"]
+    if state["kind"] == CardKind.ACTION.value:
         fields.extend(
             [
                 ("🚧 Blocked", "card_create_toggle", {"field": "blocked"}),
-                ("🔁 Repeat", "card_create_toggle", {"field": "repeatable"}),
                 ("🏷 Categories", "card_create_choose_categories", {}),
                 ("⚡ Energy", "card_create_choose_energy", {}),
             ]
@@ -137,7 +130,7 @@ async def render_card_creation(
         )
         display = {
             **state,
-            "hard_time": hard_time_text(state["hard_time"], tz=await workspace_zone(session)),
+            "schedule": state["schedule"],
             "value_names": [value.name for value in values],
             "tag_names": [tag.name for tag in tags],
         }
@@ -209,10 +202,7 @@ async def _on_edit_text(context: CallbackContext) -> None:
     async with context.sessions() as session:
         draft = await require_card_draft(session, context.owner_id)
         state = dict(draft.state or {})
-        if field == "hard_time":
-            current = hard_time_text(state.get("hard_time"), tz=await workspace_zone(session)) or ""
-        else:
-            current = str(state.get(field) or "")
+        current = str(state.get(field) or "")
         state["input_field"] = field
         state["flow"] = "card_create"
     await render_text_input(
@@ -222,8 +212,8 @@ async def _on_edit_text(context: CallbackContext) -> None:
             title=f"Edit Card {field.replace('_', ' ').title()}",
             current_value=current,
             instruction=(
-                HARD_TIME_INSTRUCTION
-                if field == "hard_time"
+                SCHEDULE_INSTRUCTION
+                if field == "schedule"
                 else f"Send the new {field.replace('_', ' ')}."
             ),
             back_action="card_create_view",
@@ -292,12 +282,10 @@ async def _on_save(context: CallbackContext) -> None:
             note=state["note"],
             stage=state["stage"],
             priority=state["priority"],
-            hard_time=await resolve_hard_time(session, state["hard_time"]),
-            hard_time_description=state["hard_time_description"],
+            schedule=state["schedule"],
             blocked=state["blocked"],
             blocked_description=state["blocked_description"],
             effort_points=state["effort_points"],
-            repeatable=state["repeatable"],
             categories=set(state["categories"]),
             energy_types=set(state["energy_types"]),
             value_ids=set(state["value_ids"]),

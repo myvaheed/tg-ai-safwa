@@ -28,7 +28,6 @@ from ..features.cards.module import (
     BLOCKER_HOOK,
     EMPTY_PARENTS_HOOK,
     ENERGY_BALANCE_HOOK,
-    HARD_TIME_HOOK,
     PARENT_COMPLETION_HOOK,
     REST_TODAY_HOOK,
     TIME_TRACKING_REMINDER_HOOK,
@@ -70,6 +69,12 @@ from ..features.reminders.module import MODULE as REMINDERS
 from ..features.reminders.module import REMINDER_FIRE_HOOK, REMINDER_START_HOOK
 from ..features.retro.module import MODULE as RETRO
 from ..features.saved_requests.module import MODULE as SAVED_REQUESTS
+from ..features.schedules.module import MODULE as SCHEDULES
+from ..features.schedules.module import (
+    SCHEDULE_CLARIFICATION_HOOK,
+    SCHEDULE_RECOVERY_HOOK,
+    SCHEDULER_HOOK,
+)
 from ..features.summary.module import MODULE as SUMMARY
 from ..features.summary.module import SUMMARY_HOOK
 from ..features.tags.module import MODULE as TAGS
@@ -92,6 +97,7 @@ MODULES: tuple[FeatureModule, ...] = (
     DIARY,
     PROFILE,
     REMINDERS,
+    SCHEDULES,
     SAVED_REQUESTS,
     PROPOSALS_FEATURE,
     MEDIA_FEATURE,
@@ -123,7 +129,6 @@ HOOKS = (
     PARENT_COMPLETION_HOOK,
     TODAY_OVERLOAD_HOOK,
     EMPTY_PARENTS_HOOK,
-    HARD_TIME_HOOK,
     ENERGY_BALANCE_HOOK,
     REST_TODAY_HOOK,
     TODAY_MORNINGS_HOOK,
@@ -142,6 +147,9 @@ HOOKS = (
     RETURN_HOOK,
     REMINDER_START_HOOK,
     REMINDER_FIRE_HOOK,
+    SCHEDULER_HOOK,
+    SCHEDULE_RECOVERY_HOOK,
+    SCHEDULE_CLARIFICATION_HOOK,
     HOME_HOOK,
     MEMORY_RETRO_HOOK,
     *((PLAN_HOOK,) if featuretoggles.PLAN_REQUIRED else ()),

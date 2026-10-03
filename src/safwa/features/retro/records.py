@@ -82,10 +82,13 @@ def sprint_record(sprint: Sprint, *, effort_tracking: bool = False) -> dict[str,
         "key_actions": statistics.key_total,
         "key_actions_finished": statistics.key_finished,
     }
+    if statistics.unknown_schedules:
+        record["unknown_schedules"] = statistics.unknown_schedules
+        record["planned_totals"] = "Lower bounds: Schedule quantities are unknown."
     if effort_tracking:
         record["unestimated_actions"] = statistics.unestimated
         record["capacity"] = sprint.capacity_effort_points if sprint.capacity_effort_points is not None else "off"
-        if not statistics.unestimated:
+        if not (statistics.unestimated or statistics.unknown_schedules):
             record.update(
                 effort_taken=statistics.taken, effort_done=statistics.done,
                 done_share_percent=statistics.done_share,
@@ -93,7 +96,7 @@ def sprint_record(sprint: Sprint, *, effort_tracking: bool = False) -> dict[str,
                 effort_removed=statistics.removed,
             )
         else:
-            record["effort"] = "Not fully estimated; use Action counts."
+            record["effort"] = "Incomplete estimates or Schedule quantities; planned totals are lower bounds."
     if statistics.time_tracking:
         record["tracked_minutes"] = statistics.minutes
         record["actions_with_time"] = statistics.timed
@@ -172,6 +175,8 @@ def aggregate(
             counted_over["done_share_percent"] = len(estimated)
     if counted_over:
         result["counted_over"] = counted_over
+    if any(record.get("unknown_schedules") for record in included.values()):
+        result["planned_totals"] = "Lower bounds: some Schedule quantities are unknown."
     errors = {number: record["error"] for number, record in records.items() if "error" in record}
     if errors:
         result["errors"] = errors

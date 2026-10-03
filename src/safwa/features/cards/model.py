@@ -9,10 +9,8 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from enum import StrEnum
-from typing import Any
 
 from sqlalchemy import (
-    JSON,
     Boolean,
     Date,
     Float,
@@ -123,18 +121,17 @@ class Card(Base, TimestampMixin):
         String(20), default=CardStage.BACKLOG.value, index=True
     )
     priority: Mapped[str] = mapped_column(String(20), default=Priority.MEDIUM.value)
-    # When the Card must happen: a Reminder's schedule as its JSON payload, its next
-    # occurrence in UTC (what a list sorts by), and what fixes the time. All three are
-    # empty together; `cards/hard_time.py` is what writes them.
-    hard_time: Mapped[dict[str, Any] | None] = mapped_column(JSON)
-    hard_time_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
-    hard_time_description: Mapped[str] = mapped_column(Text, default="")
+    schedule: Mapped[str | None] = mapped_column(Text)
+    schedule_id: Mapped[int | None] = mapped_column(ForeignKey("schedules.id"), index=True)
+    period_start: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    schedule_record: Mapped["ScheduleDefinition | None"] = relationship(  # noqa: F821, UP037
+        "ScheduleDefinition", lazy="joined"
+    )
     blocked: Mapped[bool] = mapped_column(Boolean, default=False)
     blocked_description: Mapped[str] = mapped_column(Text, default="")
     effort_points: Mapped[float | None] = mapped_column(Float)
     # The minutes the owner says an Action took; on a Goal and a Subgoal, the sum below it.
     tracked_mins: Mapped[int | None] = mapped_column(Integer)
-    repeatable: Mapped[bool] = mapped_column(Boolean, default=False)
     repeat_series_id: Mapped[int | None] = mapped_column(Integer, index=True)
     source_instance_id: Mapped[int | None] = mapped_column(
         ForeignKey("cards.id", ondelete="SET NULL")
@@ -158,12 +155,24 @@ class Card(Base, TimestampMixin):
     energy_types: Mapped[list[CardEnergyType]] = relationship(cascade="all, delete-orphan")
 
     __table_args__ = (
-        Index("ix_cards_live_sort", "effective_stage", "hard_time_at", "priority", "created_at"),
+        Index("ix_cards_live_sort", "effective_stage", "period_start", "priority", "created_at"),
     )
+
+    @property
+    def scheduled_at(self) -> datetime | None:
+        rule = self.schedule_record.rule if self.schedule_record else None
+        return self.period_start if rule and rule["kind"] == "fixed" else None
 
     def is_closed_repeat(self) -> bool:
         """A repeat instance that already ended, so its series continues on a newer row."""
-        return self.repeatable and CardStage(self.effective_stage) in TERMINAL_STAGES
+        rule = self.schedule_record.rule if self.schedule_record else None
+        return (
+            self.repeat_series_id is not None
+            and CardStage(self.effective_stage) in TERMINAL_STAGES
+            and self.schedule is not None
+            and bool(rule)
+            and rule.get("timing", {}).get("schedule_kind") != "once"
+        )
 
     def live_instance_query(self) -> Select[tuple[int]]:
         """The open Card of this series. Only the newest instance can be open."""
@@ -242,5 +251,6 @@ class TodayDay(Base):
         ForeignKey("cards.id", ondelete="CASCADE"), primary_key=True
     )
     day: Mapped[date] = mapped_column(Date, primary_key=True)
+    planned_count: Mapped[int | None] = mapped_column(Integer().evaluates_none(), default=1)
 
 

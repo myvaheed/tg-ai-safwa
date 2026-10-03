@@ -313,3 +313,8 @@ leaves that low-level modules import. Keeping the package `__init__` empty is wh
 leaf from executing the manifest, which is how the import graph stays acyclic. The adapter package's
 own `__init__.py` is the exception and the reason: nothing imports one of its files to reach a leaf,
 so it is free to be the facade that makes a package and a module read the same from outside.
+
+Schedules owns compiled source revisions, deterministic period arithmetic, its Scheduler
+hooks and the Advisor read tool; see [SCHEDULES.md](SCHEDULES.md). Cards and Checks ask its
+`api.py` to change a source or calculate an occurrence. Only bootstrap binds the compiler
+and read tool to the provider and sessions.

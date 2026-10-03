@@ -16,6 +16,7 @@ and the check that draws it is a hook on a schedule, AG-HOOK-049 and AG-HOOK-050
 🏠 Sat, 27 Sep
 
 ☀️ Today · 5 of 8
+Planned: 8 Actions
 🎯 Launch the blog · ⚡3/8
     ⭐️ Write the first post · 🧠·⚡2
     ⭐️ Pick a domain · ⚡1
@@ -40,6 +41,9 @@ and the check that draws it is a hook on a schedule, AG-HOOK-049 and AG-HOOK-050
   the order every other Card list uses (`list_order`). The heading names the list and how many it
   holds. An Action under a Goal stands under it (`goal_of` skips a Subgoal between them); Goals
   come in the order of their first Action, Actions with no Goal after them.
+  The shown/total heading counts Card rows for pagination. Today/Sprint also show planned
+  execution counts and, with EP on, their load; repeating rows show × quantity. Today's
+  count uses its local day, Sprint uses its dates (Profile length while Planning).
 - **Values in focus**, by name, each with the words written for it, or its name alone when
   none could be written.
 - **Time tracked today**, only while Time tracking is on: `tracked_mins` of the Actions finished

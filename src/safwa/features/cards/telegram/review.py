@@ -5,7 +5,6 @@ from __future__ import annotations
 import html
 from collections.abc import Sequence
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,7 +31,6 @@ from tg_agent_shell.proposals.render import (
 from ...profile.api import effort_tracking_on
 from ...tags.model import CardTag
 from ...values.model import CardValue
-from ..hard_time import hard_time_text, workspace_zone
 from ..hierarchy import card_progress
 from ..model import (
     Card,
@@ -52,13 +50,11 @@ CARD_DETAIL_FIELDS = (
     "note",
     "stage",
     "priority",
-    "hard_time",
-    "hard_time_description",
+    "schedule",
     "blocked",
     "blocked_description",
     "effort_points",
     "tracked_mins",
-    "repeatable",
     "categories",
     "energy_types",
     "parent_id",
@@ -84,10 +80,9 @@ def normalized_card_details(values: dict[str, Any], *, creating: bool) -> dict[s
         fields.setdefault("stage", CardStage.BACKLOG.value)
         fields.setdefault("note", "")
         fields.setdefault("priority", "medium")
-        fields.setdefault("hard_time", None)
+        fields.setdefault("schedule", None)
         fields.setdefault("blocked", False)
         if fields.get("kind") == CardKind.ACTION.value:
-            fields.setdefault("repeatable", False)
             fields.setdefault("categories", [])
             fields.setdefault("energy_types", [])
     if referenced_values := reference_details(values, "value"):
@@ -96,13 +91,6 @@ def normalized_card_details(values: dict[str, Any], *, creating: bool) -> dict[s
         fields["tags"] = referenced_tags
     if referenced_checks := reference_details(values, "check"):
         fields["checks"] = referenced_checks
-    return fields
-
-
-def _with_hard_time_text(fields: dict[str, Any], tz: ZoneInfo) -> dict[str, Any]:
-    """A prepared Hard Time is a schedule payload; the owner reads it in words."""
-    if isinstance(fields.get("hard_time"), dict):
-        fields["hard_time"] = hard_time_text(fields["hard_time"], tz=tz)
     return fields
 
 
@@ -120,13 +108,11 @@ async def _card_detail_snapshot(session: AsyncSession, card: Card) -> dict[str, 
         "note": card.note,
         "stage": card.effective_stage,
         "priority": card.priority,
-        "hard_time": hard_time_text(card.hard_time, tz=await workspace_zone(session)),
-        "hard_time_description": card.hard_time_description,
+        "schedule": card.schedule,
         "blocked": card.blocked,
         "blocked_description": card.blocked_description,
         "effort_points": card.effort_points,
         "tracked_mins": card.tracked_mins,
-        "repeatable": card.repeatable,
         "categories": sorted(
             await session.scalars(
                 select(CardCategory.category).where(CardCategory.card_id == card.id)
@@ -160,7 +146,6 @@ async def _card_states(
 ) -> tuple[list[dict[str, Any]], list[tuple[str, str]]]:
     """The Card as it is, then as each change leaves it, and the names none of them found."""
     current: dict[str, Any] = {}
-    tz = await workspace_zone(session)
     if changes[0].entity_id:
         card = await session.get(Card, changes[0].entity_id)
         if card is not None:
@@ -171,13 +156,11 @@ async def _card_states(
                 "note": card.note,
                 "stage": card.effective_stage,
                 "priority": card.priority,
-                "hard_time": hard_time_text(card.hard_time, tz=tz),
-                "hard_time_description": card.hard_time_description,
+                "schedule": card.schedule,
                 "blocked": card.blocked,
                 "blocked_description": card.blocked_description,
                 "effort_points": card.effort_points,
                 "tracked_mins": card.tracked_mins,
-                "repeatable": card.repeatable,
                 "parent_id": card.parent_id,
                 "categories": sorted(
                     await session.scalars(
@@ -204,7 +187,7 @@ async def _card_states(
     unresolved_references: list[tuple[str, str]] = []
     for change in changes:
         before = states[-1]
-        proposed = _with_hard_time_text({**before, **dict(change.values)}, tz)
+        proposed = {**before, **dict(change.values)}
         if change.action is ChangeAction.COMPLETE:
             proposed["stage"] = CardStage.DONE.value
         elif change.action is ChangeAction.REOPEN:
@@ -278,13 +261,11 @@ async def _card_diffs(
         "parent_id": "Parent",
         "stage": "Stage",
         "priority": "Priority",
-        "hard_time": "Hard Time",
-        "hard_time_description": "Hard Time description",
+        "schedule": "Schedule",
         "blocked": "Blocked",
         "blocked_description": "Blocked Description",
         "effort_points": "Effort",
         "tracked_mins": "Time spent",
-        "repeatable": "Repeatable",
         "categories": "Categories",
         "energy_types": "Energy",
         **{spec.plural_key: f"{spec.label}s" for spec in CARD_REFERENCE_SPECS},
@@ -315,10 +296,9 @@ class CardProposalPresenter:
         self, session: AsyncSession, change: ProposalChange, fallback: AgentChange | None
     ) -> list[str]:
         values = dict(change.values)
-        tz = await workspace_zone(session)
         if change.action is ChangeAction.CREATE:
             return detail_lines(
-                _with_hard_time_text(normalized_card_details(values, creating=True), tz),
+                normalized_card_details(values, creating=True),
                 CARD_LABELS,
             )
         card = (
@@ -339,7 +319,7 @@ class CardProposalPresenter:
                 f"{verb} {detail_label(field, CARD_LABELS)}: {detail_value(value)}"
                 for field, value in relationship.items()
             ]
-        proposed = _with_hard_time_text(normalized_card_details(values, creating=False), tz)
+        proposed = normalized_card_details(values, creating=False)
         if change.action is ChangeAction.MOVE:
             proposed = {"stage": values.get("stage")}
         elif change.action is ChangeAction.COMPLETE:
@@ -397,12 +377,8 @@ class CardProposalPresenter:
             for field_name in ("categories", "energy_types"):
                 if chosen := values.get(field_name):
                     parts.append(detail_value(chosen))
-            if values.get("hard_time"):
-                parts.append(
-                    f"Hard Time {hard_time_text(values['hard_time'], tz=await workspace_zone(session))}"
-                )
-            if values.get("repeatable"):
-                parts.append("Repeatable")
+            if values.get("schedule"):
+                parts.append(f"Schedule {values['schedule']}")
             if values.get("blocked"):
                 parts.append("Blocked")
             parts.extend(await reference_groups(session, values, CARD_REFERENCE_SPECS))

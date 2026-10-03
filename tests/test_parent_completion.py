@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from hook_helpers import changes_of
+from schedule_helpers import create_card, create_check
 from ui_harness import FakeCallback, FakeMessage, services_for
 
 from safwa.bootstrap.modules import PROPOSALS
@@ -10,7 +11,6 @@ from safwa.features.cards.model import Card, CardStage
 from safwa.features.cards.telegram import render_card
 from safwa.features.cards.use_cases import (
     CARD_ACTIONS_FINISHED,
-    create_card,
     finish_action,
     finish_card,
     move_card,
@@ -18,7 +18,6 @@ from safwa.features.cards.use_cases import (
     toggle_card_check,
 )
 from safwa.features.checks.model import Check, CheckOutcome
-from safwa.features.checks.use_cases import create_check
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.proposals.prepare import ChangePreparer
 from tg_agent_shell.telegram import callback_token_handler
@@ -35,7 +34,7 @@ async def test_a_repeat_with_an_open_successor_does_not_offer_to_close_its_paren
             title="Walk",
             effort_points=1,
             parent_id=goal.id,
-            repeatable=True,
+            schedule="after completion",
         )
         await finish_action(session, repeat.id)
         assert changes_of(session, CARD_ACTIONS_FINISHED) == []

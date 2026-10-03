@@ -17,7 +17,7 @@ from tg_agent_shell.ai.messages import StateBlocks
 
 from ...foundation.workspace import Workspace
 from ..cards.model import Card, CardStage, Priority, effort_label
-from ..planning.api import today_actions
+from ..planning.api import plan_load, today_actions
 from ..planning.model import Sprint
 from ..profile.model import UserProfile
 from ..tags.model import Tag
@@ -53,8 +53,8 @@ async def _critical_cards(session: AsyncSession) -> list[Card]:
             )
             .order_by(
                 linked_active_value.desc(),
-                Card.hard_time_at.is_(None),
-                Card.hard_time_at,
+                Card.period_start.is_(None),
+                Card.period_start,
                 Card.created_at,
             )
             .limit(CONTEXT_CRITICAL_CARD_LIMIT)
@@ -118,13 +118,23 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
         )
     if sprint is not None:
         today = await today_actions(session)
+        local_day = datetime.now(timezone).date()
+        load = await plan_load(session, today, start_date=local_day, end_date=local_day)
         lines.append("Today Actions:")
+        lines.append(f"Planned executions remaining today: {load.actions}" + (
+            " (lower bound; Schedule quantities are unknown)" if load.unknown_schedules else ""
+        ))
+        if profile and profile.effort_tracking:
+            lines.append(f"Remaining planned effort today: {effort_label(load.effort)} EP")
+            if load.unestimated:
+                lines.append(f"Unestimated executions: {load.unestimated}; EP total is partial.")
         lines.extend(
             f"- {citation(card.title, 'card', card.id)}"
+            + f" executions={load.counts[card.id] if load.counts[card.id] is not None else '?'}"
             + (f" effort={effort_label(card.effort_points)}" if profile and profile.effort_tracking else "")
             + (
-                f" hard_time={card.hard_time_at.astimezone(timezone):%d.%m %H:%M}"
-                if card.hard_time_at
+                f" schedule_at={card.scheduled_at.astimezone(timezone):%d.%m %H:%M}"
+                if card.scheduled_at
                 else ""
             )
             for card in today

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
+from schedule_helpers import create_card, create_check
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 
@@ -10,7 +11,6 @@ from safwa.features.cards.model import Card, CardCheck
 from safwa.features.cards.references import VALUE_REFERENCE
 from safwa.features.cards.use_cases import (
     archive_subtree,
-    create_card,
     finish_action,
     toggle_card_check,
     toggle_card_value,
@@ -19,7 +19,6 @@ from safwa.features.checks.model import Check, CheckOutcome
 from safwa.features.checks.use_cases import (
     archive_check,
     check_value_ids,
-    create_check,
     delete_check,
     resolve_check,
     toggle_check_value,
@@ -143,10 +142,9 @@ async def test_an_answered_repeat_hands_its_values_to_its_successor(sessions):
         value = await create_value(session, "Health")
         card = await _action(session, "Morning run")
         repeating = await create_check(
-            session, title="Did I sleep seven hours?", repeatable=True
+            session, title="Did I sleep seven hours?", schedule="after completion"
         )
         once = await create_check(session, title="Did the audit pass?")
-        await toggle_card_check(session, card.id, repeating.id)
         await toggle_card_check(session, card.id, once.id)
         await toggle_check_value(session, repeating.id, value.id)
         await toggle_check_value(session, once.id, value.id)
@@ -325,8 +323,8 @@ async def test_a_repeating_card_hands_the_checks_values_to_the_next_cycle(sessio
     """VL-CHECK-016 — tests/brd/values.feature"""
     async with sessions() as session:
         value = await create_value(session, "Health")
-        card = await _action(session, "Pull-ups", stage="today", repeatable=True)
-        check = await create_check(session, title="Did 20 pull-ups?", repeatable=True)
+        card = await _action(session, "Pull-ups", stage="today", schedule="after completion")
+        check = await create_check(session, title="Did 20 pull-ups?")
         await toggle_card_check(session, card.id, check.id)
         await toggle_check_value(session, check.id, value.id)
         await session.commit()

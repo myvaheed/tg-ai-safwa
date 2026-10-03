@@ -25,15 +25,18 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
 ## The Card tree, and what is derived
 
 - A Goal is created root-level, and a Goal placed under a Goal becomes a Subgoal; a Subgoal is
-  always under a Goal; an Action may be root or under Goal/Subgoal and has no children. **Live stage**, effort, time spent, repeat, categories, energy and **Blocked** belong to an
+  always under a Goal; an Action may be root or under Goal/Subgoal and has no children. **Live stage**, effort, time spent, Schedule, categories, energy and **Blocked** belong to an
   Action alone, and are stripped for Goal/Subgoal at both the AI and the domain boundary. A
   Card's parent is set by proposal only; no screen offers the control, which is why no screen
   offers Subgoal as a kind either.
-- **Hard Time** is when a Card must happen: a Reminder's schedule carried by the Card as the
-  same payload (`hard_time`), its next occurrence (`hard_time_at`, what a list sorts by), and
-  what fixes the time (`hard_time_description`). `cards/hard_time.py` writes all three, through
-  the Reminders door. A repeating Action's next instance takes the next occurrence of a
-  repeating Hard Time; one that was a single moment does not carry over.
+- **Schedule** is plain-language timing on an Action or independent Check. Its compiled
+  revisions live in `schedules`; instances retain their revision and assigned period.
+  The Scheduler handles source edits, and deterministic code handles quotas, progress and
+  successor placement. See [SCHEDULES.md](SCHEDULES.md) for the flows and read contract.
+- Planned Actions count executions within the Sprint's dates, and planned EP multiply
+  that count by the unit estimate. `SprintCommitment.planned_count` carries the remaining
+  reservation across generated copies; `TodayDay.planned_count` snapshots the local day's
+  morning plan. Unknown counts make totals lower bounds. Actual Done and time count once.
 - A Goal and a Subgoal show what their **direct children** add up to. Each child already carries its
   own derived values, so the recursion reaches the Actions, and a child that never started still
   counts: a Subgoal with nothing in it is in Backlog and holds its Goal there.
@@ -77,11 +80,10 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
 
 - A Check records a state observation, never planned work: no effort, never in a Sprint, and Pending
   is derived rather than stored. A Check hangs on **one** Card or on none.
-- Three rules govern a Check across a Card's life: a Card closes when every Check series on it was
-  answered at least once **on this Card**; closing deletes whatever is still Pending; reopening puts
-  each plain Check back to Pending and opens one fresh instance of each repeating series. They live
-  in [features/checks](../src/safwa/features/checks), and Cards asks for them by name in
-  `checks/use_cases.py`.
+- A scheduled Check is independent and cannot be attached to a Card. A plain linked Check
+  gates Done, follows the Action cycle and resets when its ordinary Action is reopened.
+  Answering an independent scheduled Check opens one successor according to its rule.
+  Passed and Missed both count as observations; absence of an answer is not Missed.
 
 ## Deleted, and archived
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .handlers import CHECK_CALLBACK_ACTIONS
+from .handlers import CHECK_CALLBACK_ACTIONS, CHECK_TEXT_INPUTS
 from .review import CheckProposalPresenter, check_citation_label
 from .screens import (
     CHECK_OUTCOME_LABELS,
@@ -16,6 +16,7 @@ from .screens import (
 
 __all__ = [
     "CHECK_CALLBACK_ACTIONS",
+    "CHECK_TEXT_INPUTS",
     "CHECK_OUTCOME_LABELS",
     "CHECK_STATUS_EMOJIS",
     "SETTABLE_OUTCOMES",

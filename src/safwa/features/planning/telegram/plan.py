@@ -41,6 +41,7 @@ from ...cards.telegram import render_card
 from ...cards.use_cases import move_card
 from ...profile.api import capacity_effort_points, effort_tracking_on
 from ...saved_requests.model import SavedRequest
+from ..api import PlanLoad, plan_load
 from .sprint import plan_cost
 from .state import (
     load_plan_state,
@@ -100,7 +101,7 @@ def _link(services: Services, text: str, payload: str) -> str:
     return f'<a href="https://t.me/{services.bot_username}?start={payload}">{text}</a>'
 
 
-def _table(services: Services, planned: list[Card], *, effort_tracking: bool = False) -> str:
+def _table(services: Services, planned: list[Card], load: PlanLoad, *, effort_tracking: bool = False) -> str:
     rows = [
         '<tr><th align="left">Planned in Sprint</th>'
         + ('<th align="right">EP</th>' if effort_tracking else '')
@@ -110,10 +111,14 @@ def _table(services: Services, planned: list[Card], *, effort_tracking: bool = F
         rows.append(f'<tr><td colspan="{3 if effort_tracking else 2}" align="center">Nothing planned yet.</td></tr>')
     for card in planned:
         title = _link(services, html.escape(card.title), f"sp-{card.id}")
+        count = load.counts[card.id]
+        if count != 1:
+            title += f" × {count if count is not None else '?'}"
+        effort = effort_label((card.effort_points or 0) * count) if count is not None and card.effort_points is not None else "?"
         back = _link(services, _RETURN, f"sr-{card.id}")
         rows.append(
             f'<tr><td align="left">{title}</td>'
-            + (f'<td align="right">{effort_label(card.effort_points)}</td>' if effort_tracking else '')
+            + (f'<td align="right">{effort}</td>' if effort_tracking else '')
             + f'<td align="center">{back}</td></tr>'
         )
     return "<table bordered striped>" + "".join(rows) + "</table>"
@@ -224,15 +229,16 @@ async def render_plan(
             session, services, shown, filters=live, backlog_total=len(backlog)
         )
         effort_tracking = await effort_tracking_on(session)
+        load = await plan_load(session, planned)
         cost, warning = plan_cost(
-            planned, await capacity_effort_points(session), effort_tracking=effort_tracking
+            load, await capacity_effort_points(session), effort_tracking=effort_tracking
         )
         await session.commit()
     body = (
         "<p><b>Sprint plan</b></p>"
         f"<p>In Sprint: {cost}</p>"
         + (f"<p>{warning}</p>" if warning else "")
-        + _table(services, planned, effort_tracking=effort_tracking)
+        + _table(services, planned, load, effort_tracking=effort_tracking)
     )
     if replace_message_id is not None:
         await edit_registered_message(

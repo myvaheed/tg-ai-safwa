@@ -86,6 +86,8 @@ class SprintCommitment(Base, TimestampMixin):
     sprint_id: Mapped[int] = mapped_column(ForeignKey("sprints.id", ondelete="CASCADE"), index=True)
     card_id: Mapped[int] = mapped_column(ForeignKey("cards.id", ondelete="CASCADE"), index=True)
     effort_snapshot: Mapped[float | None] = mapped_column(Float)
+    # Completed copies count once; the open copy carries the remaining planned executions.
+    planned_count: Mapped[int | None] = mapped_column(Integer().evaluates_none(), default=1)
     scope_kind: Mapped[str] = mapped_column(String(20), default="initial")
     added_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     removed_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
@@ -95,3 +97,13 @@ class SprintCommitment(Base, TimestampMixin):
     key_action: Mapped[bool | None] = mapped_column(Boolean)
 
     __table_args__ = (UniqueConstraint("sprint_id", "card_id"),)
+
+    @property
+    def quantity(self) -> int:
+        return self.planned_count or 0
+
+    @property
+    def removed_quantity(self) -> int:
+        if self.removed_at is not None:
+            return self.quantity
+        return max(0, self.quantity - 1) if self.result == "done" else 0

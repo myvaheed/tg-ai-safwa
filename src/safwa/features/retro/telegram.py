@@ -62,7 +62,7 @@ def retro_text(sprint: Sprint, statistics: RetroStatistics, *, effort_tracking: 
         "",
     ]
     if effort_tracking:
-        share = f" ({statistics.done_share}%)" if not statistics.unestimated else ""
+        share = f" ({statistics.done_share}%)" if not (statistics.unestimated or statistics.unknown_schedules) else ""
         lines.extend([
             "<b>Effort</b>",
             f"Taken {effort_label(statistics.taken)} EP, finished "
@@ -75,11 +75,13 @@ def retro_text(sprint: Sprint, statistics: RetroStatistics, *, effort_tracking: 
         lines.append("")
     lines.extend([
         "<b>Actions</b>",
-        f"Taken {statistics.planned} Actions",
+        f"Taken {'at least ' if statistics.unknown_schedules else ''}{statistics.planned} Actions",
         f"Finished {statistics.finished}, remaining {statistics.remaining}, "
         f"of them blocked {statistics.blocked}",
         "",
-        *(time_lines(statistics, effort_tracking=effort_tracking and not statistics.unestimated)
+        *(["Schedule quantities are unknown; planned totals are lower bounds."]
+          if statistics.unknown_schedules else []),
+        *(time_lines(statistics, effort_tracking=effort_tracking and not (statistics.unestimated or statistics.unknown_schedules))
           if statistics.time_tracking else ()),
         "<b>Checks on a Value</b>",
     ])

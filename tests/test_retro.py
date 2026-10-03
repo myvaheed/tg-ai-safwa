@@ -6,21 +6,20 @@ import json
 from datetime import UTC, date, datetime
 
 import pytest
+from schedule_helpers import create_card, create_check
 from ui_harness import FakeCallback, FakeMessage, button_texts, services_for
 
 import safwa.features.planning.use_cases as planning_use_cases
 from llm_gateway import ToolCall
 from safwa.features.cards.model import CardStage
 from safwa.features.cards.use_cases import (
-    create_card,
     delete_subtree,
     finish_action,
     move_card,
-    toggle_card_check,
     update_card_fields,
 )
 from safwa.features.checks.model import CheckOutcome
-from safwa.features.checks.use_cases import create_check, resolve_check, toggle_check_value
+from safwa.features.checks.use_cases import resolve_check, toggle_check_value
 from safwa.features.planning.closing import RetroStatistics, SeriesTally
 from safwa.features.planning.model import Sprint
 from safwa.features.planning.use_cases import finish_sprint, start_sprint
@@ -82,8 +81,7 @@ async def test_rt_stats_003_the_retro_adds_the_sprint_up_from_its_record(session
         )
         # A repeating Check on a Value, answered three times while the Sprint ran; one on
         # no Value, answered too.
-        habit = await create_check(session, title="Ran before work?", repeatable=True)
-        await toggle_card_check(session, joined.id, habit.id)
+        habit = await create_check(session, title="Ran before work?", schedule="after completion")
         await toggle_check_value(session, habit.id, health.id)
         live = habit
         for outcome in (CheckOutcome.PASSED, CheckOutcome.MISSED, CheckOutcome.PASSED):

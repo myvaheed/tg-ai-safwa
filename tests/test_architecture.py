@@ -33,6 +33,7 @@ from safwa.bootstrap.modules import (
     SYSTEM_PROMPT,
 )
 from safwa.features.advisor.agent import PERSONA
+from safwa.features.schedules.agent import COMPILER_PROMPT, scheduled_tool
 from safwa.foundation.models import Base
 from scripts.architecture_metrics import (
     BUSINESS_FILES,
@@ -256,6 +257,7 @@ def _tool_schemas() -> dict[str, dict]:
         "call_helper": CALL_HELPER_TOOL,
         # The schema names no photo, so it is read without a library to read one from.
         "relook": relook_tool(None).schema,
+        "get_scheduled": scheduled_tool(None).schema,
     }
     tools.update({name: tool.schema() for name, tool in PROPOSALS.tools.items()})
     return tools
@@ -269,6 +271,7 @@ def test_rule_i_prompt_prefix_is_byte_stable(request):
         "SYSTEM_PROMPT": _digest(SYSTEM_PROMPT),
         "PERSONA": _digest(PERSONA),
         "HEAVY_ANALYZER_PROMPT": _digest(HELPERS["heavy_analyzer"].instructions),
+        "SCHEDULE_COMPILER_PROMPT": _digest(COMPILER_PROMPT),
     }
     # The instructions as assembled, not as written: `{views}` is filled in at import
     # time, so the raw constant is not what any subagent reads.

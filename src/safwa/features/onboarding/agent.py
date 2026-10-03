@@ -42,7 +42,9 @@ MANUAL = f"""# Safwa
 - Effort Points (EP) are optional and off at first. An Action can be created, edited and finished without an estimate. Turn them on in the Profile to estimate load.
 - Time spent is how long an Action took, as "5h 31m". A Goal shows the time of the Actions under it. With Time tracking on in the Profile, "⌛ Time spent" in "✏️ Full editing" records it; in words it is recorded either way.
 - Categories (Self, Contribution, Work, Rest) and energy (Physical, Cognitive, Social, Values) describe an Action.
-- Hard Time is when a Card must happen, as a schedule, with a note of what fixes it.
+- Schedule holds timing in plain words: once a week, five times a day, Tuesday at 15:00. Scheduler asks for missing details; quotas need no clock. Calendar weeks start Monday in the workspace timezone.
+- Clear Schedule with "off" on the current instance to stop repetition. Deleting it also stops the plan. Past instances still count; the final Action can be reopened.
+- Ask the Advisor for scheduled work and progress. It shows the next event and planned, answered/completed and remaining counts for the requested dates and current Sprint, with lifetime progress.
 - Blocked is a warning on an Action, with its reason. It stops nothing.
 - A repeating Action makes its next copy when it is finished.
 - A Done Card is archived two Sprints later, or by hand. It still counts.
@@ -58,16 +60,17 @@ MANUAL = f"""# Safwa
 {_EFFORT_SCALE}
 - Choose the closest rung for the whole Action in the user's usual state. Today's tiredness changes how much to plan, not the Action's EP.
 - For a repeating Action, estimate one occurrence. Work that does not fit in one day is a Subgoal with smaller Actions, not a 13 EP Action.
+- Planned load includes every scheduled execution within the Sprint's dates: 5 EP repeated three times takes 3 Actions and 15 EP. Planning uses the Sprint length in the Profile; Today uses today's remaining executions. Unknown quantities are marked as incomplete totals.
 - EP totals help compare planned load with capacity. They do not convert to hours or predict recovery exactly.
 - With EP on, "🔢 Effort" in full editing or Card creation sets an estimate; "No estimate" clears it. Estimates are still optional. A Goal shows the total of its Actions. Partial totals name the Actions without estimates and show no completion percentage or EP per hour.
 
 # Checks
 - A Check asks whether something held: "posture straight?", or "milk" under "Go to the market". It is an observation, not a task: no effort, no stage.
 - It hangs on one Card or on none. It is Pending until it is answered Passed or Missed.
-- A repeating Check opens its next copy once it is answered.
+- A Check with its own Schedule stays independent. Its next copy opens when answered. Checks on an Action follow that Action's cycle.
 - A Card is Done only when each Check on it has an answer; "✅ Done" asks for them.
 - In words: create, rename, put on a Card, answer, delete.
-- With buttons: "☑️ Checks" on its Card; on the Check, ✅ for Passed and ❌ for Missed, "🔁 Repeat", "💎 Values", "🗑 Delete".
+- With buttons: "☑️ Checks" on its Card; on the Check, ✅ for Passed and ❌ for Missed, "⏱ Schedule", "💎 Values", "🗑 Delete".
 - Not with buttons: creating a Check, or putting it on a Card. Ask the Advisor.
 
 # Values and Tags
@@ -115,9 +118,9 @@ MANUAL = f"""# Safwa
 - Deleting is the only way to stop one.
 
 # Automatic reactions
-- Safwa speaks first on its own: about a blocked Action, an Action finished without its time, a day holding too much, Goals with no Action, Hard Times outside the plan, energy and rest in the Sprint, an Action stuck in Today, a Check Missed again and again, the Diary, the day's summary, a Sprint's end, a Success criterion out of reach, a read too heavy for the Advisor, what stands in Today and the Sprint when the user writes after 14 days or more away, and these onboarding tips.
+- Safwa speaks first on its own: about a blocked Action, an Action finished without its time, a day holding too much, Goals with no Action, energy and rest in the Sprint, an Action stuck in Today, a Check Missed again and again, the Diary, the day's summary, a Sprint's end, a Success criterion out of reach, a read too heavy for the Advisor, what stands in Today and the Sprint when the user writes after 14 days or more away, and these onboarding tips.
 - Open "⚙️ Profile" → "🔔 Hooks" to list the reactions by title and state. Choose one to read its description and switch it off or on on its own screen.
-- Hooks: "Helper offer", "Blocker follow-up", "Time tracking reminder", "Goal completion follow-up", "Today overload", "Goals without Actions", "Hard Time outside the plan", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Diary nudge", "Daily summary", "Sprint end warning", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
+- Hooks: "Schedule clarification", "Helper offer", "Blocker follow-up", "Time tracking reminder", "Goal completion follow-up", "Today overload", "Goals without Actions", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Diary nudge", "Daily summary", "Sprint end warning", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
 - "Time tracking reminder" is in Hooks only while Time tracking is on, and asks nothing while it is off.
 - "Today overload" is in Hooks only while Effort Points are on, and asks nothing while they are off.
 

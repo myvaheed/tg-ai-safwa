@@ -21,9 +21,9 @@ from tg_agent_shell.telegram import (
     with_notice,
 )
 
-from ...checks.use_cases import unobserved_series
+from ...checks.use_cases import pending_checks
 from ...profile.api import effort_tracking_on
-from ..hard_time import HARD_TIME_INSTRUCTION, hard_time_text, workspace_zone
+from ...schedules.api import SCHEDULE_INSTRUCTION
 from ..model import Card, CardStage, minutes_label
 from ..use_cases import (
     archive_subtree,
@@ -107,7 +107,7 @@ async def _on_move(context: CallbackContext) -> None:
 
 _FIELD_TITLES = {"tracked_mins": "Time Spent"}
 _FIELD_INSTRUCTIONS = {
-    "hard_time": HARD_TIME_INSTRUCTION,
+    "schedule": SCHEDULE_INSTRUCTION,
     "tracked_mins": TIME_SPENT_INSTRUCTION,
 }
 
@@ -120,9 +120,7 @@ async def _on_edit_text(context: CallbackContext) -> None:
         card = await session.get(Card, card_id)
         if card is None:
             raise DomainError("Card does not exist")
-        if field == "hard_time":
-            current = hard_time_text(card.hard_time, tz=await workspace_zone(session)) or ""
-        elif field == "tracked_mins":
+        if field == "tracked_mins":
             current = minutes_label(card.tracked_mins) if card.tracked_mins else ""
         else:
             current = str(getattr(card, field) or "")
@@ -318,7 +316,7 @@ async def _on_delete_confirm(context: CallbackContext) -> None:
 async def _on_finish(context: CallbackContext) -> None:
     card_id = int(context.payload["id"])
     async with context.sessions() as session:
-        blocking = await unobserved_series(session, card_id)
+        blocking = await pending_checks(session, card_id)
     if blocking:
         # Done is gated: the user answers each Check on its own screen, and nothing
         # is written until Save, so backing out leaves the Card live.

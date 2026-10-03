@@ -112,8 +112,8 @@ async def _card_state(session: AsyncSession, card: Card) -> str:
         select(func.count()).select_from(CardValue).where(CardValue.card_id == card.id)
     )
     parts = [f"{_KIND_NAMES.get(card.kind, 'a Card')} in {card.effective_stage.title()}"]
-    if card.repeatable:
-        parts.append("repeats")
+    if card.schedule:
+        parts.append("has a Schedule")
     parts += [_count(checks or 0, "Check"), _count(values or 0, "Value")]
     return ", ".join(parts)
 
@@ -122,8 +122,8 @@ async def _check_state(session: AsyncSession, check: Check) -> str:
     card_id = await check_card_id(session, check.id)
     card = await session.get(Card, card_id) if card_id is not None else None
     parts = [f"on Card [{card.title}](card:{card.id})" if card is not None else "on no Card"]
-    if check.repeatable:
-        parts.append("repeats")
+    if check.schedule:
+        parts.append("has a Schedule")
     if check.outcome is not None:
         parts.append(f"answered {CHECK_OUTCOME_LABELS[check.outcome]}")
     return ", ".join(parts)

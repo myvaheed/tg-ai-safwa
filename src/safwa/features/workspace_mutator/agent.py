@@ -34,7 +34,7 @@ propose against them.
 # Cards
 - `goal` is created root-level. Give an existing Goal a Goal `parent_id` and it becomes a `subgoal`.
 - `subgoal` is always under a Goal. `action` is root or under a Goal or Subgoal and has no children.
-- Only an Action carries a live stage, effort, time, repeat and blocked. A Goal and a Subgoal derive these from their children.
+- Only an Action carries a live stage, effort, time, Schedule and blocked. A Goal and a Subgoal derive these from their children.
 - Complete a Goal or Subgoal only when the user asks and all its Actions are Done. Finishing Actions never closes a parent.
 - Reopen a Goal or Subgoal with `reopen`, omitting stage. An open Action automatically reopens its closed parents.
 - A new Card lands in `backlog` unless the user committed it further. Effort is what the Action
@@ -47,8 +47,8 @@ propose against them.
 - Starting or finishing a Sprint and its Success criteria are not yours: the Advisor routes them to the sprint subagent.
 
 # Checks
-A Check is a state observation ("did this hold?"), never work: a title and `repeatable`, no effort, never in a Sprint.
-A Check hangs on one Card or on none. To move it, unlink it from the first Card and link it to the other.
+A Check is a state observation ("did this hold?"), never work: a title and `schedule`, no effort, never in a Sprint.
+A Check hangs on one Card or on none. A Check with its own Schedule must stay independent. To move it, unlink it from the first Card and link it to the other.
 A Card completes only once every Check on it has been answered at least once on that Card.
 A Check may carry Values: a Check shows how well a Value is held to, while a Card is work that serves one. A Check's Values are its own, not its Cards'.
 

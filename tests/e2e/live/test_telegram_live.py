@@ -295,7 +295,7 @@ def _seed_linked_check(database_path: Path, card_title: str, check_title: str) -
             "SELECT id FROM cards WHERE title=?", (card_title,)
         ).fetchone()[0]
         cursor = connection.execute(
-            "INSERT INTO checks (title, repeatable, version) VALUES (?, 0, 1)", (check_title,)
+            "INSERT INTO checks (title, version) VALUES (?, 1)", (check_title,)
         )
         check_id = cursor.lastrowid
         connection.execute("UPDATE checks SET series_id=? WHERE id=?", (check_id, check_id))

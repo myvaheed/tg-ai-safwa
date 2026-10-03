@@ -11,11 +11,15 @@ from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,
+    TextInputScreen,
     go_back_action,
+    render_text_input,
     send_registered,
     token_button,
 )
+from tg_agent_shell.telegram.contributions import TextInputFlow
 
+from ...schedules.api import SCHEDULE_INSTRUCTION
 from ..model import Check, CheckOutcome
 from ..use_cases import delete_check, resolve_check, toggle_check_value, update_check_fields
 from .screens import render_check, render_check_values, render_checks
@@ -68,14 +72,49 @@ async def _on_view(context: CallbackContext) -> None:
     )
 
 
-async def _on_toggle_repeat(context: CallbackContext) -> None:
+async def _on_edit_schedule(context: CallbackContext) -> None:
     async with context.sessions() as session:
         check = await session.get(Check, int(context.payload["id"]))
         if check is None:
             raise DomainError("Check does not exist")
-        await update_check_fields(session, check.id, {"repeatable": not check.repeatable})
-        await session.commit()
-    await _on_view(context)
+        current = check.schedule or ""
+    await render_text_input(
+        context.message,
+        context.services,
+        screen=TextInputScreen(
+            title="Edit Check Schedule",
+            current_value=current,
+            instruction=SCHEDULE_INSTRUCTION,
+            back_action="check_view",
+            back_payload=context.payload,
+        ),
+        state={"flow": "check_schedule", **context.payload},
+    )
+
+
+async def _apply_schedule(session, services, state, value):
+    await update_check_fields(session, int(state["id"]), {"schedule": value})
+
+
+async def _render_schedule(message, services, state, value):
+    await render_check(
+        message,
+        services,
+        int(state["id"]),
+        card_id=state.get("card_id"),
+        back=state.get("back"),
+        replace_message_id=int(state["text_input"]["message_id"]),
+    )
+
+
+CHECK_TEXT_INPUTS = (
+    TextInputFlow(
+        name="check_schedule",
+        validator=lambda state: None,
+        apply=_apply_schedule,
+        render=_render_schedule,
+    ),
+)
 
 
 async def _on_delete_prompt(context: CallbackContext) -> None:
@@ -141,7 +180,7 @@ CHECK_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "check_choose_values": _on_choose_values,
     "check_toggle_value": _on_toggle_value,
     "check_view": _on_view,
-    "check_toggle_repeat": _on_toggle_repeat,
+    "check_edit_schedule": _on_edit_schedule,
     "check_set_status": _on_set_status,
     "check_delete_prompt": _on_delete_prompt,
     "check_delete_confirm": _on_delete_confirm,

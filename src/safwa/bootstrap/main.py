@@ -43,6 +43,7 @@ from ..features.planning.key_actions import KeyActions
 from ..features.profile.model import UserProfile
 from ..features.retro.analysis import SprintAnalyst
 from ..features.saved_requests.use_cases import seed_default_requests
+from ..features.schedules.module import ScheduleCompiler, scheduled_tool
 from ..features.summary.summary import DialogueSummary
 from ..features.summary.window import SummaryEdge
 from ..features.workspace_mutator.state import workspace_context
@@ -75,6 +76,7 @@ class SafwaFeatures:
     another across the container is exactly these fields.
     """
 
+    schedule_compiler: ScheduleCompiler
     summary: DialogueSummary
     memory_reviewer: PatternReviewer
     key_actions: KeyActions
@@ -213,6 +215,7 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
         ),
         helpers=REGISTRY.helper_ports(provider, query_runner),
         media=media,
+        read_tools=(scheduled_tool(database.sessions),),
     )
     summary = DialogueSummary(
         history,
@@ -269,6 +272,7 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
         hooks=REGISTRY.hooks,
         start_links=FEATURE_START_LINKS,
         features=SafwaFeatures(
+            schedule_compiler=ScheduleCompiler(provider),
             summary=summary,
             memory_reviewer=PatternReviewer(provider),
             key_actions=KeyActions(provider),

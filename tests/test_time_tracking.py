@@ -12,6 +12,7 @@ from dataclasses import replace
 
 import pytest
 from pydantic import ValidationError
+from schedule_helpers import create_card
 from sqlalchemy import select
 from ui_harness import FakeCallback, FakeMessage, button_texts, services_for
 
@@ -34,7 +35,6 @@ from safwa.features.cards.telegram.text_input import TIME_SPENT_INSTRUCTION
 from safwa.features.cards.use_cases import (
     CARD_DONE,
     archive_subtree,
-    create_card,
     delete_one_card,
     finish_action,
     move_card,
@@ -138,7 +138,7 @@ async def test_cd_time_039_an_action_carries_the_minutes_it_took(sessions):
 
         # The next instance of a series starts with no time of its own.
         run = await create_card(
-            session, kind="action", title="Run", effort_points=2, repeatable=True
+            session, kind="action", title="Run", effort_points=2, schedule="after completion"
         )
         await update_card_fields(session, run.id, {"tracked_mins": 40})
         [successor_id] = (await finish_action(session, run.id)).successor_ids
@@ -197,7 +197,7 @@ async def test_cd_time_039_safwa_proposes_the_time_on_an_action_or_with_finishin
             await _prepared(session, {"mode": "update", "id": goal.id, "tracked_mins": 30})
 
         # A finished repeat takes its own time, and that is the one change it takes.
-        run = await create_card(session, kind="action", title="Run", effort_points=2, repeatable=True)
+        run = await create_card(session, kind="action", title="Run", effort_points=2, schedule="after completion")
         [live_id] = (await finish_action(session, run.id)).successor_ids
         await session.commit()
         await _save(session, {"mode": "update", "id": run.id, "tracked_mins": 45})
@@ -323,7 +323,7 @@ async def test_cd_time_041_the_request_names_what_is_still_done_and_without_a_ti
         assert await time_tracking_request(session, ids[1:] + [timed.id]) is None
 
         # A repeat is asked about by the instance that was finished.
-        run = await create_card(session, kind="action", title="Run", effort_points=2, repeatable=True)
+        run = await create_card(session, kind="action", title="Run", effort_points=2, schedule="after completion")
         [live_id] = (await finish_action(session, run.id)).successor_ids
         request = await time_tracking_request(session, [run.id])
         assert f"#{run.id} «Run»" in request and f"#{live_id}" not in request

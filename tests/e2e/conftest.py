@@ -25,6 +25,7 @@ from safwa.bootstrap.modules import (
 )
 from safwa.features.advisor.agent import ADVISOR_ROW_LIMITS, ADVISOR_VIEWS
 from safwa.features.memory.use_cases import MemoryReader
+from safwa.features.schedules.agent import scheduled_tool
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.models import Base
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views
@@ -184,6 +185,7 @@ class E2EHarness:
             reviews=self.reviews,
             # The photos are read by the same scripted model that answers.
             media=MediaLibrary(self.sessions, provider) if images else None,
+            read_tools=(scheduled_tool(self.sessions),),
         )
         return advisor, provider
 
