@@ -141,10 +141,9 @@ async def test_ws_context_006_everything_named_in_the_state_is_a_citation(sessio
         card = await create_card(
             session,
             title="Fix the roof",
-            kind="action",
+            kind="goal",
             stage="backlog",
             priority="critical",
-            effort_points=3,
         )
         await session.commit()
         state = (await workspace_context(session)).state

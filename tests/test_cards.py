@@ -1276,33 +1276,37 @@ async def test_goal_progress_is_recursive_but_children_count_is_direct(sessions)
         assert (await card_progress(session, goal.id))["completed_children"] == 1
 
 
-async def test_cd_context_028_only_the_critical_cards_still_to_do_are_handed_over(sessions):
+async def test_cd_context_028_only_open_goals_are_handed_over_as_priority_goals(sessions):
     """CD-CONTEXT-028 — tests/brd/cards.feature"""
     async with sessions() as session:
         open_card = await create_card(
-            session, title="Fix the roof", kind="action", stage="backlog",
-            priority="critical", effort_points=3,
+            session, title="Fix the roof", kind="goal", priority="critical",
         )
         finished = await create_card(
-            session, title="Shipped", kind="action", stage="today",
-            priority="critical", effort_points=3,
+            session, title="Shipped", kind="goal", priority="critical",
         )
-        await finish_action(session, finished.id)
+        await finish_card(session, finished.id)
+        ordinary = await create_card(
+            session, title="Ordinary", kind="goal", priority="medium",
+        )
         await create_card(
-            session, title="Ordinary", kind="action", stage="backlog",
+            session, title="Action", kind="action", stage="backlog",
             priority="medium", effort_points=3,
         )
+        await create_card(session, title="Subgoal", kind="subgoal", parent_id=open_card.id)
         await session.commit()
 
         state = (await workspace_context(session)).state
 
     listed = [line for line in state.splitlines() if line.startswith("- [")]
 
-    # One line, and it carries the kind and the stage the Card is in now. What is finished
-    # and what is not critical are both looked up when Safwa wants them.
-    assert listed == [f"- [Fix the roof](card:{open_card.id}) kind=action stage=backlog"]
+    assert listed == [
+        f"- [Fix the roof](card:{open_card.id}) priority=critical stage=backlog",
+        f"- [Ordinary](card:{ordinary.id}) priority=medium stage=backlog",
+    ]
     assert "Shipped" not in state
-    assert "Ordinary" not in state
+    assert "Action" not in state.split("Today Actions:")[0]
+    assert "Subgoal" not in state
 
 
 def test_cd_effort_008_every_rung_says_what_it_costs():

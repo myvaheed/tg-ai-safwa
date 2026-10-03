@@ -53,3 +53,16 @@ Feature: The workspace
     Then it is told the time there, after everything else it was handed
     And that line is the only part of what it reads before the conversation that differs between
       two turns a minute apart, which is what keeps the rest of it cheap
+
+  Scenario: WS-CONTEXT-008 — Safwa starts from the Goals that need attention first
+    Given the owner has open Goals of Critical, Medium and Low Priority
+    When Safwa reads the workspace
+    Then it is handed the first 10 Priority Goals (CONTEXT_PRIORITY_GOAL_LIMIT = 10)
+    And that list includes only open root Goals, not Subgoals, Actions or archived Goals
+    And an overdue Deadline or one within the next 7 local calendar days comes first (PRIORITY_GOAL_DEADLINE_DAYS = 7)
+    And within each group the order is Priority, a Value in focus, then Actions in Sprint or Today
+    And an Action under a Subgoal counts as work toward its Goal too
+    And remaining ties put a Deadline before none, the earlier Deadline before the later, then the older Goal
+    And Goals created at the same instant keep their creation order
+    And each Goal says its Priority, stage and compiled Deadline when there is one
+    And when there are no open Goals, there is no empty Priority Goals heading

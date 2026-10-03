@@ -86,6 +86,15 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
   question after Done. A finished repeat takes its own time and effort estimate; other
   proposed edits belong to its open successor.
 
+## The Goals Safwa starts from
+
+Each turn carries up to 10 open root Goals (`CONTEXT_PRIORITY_GOAL_LIMIT`) under **Priority Goals**,
+across all Priorities. An overdue compiled Deadline or one within the next 7 local calendar days
+(`PRIORITY_GOAL_DEADLINE_DAYS`) comes first. Within urgent and other Goals, the order is Priority,
+a directly linked Value in focus, then Actions in Sprint or Today, including work through a Subgoal.
+Remaining ties use the earlier Deadline (none last), creation time and id. Each Goal carries its
+Priority, derived stage and compiled Deadline. The Advisor starts advice and planning from that order.
+
 ## Checks
 
 - A Check records a state observation, never planned work: no effort, never in a Sprint, and Pending
