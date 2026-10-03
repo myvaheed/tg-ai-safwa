@@ -1,6 +1,6 @@
 """The retro subagent: it finds an ended Sprint by its number or a day in it, answers from
-the records the Sprints left, puts one retro on the screen, and sends the charts of any of
-them.
+the records the Sprints left, puts one retro on the screen, sends the charts of any of them,
+and sends a Life in weeks picture with Life's own tool.
 
 Its reads choose Sprints by number, by two dates, or all of them; a call that mixes those up
 is answered with the call to make instead, built from what it sent.
@@ -33,6 +33,7 @@ from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec
 
 from ...constants import WEEKDAY_NAMES
 from ...foundation.workspace import require_workspace
+from ..life.agent import show_life_tool
 from ..planning.closing import RetroStatistics
 from ..planning.model import Sprint
 from ..profile.api import effort_tracking_on
@@ -79,8 +80,14 @@ When the user asks to see or open one Sprint's retro, call `open` with `item_typ
 - One chart asked for: add `chart` with its name.
 - The tool sends the charts itself. Then answer in one short line.
 
+# Life in weeks
+- When the user asks for Life in weeks, the weeks of their life or their life grid: call `show_life`, not `show_charts`.
+- One picture asked for: add `chart`. One Category, Energy type or Value alone: add `category`, `energy` or `value`.
+- The tool sends the picture itself. Then answer in one short line.
+
 # What you cannot do
 - Mark the Success criteria met or not met, or analyse a Sprint: the user does it on the retro screen.
+- Set the birth date or the years of Life in weeks: the user does it in its Settings.
 - Answer about the running Sprint: that is not yours.
 
 # Answering
@@ -382,7 +389,7 @@ def _retro_read_tools(context: AgentContext) -> tuple[ReadToolSpec, ...]:
             "short line.",
         }
 
-    return (*reads, ReadToolSpec(SHOW_CHARTS_TOOL, show_charts))
+    return (*reads, ReadToolSpec(SHOW_CHARTS_TOOL, show_charts), show_life_tool(context))
 
 
 _MARK = {True: "met", False: "not met", None: "not marked"}
@@ -424,7 +431,8 @@ RETRO_AGENT = AgentSpec(
     name="retro",
     purpose=(
         "a question about the Sprints that ended — their numbers, dates, results, totals and "
-        "averages — or showing the retro of one of them, or their charts."
+        "averages — or showing the retro of one of them, their charts, or Life in weeks: the "
+        "weeks of the user's life as one picture."
     ),
     instructions=RETRO_PROMPT,
     read_tools=_retro_read_tools,

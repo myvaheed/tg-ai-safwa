@@ -37,12 +37,13 @@ from tg_agent_shell.telegram import (
 from tg_agent_shell.telegram.contributions import TextInputFlow
 
 from ..cards.telegram import CATEGORY_EMOJIS, ENERGY_EMOJIS
+from .api import life_grid
 from .charts import draw_life
 from .measures import GROUP_CHARTS, LifeChart, focuses, name_of, offered, picture
 from .model import LIFE_YEARS_MAX, LIFE_YEARS_MIN
 from .records import life_records, local_today
 from .use_cases import life_settings, set_birth_date, set_life_years
-from .weeks import LifeGrid, heading
+from .weeks import heading
 
 CHART_LABELS = {
     LifeChart.FEELING: "😊 Feeling",
@@ -67,13 +68,12 @@ async def render_life(
     recorded to draw. `page` is the Retro list page it leads back to."""
     owner = services.owner_id
     async with services.sessions() as session:
-        settings = await life_settings(session)
+        grid = await life_grid(session)
         rows: list[list[InlineKeyboardButton]] = []
-        if settings.birth_date is None:
+        if grid is None:
             text = f"<b>⏳ Life in weeks</b>\n{_ABOUT}\nSet your birth date in ⚙️ Settings to draw it."
         else:
             records = await life_records(session, utcnow())
-            grid = LifeGrid(settings.birth_date, settings.years)
             charts = offered(records)
             text = (
                 f"<b>⏳ Life in weeks</b>\n{html.escape(heading(grid, records.today, records.since))}"
@@ -136,11 +136,10 @@ async def send_picture(
     """The picture as one album in place of the screen it was asked from, and below it the
     message that leads back to the Life screen."""
     async with services.sessions() as session:
-        settings = await life_settings(session)
-        if settings.birth_date is None:
+        grid = await life_grid(session)
+        if grid is None:
             raise DomainError("Set your birth date in Life settings first.")
         records = await life_records(session, utcnow())
-        grid = LifeGrid(settings.birth_date, settings.years)
         shown = picture(chart, records, grid, focus)
         rows = (
             await _focus_rows(session, services, chart, focuses(chart, records), focus, page)

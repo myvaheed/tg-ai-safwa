@@ -1,5 +1,5 @@
 """What every picture Safwa draws shares: its resolution, its paper and ink, how it writes a
-day, and which characters its font can draw.
+day, which characters its font can draw, and how a long name is cut to its place.
 
 The font is matplotlib's own DejaVu Sans. It draws Latin and Cyrillic but no emoji, and a
 character it has no shape for comes out as an empty box, so text the owner wrote goes through
@@ -39,6 +39,10 @@ def drawable(text: str) -> str:
     """`text` without the characters the font has no shape for, such as emoji."""
     shapes = _shapes()
     return " ".join("".join(ch for ch in text if ch.isspace() or ord(ch) in shapes).split())
+
+
+def cut(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 def png(figure: Figure) -> bytes:

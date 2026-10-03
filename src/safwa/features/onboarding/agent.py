@@ -107,8 +107,8 @@ MANUAL = f"""# Safwa
 - "📈 Charts" on a retro, or "📈 Charts of recent Sprints" on the Retro list, sends pictures: Actions day by day, Category and Energy type, the week rhythm. With several Sprints they compare them; with EP or Time tracking on they show those too.
 - "⏳ Life in weeks" on the Retro list draws the whole life: a square for each week, a row for each year. It colours the weeks by Feeling, Actions, Effort Points, Sprints, Categories, Energy or Values, and shows one Category, Energy type or Value alone. Its "⚙️ Settings" hold the birth date and the years the grid holds.
 - Memory is what the analyses left: patterns seen across Sprints, and the last analysed Sprint. /memory shows it. Nothing else writes it.
-- In words: ask about the Sprints that ended — by number, between two dates, or all of them, or a total or an average over several — or ask to see one's retro, by its number or a date in it, or ask for their charts, all of them or one.
-- Buttons only: the mark on the Success criteria, the analysis and Life in weeks. Nothing changes memory.
+- In words: ask about the Sprints that ended — by number, between two dates, or all of them, or a total or an average over several — or ask to see one's retro, by its number or a date in it, or ask for their charts, all of them or one, or for Life in weeks, by one picture or the first one with records.
+- Buttons only: the mark on the Success criteria, the analysis and the Life settings. Nothing changes memory.
 
 # Diary
 - The Diary keeps one entry per day, in the user's own voice: how the day went and how it felt, with a rating from 0 to 10.

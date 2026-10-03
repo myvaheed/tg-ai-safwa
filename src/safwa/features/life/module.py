@@ -1,5 +1,6 @@
 """Life in weeks: the screen Retro opens, its pictures, and the settings they are drawn from.
-No command and no menu button of its own: the way in is Retro."""
+No command and no menu button of its own: the way in is Retro, and in words the retro
+subagent, which holds the tool that sends a picture."""
 
 from __future__ import annotations
 

@@ -8,11 +8,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from math import ceil
 
+from matplotlib.artist import Artist
 from matplotlib.axes import Axes
 from matplotlib.collections import PatchCollection
+from matplotlib.colors import to_rgb
 from matplotlib.figure import Figure
-from matplotlib.patches import FancyBboxPatch, Rectangle
+from matplotlib.lines import Line2D
+from matplotlib.patches import FancyBboxPatch, Patch, Rectangle
 
 from ...foundation.charts import (
     CHART_DPI,
@@ -21,6 +25,7 @@ from ...foundation.charts import (
     INK_2,
     MUTED,
     SURFACE,
+    cut,
     day_month,
     drawable,
     png,
@@ -49,7 +54,7 @@ def draw_life(
 ) -> list[tuple[str, bytes]]:
     """The whole grid and the close-up, by name and as PNG, in the album's order."""
     span = Span.of(grid, today, since)
-    return [("life", png(_whole(picture, span))), ("close_up", png(_close_up(picture, span)))]
+    return [(name, png(draw(picture, span))) for name, draw in LIFE_ALBUM]
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,102 +91,66 @@ def _ink_on(color: str) -> str:
 
 # ------------------------------------------------------------------------------- legend
 
-
-@dataclass(frozen=True, slots=True)
-class _Key:
-    """One entry of a legend: a box, a ring, a star or a colour scale, and its words."""
-
-    style: str
-    label: str
-    face: str = SURFACE
-    edge: str = SURFACE
-    stops: tuple[str, ...] = ()
-    low: str = ""
-    high: str = ""
-
-    @property
-    def width(self) -> float:
-        return 0.34 if self.style == "scale" else 0.05 + 0.0075 * len(self.label)
+# How many of its own colours a picture's legend puts on a row and how long a name there may
+# be; in inches, where its lowest row sits and how far apart its rows are.
+_KEYS_A_ROW = 4
+_KEY_NAME = 20
+_KEYS_BOTTOM = 0.14
+_KEY_ROW = 0.24
 
 
-def _own_keys(picture: Picture) -> list[_Key]:
-    if picture.scale is not None:
-        scale = picture.scale
-        return [
-            _Key("scale", drawable(scale.caption), stops=scale.stops, low=scale.low, high=scale.high)
-        ]
-    return [
-        _Key("box", drawable(label), face=color, edge=color) for color, label in picture.swatches
+def _own_rows(picture: Picture) -> int:
+    return 1 if picture.scale is not None else ceil(len(picture.swatches) / _KEYS_A_ROW)
+
+
+def _keys(figure: Figure, handles: list[Artist], bottom: float, columns: int) -> None:
+    """One legend of these keys, its lowest row `bottom` inches up the picture."""
+    # A legend fills its columns top to bottom; read across, the keys keep their order.
+    handles = [
+        handles[index] for column in range(columns) for index in range(column, len(handles), columns)
     ]
+    figure.legend(
+        handles=handles, loc="lower left", bbox_to_anchor=(0.06, bottom / figure.get_figheight()),
+        ncol=columns, frameon=False, fontsize=8, labelcolor=INK_2, borderaxespad=0, borderpad=0,
+        handlelength=1, handleheight=1, handletextpad=0.6, columnspacing=1.8, labelspacing=1.0,
+    )
 
 
-def _common_keys(picture: Picture) -> list[_Key]:
-    keys = [
-        _Key("box", "lived before the records", _LIVED, _LIVED),
-        _Key("box", picture.missing, _EMPTY, _EMPTY_EDGE),
-        _Key("box", "ahead", SURFACE, GRID),
-        _Key("ring", "this week", edge=_ACCENT),
+def _box(face: str, edge: str, label: str, width: float = 0.7) -> Patch:
+    return Patch(facecolor=face, edgecolor=edge, linewidth=width, label=label)
+
+
+def _own_keys(figure: Figure, picture: Picture, bottom: float) -> None:
+    """The picture's own colours, or the scale they run through."""
+    scale = picture.scale
+    if scale is None:
+        handles = [
+            _box(color, color, cut(drawable(label), _KEY_NAME)) for color, label in picture.swatches
+        ]
+        _keys(figure, handles, bottom, _KEYS_A_ROW)
+        return
+    height = figure.get_figheight()
+    bar = figure.add_axes((0.08, bottom / height, 0.2, 0.12 / height))
+    bar.imshow([[to_rgb(blend(scale.stops, step / 99)) for step in range(100)]], aspect="auto")
+    bar.set_axis_off()
+    middle = (bottom + 0.06) / height
+    figure.text(0.074, middle, scale.low, ha="right", va="center", fontsize=7.5, color=MUTED)
+    figure.text(0.288, middle, f"{scale.high}  {drawable(scale.caption)}", va="center",
+                fontsize=8, color=INK_2)
+
+
+def _common_keys(figure: Figure, picture: Picture) -> None:
+    """What the grey, pale, empty and ringed weeks of every picture are, and its star."""
+    handles: list[Artist] = [
+        _box(_LIVED, _LIVED, "lived before the records"),
+        _box(_EMPTY, _EMPTY_EDGE, picture.missing),
+        _box(SURFACE, GRID, "ahead"),
+        _box("none", _ACCENT, "this week", 1.8),
     ]
     if picture.best is not None:
-        keys.append(_Key("star", "best week"))
-    return keys
-
-
-def _lines(*groups: list[_Key]) -> list[list[_Key]]:
-    """Each group on lines of its own, wrapped to the picture's width."""
-    lines: list[list[_Key]] = []
-    for group in groups:
-        line: list[_Key] = []
-        used = 0.0
-        for key in group:
-            if line and used + key.width > 0.88:
-                lines.append(line)
-                line, used = [], 0.0
-            line.append(key)
-            used += key.width
-        if line:
-            lines.append(line)
-    return lines
-
-
-_LEGEND_LINE = 0.27
-
-
-def _legend(figure: Figure, lines: list[list[_Key]], height: float) -> None:
-    box_w, box_h = 0.13 / WIDTH, 0.13 / height
-    for index, line in enumerate(lines):
-        y = (0.18 + _LEGEND_LINE * (len(lines) - 1 - index)) / height
-        x = 0.07
-        for key in line:
-            if key.style == "scale":
-                step = 0.2 / 11
-                for part in range(11):
-                    figure.patches.append(Rectangle(
-                        (x + part * step, y), step * 0.92, box_h,
-                        facecolor=blend(key.stops, part / 10), linewidth=0,
-                        transform=figure.transFigure, figure=figure,
-                    ))
-                figure.text(x - 0.006, y + box_h / 2, key.low, ha="right", va="center",
-                            fontsize=7.5, color=MUTED)
-                figure.text(x + 0.205, y + box_h / 2, f"{key.high}  {key.label}",
-                            va="center", fontsize=8, color=INK_2)
-            else:
-                if key.style == "box":
-                    figure.patches.append(Rectangle(
-                        (x, y), box_w, box_h, facecolor=key.face, edgecolor=key.edge,
-                        linewidth=0.7, transform=figure.transFigure, figure=figure,
-                    ))
-                elif key.style == "ring":
-                    figure.patches.append(Rectangle(
-                        (x, y), box_w, box_h, facecolor="none", edgecolor=key.edge,
-                        linewidth=1.8, transform=figure.transFigure, figure=figure,
-                    ))
-                else:
-                    figure.text(x + box_w / 2, y + box_h / 2, "★", ha="center", va="center",
-                                fontsize=9, color=INK)
-                figure.text(x + box_w + 0.008, y + box_h / 2, key.label, va="center",
-                            fontsize=8, color=INK_2)
-            x += key.width
+        handles.append(Line2D([], [], linestyle="none", marker="*", markersize=9, color=INK,
+                              label="best week"))
+    _keys(figure, handles, _KEYS_BOTTOM, len(handles))
 
 
 def _head(figure: Figure, height: float, title: str, lines: tuple[str, ...]) -> None:
@@ -208,9 +177,8 @@ def _whole(picture: Picture, span: Span) -> Figure:
     top_units = 2.4
     units = _row_y(rows - 1) + 1 + top_units
     lines = (heading(span.grid, span.today, span.since), *picture.stats)
-    legend = _lines(_own_keys(picture), _common_keys(picture))
     head = _head_height(len(lines))
-    foot = 0.25 + _LEGEND_LINE * len(legend)
+    foot = 0.25 + _KEY_ROW * (_own_rows(picture) + 1)
     height = head + units * _UNIT + foot
     figure = Figure(figsize=(WIDTH, height), dpi=CHART_DPI, facecolor=SURFACE)
     _head(figure, height, f"Life in weeks · {picture.title}", lines)
@@ -245,7 +213,8 @@ def _whole(picture: Picture, span: Span) -> Figure:
         axes.text(week + _SQUARE / 2, _row_y(age) + _SQUARE / 2 + 0.05, "★", ha="center",
                   va="center", fontsize=6.5, color=_ink_on(color), zorder=6)
     _marks(axes, span, rows)
-    _legend(figure, legend, height)
+    _common_keys(figure, picture)
+    _own_keys(figure, picture, _KEYS_BOTTOM + _KEY_ROW)
     return figure
 
 
@@ -283,9 +252,10 @@ def _marks(axes: Axes, span: Span, rows: int) -> None:
 def _close_up(picture: Picture, span: Span) -> Figure:
     ages = range(span.first[0], span.now[0] + 1)
     units = 1.0 + len(ages) * _CLOSE_ROW
-    legend = _lines(_own_keys(picture)) if picture.scale is None else []
+    # Its squares write their numbers, so a scale is left to the whole grid.
+    keyed = picture.scale is None
     head = _head_height(1)
-    foot = 0.2 + _LEGEND_LINE * len(legend)
+    foot = 0.2 + (_KEY_ROW * _own_rows(picture) if keyed else 0)
     height = head + units * _CLOSE_UNIT + foot
     figure = Figure(figsize=(WIDTH, height), dpi=CHART_DPI, facecolor=SURFACE)
     _head(figure, height, f"Close-up · {picture.title}", (picture.note,))
@@ -302,7 +272,8 @@ def _close_up(picture: Picture, span: Span) -> Figure:
                   color=INK_2, fontweight="bold")
         for week in range(LIFE_WEEKS):
             _close_square(axes, (age, week), week, y, picture, span)
-    _legend(figure, legend, height)
+    if keyed:
+        _own_keys(figure, picture, _KEYS_BOTTOM)
     return figure
 
 
@@ -328,3 +299,7 @@ def _close_square(
         axes.add_patch(FancyBboxPatch((x - 0.1, y - 0.15), 1.15, 1.2,
                                       boxstyle="round,pad=0,rounding_size=0.18",
                                       facecolor="none", edgecolor=_ACCENT, linewidth=2))
+
+
+# The album's order: the whole life, then the years with records close up.
+LIFE_ALBUM = (("life", _whole), ("close_up", _close_up))

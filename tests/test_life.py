@@ -2,22 +2,26 @@
 
 from __future__ import annotations
 
+import json
 import warnings
 from datetime import UTC, date, datetime, time, timedelta
 from io import BytesIO
 
 import pytest
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 from PIL import Image
 from schedule_helpers import create_card as create_scheduled_card
 from sqlalchemy import select, update
 from telegram_fakes import QueueTestMessage
 from ui_harness import FakeCallback, FakeMessage, services_for
 
+import safwa.features.life.agent as life_agent
+from llm_gateway import ToolCall
 from safwa.features.cards.model import Card
 from safwa.features.cards.telegram import CATEGORY_COLORS
 from safwa.features.cards.use_cases import create_card, finish_action
 from safwa.features.diary.use_cases import create_diary_entry
-from safwa.features.life.charts import Span, draw_life
+from safwa.features.life.charts import LIFE_ALBUM, Span, draw_life
 from safwa.features.life.measures import (
     FEELING_STOPS,
     LIFE_TREND_WEEKS,
@@ -54,8 +58,9 @@ from safwa.foundation.charts import MONTHS, SURFACE
 from safwa.foundation.workspace import Workspace
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
-from tg_agent_shell.telegram import callback_token_handler
+from tg_agent_shell.telegram import callback_token_handler, dismiss_prior_ui
 from tg_agent_shell.telegram.dialogue import ordinary_text
+from tg_agent_shell.telegram.manifest import AgentContext
 from tg_agent_shell.telegram.model import UiSession
 
 BORN = date(1992, 3, 14)
@@ -483,6 +488,108 @@ async def test_lf_album_006_a_picture_arrives_as_an_album_of_the_whole_life_and_
         for focus in (None, "💪 Здоровье"):
             draw_life(picture(LifeChart.VALUE, named, GRID, focus), GRID, TODAY, SINCE)
     assert not [warning for warning in caught if "Glyph" in str(warning.message)]
+
+    # The legend names each colour, a long name cut short, its keys apart and inside the
+    # picture, the scale as much as the colours of nine Values.
+    long = tuple(
+        f"{word} и всё, что с этим связано"
+        for word in ("Дом", "Деньги", "Друзья", "Здоровье", "Музыка", "Ремесло", "Семья", "Учёба", "Путь")
+    )
+    many = _records(
+        actions=tuple(_action(TODAY - timedelta(days=day), values=(name,)) for day, name in enumerate(long)),
+        values=long,
+    )
+    span = Span.of(GRID, TODAY, SINCE)
+    for shown in (picture(LifeChart.VALUE, many, GRID), picture(LifeChart.FEELING, RECORDS, GRID)):
+        for _, draw in LIFE_ALBUM:
+            figure = draw(shown, span)
+            renderer = FigureCanvasAgg(figure).get_renderer()
+            keys = [legend.get_window_extent(renderer) for legend in figure.legends]
+            keys += [axes.get_window_extent(renderer) for axes in figure.axes[1:]]
+            grid = figure.axes[0].get_window_extent(renderer)
+            assert all(figure.bbox.x0 <= key.x0 and key.x1 <= figure.bbox.x1 for key in keys)
+            assert all(key.y0 >= figure.bbox.y0 and not key.overlaps(grid) for key in keys)
+            assert not any(one.overlaps(other) for index, one in enumerate(keys) for other in keys[index + 1 :])
+    whole = dict(LIFE_ALBUM)["life"](picture(LifeChart.VALUE, many, GRID), span)
+    # The Values' own keys, drawn after those every picture shares.
+    named = {text.get_text() for text in whole.legends[-1].get_texts()}
+    assert {"Деньги и всё, что с…", "other Values"} <= named
+    assert max(len(name) for name in named) == 20
+
+
+async def test_lf_ask_008_a_picture_asked_for_in_words_goes_to_the_chat_before_safwas_line(
+    sessions, monkeypatch
+) -> None:
+    """LF-ASK-008 — tests/brd/life.feature"""
+    services = services_for(sessions)
+    owner = QueueTestMessage(message_id=980, is_bot=False, answer_as_new=True)
+    monkeypatch.setattr(life_agent, "owner_anchor", lambda bot, owner_id: owner)
+    tool = life_agent.show_life_tool(
+        AgentContext(
+            owner_id=42,
+            timezone="Europe/Istanbul",
+            query_runner=None,  # type: ignore[arg-type]
+            history=None,  # type: ignore[arg-type]
+            sessions=sessions,
+            chat=services.chat,
+            bot=owner.bot,
+        )
+    )
+
+    async def show(**arguments) -> dict:
+        return await tool.run(
+            ToolCall(id="show", name="show_life", arguments_json=json.dumps(arguments))
+        )
+
+    # No birth date: nothing is sent, and Safwa says where to set one.
+    unset = await show()
+    assert unset["sent"] is None
+    assert "Retro → ⏳ Life in weeks → ⚙️ Settings" in unset["note"]
+    assert owner.bot.photos_sent == []
+
+    async with sessions() as session:
+        await set_birth_date(session, BORN, await local_today(session, utcnow()))
+        health = await create_value(session, "Health")
+        card = await create_card(
+            session, kind="action", title="Walk", categories={"self"}, value_ids={health.id}
+        )
+        await finish_action(session, card.id)
+        await session.commit()
+
+    # Asked for no picture by name: the first with records, its line naming the others.
+    sending = owner.bot.typing_calls
+    first = await show()
+    assert owner.bot.typing_calls == sending + 1
+    assert first["sent"] == "Life in weeks · Actions"
+    assert first["others"] == ["category", "value"]
+    assert "names the other pictures" in first["next"]
+    assert [photo.filename for photo in owner.bot.photos_sent[-1]] == ["life.png", "close_up.png"]
+    assert owner.rendered == [] and owner.markups == []
+
+    # One picture, and one Category or Value alone.
+    mix = await show(chart="category")
+    assert mix["sent"] == "Life in weeks · Categories" and "others" not in mix
+    assert (await show(category="self"))["sent"] == "Life in weeks · Category: Self"
+    assert (await show(chart="value", value="health"))["sent"] == "Life in weeks · Value: Health"
+    album = [sent.message_id for sent in owner.sent]
+
+    # A choice made wrong is refused with the call to make instead, and nothing is sent.
+    sent_before = len(owner.bot.photos_sent)
+    crossed = await show(chart="energy", category="self")
+    assert crossed["hint"] == 'Retry with {"chart": "category", "category": "self"}.'
+    assert (await show(category="self", value="Health"))["code"] == "invalid_arguments"
+    assert (await show(chart="pie"))["code"] == "invalid_arguments"
+    assert (await show(category="leisure"))["code"] == "invalid_arguments"
+    nobody = await show(value="Family")
+    assert nobody["error"] == "No Value is called Family."
+    assert nobody["hint"] == 'Retry with "value" one of: Health.'
+    empty = await show(chart="feeling")
+    assert empty["hint"] == 'Retry with "chart" one of: actions, category, value, or without it.'
+    assert len(owner.bot.photos_sent) == sent_before
+
+    # The album stays in the chat when the next screen comes.
+    await dismiss_prior_ui(QueueTestMessage(message_id=990, is_bot=False, parent=owner), services)
+    assert not set(album) & set(owner.bot.deleted)
 
 
 def test_lf_stats_007_the_heading_says_what_the_picture_adds_up_to() -> None:

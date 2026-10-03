@@ -37,6 +37,7 @@ from ...foundation.charts import (
     INK_2,
     MUTED,
     SURFACE,
+    cut,
     day_month,
     drawable,
     png,
@@ -182,10 +183,6 @@ def _period(first: date, last: date) -> str:
     if first.year == last.year:
         return f"{day_month(first)} – {day_month(last)} {last.year}"
     return f"{day_month(first)} {first.year} – {day_month(last)} {last.year}"
-
-
-def _cut(text: str, limit: int) -> str:
-    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 def _amount(value: float) -> str:
@@ -654,7 +651,7 @@ def _time(chosen: ChosenSprints) -> Figure | None:
             lower.barh(y, action.minutes, height=0.6, color=_TAKEN, linewidth=0)
             lower.annotate(minutes_label(action.minutes), (action.minutes, y), xytext=(6, 0),
                            textcoords="offset points", va="center", fontsize=10, color=INK)
-            _row_label(lower, y, _cut(drawable(action.title), 18))
+            _row_label(lower, y, cut(drawable(action.title), 18))
         lower.set_xlim(0, longest[0].minutes * 1.6)
         lower.set_ylim(len(longest) - 0.5, -0.5)
     return figure
@@ -681,7 +678,7 @@ def _checks(chosen: ChosenSprints) -> Figure | None:
             axes.annotate(str(passed), (passed, y), xytext=(5, 0), textcoords="offset points",
                           va="center", fontsize=9.5, color=INK)
         for line, rise, size, color in ((title, 1, 10, INK_2), (", ".join(values), -1, 8.5, MUTED)):
-            axes.annotate(_cut(drawable(line), 30), (0, y), xycoords=where, xytext=(-205, rise),
+            axes.annotate(cut(drawable(line), 30), (0, y), xycoords=where, xytext=(-205, rise),
                           textcoords="offset points", ha="left",
                           va="bottom" if rise > 0 else "top", fontsize=size, color=color)
     axes.axvline(0, color=_BASELINE, linewidth=1)

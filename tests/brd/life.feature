@@ -1,6 +1,7 @@
 Feature: Life in weeks
   Life in weeks is the owner's whole life as one picture: a square for every week, a row for
-  every year, coloured by what Safwa recorded in it. Its way in is the Retro list.
+  every year, coloured by what Safwa recorded in it. Its way in is the Retro list, or asking
+  Safwa for it in words.
 
   Numbers below name the constant they come from; the tests read the constant.
 
@@ -78,6 +79,8 @@ Feature: Life in weeks
     And while it is drawn, the chat shows a photo being sent
     And a Value is named on the pictures without the characters the font cannot draw, such as
       emoji
+    And below the grid a legend names each colour on it, a long name cut short, its keys apart
+      from each other and inside the picture
     And the best week carries a star: the highest feeling, the most finished, or the highest
       share
     And the grid is headed by the picture, the owner's age and week, the weeks lived, the day
@@ -102,3 +105,20 @@ Feature: Life in weeks
       longest ago, and how many Values were never served
     And one Value: its Actions and the weeks they fell in, its highest week, when it was last
       served, and the longest gap
+
+  Scenario: LF-ASK-008 — A picture asked for in words goes to the chat before Safwa's line
+    Given a birth date is set
+    When the owner asks Safwa for Life in weeks, or for one picture of it, of all or of one
+      Category, Energy type or Value
+    Then the album of LF-ALBUM-006 goes to the chat, with no message of words or buttons of its
+      own, the chat showing a photo being sent meanwhile
+    And asked for no picture by name, Safwa sends the first of LF-PAINT-004 with something
+      recorded, and its line names the others
+    And Safwa's answer follows the album, in one short line
+    And the album stays in the chat as a message: the next screen does not take it out
+    When a Category, an Energy type or a Value is asked for with another picture
+    Then nothing is sent, and the refusal gives the call to make instead
+    When the Value asked for has no such name, or the picture has nothing recorded to draw
+    Then nothing is sent, and the refusal names the Values, or the pictures that have records
+    When no birth date is set
+    Then nothing is sent, and Safwa says to set one in Retro → Life in weeks → Settings
