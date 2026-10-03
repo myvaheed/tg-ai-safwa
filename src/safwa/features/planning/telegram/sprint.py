@@ -103,7 +103,8 @@ async def render_sprint(
         quantities = {
             key: {
                 card.id: (today_load.counts[card.id] if key == "today" else
-                          1 if key == "done" else commitments[card.id].planned_count)
+                          1 if key == "done" or card.id not in commitments
+                          else commitments[card.id].planned_count)
                 for card in items
             }
             for key, (_, items, _) in lists.items()
@@ -121,7 +122,8 @@ async def render_sprint(
             if quantity != 1:
                 line += f" × {quantity if quantity is not None else '?'}"
             if effort_tracking:
-                estimate = commitments[card.id].effort_snapshot
+                commitment = commitments.get(card.id)
+                estimate = commitment.effort_snapshot if commitment else card.effort_points
                 effort = estimate * quantity if estimate is not None and quantity is not None else None
                 line += f" · {effort_label(effort)} EP"
             if view == "blocked":

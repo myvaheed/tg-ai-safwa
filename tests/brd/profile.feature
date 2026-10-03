@@ -101,7 +101,7 @@ Feature: Profile
     Then it is on the Profile with the other clocks, edited as a time from 00:00 through 23:59
     And off is refused: each morning check has a switch of its own (PS-HOOKS-015)
     When the Morning time changes
-    Then the morning checks — Goals without Actions (CD-EMPTY-035), Rest in Today (CD-REST-037) and the mornings in Today (CD-STALE-038) — run at the new time from the next time it passes, without a restart
+    Then the morning checks — Goals without Actions (CD-EMPTY-035), Schedule outside the plan (PL-HARDTIME-021), Rest in Today (CD-REST-037) and the mornings in Today (CD-STALE-038) — run at the new time from the next time it passes, without a restart
 
   Scenario: PS-TIME-017 — Time tracking is off until the owner switches it on
     Given a new workspace
@@ -138,9 +138,10 @@ Feature: Profile
     And Card estimates, Sprint capacity and Today overload are hidden from screens and AI reads
     When the owner switches Effort Points on in the Profile or saves a Profile proposal
     Then optional estimates and Sprint capacity are available, and Today overload follows its own hook switch
-    And with Effort Points off, dependent hooks are neither evaluated nor allowed to deliver pending questions
-    And their own disabled switches are kept when Effort Points are switched on again
+    And with Effort Points off, Today overload is not in Hooks, is not evaluated and delivers no pending question, as the Time tracking reminder does (PS-TIME-017)
+    And its own disabled switch is kept when Effort Points are switched on again
+    And with Effort Points off a proposal carries no estimate: one sent anyway is left out, and a change that was only an estimate is refused
     When Effort Points are switched off again
-    Then saved estimates and capacity are kept, and pending Today overload questions are dropped
+    Then saved estimates and capacity are kept
     And an estimate button from an older screen cannot change the saved estimate
     And the setting persists when Safwa restarts

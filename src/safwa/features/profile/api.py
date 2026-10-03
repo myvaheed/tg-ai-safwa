@@ -30,7 +30,6 @@ from .model import (
 # own switch says.
 TIME_TRACKING_REMINDER = "cards.time_tracking_reminder"
 TODAY_OVERLOAD = "cards.today_overload"
-EFFORT_TRACKING_HOOKS = frozenset({TODAY_OVERLOAD})
 
 
 async def sprint_length_days(session: AsyncSession) -> int:
@@ -108,7 +107,7 @@ async def hook_switched_on(session: AsyncSession, name: str) -> bool:
     profile = await session.get(UserProfile, 1)
     if name == TIME_TRACKING_REMINDER and (profile is None or not profile.time_tracking):
         return False
-    if name in EFFORT_TRACKING_HOOKS and (profile is None or not profile.effort_tracking):
+    if name == TODAY_OVERLOAD and (profile is None or not profile.effort_tracking):
         return False
     return profile is None or name not in profile.disabled_hooks
 

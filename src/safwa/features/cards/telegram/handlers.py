@@ -23,8 +23,8 @@ from tg_agent_shell.telegram import (
 
 from ...checks.use_cases import pending_checks
 from ...profile.api import effort_tracking_on
-from ...schedules.api import SCHEDULE_INSTRUCTION
-from ..model import Card, CardStage, minutes_label
+from ...schedules.api import DEADLINE_INSTRUCTION, SCHEDULE_INSTRUCTION
+from ..model import Card, CardKind, CardStage, minutes_label
 from ..use_cases import (
     archive_subtree,
     delete_one_card,
@@ -124,13 +124,17 @@ async def _on_edit_text(context: CallbackContext) -> None:
             current = minutes_label(card.tracked_mins) if card.tracked_mins else ""
         else:
             current = str(getattr(card, field) or "")
+        deadline = field == "schedule" and card.kind != CardKind.ACTION.value
+    title = "Deadline" if deadline else _FIELD_TITLES.get(field, field.replace("_", " ").title())
     await render_text_input(
         context.message,
         context.services,
         screen=TextInputScreen(
-            title=f"Edit Card {_FIELD_TITLES.get(field, field.replace('_', ' ').title())}",
+            title=f"Edit Card {title}",
             current_value=current,
-            instruction=_FIELD_INSTRUCTIONS.get(field, f"Send the new {field.replace('_', ' ')}."),
+            instruction=DEADLINE_INSTRUCTION
+            if deadline
+            else _FIELD_INSTRUCTIONS.get(field, f"Send the new {field.replace('_', ' ')}."),
             back_action="card_view",
             back_payload={"id": card_id, "back": back_state, "full": True},
             related_id=card_id,

@@ -29,6 +29,8 @@ from safwa.bootstrap.modules import (
 )
 from safwa.features.cards.model import Card, CardStage
 from safwa.features.planning.use_cases import sprint_metrics, start_sprint
+from safwa.features.profile.model import ProfileField
+from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.tags.model import CardTag, Tag
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.model import CardValue, Value
@@ -319,6 +321,9 @@ async def test_ai_stage_update_to_done_keeps_completion_accounting(e2e_harness):
 
 async def test_multiple_ai_card_creations_are_reviewed_sequentially(e2e_harness):
     """PR-QUEUE-006 — tests/brd/tg_agent_shell/proposals.feature"""
+    async with e2e_harness.sessions() as session:
+        await set_profile_field(session, ProfileField.EFFORT_TRACKING, True)
+        await session.commit()
     first_turn = mutation_turn(
         ("card", {"mode": "create", "kind": "goal", "title": "Быть здоровым"}),
         (
@@ -1518,6 +1523,7 @@ async def test_single_tag_callback_never_leaves_dead_buttons_when_follow_up_fail
 async def test_a_new_card_receipt_names_every_field_that_was_chosen(e2e_harness):
     """The receipt is what the owner checks the proposal by, so a default says nothing."""
     async with e2e_harness.sessions() as session:
+        await set_profile_field(session, ProfileField.EFFORT_TRACKING, True)
         await create_tag(session, name="спорт")
         await session.commit()
 
@@ -1708,6 +1714,9 @@ async def test_a_resolved_proposal_leaves_one_readable_line_in_the_dialogue(
 
 async def test_one_call_setting_several_fields_is_one_proposal(e2e_harness):
     """PR-QUEUE-005 — tests/brd/tg_agent_shell/proposals.feature"""
+    async with e2e_harness.sessions() as session:
+        await set_profile_field(session, ProfileField.EFFORT_TRACKING, True)
+        await session.commit()
     advisor, _provider = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
@@ -1869,6 +1878,7 @@ async def test_calls_for_one_item_with_another_item_between_stay_apart(e2e_harne
 async def test_saving_one_proposal_leaves_the_queued_ones_saveable(e2e_harness):
     """PR-QUEUE-008 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
+        await set_profile_field(session, ProfileField.EFFORT_TRACKING, True)
         card = await create_manual_card(session, title="Release", effort_points=3)
         other = await create_manual_card(session, title="Docs", effort_points=1)
         await session.commit()

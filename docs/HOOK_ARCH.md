@@ -72,13 +72,19 @@
   взгляд хранится в памяти процесса, запуск считается первым: время, прошедшее при
   остановленном или выключенном хуке, не догоняется, а перенесённое владельцем время действует
   со следующего наступления без перезапуска. Потребители Advise по времени — Цели и Подцели без
-  Действий, Отдых в Today в том же cards/hooks.py: evaluate возвращает
+  Действий, Schedule вне плана и Отдых в Today в том же cards/hooks.py: evaluate возвращает
   одну отметку «пора», а список читает prepare в момент доставки. Подписка OnTick(every=...)
   вместо читателя называет интервал от TICK_EVERY_MIN = 30 секунд до TICK_EVERY_MAX = 24 часа:
   такой Tick наступает на первом взгляде после того, как интервал прошёл с прошлого запуска.
   Каждый Tick несёт чат владельца, каким его увидел взгляд, — ChatState. Потребители Run по
-  интервалу — Home dashboard, срабатывание Reminders и перенос памяти из ретро: своего цикла
-  у фичи нет.
+  интервалу — Home dashboard, срабатывание Reminders, перенос памяти из ретро и повтор
+  несобранных Schedule: своего цикла у фичи нет.
+- Schedules в [schedules/hooks.py](../src/safwa/features/schedules/hooks.py): schedules.compile —
+  Run на schedule.changed, читает моделью одну новую ревизию после commit и отбрасывает
+  результат, если ревизию за это время сменили; schedules.recover — Run на Started и каждый час,
+  снова читает ревизии, которые модель не дочитала; schedules.clarify — Advise на
+  schedule.unclear, один вопрос на неясную ревизию. Текст, набранный в редакторе, читается до
+  записи и хуков не ждёт ([SCHEDULES.md](SCHEDULES.md)).
 - Started — запуск приложения: оболочка сверила то, что оставил перезапуск, первое сообщение
   ещё не принято. OnStarted без фильтров, допустим только Run. Композиционный корень отдаёт
   Started один раз через hand_on_start в
@@ -170,12 +176,9 @@ agent_related у определения). Профиль показывает к
 [profile/api.py](../src/safwa/features/profile/api.py): решает Профиль, и он остаётся листом
 графа.
 
-Зависимость Today overload от Effort Points в Профиле
-([PS-EP-021](../tests/brd/profile.feature)) объявлена в `EFFORT_TRACKING_HOOKS` в
-[profile/api.py](../src/safwa/features/profile/api.py). Этот набор читает политика перед
-evaluate и доставкой; экран скрывает эти хуки при выключенных EP, а смена режима EP
-снимает их ожидающие вопросы. Остальные реакции и Time tracking
-от этого переключателя не зависят.
+Так же Today overload следует за Effort Points ([PS-EP-021](../tests/brd/profile.feature)):
+вторая проверка в `hook_switched_on`, имя — `TODAY_OVERLOAD`. Остальные реакции и Time
+tracking от этого переключателя не зависят.
 
 **Зависимый хук следует за чужим выключателем.** Поле switch у определения называет хук, чьим
 выключателем этот включается и выключается. Реестр при сборке проверяет, что названный хук
@@ -670,10 +673,3 @@ commit и на старте проверяются в [test_hooks.py](../tests/t
 одну строку подключения. Он использует готовые настройки и доставку и не строит собственную
 память диалога с владельцем: в нём нет управления Telegram, сессиями, очередью или записей о
 решении владельца.
-
-## Scheduler
-
-`schedules.compile` is a Run after `schedule.changed`; it compiles only the new source
-revision. `schedules.clarify` is Advise after `schedule.unclear`, once per ambiguous revision.
-`schedules.recover` is a Run at startup and every hour for missing, pending or failed setup.
-Completion uses the compiled rule in the domain transaction. See [SCHEDULES.md](SCHEDULES.md).

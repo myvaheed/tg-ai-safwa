@@ -24,7 +24,7 @@ Feature: Values
     Given the owner has more critical Cards than Safwa is handed (CONTEXT_CRITICAL_CARD_LIMIT = 10)
     When they are picked
     Then a critical Card that serves a Value in focus comes before one that does not
-    And among the rest, a Card with an appointment comes first, and then the older one
+    And among the rest they follow the order of every Card list: an appointment or a Deadline first, the sooner one before, then the older one
 
   Scenario: VL-LINK-004 — One Value is carried by many things, which is what it is for
     Given a Value named "Health"
@@ -66,7 +66,7 @@ Feature: Values
     Then the link goes with it, and the Value is not left pointing at something that is gone
 
   Scenario: VL-CHECK-012 — An answered repeat hands its Values to the copy that takes its place
-    Given a independent scheduled Check carrying a Value
+    Given an independent scheduled Check carrying a Value
     When it is answered, Passed or Missed
     Then the fresh copy that takes its place carries that Value
     And the answered one no longer does

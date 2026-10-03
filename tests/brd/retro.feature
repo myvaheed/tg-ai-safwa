@@ -176,7 +176,9 @@ Feature: Retro
     Given a Sprint ended with both estimated and unestimated Actions
     Then its record keeps the estimates it had when each Action joined and counts the missing ones
     And later estimates change neither that record nor its counts
-    With Effort Points off, the retro screen, records read in words and AI analysis use Action counts and hide EP and capacity
-    With Effort Points on, the screen names partial totals and missing estimates, with no effort percentage or EP per hour
+    When Effort Points are off
+    Then the retro screen, records read in words and AI analysis use Action counts and hide EP and capacity
+    When Effort Points are on
+    Then the screen names partial totals and missing estimates, with no effort percentage or EP per hour
     And incomplete Sprints are left out of effort averages, with the number of included Sprints stated
     And time and Action counts are available in either mode

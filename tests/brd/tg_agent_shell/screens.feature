@@ -78,6 +78,8 @@ Feature: Screens
     When what they send is refused
     Then nothing is kept, the message is still taken out of the chat, and the same screen says what
       was wrong and goes on waiting
+    And a value the application has to read first, with a model or anything else slow, is read
+      before anything is written, and what that reading refuses is shown the same way
 
   Scenario: SC-FAIL-005 — A review that could not be put on screen does not stay open
     Given Safwa prepared a change and the review screen for it could not be put in the chat

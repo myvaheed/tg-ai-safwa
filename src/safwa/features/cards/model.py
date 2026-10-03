@@ -163,6 +163,12 @@ class Card(Base, TimestampMixin):
         rule = self.schedule_record.rule if self.schedule_record else None
         return self.period_start if rule and rule["kind"] == "fixed" else None
 
+    @property
+    def deadline_at(self) -> datetime | None:
+        """A Goal's or Subgoal's compiled Deadline."""
+        rule = self.schedule_record.rule if self.schedule_record else None
+        return self.period_start if rule and rule["kind"] == "deadline" else None
+
     def is_closed_repeat(self) -> bool:
         """A repeat instance that already ended, so its series continues on a newer row."""
         rule = self.schedule_record.rule if self.schedule_record else None

@@ -39,7 +39,7 @@ and SQLAlchemy; nothing that expresses a business rule imports it.
 | `screens` | a `ScreenSpec` per item type the owner can be taken to, and how it reads when cited |
 | `commands` | a `ScreenCommand` per screen the owner opens by name: a slash command, a menu button, or both |
 | `callback_actions` | the inline-button actions this feature's screens draw |
-| `text_inputs` | a `TextInputFlow` per editor field the owner types a value into |
+| `text_inputs` | a `TextInputFlow` per editor field the owner types a value into; its optional `prepare` reads the value before the write opens a transaction, a model included |
 | `start_links` | a `StartLink` — a `/start <payload>` this feature answers instead of it opening a cited item |
 
 A capability does not get a field here by default. It first gets its own mechanism, and only a
@@ -313,8 +313,3 @@ leaves that low-level modules import. Keeping the package `__init__` empty is wh
 leaf from executing the manifest, which is how the import graph stays acyclic. The adapter package's
 own `__init__.py` is the exception and the reason: nothing imports one of its files to reach a leaf,
 so it is free to be the facade that makes a package and a module read the same from outside.
-
-Schedules owns compiled source revisions, deterministic period arithmetic, its Scheduler
-hooks and the Advisor read tool; see [SCHEDULES.md](SCHEDULES.md). Cards and Checks ask its
-`api.py` to change a source or calculate an occurrence. Only bootstrap binds the compiler
-and read tool to the provider and sessions.

@@ -24,7 +24,7 @@ from tg_agent_shell.telegram import (
 from ....constants import SELECTOR_PAGE_SIZE
 from ....foundation.marks import live_repeat_instance_id, title_marks
 from ...cards.api import card_labels, card_title
-from ...schedules.api import schedule_progress
+from ...schedules.api import schedule_summary
 from ...values.model import Value
 from ..model import CHECK_OUTCOME_LABELS, Check, CheckOutcome
 from ..use_cases import card_checks, check_card_id, check_value_ids
@@ -198,9 +198,7 @@ async def render_check(
                     for outcome in SETTABLE_OUTCOMES
                 ]
             )
-        progress = await schedule_progress(session, check)
-        setup = check.schedule_record.status if check.schedule_record else None
-        question = check.schedule_record.question if check.schedule_record else None
+        summary = await schedule_summary(session, check)
         live_id = (
             await live_repeat_instance_id(session, check) if check.is_closed_repeat() else None
         )
@@ -272,12 +270,8 @@ async def render_check(
             f"Values: {html.escape(', '.join(value_names)) or '—'}",
         ]
     )
-    if progress:
-        body += "\n" + html.escape(progress)
-    if setup in {"pending", "needs_clarification", "error"}:
-        body += "\nSchedule setup: " + setup.replace("_", " ")
-    if question:
-        body += "\n" + html.escape(question)
+    if summary:
+        body += "\n" + html.escape(summary)
     await deliver(
         message,
         services,

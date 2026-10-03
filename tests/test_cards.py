@@ -255,7 +255,8 @@ async def test_cd_field_007_a_goal_is_saved_without_the_fields_that_are_an_actio
         await session.flush()
 
         assert goal.effort_points is None
-        assert goal.schedule is None
+        # A Goal's Schedule is its Deadline, kept for the Scheduler to read as one date.
+        assert goal.schedule == "after completion"
         assert goal.blocked is False
         assert goal.blocked_description == ""
         assert not list(
@@ -1080,13 +1081,18 @@ async def test_parent_stage_propagation_and_reopen(sessions):
 
 
 async def test_repeat_completion_clones_the_action(sessions):
+    """SCH-STAGE-013 — tests/brd/schedules.feature"""
     async with sessions() as session:
+        # In Planning an after-completion copy keeps the stage it was planned into.
         card = await a_card(session, title="Run", schedule="after completion", stage="today")
         result = await finish_action(session, card.id)
         await session.commit()
         successor = await session.get(Card, result.successor_ids[0])
-        assert successor.effective_stage == CardStage.BACKLOG.value
+        assert successor.effective_stage == CardStage.TODAY.value
         assert successor.repeat_series_id == card.repeat_series_id
+        loose = await a_card(session, title="Read", schedule="after completion")
+        result = await finish_action(session, loose.id)
+        assert (await session.get(Card, result.successor_ids[0])).effective_stage == "backlog"
 
 
 async def test_a_closed_repeat_cannot_be_reopened_and_points_at_the_open_one(sessions):

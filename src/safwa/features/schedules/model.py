@@ -1,5 +1,7 @@
 """One immutable source revision, with its compiled rule or clarification."""
 
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Any
 

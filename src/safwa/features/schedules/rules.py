@@ -1,8 +1,8 @@
-"""Calendar windows, quotas and appointments. No model is needed to execute a rule."""
+"""Calendar windows, quotas, appointments and deadlines. No model is needed to execute a rule."""
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -18,8 +18,14 @@ def period_start(at: datetime, period: str, tz: ZoneInfo) -> datetime:
 
 
 def period_end(start: datetime, period: str, tz: ZoneInfo) -> datetime:
-    day = start.astimezone(tz).date() + timedelta(days=7 if period == "week" else 1)
+    day = start.astimezone(tz).date() + timedelta(days=_period_days(period))
     return datetime.combine(day, time(), tzinfo=tz).astimezone(UTC)
+
+
+def deadline_moment(rule: dict[str, Any], tz: ZoneInfo) -> datetime:
+    """A Deadline without a time is due by the end of its day."""
+    clock = time.fromisoformat(rule["time"]) if rule["time"] else time(23, 59)
+    return datetime.combine(date.fromisoformat(rule["date"]), clock, tzinfo=tz).astimezone(UTC)
 
 
 def first_slot(rule: dict[str, Any], at: datetime, tz: ZoneInfo) -> datetime | None:
@@ -27,6 +33,8 @@ def first_slot(rule: dict[str, Any], at: datetime, tz: ZoneInfo) -> datetime | N
         return period_start(at, rule["period"], tz)
     if rule["kind"] == "after_completion":
         return None
+    if rule["kind"] == "deadline":
+        return deadline_moment(rule, tz)
     return next_fire(schedule_from_payload(rule["timing"]), previous=None, now=at, tz=tz)
 
 
@@ -52,7 +60,10 @@ def next_slot(
 def windows(
     rule: dict[str, Any], start: datetime, end: datetime, tz: ZoneInfo
 ) -> list[tuple[datetime, datetime, int]]:
-    """Periods intersecting [start, end). A partial week still has its full quota."""
+    """Periods intersecting [start, end), each with the executions planned inside.
+
+    A quota period covered only partly gets its share by local days covered, rounded.
+    """
     if rule["kind"] == "after_completion":
         return []
     result = []
@@ -60,7 +71,10 @@ def windows(
         at = period_start(start, rule["period"], tz)
         while at < end:
             until = period_end(at, rule["period"], tz)
-            result.append((at, until, rule["count"]))
+            first = max(at, start).astimezone(tz).date()
+            last = (min(until, end) - timedelta(microseconds=1)).astimezone(tz).date()
+            covered = (last - first).days + 1
+            result.append((at, until, round(rule["count"] * covered / _period_days(rule["period"]))))
             at = until
         return result
     timing = schedule_from_payload(rule["timing"])
@@ -76,3 +90,16 @@ def windows(
             break
         at = roll_forward(timing, previous=at, now=max(start, at), tz=tz)
     return [(day, period_end(day, "day", tz), count) for day, count in counts.items()]
+
+
+def daily_executions(rule: dict[str, Any]) -> float:
+    """The most executions the rule plans for one day, on average for a weekly quota."""
+    if rule["kind"] == "quota":
+        return rule["count"] / _period_days(rule["period"])
+    if rule["kind"] == "fixed" and rule["timing"]["interval_minutes"]:
+        return 24 * 60 / rule["timing"]["interval_minutes"]
+    return 1
+
+
+def _period_days(period: str) -> int:
+    return 7 if period == "week" else 1

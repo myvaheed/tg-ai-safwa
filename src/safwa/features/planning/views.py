@@ -23,15 +23,12 @@ AI_CURRENT_SPRINT_METRICS = SqlView(
           CASE WHEN (SELECT effort_tracking FROM user_profile WHERE id=1)
             THEN SUM(CASE WHEN sc.scope_kind='added' THEN COALESCE(sc.effort_snapshot,0)*COALESCE(sc.planned_count,0) ELSE 0 END) END added,
           CASE WHEN (SELECT effort_tracking FROM user_profile WHERE id=1)
-            THEN SUM(COALESCE(sc.effort_snapshot,0) * CASE
-              WHEN sc.removed_at IS NOT NULL THEN COALESCE(sc.planned_count,0)
-              WHEN sc.result='done' THEN MAX(0,COALESCE(sc.planned_count,0)-1) ELSE 0 END) END removed,
+            THEN SUM(CASE WHEN sc.removed_at IS NOT NULL THEN COALESCE(sc.effort_snapshot,0)*COALESCE(sc.planned_count,0) ELSE 0 END) END removed,
           CASE WHEN (SELECT effort_tracking FROM user_profile WHERE id=1)
             THEN SUM(CASE WHEN sc.result='done' THEN COALESCE(sc.effort_snapshot,0) ELSE 0 END) END completed,
           SUM(CASE WHEN sc.scope_kind='initial' THEN COALESCE(sc.planned_count,0) ELSE 0 END) actions_committed,
           SUM(CASE WHEN sc.scope_kind='added' THEN COALESCE(sc.planned_count,0) ELSE 0 END) actions_added,
-          SUM(CASE WHEN sc.removed_at IS NOT NULL THEN COALESCE(sc.planned_count,0)
-              WHEN sc.result='done' THEN MAX(0,COALESCE(sc.planned_count,0)-1) ELSE 0 END) actions_removed,
+          SUM(CASE WHEN sc.removed_at IS NOT NULL THEN COALESCE(sc.planned_count,0) ELSE 0 END) actions_removed,
           SUM(COALESCE(sc.result='done',0)) actions_completed,
           SUM(CASE WHEN sc.effort_snapshot IS NULL THEN COALESCE(sc.planned_count,0) ELSE 0 END) unestimated_actions,
           SUM(sc.planned_count IS NULL) unknown_schedules

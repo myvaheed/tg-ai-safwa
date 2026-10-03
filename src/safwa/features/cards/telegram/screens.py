@@ -24,7 +24,7 @@ from ....foundation.marks import live_repeat_instance_id, title_marks
 from ....foundation.workspace import Workspace
 from ...checks.use_cases import card_checks
 from ...profile.api import effort_tracking_on, time_tracking_on
-from ...schedules.api import schedule_progress
+from ...schedules.api import schedule_summary
 from ...tags.model import CardTag, Tag
 from ...values.model import CardValue, Value
 from ..hierarchy import blocking_actions, card_progress
@@ -104,7 +104,7 @@ async def render_card(
                 ("📝 Note", "card_edit_text", {"id": card.id, "field": "note"}),
                 ("⚠️ Priority", "card_choose_priority", {"id": card.id}),
                 (
-                    "⏱ Schedule",
+                    "⏱ Schedule" if card.kind == CardKind.ACTION.value else "⏰ Deadline",
                     "card_edit_text",
                     {"id": card.id, "field": "schedule"},
                 ),
@@ -135,7 +135,7 @@ async def render_card(
                     ("⚡ Energy", "card_choose_energy", {"id": card.id}),
                 ]
             )
-        if card.kind != CardKind.ACTION.value or card.completed_at is not None:
+        if card.completed_at is not None:
             field_specs = [field for field in field_specs if field[2].get("field") != "schedule"]
         if full and not archived:
             field_specs.extend(
@@ -362,6 +362,7 @@ async def render_card(
             check.title + await title_marks(session, check) for check in direct_checks
         ]
         closed_at = card.completed_at
+        summary = await schedule_summary(session, card)
         await session.commit()
     text = with_notice(
         card_overview_text(
@@ -374,9 +375,7 @@ async def render_card(
                 "note": card.note,
                 "priority": card.priority,
                 "schedule": card.schedule,
-                "schedule_status": card.schedule_record.status if card.schedule_record else None,
-                "schedule_progress": await schedule_progress(session, card),
-                "schedule_question": card.schedule_record.question if card.schedule_record else None,
+                "schedule_summary": summary,
                 "blocked": card.blocked,
                 "blocked_description": card.blocked_description,
                 "effort_points": card.effort_points,

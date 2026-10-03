@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from schedule_helpers import create_card, create_check
+from schedule_helpers import create_card, create_check, with_compiler
 from ui_harness import FakeCallback, FakeMessage, button_texts, services_for
 
 from safwa.features.cards.model import Card
@@ -20,16 +20,23 @@ from tg_agent_shell.telegram import callback_token_handler
 from tg_agent_shell.telegram.dialogue import ordinary_text
 
 
-async def test_an_independent_check_schedule_is_edited_and_cleared_in_its_text_editor(sessions):
+async def test_an_independent_check_schedule_is_compiled_in_its_text_editor(sessions):
     """CH-WRITE-002 — tests/brd/checks.feature"""
     async with sessions() as session:
         check = await create_check(session, title="Posture?")
         check_id = check.id
         await session.commit()
     services = services_for(sessions)
+    compiler = with_compiler(
+        services, {"five times a day": ({"kind": "quota", "period": "day", "count": 5}, None)}
+    )
     message = FakeMessage(590, bot_message=True)
     for index, (text, expected, status) in enumerate(
-        [("five times a day", "five times a day", "pending"), ("off", None, "disabled")]
+        [
+            ("five times a day", "five times a day", "ready"),
+            ("sometimes", "five times a day", "ready"),
+            ("off", None, None),
+        ]
     ):
         await render_check(message, services, check_id)
         button = next(
@@ -47,7 +54,13 @@ async def test_an_independent_check_schedule_is_edited_and_cleared_in_its_text_e
         async with sessions() as session:
             check = await session.get(Check, check_id)
             assert check.schedule == expected
-            assert check.schedule_record.status == status
+            assert (check.schedule_record.status if check.schedule_record else None) == status
+        if text == "five times a day":
+            assert "0/5 answered for the day from" in message.bot.edits[-1][1]
+        if text == "sometimes":
+            # The question stands in for the value: the same editor asks it and keeps waiting.
+            assert "When does sometimes happen?" in message.bot.edits[-1][1]
+    assert [target for _, target in compiler.calls] == ["check", "check"]
 
 
 async def test_ch_archive_016_an_archived_check_keeps_its_answer(sessions) -> None:

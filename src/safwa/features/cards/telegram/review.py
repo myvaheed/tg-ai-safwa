@@ -261,7 +261,9 @@ async def _card_diffs(
         "parent_id": "Parent",
         "stage": "Stage",
         "priority": "Priority",
-        "schedule": "Schedule",
+        "schedule": "Schedule"
+        if (proposed.get("kind") or current.get("kind")) == CardKind.ACTION.value
+        else "Deadline",
         "blocked": "Blocked",
         "blocked_description": "Blocked Description",
         "effort_points": "Effort",
@@ -378,7 +380,8 @@ class CardProposalPresenter:
                 if chosen := values.get(field_name):
                     parts.append(detail_value(chosen))
             if values.get("schedule"):
-                parts.append(f"Schedule {values['schedule']}")
+                label = "Schedule" if kind == CardKind.ACTION.value else "Deadline"
+                parts.append(f"{label} {values['schedule']}")
             if values.get("blocked"):
                 parts.append("Blocked")
             parts.extend(await reference_groups(session, values, CARD_REFERENCE_SPECS))

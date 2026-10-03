@@ -7,15 +7,16 @@ is the flag that asks for it.
 
 from __future__ import annotations
 
-from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.ai.messages import StateBlocks
+from tg_agent_shell.foundation.clock import utcnow
 
 from ...foundation.workspace import Workspace
+from ..cards.api import list_order
 from ..cards.model import Card, CardStage, Priority, effort_label
 from ..planning.api import plan_load, today_actions
 from ..planning.model import Sprint
@@ -32,7 +33,7 @@ def citation(name: str, kind: str, item_id: int) -> str:
 
 
 async def _critical_cards(session: AsyncSession) -> list[Card]:
-    """The critical Cards, those carrying an active Value first."""
+    """The critical Cards, those carrying an active Value first, each part in list order."""
     linked_active_value = (
         select(CardValue.card_id)
         .join(Value, Value.id == CardValue.value_id)
@@ -42,24 +43,14 @@ async def _critical_cards(session: AsyncSession) -> list[Card]:
         )
         .exists()
     )
-    return list(
-        await session.scalars(
-            select(Card)
-            .where(
-                Card.priority == Priority.CRITICAL.value,
-                Card.effective_stage.notin_(
-                    [CardStage.DONE.value]
-                ),
-            )
-            .order_by(
-                linked_active_value.desc(),
-                Card.period_start.is_(None),
-                Card.period_start,
-                Card.created_at,
-            )
-            .limit(CONTEXT_CRITICAL_CARD_LIMIT)
+    rows = await session.execute(
+        select(Card, linked_active_value).where(
+            Card.priority == Priority.CRITICAL.value,
+            Card.effective_stage != CardStage.DONE.value,
         )
     )
+    ordered = sorted(rows.unique(), key=lambda row: (not row[1], list_order(row[0])))
+    return [card for card, _ in ordered[:CONTEXT_CRITICAL_CARD_LIMIT]]
 
 
 async def workspace_context(session: AsyncSession) -> StateBlocks:
@@ -116,30 +107,33 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
             f"stage={card.effective_stage}"
             for card in critical
         )
-    if sprint is not None:
-        today = await today_actions(session)
-        local_day = datetime.now(timezone).date()
-        load = await plan_load(session, today, start_date=local_day, end_date=local_day)
-        lines.append("Today Actions:")
-        lines.append(f"Planned executions remaining today: {load.actions}" + (
-            " (lower bound; Schedule quantities are unknown)" if load.unknown_schedules else ""
-        ))
-        if profile and profile.effort_tracking:
-            lines.append(f"Remaining planned effort today: {effort_label(load.effort)} EP")
-            if load.unestimated:
-                lines.append(f"Unestimated executions: {load.unestimated}; EP total is partial.")
-        lines.extend(
-            f"- {citation(card.title, 'card', card.id)}"
-            + f" executions={load.counts[card.id] if load.counts[card.id] is not None else '?'}"
-            + (f" effort={effort_label(card.effort_points)}" if profile and profile.effort_tracking else "")
-            + (
-                f" schedule_at={card.scheduled_at.astimezone(timezone):%d.%m %H:%M}"
-                if card.scheduled_at
-                else ""
-            )
-            for card in today
+    today = await today_actions(session)
+    local_day = utcnow().astimezone(timezone).date()
+    load = await plan_load(session, today, start_date=local_day, end_date=local_day)
+    lines.append("Today Actions:")
+    lines.append(f"Planned executions remaining today: {load.actions}" + (
+        " (lower bound; Schedule quantities are unknown)" if load.unknown_schedules else ""
+    ))
+    if profile and profile.effort_tracking:
+        lines.append(f"Remaining planned effort today: {effort_label(load.effort)} EP")
+        if load.unestimated:
+            lines.append(f"Unestimated executions: {load.unestimated}; EP total is partial.")
+    lines.extend(
+        f"- {citation(card.title, 'card', card.id)}"
+        + (
+            f" executions={load.counts[card.id] if load.counts[card.id] is not None else '?'}"
+            if load.counts[card.id] != 1
+            else ""
         )
+        + (f" effort={effort_label(card.effort_points)}" if profile and profile.effort_tracking else "")
+        + (
+            f" schedule_at={card.scheduled_at.astimezone(timezone):%d.%m %H:%M}"
+            if card.scheduled_at
+            else ""
+        )
+        for card in today
+    )
     return StateBlocks(
         state="\n".join(lines),
-        clock=f"Current local time: {datetime.now(timezone):%Y-%m-%d %H:%M} ({timezone})",
+        clock=f"Current local time: {utcnow().astimezone(timezone):%Y-%m-%d %H:%M} ({timezone})",
     )

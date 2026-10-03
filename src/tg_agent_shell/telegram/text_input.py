@@ -207,6 +207,8 @@ async def handle_text_input(
         return False
     try:
         value = validate_text_input(message.text or "", flow.validator(state))
+        if flow.prepare is not None:
+            value = await flow.prepare(services, state, value)
         async with services.sessions() as session:
             # The editor's own session ends here whatever the flow writes; a draft
             # that keeps editing opens a fresh one in its place.

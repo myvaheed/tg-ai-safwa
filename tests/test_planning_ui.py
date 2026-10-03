@@ -179,15 +179,24 @@ async def test_pl_mode_001_the_menu_offers_today_in_planning_too(sessions) -> No
     assert "☀️ Today" in button_texts(message.edits[-1][1])
 
 
-async def test_pl_mode_001_the_today_screen_is_closed_during_planning(sessions) -> None:
+async def test_pl_mode_001_the_today_screen_lists_its_actions_during_planning(sessions) -> None:
     """PL-MODE-001 — tests/brd/planning.feature"""
+    async with sessions() as session:
+        await create_card(session, kind="action", title="Call the bank", stage="today")
+        await session.commit()
     message = FakeMessage(75, bot_message=True)
 
     await command_today(message, services_for(sessions))
 
     text, markup = message.edits[-1]
-    assert "Plan the next Sprint first" in text
-    assert button_texts(markup) == ["↩️ Menu"]
+    assert "Call the bank" in text
+    assert "Plan the next Sprint first" not in text
+
+    planning = FakeMessage(76, bot_message=True)
+    await render_sprint(planning, services_for(sessions))
+    text, markup = planning.edits[-1]
+    assert "Call the bank" not in text
+    assert not any("Today" in label for label in button_texts(markup))
 
 
 async def test_card_move_buttons_walk_an_action_between_today_and_sprint(sessions) -> None:

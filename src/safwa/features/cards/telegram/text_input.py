@@ -9,12 +9,15 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.telegram import TextValidator, required_text
 from tg_agent_shell.telegram.contributions import TextInputFlow
 from tg_agent_shell.telegram.model import UiSession
 
-from ..model import TRACKED_MINS_MAX
-from ..use_cases import edit_card_text, update_card_fields
+from ...schedules.api import schedule_target
+from ...schedules.telegram import compile_typed_schedule
+from ..model import TRACKED_MINS_MAX, Card, CardKind
+from ..use_cases import edit_card_schedule, edit_card_text, update_card_fields
 from .creation import render_card_creation
 from .draft import sanitize_card_creation_state
 from .screens import render_card
@@ -60,12 +63,23 @@ def _card_text_validator(field: str) -> TextValidator[Any] | None:
     return None
 
 
+async def _prepare_card_draft_text(services: Any, state: Mapping[str, Any], value: str) -> Any:
+    """A Schedule is compiled for the kind being drafted; other fields go in as typed."""
+    if state["input_field"] != "schedule":
+        return value
+    target = "action" if state["kind"] == CardKind.ACTION.value else "deadline"
+    return await compile_typed_schedule(services, target, value)
+
+
 async def _apply_card_draft_text(
-    session: AsyncSession, services: Any, state: Mapping[str, Any], value: str
+    session: AsyncSession, services: Any, state: Mapping[str, Any], value: Any
 ) -> None:
     """A Card being created is not saved yet, so the value goes back into the draft."""
     draft = {key: item for key, item in state.items() if key not in _DRAFT_EDITOR_KEYS}
-    draft[str(state["input_field"])] = value
+    if state["input_field"] == "schedule":
+        draft.update(schedule=value["text"], schedule_rule=value["rule"])
+    else:
+        draft[str(state["input_field"])] = value
     session.add(
         UiSession(
             owner_id=services.owner_id,
@@ -77,7 +91,7 @@ async def _apply_card_draft_text(
 
 
 async def _render_card_draft(
-    message: Any, services: Any, state: Mapping[str, Any], value: str
+    message: Any, services: Any, state: Mapping[str, Any], value: Any
 ) -> None:
     del value
     await render_card_creation(
@@ -89,8 +103,20 @@ def _saved_card_field(state: Mapping[str, Any]) -> str:
     return "blocked_description" if state["flow"] == _BLOCKED_FLOW else str(state["field"])
 
 
+async def _prepare_card_text(services: Any, state: Mapping[str, Any], value: str) -> Any:
+    """A Schedule is compiled before it is written; other fields go in as typed."""
+    if _saved_card_field(state) != "schedule":
+        return value
+    async with services.sessions() as session:
+        card = await session.get(Card, int(state["card_id"]))
+        if card is None:
+            raise DomainError("Card does not exist or is archived")
+        target = schedule_target(card)
+    return await compile_typed_schedule(services, target, value)
+
+
 async def _apply_card_text(
-    session: AsyncSession, services: Any, state: Mapping[str, Any], value: str
+    session: AsyncSession, services: Any, state: Mapping[str, Any], value: Any
 ) -> None:
     del services
     card_id = int(state["card_id"])
@@ -100,12 +126,14 @@ async def _apply_card_text(
         )
     elif state["field"] == "tracked_mins":
         await update_card_fields(session, card_id, {"tracked_mins": value})
+    elif state["field"] == "schedule":
+        await edit_card_schedule(session, card_id, value["text"], value["rule"])
     else:
         await edit_card_text(session, card_id, str(state["field"]), value)
 
 
 async def _render_card(
-    message: Any, services: Any, state: Mapping[str, Any], value: str
+    message: Any, services: Any, state: Mapping[str, Any], value: Any
 ) -> None:
     del value
     await render_card(
@@ -125,12 +153,14 @@ CARD_TEXT_INPUTS = (
         validator=lambda state: _card_text_validator(str(state["input_field"])),
         apply=_apply_card_draft_text,
         render=_render_card_draft,
+        prepare=_prepare_card_draft_text,
     ),
     TextInputFlow(
         name="card",
         validator=lambda state: _card_text_validator(_saved_card_field(state)),
         apply=_apply_card_text,
         render=_render_card,
+        prepare=_prepare_card_text,
     ),
     TextInputFlow(
         name=_BLOCKED_FLOW,

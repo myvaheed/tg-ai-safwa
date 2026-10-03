@@ -1,10 +1,9 @@
 """What the Cards ask the Advisor to raise on their own: a parent whose Actions are all
-finished, a blocker just set, an Action
-finished without the time it took, a day loaded past what it is meant to hold, a Sprint
-started without a kind of energy the Backlog has, an Action found in Today morning after
-morning, and — each morning, and when a Sprint starts — the Goals and Subgoals that still
-have no Action under them, and a day planned without
-the rest the Sprint holds.
+finished, a blocker just set, an Action finished without the time it took, a day loaded
+past what it is meant to hold, a Sprint started without a kind of energy the Backlog has,
+an Action found in Today morning after morning, and — each morning, and when a Sprint
+starts — the Goals and Subgoals that still have no Action under them, the Schedules the
+plan does not hold, and a day planned without the rest the Sprint holds.
 
 The mornings themselves are written down by work of its own on the same tick, on whether
 or not the question about them is switched off."""
@@ -29,10 +28,10 @@ from tg_agent_shell.hooks.contracts import (
     Tick,
 )
 
-from ..planning.api import SPRINT_STARTED, plan_load, sprint_is_active
+from ..planning.api import SPRINT_STARTED, active_sprint_end_date, plan_load, sprint_is_active
 from ..profile.api import TIME_TRACKING_REMINDER, TODAY_OVERLOAD, effort_tracking_on, morning_time
 from ..schedules.api import workspace_zone
-from .api import PLANNED_STAGES, actions_on_stages
+from .api import PLANNED_STAGES, SCHEDULE_NOTICE_DAYS, actions_on_stages
 from .hierarchy import branch_actions
 from .model import (
     TERMINAL_STAGES,
@@ -73,6 +72,12 @@ ENERGY_KINDS = {
 # How many mornings in a row an open Action stands in Today before it is asked about, and
 # again at each multiple.
 TODAY_STALE_DAYS = 3
+
+SCHEDULE_PLAN_REQUEST = (
+    "Scheduled Actions the plan does not hold:\n{cards}\n"
+    "Ask the user in one message whether to take the ones due today or tomorrow into Today, "
+    "and the others into the Sprint. Do not move anything without their answer."
+)
 
 TODAY_OVERLOAD_REQUEST = (
     "Today holds {total} EP, over the {capacity} EP a day is meant to hold; {done} EP of "
@@ -258,8 +263,6 @@ async def today_overload_request(
     The day is the workspace's local day, and what it holds is summed now, not when an
     Action entered Today: the ones still open there, and the ones finished today.
     """
-    if not await effort_tracking_on(session):
-        return None
     day_start = await _local_day_start(session, now)
     open_today = list(
         await session.scalars(
@@ -300,6 +303,8 @@ async def today_overload_request(
     )
 
 
+# Silent while Effort Points are off in the Profile, whatever its own switch says:
+# `hook_switched_on` answers for it.
 TODAY_OVERLOAD_HOOK = HookSpec(
     name=TODAY_OVERLOAD,
     owner="cards",
@@ -313,6 +318,69 @@ TODAY_OVERLOAD_HOOK = HookSpec(
 
 async def plan_check_due(event: Committed | Tick) -> tuple[str, ...]:
     return (PLAN_CHECK,)
+
+
+async def schedule_plan_request(
+    session: AsyncSession, items: Sequence[str], *, now: datetime | None = None
+) -> str | None:
+    """The open Actions whose Schedule comes due before the plan holds them.
+
+    Read on the workspace's local days as the question is about to be said: an appointment
+    today or tomorrow outside Today, one by the Sprint's last day in Backlog, and a daily
+    quota with executions left today outside Today. In Planning no Sprint runs, so it asks nothing.
+    """
+    end = await active_sprint_end_date(session)
+    if end is None:
+        return None
+    tz = await workspace_zone(session)
+    moment = now or utcnow()
+    today = moment.astimezone(tz).date()
+    near = today + timedelta(days=SCHEDULE_NOTICE_DAYS)
+    cards = await session.scalars(
+        select(Card)
+        .where(
+            Card.kind == CardKind.ACTION.value,
+            Card.archived_at.is_(None),
+            Card.effective_stage.not_in([stage.value for stage in TERMINAL_STAGES]),
+            Card.period_start.is_not(None),
+        )
+        .order_by(Card.period_start, Card.id)
+    )
+    lines: list[str] = []
+    for card in cards:
+        stage = CardStage(card.effective_stage)
+        rule = card.schedule_record.rule
+        if card.scheduled_at is not None and card.scheduled_at >= moment:
+            when = card.scheduled_at.astimezone(tz)
+            if (when.date() <= near and stage is not CardStage.TODAY) or (
+                when.date() <= end and stage is CardStage.BACKLOG
+            ):
+                lines.append(
+                    f"- #{card.id} «{card.title}»: {when:%Y-%m-%d %H:%M}, in {stage.value.capitalize()}"
+                )
+        elif (
+            rule["kind"] == "quota"
+            and rule["period"] == "day"
+            and stage is not CardStage.TODAY
+            and card.period_start.astimezone(tz).date() <= today
+        ):
+            lines.append(
+                f"- #{card.id} «{card.title}»: {rule['count']} times a day, in {stage.value.capitalize()}"
+            )
+    if not lines:
+        return None
+    return SCHEDULE_PLAN_REQUEST.format(cards="\n".join(lines))
+
+
+SCHEDULE_PLAN_HOOK = HookSpec(
+    name="cards.schedule_plan",
+    owner="cards",
+    on=(OnCommitted(kind=SPRINT_STARTED), OnTick(at=morning_time)),
+    evaluate=plan_check_due,
+    effect=Advise(prepare=schedule_plan_request),
+    title="Schedule outside the plan",
+    description="When a Sprint starts and each morning, asks about the scheduled Actions the plan does not hold.",
+)
 
 
 async def check_due(event: Tick) -> tuple[str, ...]:

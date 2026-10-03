@@ -123,13 +123,10 @@ def card_overview_text(
         lines.append(f"Completed at: {html.escape(str(state['closed_at']))}")
     lines.append(f"Note: {html.escape(str(state.get('note') or '—'))}")
     if state.get("schedule") or not compact:
-        lines.append(f"Schedule: {html.escape(str(state.get('schedule') or '—'))}")
-        if state.get("schedule_progress"):
-            lines.append(html.escape(state["schedule_progress"]))
-        if state.get("schedule_status") in {"pending", "needs_clarification", "error"}:
-            lines.append(f"Schedule setup: {state['schedule_status'].replace('_', ' ')}")
-        if state.get("schedule_question"):
-            lines.append(html.escape(state["schedule_question"]))
+        label = "Schedule" if kind == CardKind.ACTION.value else "Deadline"
+        lines.append(f"{label}: {html.escape(str(state.get('schedule') or '—'))}")
+        if state.get("schedule_summary"):
+            lines.append(html.escape(state["schedule_summary"]))
     if not compact:
         lines.extend(
             [

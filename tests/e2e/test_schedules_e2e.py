@@ -84,7 +84,6 @@ async def test_advisor_reads_a_compiled_quota_and_its_missed_observation(e2e_har
         "planned": 5,
         "done": 1,
         "remaining": 4,
-        "partial": True,
         "passed": 0,
         "missed": 1,
     }
@@ -205,8 +204,9 @@ async def test_committed_schedule_is_clarified_by_advisor_and_saved_as_a_ready_p
             prepare=runtime.prepare,
         )
         assert len(delivered) == 1
-        assert f"check #{check_id}" in delivered[0] and "often each week" in delivered[0]
-        assert "route workspace_mutator" in delivered[0]
+        assert f"#{check_id} «Workout?» (Check)" in delivered[0]
+        assert "Schedule «often each week»" in delivered[0]
+        assert "route to workspace_mutator" in delivered[0]
         outcome = await advisor.handle("Once each week.")
         assert outcome.proposal_id is not None
         async with e2e_harness.sessions() as session:

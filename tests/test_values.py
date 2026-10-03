@@ -23,6 +23,7 @@ from safwa.features.checks.use_cases import (
     resolve_check,
     toggle_check_value,
 )
+from safwa.features.schedules.api import set_schedule
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.model import CardValue, CheckValue, Value
 from safwa.features.values.use_cases import create_value, delete_value, update_value_fields
@@ -254,6 +255,10 @@ async def test_a_critical_card_serving_a_focus_is_shown_to_safwa_first(sessions)
         # More critical Cards than Safwa is handed, so the ordering has to choose.
         for index in range(CONTEXT_CRITICAL_CARD_LIMIT):
             await _action(session, f"Filler {index}", priority="critical")
+        # An appointment goes before older Cards; a quota's period is no appointment.
+        await _action(session, "Audit", priority="critical", schedule="31.12.2099 10:00")
+        quota = await _action(session, "Water", priority="critical")
+        await set_schedule(session, quota, "five times a day", {"kind": "quota", "period": "day", "count": 5})
         await session.commit()
 
         context = await workspace_context(session)
@@ -264,8 +269,8 @@ async def test_a_critical_card_serving_a_focus_is_shown_to_safwa_first(sessions)
         if line.startswith("- [")
     ]
     assert len(titles) == CONTEXT_CRITICAL_CARD_LIMIT
-    assert titles[0] == "Serves the focus"
-    assert plain.title in titles
+    assert titles[:3] == ["Serves the focus", "Audit", plain.title]
+    assert "Water" not in titles
 
 
 async def test_a_value_is_deleted_not_archived(sessions):

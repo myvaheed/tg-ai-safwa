@@ -65,7 +65,7 @@ AI_CARDS = SqlView(
   - open Card rows are not planned execution counts; use `ai_current_sprint_metrics` for Sprint load and `get_scheduled` for calendar quantities
   - `categories` self | contribution | work | rest
   - `energy_types` physical | cognitive | social | values
-  - `schedule` is the original timing text, not computed dates or counts
+  - `schedule` is the original timing text, not computed dates or counts; on a goal or a subgoal it is the deadline
   - `blocked` 0 | 1
   - `categories`, `energy_types`, `direct_values` and `direct_tags` are comma-joined names, so match one with `LIKE '%Health%'`
   - `series_id` is the whole repeat series of one card; a card that never repeated is its own series

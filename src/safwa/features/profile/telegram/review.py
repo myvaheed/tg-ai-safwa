@@ -16,12 +16,13 @@ from ..model import ProfileField, UserProfile
 from ..proposal import stored_value
 from .screens import PROFILE_FIELDS
 
+# The two switches the Profile screen draws as buttons rather than as fields.
+_SWITCH_TITLES = {"time_tracking": "Time tracking", "effort_tracking": "Effort Points"}
+
 
 def _title(name: str) -> str:
     field = PROFILE_FIELDS.get(name)
-    return field.title if field is not None else {
-        "time_tracking": "Time tracking", "effort_tracking": "Effort Points"
-    }[name]
+    return field.title if field is not None else _SWITCH_TITLES[name]
 
 
 def _show(name: str, value: Any) -> str:

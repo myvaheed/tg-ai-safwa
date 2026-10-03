@@ -28,7 +28,6 @@ from safwa.features.planning.model import SprintCommitment
 from safwa.features.planning.telegram import render_plan, render_sprint
 from safwa.features.planning.use_cases import finish_sprint, start_sprint
 from safwa.features.profile.api import (
-    EFFORT_TRACKING_HOOKS,
     capacity_effort_points,
     effort_tracking_on,
     hook_switched_on,
@@ -46,7 +45,7 @@ from tg_agent_shell.ai.sql import ReadOnlyQueryRunner
 from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.cues.queue import add_hook_cue
 from tg_agent_shell.foundation.changes import Committed
-from tg_agent_shell.proposals.api import ApplyContext
+from tg_agent_shell.proposals.api import ApplyContext, ToolPreparationError
 from tg_agent_shell.proposals.model import ProposalChange
 from tg_agent_shell.proposals.prepare import ChangePreparer
 from tg_agent_shell.telegram import callback_token_handler
@@ -64,7 +63,7 @@ async def _press(message, services, markup, label):
     return None
 
 
-async def test_ps_ep_021_the_switch_keeps_estimates_and_capacity_and_drops_pending_overload(sessions):
+async def test_ps_ep_021_the_switch_keeps_estimates_and_capacity(sessions):
     """PS-EP-021 — tests/brd/profile.feature"""
     services = services_for(sessions)
     services.hooks = REGISTRY.hooks
@@ -96,7 +95,7 @@ async def test_ps_ep_021_the_switch_keeps_estimates_and_capacity_and_drops_pendi
         assert not profile.effort_tracking and profile.time_tracking
         assert profile.capacity_effort_points == 20
         assert (await session.get(Card, card.id)).effort_points == 13
-        assert await session.scalar(select(Cue).where(Cue.hook == TODAY_OVERLOAD_HOOK.name)) is None
+        assert not await hook_switched_on(session, TODAY_OVERLOAD_HOOK.name)
     await render_card(message, services, card.id, full=True)
     text, markup = message.edits[-1]
     assert "Effort:" not in text and "🔢 Effort" not in button_texts(markup)
@@ -109,13 +108,12 @@ async def test_ps_ep_021_the_switch_keeps_estimates_and_capacity_and_drops_pendi
         assert "Effort Points: off → on" in screen.diffs[0]
         await PROPOSALS.handler("profile").apply(ApplyContext(session, frozenset()), proposal)
         assert await effort_tracking_on(session)
-        assert await session.scalar(select(Cue).where(Cue.hook == TODAY_OVERLOAD_HOOK.name)) is None
+        assert await hook_switched_on(session, TODAY_OVERLOAD_HOOK.name)
 
 
 async def test_ps_ep_021_dependent_hooks_stop_before_evaluation_and_delivery(sessions):
     """PS-EP-021 — tests/brd/profile.feature"""
     hooks = REGISTRY.hooks
-    assert EFFORT_TRACKING_HOOKS == {TODAY_OVERLOAD_HOOK.name}
     async with sessions() as session:
         card = await create_card(session, kind="action", title="Heavy", stage="today", effort_points=13)
         await create_card(session, kind="action", title="More", stage="today", effort_points=5)
@@ -123,7 +121,7 @@ async def test_ps_ep_021_dependent_hooks_stop_before_evaluation_and_delivery(ses
         await session.commit()
     event = Committed(CARD_TODAY, card.id)
     assert not [item async for item in hooks.evaluate(event, sessions)
-                if item.spec.name in EFFORT_TRACKING_HOOKS]
+                if item.spec.name == TODAY_OVERLOAD_HOOK.name]
     assert await hooks.prepare(sessions, TODAY_OVERLOAD_HOOK.name, [card.id]) is None
     assert await hooks.switched_on(sessions, TIME_TRACKING_REMINDER_HOOK)
     services = services_for(sessions)
@@ -136,7 +134,7 @@ async def test_ps_ep_021_dependent_hooks_stop_before_evaluation_and_delivery(ses
         await set_profile_field(session, ProfileField.EFFORT_TRACKING, True)
         await session.commit()
     assert [item.spec.name async for item in hooks.evaluate(event, sessions)
-            if item.spec.name in EFFORT_TRACKING_HOOKS] == [TODAY_OVERLOAD_HOOK.name]
+            if item.spec.name == TODAY_OVERLOAD_HOOK.name] == [TODAY_OVERLOAD_HOOK.name]
     assert "18 EP" in await hooks.prepare(sessions, TODAY_OVERLOAD_HOOK.name, [card.id])
     await command_profile(message, services)
     _, markup = await _press(message, services, message.edits[-1][1], "🔔 Hooks")
@@ -147,7 +145,7 @@ async def test_ps_ep_021_dependent_hooks_stop_before_evaluation_and_delivery(ses
         await set_profile_field(session, ProfileField.EFFORT_TRACKING, True)
         await session.commit()
     assert not [item async for item in hooks.evaluate(event, sessions)
-                if item.spec.name in EFFORT_TRACKING_HOOKS]
+                if item.spec.name == TODAY_OVERLOAD_HOOK.name]
     async with sessions() as session:
         await set_hook_switch(session, TODAY_OVERLOAD_HOOK.name, on=True)
         await add_hook_cue(session, hook=TODAY_OVERLOAD_HOOK.name, items=[card.id])
@@ -155,8 +153,7 @@ async def test_ps_ep_021_dependent_hooks_stop_before_evaluation_and_delivery(ses
         await set_profile_field(session, ProfileField.EFFORT_TRACKING, False)
         await session.commit()
         pending = set(await session.scalars(select(Cue.hook)))
-    assert TODAY_OVERLOAD_HOOK.name not in pending
-    assert TIME_TRACKING_REMINDER_HOOK.name in pending
+    assert {TODAY_OVERLOAD_HOOK.name, TIME_TRACKING_REMINDER_HOOK.name} <= pending
     assert await hooks.prepare(sessions, TODAY_OVERLOAD_HOOK.name, [card.id]) is None
 
 
@@ -184,12 +181,18 @@ async def test_cd_effort_008_a_draft_and_a_proposal_save_without_an_estimate(ses
         assert result and (await session.get(Card, result[0])).effort_points is None
         await update_card_fields(session, manual.id, {"effort_points": 3})
         clearing = PROPOSALS.change_from_tool("card", {"mode": "update", "id": manual.id, "effort_points": None})
-        prepared = await ChangePreparer(None, None, PROPOSALS).prepare(session, clearing)
-        assert "effort_points" in prepared.values and prepared.values["effort_points"] is None
-        await PROPOSALS.handler("card").apply(ApplyContext(session, frozenset()), ProposalChange(
-            entity="card", action=clearing.action, entity_id=manual.id,
-            expected_version=manual.version, values=prepared.values,
-        ))
+        if enabled:
+            prepared = await ChangePreparer(None, None, PROPOSALS).prepare(session, clearing)
+            assert "effort_points" in prepared.values and prepared.values["effort_points"] is None
+            await PROPOSALS.handler("card").apply(ApplyContext(session, frozenset()), ProposalChange(
+                entity="card", action=clearing.action, entity_id=manual.id,
+                expected_version=manual.version, values=prepared.values,
+            ))
+        else:
+            # While they are off a proposal carries no estimate, so one that was only that is refused.
+            with pytest.raises(ToolPreparationError, match="Effort Points are off"):
+                await ChangePreparer(None, None, PROPOSALS).prepare(session, clearing)
+            await update_card_fields(session, manual.id, {"effort_points": None})
         assert manual.effort_points is None
         await update_card_fields(session, manual.id, {"schedule": "after completion"})
         from schedule_helpers import configure

@@ -12,12 +12,10 @@ from datetime import time
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tg_agent_shell.cues.queue import drop_hook_cue
 from tg_agent_shell.foundation.errors import DomainError
 
 from ...constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
 from ...foundation.workspace import bump_workspace
-from .api import EFFORT_TRACKING_HOOKS
 from .model import (
     HOME_AFTER_MINUTES_MAX,
     HOME_AFTER_MINUTES_MIN,
@@ -92,9 +90,6 @@ async def set_profile_field(
     """Store one validated profile value. Whatever reads it reads it live."""
     validated = validated_profile_value(field, value)
     profile = await require_profile(session)
-    if field is ProfileField.EFFORT_TRACKING and profile.effort_tracking != validated:
-        for name in EFFORT_TRACKING_HOOKS:
-            await drop_hook_cue(session, name)
     setattr(profile, field.value, validated)
     await bump_workspace(session)
     return profile

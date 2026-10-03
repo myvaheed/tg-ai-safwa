@@ -29,7 +29,7 @@ from ..cards.api import (
 )
 from ..cards.model import CardKind, Priority
 from ..profile.api import sprint_length_days
-from ..schedules.api import remaining_occurrences
+from ..schedules.api import planned_executions, remaining_occurrences
 from .model import Sprint, SprintCommitment
 
 # The stages an Action has to be on for a Sprint to have anything to say about it.
@@ -74,6 +74,13 @@ async def start_refusal(session: AsyncSession, criteria: str) -> str | None:
     return None
 
 
+async def active_sprint_end_date(session: AsyncSession) -> date | None:
+    """The planned last day of the running Sprint, or None in Planning."""
+    workspace = await require_workspace(session)
+    sprint = await session.get(Sprint, workspace.active_sprint_id) if workspace.active_sprint_id else None
+    return sprint.planned_end_date if sprint else None
+
+
 def sprint_day(sprint: Sprint, today: date) -> tuple[int, int]:
     """Which day of how many the Sprint is on, its first day being day 1."""
     return (
@@ -95,14 +102,15 @@ async def plan_load(
     session: AsyncSession, cards: list[Card],
     *, start_date: date | None = None, end_date: date | None = None,
 ) -> PlanLoad:
-    """Use the active Sprint's dates, or the Profile's next Sprint starting today."""
+    """What is left of the running Sprint from today, or of the Profile's next Sprint
+    starting today."""
     if start_date is None:
         workspace = await require_workspace(session)
         sprint = await session.get(Sprint, workspace.active_sprint_id) if workspace.active_sprint_id else None
         start_date = sprint.planned_start_date if sprint else utcnow().astimezone(ZoneInfo(workspace.timezone)).date()
         end_date = sprint.planned_end_date if sprint else start_date + timedelta(days=await sprint_length_days(session) - 1)
-    counts = {card.id: await remaining_occurrences(session, card, start_date, end_date) for card in cards}
-    quantities = {id: count or 0 for id, count in counts.items()}
+    counts = await planned_executions(session, cards, start_date, end_date)
+    quantities = {card_id: count or 0 for card_id, count in counts.items()}
     return PlanLoad(
         counts=counts,
         actions=sum(quantities.values()),

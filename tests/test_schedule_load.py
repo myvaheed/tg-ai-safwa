@@ -83,6 +83,22 @@ async def test_profile_length_weights_the_plan_and_its_ui(sessions, effort_on):
         assert (load.actions, load.effort) == (7, 35)
 
 
+async def test_an_action_joining_a_running_sprint_counts_only_the_days_left(sessions):
+    """PL-REPEAT-031 — tests/brd/planning.feature"""
+    async with sessions() as session:
+        await scheduled_card(session, stage="sprint")
+        sprint = await start_sprint(session, success_criteria="Train", length_days=7)
+        # The Sprint is on its fifth day: three days are left, today among them.
+        sprint.planned_start_date -= timedelta(days=4)
+        sprint.planned_end_date -= timedelta(days=4)
+        late = await scheduled_card(session, stage="sprint")
+        commitment = await session.scalar(
+            select(SprintCommitment).where(SprintCommitment.card_id == late.id)
+        )
+        assert (commitment.scope_kind, commitment.planned_count) == ("added", 3)
+        assert (await plan_load(session, [late])).counts == {late.id: 3}
+
+
 async def test_successor_keeps_reserved_scope_and_frozen_unit_effort(sessions, effort_on):
     """PL-REPEAT-032 — tests/brd/planning.feature"""
     async with sessions() as session:
@@ -276,7 +292,8 @@ async def test_fixed_window_and_overdue_current_execution(sessions):
         }
         await assign_first(session, card)
         day = utcnow().astimezone(ZoneInfo("Europe/Istanbul")).date()
-        assert await remaining_occurrences(session, card, day, day) == 0
+        # Outside the window the appointment plans nothing, and the Action itself counts once.
+        assert await remaining_occurrences(session, card, day, day) == 1
         assert await remaining_occurrences(session, card, day, day + timedelta(days=2)) == 1
         assert (
             await remaining_occurrences(
@@ -286,24 +303,25 @@ async def test_fixed_window_and_overdue_current_execution(sessions):
         )
 
 
-async def test_weekly_quota_is_whole_and_ep_off_still_counts_executions(sessions):
+async def test_weekly_quota_counts_its_share_and_ep_off_still_counts_executions(sessions):
     """PL-REPEAT-031 — tests/brd/planning.feature"""
     async with sessions() as session:
         card = await scheduled_card(session, count=3, effort_points=None)
         card.schedule_record.rule["period"] = "week"
         await assign_first(session, card)
         day = utcnow().astimezone(ZoneInfo("Europe/Istanbul")).date()
+        # One day of three a week rounds to none, and the Action itself still counts once.
         load = await plan_load(session, [card], start_date=day, end_date=day)
-        assert (load.actions, load.unestimated, load.unknown_schedules) == (3, 3, 0)
-        await start_sprint(session, success_criteria="Train", length_days=2)
+        assert (load.actions, load.unestimated, load.unknown_schedules) == (1, 1, 0)
+        week = await plan_load(
+            session, [card], start_date=day, end_date=day + timedelta(days=6 - day.weekday())
+        )
+        assert week.actions == max(1, round(3 * (7 - day.weekday()) / 7))
+        await start_sprint(session, success_criteria="Train", length_days=7)
         await session.commit()
     message = FakeMessage(102, bot_message=False)
     await render_sprint(message, services_for(sessions))
-    expected = 6 if day.weekday() == 6 else 3
-    assert (
-        f"Taken <b>{expected} Actions</b>" in message.answers[-1]
-        and "EP" not in message.answers[-1]
-    )
+    assert "Taken <b>3 Actions</b>" in message.answers[-1] and "EP" not in message.answers[-1]
 
 
 async def test_schedule_change_refreshes_only_open_work(sessions):
@@ -348,7 +366,7 @@ async def test_extra_execution_outside_reservation_is_added_once(sessions):
         )
         assert successor.effective_stage == "backlog"
         await move_card(session, successor.id, CardStage.TODAY)
-        assert (await sprint_counts(session, sprint.id))["added"] == 0
+        assert (await sprint_counts(session, sprint.id))["added"] == 1
         await finish_action(session, successor.id)
         counts = await sprint_counts(session, sprint.id)
         assert (counts["committed"], counts["added"], counts["completed"]) == (1, 1, 2)

@@ -34,7 +34,7 @@ from ....constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
 from ....features.cards.api import effort_label
 from ....foundation.workspace import Workspace
 from ...reminders.api import parse_clock
-from ..api import EFFORT_TRACKING_HOOKS, TIME_TRACKING_REMINDER, set_hook_switch
+from ..api import TIME_TRACKING_REMINDER, TODAY_OVERLOAD, set_hook_switch
 from ..model import (
     HOME_AFTER_MINUTES_MAX,
     HOME_AFTER_MINUTES_MIN,
@@ -186,7 +186,7 @@ def _visible_switches(profile: UserProfile, services: Services) -> tuple[HookSpe
         hook
         for hook in services.hooks.agent_related
         if profile.time_tracking or hook.name != TIME_TRACKING_REMINDER
-        if profile.effort_tracking or hook.name not in EFFORT_TRACKING_HOOKS
+        if profile.effort_tracking or hook.name != TODAY_OVERLOAD
     )
 
 

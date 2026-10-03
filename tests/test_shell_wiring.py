@@ -200,8 +200,7 @@ def test_the_menu_draws_every_label_a_screen_declared() -> None:
 
 def test_pl_mode_001_today_stays_on_the_menu_and_among_the_commands_in_planning() -> None:
     """PL-MODE-001 — tests/brd/planning.feature"""
-    # One menu and one command list, whatever mode the workspace is in: Today opened in
-    # Planning is the screen that says no Sprint runs.
+    # One menu and one command list, whatever mode the workspace is in.
     drawn = [
         button.callback_data
         for row in menu_markup(FEATURE_COMMANDS).inline_keyboard

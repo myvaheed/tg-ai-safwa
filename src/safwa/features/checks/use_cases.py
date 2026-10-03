@@ -150,15 +150,36 @@ async def update_check_fields(
         if name == "title" and not value:
             raise DomainError("Check title cannot be empty")
         if name == "schedule":
-            if value and await check_card_id(session, check.id) is not None:
-                raise DomainError("A Check with its own Schedule must stay independent")
-            await set_schedule(session, check, value)
+            await _write_schedule(session, check, value)
         else:
             setattr(check, name, value)
     check.version += 1
     await _record(session, check, UPDATE, actor, before)
     await bump_workspace(session)
     return check
+
+
+async def edit_check_schedule(
+    session: AsyncSession, check_id: int, text: str | None, rule: dict[str, Any] | None
+) -> Check:
+    """Write a Schedule the owner typed, with the rule the editor compiled for it."""
+    check = await session.get(Check, check_id)
+    if check is None or check.archived_at is not None:
+        raise DomainError("Check does not exist or is archived")
+    before = snapshot(check)
+    await _write_schedule(session, check, text, rule)
+    check.version += 1
+    await _record(session, check, UPDATE, ActorType.USER_UI, before)
+    await bump_workspace(session)
+    return check
+
+
+async def _write_schedule(
+    session: AsyncSession, check: Check, text: str | None, rule: dict[str, Any] | None = None
+) -> None:
+    if text and await check_card_id(session, check.id) is not None:
+        raise DomainError("A Check with its own Schedule must stay independent")
+    await set_schedule(session, check, text, rule)
 
 
 async def archive_check(

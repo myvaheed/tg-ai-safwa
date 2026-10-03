@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from schedule_helpers import create_card, create_check
+from schedule_helpers import create_card, create_check, with_compiler
 from sqlalchemy import select
 from ui_harness import (
     CALLBACK_ACTIONS,
@@ -522,6 +522,7 @@ async def test_cd_field_007_a_goal_draft_is_not_offered_an_actions_controls(sess
     await render_card_creation(goal_message, services_for(goal_sessions := sessions))
     goal_buttons = set(button_texts(goal_message.edits[-1][1]))
     assert not (action_only & goal_buttons)
+    assert "⏰ Deadline" in goal_buttons
     assert "📝 Blocked reason" not in goal_buttons
 
     async with goal_sessions() as session:
@@ -978,3 +979,90 @@ async def test_cd_repeat_032_a_repeating_action_says_its_series_was_done_today(s
         await session.commit()
         live = await session.get(Card, live_id)
         assert await card_title_marks(session, live) == ""
+
+
+async def _type_into(message, services, label: str, text: str, message_id: int) -> FakeMessage:
+    """Press the button that opens an editor on the latest screen, then type one value."""
+    markup = (message.bot.edits[-1][2] if message.bot.edits else message.edits[-1][1])
+    button = next(item for row in markup.inline_keyboard for item in row if item.text == label)
+    await callback_token_handler(FakeCallback(button.callback_data.split(":", 1)[1], message), services)
+    typed = FakeMessage(message_id, text=text, bot_message=False, bot=message.bot)
+    await ordinary_text(typed, services)
+    assert typed.was_deleted
+    return typed
+
+
+async def test_sch_editor_016_a_typed_schedule_is_read_before_it_is_saved(sessions) -> None:
+    """SCH-EDITOR-016 — tests/brd/schedules.feature"""
+    async with sessions() as session:
+        card = await create_card(session, kind="action", title="Water", stage="today")
+        card_id = card.id
+        await session.commit()
+    services = services_for(sessions)
+    compiler = with_compiler(
+        services, {"five times a day": ({"kind": "quota", "period": "day", "count": 5}, None)}
+    )
+    message = FakeMessage(70, bot_message=True)
+    await render_card(message, services, card_id, full=True)
+
+    await _type_into(message, services, "⏱ Schedule", "often", 71)
+    assert "When does often happen?" in message.bot.edits[-1][1]
+    async with sessions() as session:
+        assert (await session.get(Card, card_id)).schedule is None
+
+    typed = FakeMessage(72, text="five times a day", bot_message=False, bot=message.bot)
+    await ordinary_text(typed, services)
+    assert "Schedule: five times a day" in message.bot.edits[-1][1]
+    assert "0/5 completed for the day from" in message.bot.edits[-1][1]
+    async with sessions() as session:
+        card = await session.get(Card, card_id)
+        assert card.schedule_record.status == "ready" and card.period_start is not None
+    assert compiler.calls == [("often", "action"), ("five times a day", "action")]
+
+
+async def test_cd_deadline_043_a_goal_offers_a_deadline_where_an_action_offers_a_schedule(
+    sessions,
+) -> None:
+    """CD-DEADLINE-043 — tests/brd/cards.feature"""
+    deadline = {"kind": "deadline", "date": "2099-10-20", "time": "18:00"}
+    async with sessions() as session:
+        goal = await create_card(session, kind="goal", title="Ship v2")
+        goal_id = goal.id
+        await session.commit()
+    services = services_for(sessions)
+    compiler = with_compiler(services, {"by 20 October 18:00": (deadline, None)})
+
+    message = FakeMessage(80, bot_message=True)
+    await render_card(message, services, goal_id, full=True)
+    labels = button_texts(message.edits[-1][1])
+    assert "⏰ Deadline" in labels and "⏱ Schedule" not in labels
+    await _type_into(message, services, "⏰ Deadline", "by 20 October 18:00", 81)
+    assert "Deadline: by 20 October 18:00" in message.bot.edits[-1][1]
+    assert "Due by 20.10.2099 18:00." in message.bot.edits[-1][1]
+
+    async with sessions() as session:
+        session.add(
+            UiSession(
+                owner_id=42,
+                kind="card_create",
+                state={"kind": "goal", "title": "Learn Spanish"},
+                expires_at=datetime.now(UTC).replace(year=2030),
+            )
+        )
+        await session.commit()
+    draft = FakeMessage(90, bot_message=True, bot=FakeBot())
+    await render_card_creation(draft, services)
+    await _type_into(draft, services, "⏰ Deadline", "by 20 October 18:00", 91)
+    assert "Due by 20.10.2099 18:00." in draft.bot.edits[-1][1]
+    save = next(
+        item
+        for row in draft.bot.edits[-1][2].inline_keyboard
+        for item in row
+        if item.text == "✅ Save"
+    )
+    await callback_token_handler(FakeCallback(save.callback_data.split(":", 1)[1], draft), services)
+    async with sessions() as session:
+        created = await session.scalar(select(Card).where(Card.title == "Learn Spanish"))
+        assert created.schedule_record.rule == deadline
+        assert created.deadline_at is not None
+    assert [target for _, target in compiler.calls] == ["deadline", "deadline"]

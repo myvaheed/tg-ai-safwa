@@ -36,11 +36,13 @@ _PRIORITY_ORDER = {Priority.CRITICAL.value: 0, Priority.MEDIUM.value: 1, Priorit
 
 
 def list_order(card: Card) -> tuple[bool, datetime, int, datetime]:
-    """Appointment first and the sooner one before, then priority, then oldest: the
-    ordering of every Card list but Today, which is in the order the day cannot move."""
+    """An appointment or Deadline first and the sooner one before, then priority, then
+    oldest: the ordering of every Card list but Today, which is in the order the day
+    cannot move."""
+    due = card.scheduled_at or card.deadline_at
     return (
-        card.scheduled_at is None,
-        card.scheduled_at or card.created_at,
+        due is None,
+        due or card.created_at,
         _PRIORITY_ORDER[card.priority],
         card.created_at,
     )

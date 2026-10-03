@@ -25,6 +25,7 @@ from tg_agent_shell.proposals.api import (
 from ...enums import ActorType
 from ...foundation.marks import closed_repeat_refusal
 from ..checks.use_cases import pending_checks
+from ..profile.api import effort_tracking_on
 from .api import CardQueryError, normalize_card_query
 from .model import (
     TERMINAL_STAGES,
@@ -66,7 +67,6 @@ PARENT_HINT = (
 ACTION_ONLY_FIELDS = (
     "effort_points",
     "tracked_mins",
-    "schedule",
     "categories",
     "energy_types",
     "blocked",
@@ -306,6 +306,14 @@ class CardProposalHandler:
             if refusal is not None:
                 raise ToolPreparationError(*refusal)
         values = dict(change.values)
+        if "effort_points" in values and not await effort_tracking_on(context.session):
+            values.pop("effort_points")
+            if change.action is ChangeAction.UPDATE and not values:
+                raise ToolPreparationError(
+                    "effort_points_off",
+                    "Effort Points are off, so no estimate is saved.",
+                    "Tell the user to turn on Effort Points in the Profile first.",
+                )
         proposed_kind = (
             values.get("kind") if change.action is ChangeAction.CREATE else getattr(card, "kind", None)
         )

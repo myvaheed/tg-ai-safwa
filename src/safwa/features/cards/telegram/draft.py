@@ -26,6 +26,7 @@ def new_card_creation_state() -> dict[str, Any]:
         "stage": CardStage.BACKLOG.value,
         "priority": Priority.MEDIUM.value,
         "schedule": None,
+        "schedule_rule": None,
         "blocked": False,
         "blocked_description": "",
         "effort_points": None,
@@ -52,11 +53,14 @@ def sanitize_card_creation_state(state: dict[str, Any]) -> dict[str, Any]:
         clean.update(
             stage=CardStage.BACKLOG.value,
             effort_points=None,
-            schedule=None,
             blocked=False,
             categories=[],
             energy_types=[],
         )
+    rule = clean["schedule_rule"]
+    # A Schedule read for the other kind: an Action's repeat is no Deadline, nor the reverse.
+    if rule and (rule["kind"] == "deadline") != (clean["kind"] != CardKind.ACTION.value):
+        clean.update(schedule=None, schedule_rule=None)
     if not clean["blocked"]:
         clean["blocked_description"] = ""
     for field in ("categories", "energy_types", "value_ids", "tag_ids"):
@@ -77,7 +81,6 @@ def card_creation_errors(state: dict[str, Any]) -> list[str]:
         lambda: validate_action_fields(
             state["kind"],
             state.get("effort_points"),
-            state.get("schedule"),
             set(state.get("categories") or []),
             set(state.get("energy_types") or []),
             blocked=bool(state.get("blocked")),

@@ -33,9 +33,10 @@ class CardToolInput(ToolInput):
     schedule: str | None = Field(
         default=None,
         description=(
-            "Schedule in the user's words: 'once a week', 'five times a day', "
-            "'Tuesday at 15:00', 'repeat after completion'. Never invent a clock. "
-            "On update, null removes the schedule."
+            "Action: when it repeats or happens, in the user's words: 'once a week', "
+            "'five times a day', 'Tuesday at 15:00', 'after each completion'. "
+            "Goal or Subgoal: its deadline, e.g. 'by 20 October'. "
+            "Never invent a time. On update, null removes it."
         ),
     )
     blocked: bool | None = None
@@ -43,13 +44,11 @@ class CardToolInput(ToolInput):
     effort_points: Literal[0.5, 1, 2, 3, 5, 8, 13] | None = Field(
         default=None,
         description=(
-            "How much the whole Action takes in the user's usual state. "
-            "Optional; omit while Effort Points are off unless the user asks for an estimate. "
-            "On update, null removes the estimate. "
+            "What one execution of the Action costs the user in their usual state. "
+            "On update, null removes it. "
             "0.5 done in passing. 1 the day goes on as it was. 2 a little tired, no rest needed. "
             "3 carry on only after a break. 5 after a full rest, one more serious thing. "
             "8 only light work left today. 13 nothing else today. "
-            "On a repeating Action this is one occurrence, not the series. "
             "Work that does not fit one day is a Subgoal with Actions under it, never a 13."
         ),
     )

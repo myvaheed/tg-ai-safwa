@@ -25,18 +25,22 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
 ## The Card tree, and what is derived
 
 - A Goal is created root-level, and a Goal placed under a Goal becomes a Subgoal; a Subgoal is
-  always under a Goal; an Action may be root or under Goal/Subgoal and has no children. **Live stage**, effort, time spent, Schedule, categories, energy and **Blocked** belong to an
+  always under a Goal; an Action may be root or under Goal/Subgoal and has no children. **Live stage**, effort, time spent, categories, energy and **Blocked** belong to an
   Action alone, and are stripped for Goal/Subgoal at both the AI and the domain boundary. A
   Card's parent is set by proposal only; no screen offers the control, which is why no screen
   offers Subgoal as a kind either.
-- **Schedule** is plain-language timing on an Action or independent Check. Its compiled
-  revisions live in `schedules`; instances retain their revision and assigned period.
-  The Scheduler handles source edits, and deterministic code handles quotas, progress and
-  successor placement. See [SCHEDULES.md](SCHEDULES.md) for the flows and read contract.
-- Planned Actions count executions within the Sprint's dates, and planned EP multiply
-  that count by the unit estimate. `SprintCommitment.planned_count` carries the remaining
-  reservation across generated copies; `TodayDay.planned_count` snapshots the local day's
-  morning plan. Unknown counts make totals lower bounds. Actual Done and time count once.
+- **Schedule** is plain-language timing on an Action or independent Check, and the
+  **Deadline** of a Goal or Subgoal: one date, never repeating, never gating Done and never
+  planned. Its compiled revisions live in `schedules`; instances retain their revision and
+  assigned period. A typed Schedule is compiled before it is saved; a proposed one after the
+  commit. An Action repeats at most `ACTION_DAILY_EXECUTIONS_MAX` times a day. Deterministic
+  code handles quotas, progress and successor placement. See [SCHEDULES.md](SCHEDULES.md).
+- Planned Actions count the executions left from today through the window's last day, a
+  partly covered week by its share of the quota, and an Action on the plan at least once;
+  planned EP multiply that count by the unit estimate. `SprintCommitment.planned_count`
+  carries the remaining reservation across generated copies; `TodayDay.planned_count`
+  snapshots the local day's morning plan. Unknown counts make totals lower bounds. Actual
+  Done and time count once.
 - A Goal and a Subgoal show what their **direct children** add up to. Each child already carries its
   own derived values, so the recursion reaches the Actions, and a child that never started still
   counts: a Subgoal with nothing in it is in Backlog and holds its Goal there.
@@ -60,9 +64,10 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
 - **Effort Points** (`UserProfile.effort_tracking`) are off by default. The Profile switch
   controls the estimate selectors, Card/list/citation displays, Sprint capacity and Today
   overload. Off, Sprint and retro screens and AI context use Action counts; AI read views
-  hide stored effort with NULL. Explicit estimates can still be saved in words. Switching
-  off preserves estimates and configured capacity, drops pending overload questions and
-  leaves Time tracking alone. Estimates remain optional after switching on.
+  hide stored effort with NULL, and a proposal carries no estimate. Today overload follows
+  the switch the way the Time tracking reminder follows Time tracking. Switching off
+  preserves estimates and configured capacity and leaves Time tracking alone. On, the model
+  proposes an estimate with each new Action; saving without one stays allowed.
 - A Sprint commitment freezes the estimate as it joins, including NULL for an unestimated
   Action. Count totals include every Action; effort totals sum known estimates and name
   missing ones. Retro keeps the missing count. Incomplete records supply no effort

@@ -23,7 +23,6 @@ from tg_agent_shell.telegram import (
     with_notice,
 )
 
-from ....foundation.workspace import Workspace
 from ...planning.api import plan_load, today_actions
 from ...profile.api import effort_tracking_on
 from ...schedules.api import workspace_zone
@@ -63,7 +62,9 @@ async def card_list_rows(
             metadata.append(f"{effort_label(effort)} EP")
         if card.scheduled_at is not None:
             metadata.append(f"⏱ {card.scheduled_at.astimezone(tz):%d.%m %H:%M}")
-        if card.schedule:
+        if card.deadline_at is not None:
+            metadata.append(f"⏰ {card.deadline_at.astimezone(tz):%d.%m}")
+        elif card.schedule:
             metadata.append("Schedule")
         if card.blocked:
             metadata.append("Blocked")
@@ -180,18 +181,6 @@ async def command_backlog(message: Message, services: Services) -> None:
 
 
 async def command_today(message: Message, services: Services) -> None:
-    """Today is the Sprint's own stage, so it is a screen only while one runs."""
-    async with services.sessions() as session:
-        workspace = await session.get(Workspace, 1)
-    if workspace is None or not workspace.active_sprint_id:
-        await send_registered(
-            message,
-            services,
-            "Today opens once a Sprint is running. Plan the next Sprint first.",
-            kind=MessageKind.ERROR,
-            markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
-        )
-        return
     await render_dashboard(message, services, CardStage.TODAY, title="Today")
 
 

@@ -1,5 +1,5 @@
 Feature: Planning — the Sprint, and the mode without one
-  Planning is what the workspace is in while no Sprint runs; there is no Today then. A Sprint is a
+  Planning is what the workspace is in while no Sprint runs; Today keeps its Actions then. A Sprint is a
   fixed stretch of days with Success criteria that say what it must achieve, and it keeps one row
   per Action it ever had in scope. Sprint totals count Actions, or effort points while Effort Points are on; the screen's list
   selectors count Actions in each list.
@@ -14,9 +14,10 @@ Feature: Planning — the Sprint, and the mode without one
   Scenario: PL-MODE-001 — The workspace is either planning a Sprint or running one
     Given no Sprint is running
     Then the workspace is in Planning
-    And Today keeps its menu button and its command, and opened then it says that Today opens once a Sprint is running
+    And Today keeps its menu button, its command and its screen, and Actions move into and out of it as in a Sprint
+    And the Planning screen shows no Today list
     When a Sprint starts
-    Then the workspace is in Sprint and Today is a screen again
+    Then the workspace is in Sprint
 
   Scenario: PL-MODE-002 — The Sprint is run on its screen or in words, through the same operations
     Given the owner is talking to Safwa
@@ -168,19 +169,21 @@ Feature: Planning — the Sprint, and the mode without one
     Then they are told what is happening and that Telegram can stop opening bots for hours
     And the tap they just made still opens what it points at
 
-  Scenario: PL-CONTEXT-020 — Today's Actions are handed over while a Sprint runs, and there is no Today otherwise
-    Given a running Sprint
+  Scenario: PL-CONTEXT-020 — Today's Actions are handed over, in Planning as in a Sprint
+    Given Actions in Today
     Then Safwa is handed every Action in Today, with its effort only while Effort Points are on
     And a Card that is not an Action, or is not in Today, is not among them
     And they come in the order Today has (PL-KEY-025)
-    When no Sprint is running
-    Then there is no Today at all, by PL-MODE-001, and nothing of it is handed over
+    And they are handed over the same way whether a Sprint is running or not
 
-  Scenario: PL-HARDTIME-021 — The schedule report names planned Actions
-    Given Actions with compiled Schedules
-    When the Advisor queries a local date range
-    Then the report names their instances and planned counts
-    And a generated successor is placed from its next period relative to the active Sprint
+  Scenario: PL-HARDTIME-021 — An Action whose Schedule the plan does not hold is brought up
+    Given a Sprint runs, and open Actions carry a compiled Schedule
+    When the Sprint starts, and each day when the Profile's Morning time passes (MORNING_TIME_DEFAULT = "09:00"), and the chat is free
+    Then the Advisor is asked once, in one message about all of them, naming each with its next appointment or its daily quota and the stage it is in: the ones whose appointment falls by the Sprint's planned last day and that are in Backlog, the ones whose appointment is today or tomorrow (SCHEDULE_NOTICE_DAYS = 1) and that are not in Today, and the ones with a daily quota left for today that are not in Today
+    And it is asked whether to take the ones due today or tomorrow into Today and the others into the Sprint; nothing is moved before the owner's answer
+    And the list is read when the question is about to be said: one already in Today, one in the Sprint whose appointment is later than tomorrow, one finished or archived, one whose appointment has passed — earlier today as much as yesterday — and one whose daily quota is met for today are left out; with none left, nothing is asked
+    And in Planning, with no Sprint running, the morning asks nothing
+    And a day is the workspace's local day
 
   Scenario: PL-ENERGY-022 — A Sprint that leaves out a kind of energy the Backlog has is brought up
     Given a Sprint starts, and the chat is free
@@ -262,8 +265,9 @@ Feature: Planning — the Sprint, and the mode without one
     Given a 5 EP Action scheduled once a day, selected for a Sprint of 3 days in the Profile
     Then Planning, its proposal preview and AI context show 3 Actions and 15 EP
     And changing the Profile length changes the next plan's quantity, not a running Sprint's dates
-    And a partial week keeps its whole weekly quota, without inventing daily allocations
-    And a current overdue appointment counts once, while a future appointment outside the window counts zero
+    And the window starts today: an Action that joins a running Sprint counts only the days left, today among them
+    And a week the window covers in part counts its share of the weekly quota by the days covered, rounded, and never more than the week has left of it
+    And a current overdue appointment counts once, and an Action on the plan counts at least once, even when its appointment falls outside the window
     And the weighted load is compared with capacity and still counts executions with EP off
 
   Scenario: PL-REPEAT-032 — Generating a repeat consumes its reservation without adding scope twice
@@ -274,6 +278,7 @@ Feature: Planning — the Sprint, and the mode without one
     And a series added during the Sprint carries its whole quantity as added only once
     And removing or returning the open copy removes or restores its remaining quantity
     And an actual execution beyond the reservation counts as added once
+    And executions taken and not done stay taken and undone; only taking the open copy out of the Sprint counts as removed
     And planned Category, Energy, key, blocked and remaining quantities use the same execution count
     And actual Done, tracked time and EP of finished copies are not multiplied
 

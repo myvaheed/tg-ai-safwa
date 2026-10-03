@@ -42,8 +42,8 @@ from ..planning.api import (
 )
 from ..schedules.api import (
     close_deleted_schedules,
+    planned_executions,
     prepare_occurrence,
-    remaining_occurrences,
     scheduled_stage,
     set_schedule,
     successor_slot,
@@ -76,7 +76,6 @@ from .model import (
 ACTION_ONLY_FIELDS = (
     "effort_points",
     "tracked_mins",
-    "schedule",
     "blocked",
     "blocked_description",
 )
@@ -99,6 +98,7 @@ async def create_card(
     stage: CardStage | str = CardStage.BACKLOG,
     priority: Priority | str = Priority.MEDIUM,
     schedule: str | None = None,
+    schedule_rule: dict[str, Any] | None = None,
     blocked: bool = False,
     blocked_description: str = "",
     effort_points: float | None = None,
@@ -110,7 +110,11 @@ async def create_card(
     check_ids: set[int] | None = None,
     actor: ActorType = ActorType.USER_UI,
 ) -> Card:
-    """Create one reviewed Card through the same domain boundary used by UI and AI."""
+    """Create one reviewed Card through the same domain boundary used by UI and AI.
+
+    A Goal's or Subgoal's Schedule is its Deadline. `schedule_rule` is the rule a manual
+    editor already compiled; without it the Scheduler compiles after the commit.
+    """
     card_kind = CardKind(kind)
     card_stage = CardStage(stage)
     card_priority = Priority(priority)
@@ -127,7 +131,6 @@ async def create_card(
         # branch is in, so anything asked for here is dropped rather than refused.
         card_stage = CardStage.BACKLOG
         effort_points = None
-        schedule = None
         blocked = False
         clean_description = ""
         category_values.clear()
@@ -135,7 +138,6 @@ async def create_card(
     validate_action_fields(
         card_kind,
         effort_points,
-        schedule,
         category_values,
         energy_values,
         blocked=blocked,
@@ -170,7 +172,7 @@ async def create_card(
     )
     session.add(card)
     await session.flush()
-    await set_schedule(session, card, schedule)
+    await set_schedule(session, card, schedule, schedule_rule)
     for category in sorted(category_values):
         session.add(CardCategory(card_id=card.id, category=category))
     for energy_type in sorted(energy_values):
@@ -193,11 +195,8 @@ async def create_card(
 
 
 async def edit_card_text(session: AsyncSession, card_id: int, field: str, value: str) -> Card:
-    if field not in {"title", "note", "blocked_description", "schedule"}:
-        raise DomainError(
-            "Only a Card title, Note, blocked description or Schedule can be "
-            "edited as text"
-        )
+    if field not in {"title", "note", "blocked_description"}:
+        raise DomainError("Only a Card title, Note or blocked description can be edited as text")
     card = await session.get(Card, card_id)
     if card is None or card.archived_at is not None:
         raise DomainError("Card does not exist or is archived")
@@ -205,11 +204,7 @@ async def edit_card_text(session: AsyncSession, card_id: int, field: str, value:
     if field == "title" and not normalized:
         raise DomainError("Card title cannot be empty")
     before = snapshot(card)
-    if field == "schedule":
-        await set_schedule(session, card, normalized)
-        await refresh_schedule_commitment(session, card)
-    else:
-        setattr(card, field, normalized)
+    setattr(card, field, normalized)
     if not card.blocked:
         card.blocked_description = ""
     validate_blocked_fields(card.blocked, card.blocked_description)
@@ -217,6 +212,30 @@ async def edit_card_text(session: AsyncSession, card_id: int, field: str, value:
     await record_card_event(session, card, f"edit_{field}", ActorType.USER_UI, before)
     await bump_workspace(session)
     return card
+
+
+async def edit_card_schedule(
+    session: AsyncSession, card_id: int, text: str | None, rule: dict[str, Any] | None
+) -> Card:
+    """Write a Schedule the owner typed, with the rule the editor compiled for it."""
+    card = await session.get(Card, card_id)
+    if card is None or card.archived_at is not None:
+        raise DomainError("Card does not exist or is archived")
+    before = snapshot(card)
+    await _write_schedule(session, card, text, rule)
+    card.version += 1
+    await record_card_event(session, card, "edit_schedule", ActorType.USER_UI, before)
+    await bump_workspace(session)
+    return card
+
+
+async def _write_schedule(
+    session: AsyncSession, card: Card, text: str | None, rule: dict[str, Any] | None = None
+) -> None:
+    await set_schedule(session, card, text, rule)
+    await refresh_schedule_commitment(session, card)
+    if rule and card.effective_stage == CardStage.TODAY.value:
+        record_change(session, CARD_TODAY, card.id)
 
 
 async def update_card_fields(
@@ -260,12 +279,11 @@ async def update_card_fields(
         if name == "priority":
             value = Priority(value).value
         if name == "schedule":
-            await set_schedule(session, card, value)
-            await refresh_schedule_commitment(session, card)
+            await _write_schedule(session, card, value)
             continue
         setattr(card, name, value)
     if card.kind == CardKind.ACTION.value:
-        validate_action_fields(card.kind, card.effort_points, card.schedule, blocked=card.blocked)
+        validate_action_fields(card.kind, card.effort_points, blocked=card.blocked)
         validate_tracked_mins(card.tracked_mins)
         if not card.blocked:
             card.blocked_description = ""
@@ -493,7 +511,6 @@ async def holds_subgoals(session: AsyncSession, card_id: int) -> bool:
 def validate_action_fields(
     kind: CardKind | str,
     effort_points: float | None,
-    schedule: str | None,
     categories: set[str] | None = None,
     energy_types: set[str] | None = None,
     *,
@@ -507,7 +524,7 @@ def validate_action_fields(
                 + ", ".join(effort_label(rung) for rung in sorted(EFFORT_POINTS))
             )
         return
-    if effort_points is not None or schedule or categories or energy_types or blocked:
+    if effort_points is not None or categories or energy_types or blocked:
         raise DomainError("Goal and Subgoal cards cannot have Action-only fields")
 
 
@@ -558,9 +575,9 @@ async def record_today_morning(
     written = set(await session.scalars(select(func.coalesce(Card.repeat_series_id, Card.id))
                                        .join(TodayDay, TodayDay.card_id == Card.id).where(TodayDay.day == day)))
     found = [card for card in in_today if (card.repeat_series_id or card.id) not in written]
+    counts = await planned_executions(session, found, day, day)
     for card in found:
-        session.add(TodayDay(card_id=card.id, day=day,
-                             planned_count=await remaining_occurrences(session, card, day, day)))
+        session.add(TodayDay(card_id=card.id, day=day, planned_count=counts[card.id]))
         record_change(session, CARD_TODAY_MORNING, card.id)
     return found
 

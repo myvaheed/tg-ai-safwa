@@ -56,9 +56,9 @@ Feature: Cards
     Then it is refused, and the Card keeps the parent it had
     And a parent that matches no Card is refused the same way
 
-  Scenario: CD-FIELD-007 — Effort, repeat, categories, energy and Blocked belong to an Action alone
+  Scenario: CD-FIELD-007 — Effort, categories, energy and Blocked belong to an Action alone
     Given a Goal is being written, by hand or as a proposal
-    When effort, repeat, a category, an energy type, or Blocked is set on it
+    When effort, a category, an energy type, or Blocked is set on it
     Then the Goal is saved without them, rather than refused
     And the screens never offer those controls for a Goal or a Subgoal
     And the same holds for a Subgoal, and for a change to one that already exists
@@ -373,3 +373,11 @@ Feature: Cards
     And a parent with no Actions asks nothing
     And rolling back completion asks nothing
     And switching the hook off prevents new questions and suppresses pending ones
+
+  Scenario: CD-DEADLINE-043 — A Goal or a Subgoal has a Deadline where an Action has a Schedule
+    Given a Goal or a Subgoal, written by hand, open on its screen, or proposed
+    Then it offers "⏰ Deadline" where an Action offers "⏱ Schedule", and the value is kept as its Schedule
+    And the Scheduler reads it as one date, with a time only when one is given, and asks about text that repeats
+    And its screen and its draft show the date it was read as
+    And it never blocks Done, adds no planned executions, is not reported by get_scheduled and is not compared with the Actions under it
+    And in a list a Card with a Deadline comes before one without, the sooner one first

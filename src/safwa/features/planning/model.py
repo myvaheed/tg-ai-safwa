@@ -104,6 +104,4 @@ class SprintCommitment(Base, TimestampMixin):
 
     @property
     def removed_quantity(self) -> int:
-        if self.removed_at is not None:
-            return self.quantity
-        return max(0, self.quantity - 1) if self.result == "done" else 0
+        return self.quantity if self.removed_at is not None else 0

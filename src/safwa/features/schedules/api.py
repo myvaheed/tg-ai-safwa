@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from datetime import UTC, date, datetime, time, timedelta
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import case, func, select
@@ -16,25 +17,48 @@ from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 
 from ...foundation.workspace import require_workspace
-from ..cards.model import Card
+from ..cards.model import Card, CardKind
 from ..checks.model import Check
+from ..reminders.api import describe, schedule_from_payload
 from .model import ScheduleDefinition
-from .rules import first_slot, next_slot, period_end, period_start, windows
+from .rules import deadline_moment, first_slot, next_slot, period_end, period_start, windows
 
 SCHEDULE_CHANGED = "schedule.changed"
 SCHEDULE_UNCLEAR = "schedule.unclear"
 SCHEDULE_INSTRUCTION = "Describe the schedule, e.g. once a week, five times a day, or Tuesday at 15:00. Send off to clear it."
+DEADLINE_INSTRUCTION = "Send the deadline, e.g. 20 October, end of next month, or 20.10.2026 18:00. Send off to clear it."
+# The longest date range one get_scheduled call reads.
+SCHEDULED_RANGE_DAYS_MAX = 93
+# More executions a day than this are a Check's to observe, not an Action's to do.
+ACTION_DAILY_EXECUTIONS_MAX = 10
+
+type ScheduleTarget = Literal["action", "check", "deadline"]
 
 
 async def workspace_zone(session: AsyncSession) -> ZoneInfo:
     return ZoneInfo((await require_workspace(session)).timezone)
 
 
-async def set_schedule(session: AsyncSession, entity: Card | Check, text: str | None) -> None:
+def schedule_target(entity: Card | Check) -> ScheduleTarget:
+    """What the text is compiled into: a Goal's or Subgoal's Schedule is its Deadline."""
+    if isinstance(entity, Check):
+        return "check"
+    return "action" if entity.kind == CardKind.ACTION.value else "deadline"
+
+
+async def set_schedule(
+    session: AsyncSession,
+    entity: Card | Check,
+    text: str | None,
+    rule: dict[str, Any] | None = None,
+) -> None:
+    """Write a new revision. A rule compiled beforehand makes it ready at once; otherwise
+    the Scheduler compiles it after the commit."""
     text = (text or "").strip() or None
     if text and text.casefold() == "off":
         text = None
-    if entity.schedule == text:
+    current = entity.schedule_record
+    if entity.schedule == text and (rule is None or (current and current.status == "ready")):
         return
     if entity.is_closed_repeat():
         raise DomainError("Edit Schedule on the current instance of this series")
@@ -42,7 +66,7 @@ async def set_schedule(session: AsyncSession, entity: Card | Check, text: str | 
         isinstance(entity, Check) and entity.outcome is not None
     ):
         raise DomainError(
-            "Edit Schedule on an open Action or Pending Check to preserve the completed instance"
+            "Edit Schedule on an open Card or Pending Check to preserve the completed instance"
         )
     type_ = "card" if isinstance(entity, Card) else "check"
     series_id = (entity.repeat_series_id if type_ == "card" else entity.series_id) or entity.id
@@ -56,19 +80,26 @@ async def set_schedule(session: AsyncSession, entity: Card | Check, text: str | 
     )
     if old:
         old.valid_until = now
+    entity.schedule = text
+    entity.period_start = None
+    if text is None:
+        entity.schedule_record = None
+        return
     definition = ScheduleDefinition(
         entity_id=series_id,
         type=type_,
         source_text=text,
         submitted_at=now,
-        status="pending" if text else "disabled",
+        status="ready" if rule else "pending",
+        rule=rule,
     )
     session.add(definition)
     await session.flush()
-    entity.schedule = text
     entity.schedule_record = definition
-    entity.period_start = None
-    record_change(session, SCHEDULE_CHANGED, definition.id)
+    if rule:
+        await assign_first(session, entity)
+    else:
+        record_change(session, SCHEDULE_CHANGED, definition.id)
 
 
 async def close_deleted_schedules(
@@ -127,11 +158,16 @@ async def successor_slot(
 
 
 async def prepare_occurrence(session: AsyncSession, entity: Card | Check) -> None:
-    """Validate before changing a fact; unused quota does not carry into the next period."""
+    """Refuse before any fact is written while the Schedule is unsettled; a quota fact
+    belongs to the period it happens in."""
     definition = entity.schedule_record
-    if entity.schedule and (definition is None or definition.status != "ready"):
-        raise DomainError("Schedule needs to be configured before this instance can be finished")
-    if definition and definition.rule and definition.rule["kind"] == "quota":
+    if definition is not None and definition.status != "ready":
+        raise DomainError(
+            f"The Schedule needs an answer first: {definition.question} Or set Schedule to off."
+            if definition.question
+            else "The Schedule is still being set up. Try again in a minute, or set Schedule to off."
+        )
+    if definition and definition.rule["kind"] == "quota":
         entity.period_start = period_start(
             utcnow(), definition.rule["period"], await workspace_zone(session)
         )
@@ -139,82 +175,133 @@ async def prepare_occurrence(session: AsyncSession, entity: Card | Check) -> Non
 
 async def assign_first(session: AsyncSession, entity: Card | Check) -> None:
     definition = entity.schedule_record
-    if definition and definition.status == "ready" and definition.rule:
+    if definition and definition.status == "ready":
         entity.period_start = first_slot(
             definition.rule, definition.submitted_at, await workspace_zone(session)
         )
 
 
 async def scheduled_stage(
-    session: AsyncSession, card: Card, slot: datetime | None, previous_stage: str | None = None
+    session: AsyncSession, card: Card, slot: datetime | None, previous_stage: str
 ) -> str:
-    """Only generated Actions are placed automatically; a quota never invents a clock."""
+    """Where a generated Action opens. A slot due today goes to Today and a later one to
+    the running Sprint while the Sprint holds it. In Planning a copy from Backlog stays there,
+    and a later copy of planned work stays planned for the next Sprint."""
     from ..planning.model import Sprint
 
     workspace = await require_workspace(session)
-    end = await session.scalar(select(Sprint.planned_end_date).where(Sprint.id == workspace.active_sprint_id))
-    if end is None:
+    end = await session.scalar(
+        select(Sprint.planned_end_date).where(Sprint.id == workspace.active_sprint_id)
+    )
+    planned = previous_stage in {"today", "sprint"}
+    if end is None and not planned:
         return "backlog"
     if slot is None:
-        stage = previous_stage or card.manual_stage
-        return stage if stage in {"today", "sprint"} else "sprint"
+        return previous_stage if planned else "sprint"
     tz = await workspace_zone(session)
     day = slot.astimezone(tz).date()
-    today = utcnow().astimezone(tz).date()
     rule = card.schedule_record.rule
-    if rule["kind"] == "quota" and rule["period"] == "week":
-        return "sprint" if day <= end else "backlog"
-    if day <= today:
+    weekly = rule["kind"] == "quota" and rule["period"] == "week"
+    if not weekly and day <= utcnow().astimezone(tz).date():
         return "today"
-    return "sprint" if day <= end else "backlog"
+    return "sprint" if end is None or day <= end else "backlog"
 
 
-async def schedule_progress(session: AsyncSession, entity: Card | Check) -> str | None:
+async def schedule_summary(session: AsyncSession, entity: Card | Check) -> str | None:
+    """How the Schedule was understood, for the screen that shows it."""
     definition = entity.schedule_record
-    if not definition or not definition.rule or definition.rule["kind"] != "quota":
+    if definition is None:
         return None
-    label = "completed" if isinstance(entity, Card) else "answered"
-    day = (
-        entity.period_start.astimezone(await workspace_zone(session)).date()
-        if entity.period_start
-        else None
+    if definition.status == "pending":
+        return "Being set up."
+    if definition.status == "needs_clarification":
+        return f"Needs an answer: {definition.question}"
+    rule, tz = definition.rule, await workspace_zone(session)
+    if rule["kind"] == "quota":
+        label = "completed" if isinstance(entity, Card) else "answered"
+        start = entity.period_start.astimezone(tz)
+        return (
+            f"{await occurrence_count(session, entity)}/{rule['count']} {label} "
+            f"for the {rule['period']} from {start:%d.%m.%Y}."
+        )
+    if rule["kind"] != "fixed":
+        return rule_summary(rule, tz)
+    open_ = entity.completed_at is None if isinstance(entity, Card) else entity.outcome is None
+    overdue = " It is overdue." if open_ and entity.period_start < utcnow() else ""
+    return (
+        f"{rule_summary(rule, tz)} Appointment: "
+        f"{entity.period_start.astimezone(tz):%a %d.%m %H:%M}.{overdue}"
     )
-    return f"{await occurrence_count(session, entity)}/{definition.rule['count']} {label} for {definition.rule['period']} starting {day}"
+
+
+def rule_summary(rule: dict[str, Any], tz: ZoneInfo) -> str:
+    """A compiled rule in words."""
+    if rule["kind"] == "deadline":
+        return f"Due by {deadline_moment(rule, tz).astimezone(tz):%d.%m.%Y %H:%M}."
+    if rule["kind"] == "after_completion":
+        return "Repeats after each completion."
+    if rule["kind"] == "quota":
+        return f"{rule['count']} per {rule['period']}."
+    return describe(schedule_from_payload(rule["timing"]), tz=tz).capitalize() + "."
+
+
+async def planned_executions(
+    session: AsyncSession, cards: Sequence[Card], start_date: date, end_date: date
+) -> dict[int, int | None]:
+    """The executions each open Action has left from today, or a later start, through the
+    end date: 1 without a Schedule, None while unknown, and at least 1 for the Action itself.
+
+    Each quota period adds its share for the days covered, never more than its quota has left.
+    """
+    tz = await workspace_zone(session)
+    start, end = _date_bounds(max(start_date, utcnow().astimezone(tz).date()), end_date, tz)
+    counts: dict[int, int | None] = {}
+    periods: dict[int, list[tuple[datetime, datetime, int]]] = {}
+    for card in cards:
+        definition = card.schedule_record
+        if definition is None:
+            counts[card.id] = 1
+        elif definition.status != "ready" or definition.rule["kind"] == "after_completion":
+            counts[card.id] = None
+        else:
+            floor = start if definition.rule["kind"] == "quota" else max(start, definition.submitted_at)
+            periods[card.id] = windows(definition.rule, floor, end, tz)
+    done: dict[tuple[int, datetime], int] = {}
+    bounds = [period for found in periods.values() for period in found]
+    if bounds:
+        rows = await session.execute(
+            select(Card.schedule_id, Card.period_start, func.count())
+            .where(
+                Card.schedule_id.in_([card.schedule_id for card in cards if card.id in periods]),
+                Card.completed_at.is_not(None),
+                Card.period_start >= min(at for at, _, _ in bounds),
+                Card.period_start < max(until for _, until, _ in bounds),
+            )
+            .group_by(Card.schedule_id, Card.period_start)
+        )
+        done = {(schedule_id, slot): count for schedule_id, slot, count in rows}
+    for card in cards:
+        if card.id not in periods:
+            continue
+        rule = card.schedule_record.rule
+        count = 0
+        for at, until, share in periods[card.id]:
+            used = sum(
+                n for (schedule_id, slot), n in done.items()
+                if schedule_id == card.schedule_id and at <= slot < until
+            )
+            limit = rule["count"] if rule["kind"] == "quota" else share
+            count += max(0, min(share, limit - used))
+        if rule["kind"] == "fixed" and card.period_start is not None and card.period_start < start:
+            count += 1
+        counts[card.id] = max(1, count)
+    return counts
 
 
 async def remaining_occurrences(
     session: AsyncSession, card: Card, start_date: date, end_date: date
 ) -> int | None:
-    """Open work in the chosen calendar window, without allocating a weekly quota to days."""
-    if not card.schedule:
-        return 1
-    definition = card.schedule_record
-    if not definition or definition.status != "ready" or not definition.rule:
-        return None
-    rule = definition.rule
-    if rule["kind"] == "after_completion":
-        return None
-    tz = await workspace_zone(session)
-    start, end = _date_bounds(start_date, end_date, tz)
-    floor = max(start, definition.submitted_at) if rule["kind"] == "fixed" else start
-    periods = windows(rule, floor, end, tz)
-    periods = [(at, until, count) for at, until, count in periods
-               if until > definition.submitted_at]
-    if not periods:
-        return int(rule["kind"] == "fixed" and card.period_start is not None
-                   and card.period_start < start)
-    facts = list((await session.execute(
-        select(Card.period_start, func.count()).where(
-            Card.schedule_id == card.schedule_id,
-            Card.completed_at.is_not(None),
-            Card.period_start >= periods[0][0], Card.period_start < periods[-1][1],
-        ).group_by(Card.period_start)
-    )).all())
-    count = sum(max(0, planned - sum(done for slot, done in facts if at <= slot < until))
-                for at, until, planned in periods)
-    if rule["kind"] == "fixed" and card.period_start is not None and card.period_start < start:
-        count += 1
-    return count
+    return (await planned_executions(session, [card], start_date, end_date))[card.id]
 
 
 def _date_bounds(start: date, end: date, tz: ZoneInfo) -> tuple[datetime, datetime]:
@@ -224,68 +311,75 @@ def _date_bounds(start: date, end: date, tz: ZoneInfo) -> tuple[datetime, dateti
     )
 
 
-def _summary(definitions, facts, start: datetime, end: datetime, tz: ZoneInfo, checks: bool):
-    planned, unknown, partial = 0, False, False
-    counted = set()
+def _summary(
+    definitions: list[ScheduleDefinition],
+    facts: list[Any],
+    start: datetime,
+    end: datetime,
+    tz: ZoneInfo,
+    checks: bool,
+) -> dict[str, Any]:
+    """Planned and done in [start, end): an appointment counts on its date, any other fact
+    when it happened."""
+    planned: int | None = 0
     for definition in definitions:
-        if (
-            not definition.source_text
-            or definition.submitted_at >= end
-            or (definition.valid_until and definition.valid_until <= start)
-        ):
+        floor, ceiling = max(start, definition.submitted_at), min(end, definition.valid_until or end)
+        if floor >= ceiling:
             continue
-        rule = definition.rule
-        if not rule or rule["kind"] == "after_completion":
-            unknown = True
-            continue
-        floor, ceiling = start, end
-        if rule["kind"] == "fixed":
-            floor, ceiling = (
-                max(start, definition.submitted_at),
-                min(end, definition.valid_until or end),
-            )
-        for at, until, count in windows(rule, floor, ceiling, tz):
-            if until <= definition.submitted_at or (
-                definition.valid_until and at >= definition.valid_until
-            ):
-                continue
-            planned += count
-            partial |= not (
-                start <= at
-                and until <= end
-                and definition.submitted_at <= at
-                and (definition.valid_until is None or until <= definition.valid_until)
-            )
-            counted.update(
-                f.id
-                for f in facts
-                if f.schedule_id == definition.id
-                and f.period_start is not None
-                and at <= f.period_start < until
-            )
-    # Undated repetition and ordinary completion after clearing Schedule use actual time.
-    by_id = {d.id: d for d in definitions}
-    counted.update(
-        f.id
-        for f in facts
-        if f.period_start is None
-        and start <= f.at < end
-        and (f.schedule_id in by_id or f.schedule_id is None)
-    )
-    selected = [f for f in facts if f.id in counted]
-    result = {
-        "planned": None if unknown else planned,
+        if definition.status != "ready" or definition.rule["kind"] == "after_completion":
+            planned = None
+        elif planned is not None:
+            planned += sum(share for _, _, share in windows(definition.rule, floor, ceiling, tz))
+    fixed = {d.id for d in definitions if d.rule and d.rule["kind"] == "fixed"}
+    selected = [
+        fact for fact in facts
+        if start <= (fact.period_start if fact.schedule_id in fixed and fact.period_start else fact.at) < end
+    ]
+    result: dict[str, Any] = {
+        "planned": planned,
         "done": len(selected),
-        "remaining": None if unknown else max(0, planned - len(selected)),
+        "remaining": None if planned is None else max(0, planned - len(selected)),
     }
-    if partial:
-        result["partial"] = True
     if checks:
         result.update(
-            passed=sum(f.outcome == "passed" for f in selected),
-            missed=sum(f.outcome == "missed" for f in selected),
+            passed=sum(fact.outcome == "passed" for fact in selected),
+            missed=sum(fact.outcome == "missed" for fact in selected),
         )
     return result
+
+
+def _next_event(
+    current: Card | Check, definition: ScheduleDefinition, used: int, now: datetime, tz: ZoneInfo
+) -> dict[str, Any]:
+    rule = definition.rule
+    if rule["kind"] == "quota":
+        at = max(current.period_start, period_start(now, rule["period"], tz))
+        return {
+            "start_date": at.astimezone(tz).date().isoformat(),
+            "end_date": (
+                period_end(at, rule["period"], tz).astimezone(tz).date() - timedelta(days=1)
+            ).isoformat(),
+            "remaining": max(0, rule["count"] - used),
+        }
+    if rule["kind"] == "after_completion":
+        return {"after_completion": True}
+    event: dict[str, Any] = {"at": current.period_start.astimezone(tz).isoformat()}
+    if current.period_start < now:
+        event["overdue"] = True
+    return event
+
+
+def _clip(item: dict[str, Any]) -> None:
+    for field in ("title", "schedule", "question"):
+        text = item.get(field)
+        if not text:
+            continue
+        clipped = text[:DEFAULT_CELL_LIMIT]
+        while len(json.dumps(clipped, ensure_ascii=False)) > DEFAULT_CELL_LIMIT:
+            clipped = clipped[: len(clipped) // 2]
+        if clipped != text:
+            item[field] = clipped
+            item["text_truncated"] = True
 
 
 async def get_scheduled(
@@ -296,23 +390,24 @@ async def get_scheduled(
     *,
     after_id: int | None = None,
 ) -> dict[str, Any]:
-    """One bounded summary per series; revisions retain the meaning of old facts."""
-    if type not in {"card", "check"} or not 0 <= (end_date - start_date).days <= 92:
-        raise DomainError("Use card or check and an ordered date range of at most 93 days")
+    """One bounded summary per scheduled series of Actions or Checks; revisions keep the
+    meaning of old facts."""
+    if type not in {"card", "check"} or not 0 <= (end_date - start_date).days < SCHEDULED_RANGE_DAYS_MAX:
+        raise DomainError(
+            f"Use card or check and an ordered date range of at most {SCHEDULED_RANGE_DAYS_MAX} days"
+        )
     from ..planning.model import Sprint
 
     workspace = await require_workspace(session)
     tz, now = ZoneInfo(workspace.timezone), utcnow()
     start, end = _date_bounds(start_date, end_date, tz)
     sprint = (
-        await session.get(Sprint, workspace.active_sprint_id)
-        if workspace.active_sprint_id
-        else None
+        await session.get(Sprint, workspace.active_sprint_id) if workspace.active_sprint_id else None
     )
     sprint_bounds = (
         _date_bounds(sprint.planned_start_date, sprint.planned_end_date, tz) if sprint else None
     )
-    result = {
+    result: dict[str, Any] = {
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
         "timezone": tz.key,
@@ -330,51 +425,39 @@ async def get_scheduled(
     model = Card if type == "card" else Check
     series = func.coalesce(model.repeat_series_id if model is Card else model.series_id, model.id)
     moment = model.completed_at if model is Card else model.resolved_at
-    outcome = model.outcome if model is Check else None
     eligible = select(ScheduleDefinition.entity_id).where(
         ScheduleDefinition.type == type,
-        ScheduleDefinition.source_text.is_not(None),
         ScheduleDefinition.submitted_at < end,
         ScheduleDefinition.valid_until.is_(None) | (ScheduleDefinition.valid_until > start),
     )
-    latest = (
-        select(func.max(model.id))
-        .where(series.in_(eligible), series > (after_id or 0))
-        .group_by(series)
-    )
-    current_rows = await session.scalars(select(model).where(model.id.in_(latest)).order_by(series))
-    for current in current_rows:
-        root = (
-            current.repeat_series_id or current.id
-            if model is Card
-            else current.series_id or current.id
-        )
+    latest = select(func.max(model.id)).where(series.in_(eligible), series > (after_id or 0))
+    if model is Card:
+        # A Goal's or Subgoal's Schedule is its Deadline, which plans no work.
+        latest = latest.where(Card.kind == CardKind.ACTION.value)
+    lo, hi = (min(start, sprint_bounds[0]), max(end, sprint_bounds[1])) if sprint else (start, end)
+    columns = [model.id, model.schedule_id, model.period_start, moment.label("at")]
+    if model is Check:
+        columns.append(Check.outcome)
+    for current in await session.scalars(
+        select(model).where(model.id.in_(latest.group_by(series))).order_by(series)
+    ):
+        root = (current.repeat_series_id if model is Card else current.series_id) or current.id
         definitions = list(
             await session.scalars(
                 select(ScheduleDefinition).where(
-                    ScheduleDefinition.entity_id == root,
-                    ScheduleDefinition.type == type,
+                    ScheduleDefinition.entity_id == root, ScheduleDefinition.type == type
                 )
             )
         )
-        floor = period_start(min(start, now, sprint_bounds[0] if sprint else start), "week", tz)
-        ceiling = period_end(
-            period_start(max(end, now, sprint_bounds[1] if sprint else end), "week", tz), "week", tz
-        )
-        columns = [model.id, model.schedule_id, model.period_start, moment.label("at")]
-        if model is Check:
-            columns.append(outcome)
         facts = list(
-            (
-                await session.execute(
-                    select(*columns).where(
-                        series == root,
-                        moment.is_not(None),
-                        ((model.period_start >= floor) & (model.period_start < ceiling))
-                        | ((model.period_start.is_(None)) & (moment >= floor) & (moment < ceiling)),
-                    )
+            await session.execute(
+                select(*columns).where(
+                    series == root,
+                    moment.is_not(None),
+                    ((model.period_start >= lo) & (model.period_start < hi))
+                    | ((moment >= lo) & (moment < hi)),
                 )
-            ).all()
+            )
         )
         range_summary = _summary(definitions, facts, start, end, tz, model is Check)
         if range_summary["planned"] == 0 and range_summary["done"] == 0:
@@ -382,40 +465,33 @@ async def get_scheduled(
         aggregate = [func.count().label("done")]
         if model is Check:
             aggregate += [
-                func.sum(case((outcome == answer, 1), else_=0)).label(answer)
+                func.sum(case((Check.outcome == answer, 1), else_=0)).label(answer)
                 for answer in ("passed", "missed")
             ]
         totals = (
             await session.execute(select(*aggregate).where(series == root, moment.is_not(None)))
         ).one()
-        definition, next_event = current.schedule_record, None
+        definition = current.schedule_record
         open_ = current.completed_at is None if model is Card else current.outcome is None
-        rule = definition.rule if definition else None
-        active = bool(open_ and definition and definition.valid_until is None and current.schedule)
+        active = bool(open_ and definition and definition.valid_until is None)
+        next_event = None
         if active and definition.status == "ready":
+            rule, used = definition.rule, 0
             if rule["kind"] == "quota":
-                at = max(
-                    current.period_start or period_start(now, rule["period"], tz),
-                    period_start(now, rule["period"], tz),
+                current_period = max(current.period_start, period_start(now, rule["period"], tz))
+                used = await session.scalar(
+                    select(func.count()).where(
+                        model.schedule_id == definition.id,
+                        model.period_start == current_period,
+                        moment.is_not(None),
+                    )
                 )
-                used = sum(f.schedule_id == definition.id and f.period_start == at for f in facts)
-                next_event = {
-                    "start_date": at.astimezone(tz).date().isoformat(),
-                    "end_date": (
-                        period_end(at, rule["period"], tz).astimezone(tz).date() - timedelta(days=1)
-                    ).isoformat(),
-                    "remaining": max(0, rule["count"] - used),
-                }
-            elif rule["kind"] == "fixed":
-                next_event = {"at": current.period_start.astimezone(tz).isoformat()}
-                if current.period_start < now:
-                    next_event["overdue"] = True
-            else:
-                next_event = {"after_completion": True}
-        finite = bool(
-            rule and rule["kind"] == "fixed" and rule["timing"]["schedule_kind"] == "once"
-        )
-        total = {"done": totals.done, "remaining": int(active) if finite or not active else None}
+            next_event = _next_event(current, definition, used, now, tz)
+        once = bool(definition and definition.rule and definition.rule.get("timing", {}).get("schedule_kind") == "once")
+        total: dict[str, Any] = {
+            "done": totals.done,
+            "remaining": int(active) if once or not active else None,
+        }
         if model is Check:
             total.update(passed=totals.passed, missed=totals.missed)
         item = {
@@ -426,30 +502,19 @@ async def get_scheduled(
             "status": definition.status if active else "ended",
             "next": next_event,
             "range": range_summary,
-            "sprint": _summary(definitions, facts, *sprint_bounds, tz, model is Check)
-            if sprint
-            else None,
+            "sprint": _summary(definitions, facts, *sprint_bounds, tz, model is Check) if sprint else None,
             "total": total,
         }
         if active and definition.question:
             item["question"] = definition.question
-        for field in ("title", "schedule", "question"):
-            text = item.get(field)
-            if text:
-                clipped = text[:DEFAULT_CELL_LIMIT]
-                while len(json.dumps(clipped, ensure_ascii=False)) > DEFAULT_CELL_LIMIT:
-                    clipped = clipped[: len(clipped) // 2]
-                if clipped != text:
-                    item[field] = clipped
-                    item["text_truncated"] = True
-        if len(result["items"]) >= DEFAULT_ROW_LIMIT or (
-            len(json.dumps(result, ensure_ascii=False)) + len(json.dumps(item, ensure_ascii=False))
+        _clip(item)
+        if result["items"] and (
+            len(result["items"]) >= DEFAULT_ROW_LIMIT
+            or len(json.dumps(result, ensure_ascii=False)) + len(json.dumps(item, ensure_ascii=False))
             > DEFAULT_CHAR_BUDGET - 250
         ):
             result["next_after_id"] = result["items"][-1]["series_id"]
-            result["notice"] = (
-                "More series remain. Call get_scheduled with after_id=next_after_id before reporting complete totals."
-            )
+            result["notice"] = "More series remain. Call get_scheduled with after_id=next_after_id."
             break
         result["items"].append(item)
     return result

@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import html
+from collections.abc import Mapping
+from typing import Any
 
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardMarkup, Message
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,
+    Services,
     TextInputScreen,
     go_back_action,
     render_text_input,
@@ -20,12 +24,13 @@ from tg_agent_shell.telegram import (
 from tg_agent_shell.telegram.contributions import TextInputFlow
 
 from ...schedules.api import SCHEDULE_INSTRUCTION
+from ...schedules.telegram import compile_typed_schedule
 from ..model import Check, CheckOutcome
-from ..use_cases import delete_check, resolve_check, toggle_check_value, update_check_fields
+from ..use_cases import delete_check, edit_check_schedule, resolve_check, toggle_check_value
 from .screens import render_check, render_check_values, render_checks
 
 
-def _back(context: CallbackContext) -> dict:
+def _back(context: CallbackContext) -> dict[str, Any]:
     return dict(context.payload.get("back") or {})
 
 
@@ -92,11 +97,21 @@ async def _on_edit_schedule(context: CallbackContext) -> None:
     )
 
 
-async def _apply_schedule(session, services, state, value):
-    await update_check_fields(session, int(state["id"]), {"schedule": value})
+async def _prepare_schedule(
+    services: Services, state: Mapping[str, Any], value: str
+) -> dict[str, Any]:
+    return await compile_typed_schedule(services, "check", value)
 
 
-async def _render_schedule(message, services, state, value):
+async def _apply_schedule(
+    session: AsyncSession, services: Services, state: Mapping[str, Any], value: dict[str, Any]
+) -> None:
+    await edit_check_schedule(session, int(state["id"]), value["text"], value["rule"])
+
+
+async def _render_schedule(
+    message: Message, services: Services, state: Mapping[str, Any], value: dict[str, Any]
+) -> None:
     await render_check(
         message,
         services,
@@ -113,6 +128,7 @@ CHECK_TEXT_INPUTS = (
         validator=lambda state: None,
         apply=_apply_schedule,
         render=_render_schedule,
+        prepare=_prepare_schedule,
     ),
 )
 

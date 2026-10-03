@@ -116,6 +116,7 @@ async def test_ai_parent_query_rejects_non_ai_card_sql(
 async def test_ai_card_proposal_reaches_the_sprint_it_was_planned_into(e2e_harness):
     """PL-SCOPE-007 — tests/brd/planning.feature"""
     async with e2e_harness.sessions() as session:
+        await set_profile_field(session, ProfileField.EFFORT_TRACKING, True)
         goal = await create_manual_card(
             session,
             title="To be fit",

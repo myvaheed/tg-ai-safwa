@@ -27,7 +27,12 @@ from tg_agent_shell.telegram.model import UiSession
 
 from ...home.api import menu_markup
 from ...profile.api import effort_tracking_on
-from ...schedules.api import SCHEDULE_INSTRUCTION
+from ...schedules.api import (
+    DEADLINE_INSTRUCTION,
+    SCHEDULE_INSTRUCTION,
+    rule_summary,
+    workspace_zone,
+)
 from ...tags.model import Tag
 from ...values.model import Value
 from ..model import CardKind
@@ -49,18 +54,16 @@ from .selectors import (
 async def card_creation_markup(
     session: AsyncSession, services: Services, state: dict[str, Any]
 ) -> InlineKeyboardMarkup:
+    action = state["kind"] == CardKind.ACTION.value
     fields: list[tuple[str, str, dict[str, Any]]] = [
         ("🧩 Kind", "card_create_choose_kind", {}),
         ("✏️ Title", "card_create_edit_text", {"field": "title"}),
         ("📝 Note", "card_create_edit_text", {"field": "note"}),
         ("⚠️ Priority", "card_create_choose_priority", {}),
-        ("⏱ Schedule", "card_create_edit_text", {"field": "schedule"}),
+        ("⏱ Schedule" if action else "⏰ Deadline", "card_create_edit_text", {"field": "schedule"}),
     ]
-    if state["kind"] == CardKind.ACTION.value:
+    if action:
         fields.insert(2, ("📍 Stage", "card_create_choose_stage", {}))
-    else:
-        fields = [field for field in fields if field[2].get("field") != "schedule"]
-    if state["kind"] == CardKind.ACTION.value:
         fields.extend(
             [
                 ("🚧 Blocked", "card_create_toggle", {"field": "blocked"}),
@@ -128,9 +131,10 @@ async def render_card_creation(
         tags = (
             list(await session.scalars(select(Tag).where(Tag.id.in_(tag_ids)))) if tag_ids else []
         )
+        rule = state["schedule_rule"]
         display = {
             **state,
-            "schedule": state["schedule"],
+            "schedule_summary": rule_summary(rule, await workspace_zone(session)) if rule else None,
             "value_names": [value.name for value in values],
             "tag_names": [tag.name for tag in tags],
         }
@@ -205,17 +209,17 @@ async def _on_edit_text(context: CallbackContext) -> None:
         current = str(state.get(field) or "")
         state["input_field"] = field
         state["flow"] = "card_create"
+    deadline = field == "schedule" and state["kind"] != CardKind.ACTION.value
+    instruction = f"Send the new {field.replace('_', ' ')}."
+    if field == "schedule":
+        instruction = DEADLINE_INSTRUCTION if deadline else SCHEDULE_INSTRUCTION
     await render_text_input(
         context.message,
         context.services,
         screen=TextInputScreen(
-            title=f"Edit Card {field.replace('_', ' ').title()}",
+            title=f"Edit Card {'Deadline' if deadline else field.replace('_', ' ').title()}",
             current_value=current,
-            instruction=(
-                SCHEDULE_INSTRUCTION
-                if field == "schedule"
-                else f"Send the new {field.replace('_', ' ')}."
-            ),
+            instruction=instruction,
             back_action="card_create_view",
             back_payload={},
         ),
@@ -283,6 +287,7 @@ async def _on_save(context: CallbackContext) -> None:
             stage=state["stage"],
             priority=state["priority"],
             schedule=state["schedule"],
+            schedule_rule=state["schedule_rule"],
             blocked=state["blocked"],
             blocked_description=state["blocked_description"],
             effort_points=state["effort_points"],

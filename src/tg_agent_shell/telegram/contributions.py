@@ -49,7 +49,7 @@ class TextInputFlow:
     """What happens when the owner types a value into one editor.
 
     The editor itself is one screen: it validates, keeps itself alive on a refusal, and
-    takes the typed message out of the chat. A flow is only the three things that differ —
+    takes the typed message out of the chat. A flow is only the things that differ —
     which validator this field wants, what the value is written to, and which screen the
     editor gives way to afterwards.
     """
@@ -63,3 +63,6 @@ class TextInputFlow:
     apply: Callable[..., Awaitable[None]]
     # (message, services, state, value) -> None. Redraws the screen the editor replaced.
     render: Callable[..., Awaitable[None]]
+    # (services, state, value) -> the value `apply` writes. Runs before the write opens a
+    # transaction, so it may wait on a model; a DomainError or ValueError is the refusal.
+    prepare: Callable[..., Awaitable[Any]] | None = None

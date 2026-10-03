@@ -14,6 +14,8 @@ from ui_harness import FakeMessage, history_source, services_for
 
 from llm_gateway import CompletionTurn, ToolCall
 from safwa.bootstrap.modules import PROPOSALS
+from safwa.features.profile.model import ProfileField
+from safwa.features.profile.use_cases import set_profile_field
 from tg_agent_shell.ai.conversation import CLEARED_READ
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.proposals.model import BatchDecision
@@ -41,6 +43,10 @@ async def two_requests(e2e_harness) -> tuple[list[dict], FakeMessage, int, list[
     Returns what the model was sent for the second, where the first answer was drawn, the
     Card's id, and what the model was sent right after the first request's read.
     """
+    async with e2e_harness.sessions() as session:
+        # The card it proposes carries an estimate, which only Effort Points on keeps.
+        await set_profile_field(session, ProfileField.EFFORT_TRACKING, True)
+        await session.commit()
     services = services_for(e2e_harness.sessions)
     history = history_source(e2e_harness.sessions)
     first = FakeMessage(1, text="Add a card to buy milk", bot_message=False, chat_id=CHAT)
