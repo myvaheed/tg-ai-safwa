@@ -879,6 +879,10 @@ async def test_ag_receipt_044_words_shown_as_is_open_the_message_and_survive_a_s
         "shown": [GUIDE_WORDS],
         "text": SHOWN_AS_IS,
     }
+    assert "`shown` above your answer" in receipt["text"]
+    assert "Do not repeat or paraphrase" in receipt["text"]
+    assert "add one short sentence" in receipt["text"]
+    assert "`shown` (blocks the interface prints above your answer)" in provider.calls[2][0]["content"]
     # The next subagent is not told the explanation was work already saved.
     mutator_context = json.dumps(provider.calls[3], ensure_ascii=False)
     assert "Already saved" not in mutator_context

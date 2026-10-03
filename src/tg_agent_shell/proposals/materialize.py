@@ -71,7 +71,9 @@ MAX_REPAIR_ROUNDS = 5
 # What the Advisor reads in place of the words of a subagent whose words are shown as they
 # are. It speaks of that block alone, so it never argues with anything else in the turn.
 SHOWN_AS_IS = (
-    "Shown to the user as is. Do not repeat it. If nothing else was asked, add one short line."
+    "The interface displays `shown` above your answer.\n"
+    "Do not repeat or paraphrase those blocks.\n"
+    "If nothing else was asked, add one short sentence."
 )
 
 # Set on a session that answers a message of the owner's, and taken off by its first answer

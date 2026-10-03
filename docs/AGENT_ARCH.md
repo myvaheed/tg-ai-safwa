@@ -340,8 +340,9 @@ sequenceDiagram
 - A subagent declared `shown_as_is` hands its final words back as `shown`, not as `text`: they
   are not split into receipt lines, not handed to the next subagent as work already saved, kept in
   the session's state across a screen, and printed first in the Advisor's message, whole, above
-  the receipts and the Advisor's own words. `text` is then a fixed line telling the Advisor they
-  were shown and not to repeat them.
+  the receipts and the Advisor's own words. `text` then tells the Advisor that `shown` appears
+  above its answer: do not repeat or paraphrase those blocks; if nothing else was asked, add
+  one short sentence.
 - A routed subagent has no `route`, so there is no recursion.
 - A request naming two domains is two routes and one message.
 - `SUBAGENT_DEADLINE_SECONDS = 300` bounds a subagent by the clock, not by a call count, because it

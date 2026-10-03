@@ -362,8 +362,9 @@ Feature: Agents — the session, the hand-over, and what comes back
     Given a subagent declared as one whose words are shown as they are
     When it finishes with words
     Then those words are a block of the single message Safwa writes, printed before the rest of it,
-      paragraphs and repeated lines intact, and Safwa is told they were shown and not to repeat
-      them
+      paragraphs and repeated lines intact, and Safwa is told they appear above its answer and
+      not to repeat or paraphrase them
+    And if nothing else was asked, Safwa is told to add one short sentence
     And the block is not a receipt: it is not handed to the next subagent of the request as work
       already saved
     And it is not made to open with a tool call: its words are the work
