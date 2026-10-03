@@ -105,7 +105,7 @@ async def test_cd_kind_001_a_card_stays_the_kind_it_was_created_as(sessions):
 
         assert (await session.get(Card, subgoal.id)).kind == CardKind.SUBGOAL.value
 
-    with pytest.raises(ValidationError, match="does not accept"):
+    with pytest.raises(ValidationError, match="use mode='create' for a new kind"):
         CardToolInput(mode="update", id=1, kind="action")
 
 

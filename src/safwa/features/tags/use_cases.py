@@ -1,7 +1,7 @@
 """Writing a Tag.
 
-A Tag's name is unique without regard to Unicode case. A Tag is deleted, never archived:
-deleting it takes it off every Card and frees its name in the same transaction.
+A Tag's name is unique without regard to Unicode case. Deleting an ordinary Tag takes
+it off every Card and frees its name. The built-in Inbox Tag cannot be deleted or renamed.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.errors import DomainError
 
+from ...constants import INBOX_TAG_NAME
 from ...enums import ActorType
 from ...foundation.log_events import CREATE, DELETE, UPDATE, record_log_event, snapshot
 from ...foundation.workspace import bump_workspace
@@ -33,6 +34,8 @@ async def create_tag(
     normalized = name.strip()
     if not normalized:
         raise DomainError("Tag name cannot be empty")
+    if normalized.casefold() == INBOX_TAG_NAME.casefold():
+        normalized = INBOX_TAG_NAME
     existing = await session.scalar(select(Tag).where(Tag.name == normalized))
     if existing is not None:
         raise DomainError("A Tag with this name already exists")
@@ -43,6 +46,29 @@ async def create_tag(
     record_change(session, TAG_CREATED, tag.id)
     await bump_workspace(session)
     return tag
+
+
+async def seed_inbox_tag(session: AsyncSession) -> bool:
+    """Ensure the permanent Tag exists; report its first installation."""
+    tag = await session.scalar(select(Tag).where(Tag.name == INBOX_TAG_NAME))
+    if tag is not None:
+        if tag.name != INBOX_TAG_NAME:
+            await update_tag_fields(session, tag.id, name=INBOX_TAG_NAME)
+        return False
+    await create_tag(
+        session,
+        INBOX_TAG_NAME,
+        "Записи, сохранённые для разбора позже. Тег снимается после решения, что с записью делать.",
+    )
+    return True
+
+
+def validate_tag_change(tag: Tag, *, name: str | None = None, deleting: bool = False) -> None:
+    if tag.is_inbox:
+        if deleting:
+            raise DomainError(f"The built-in {INBOX_TAG_NAME} Tag cannot be deleted")
+        if name is not None and name.strip() != INBOX_TAG_NAME:
+            raise DomainError(f"The built-in {INBOX_TAG_NAME} Tag cannot be renamed")
 
 
 async def update_tag_fields(
@@ -56,6 +82,7 @@ async def update_tag_fields(
     tag = await session.get(Tag, tag_id)
     if tag is None:
         raise DomainError("Tag does not exist")
+    validate_tag_change(tag, name=name)
     before = snapshot(tag)
     if name is not None:
         normalized = name.strip()
@@ -100,6 +127,7 @@ async def delete_tag(
     tag = await session.get(Tag, tag_id)
     if tag is None:
         raise DomainError("Tag does not exist")
+    validate_tag_change(tag, deleting=True)
     linked_count = await tag_link_count(session, tag.id)
     await _record(session, tag, DELETE, actor, snapshot(tag))
     await session.execute(delete(CardTag).where(CardTag.tag_id == tag.id))

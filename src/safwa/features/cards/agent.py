@@ -146,7 +146,10 @@ class CardToolInput(ToolInput):
             if not supplied:
                 raise ValueError("an updated Card needs at least one proposed field")
             if unsupported := supplied - editable:
-                raise ValueError("Card update does not accept: " + ", ".join(sorted(unsupported)))
+                raise ValueError(
+                    "Card update does not accept: " + ", ".join(sorted(unsupported))
+                    + ". Card kind is fixed; use mode='create' for a new kind."
+                )
             if self.stage == "done":
                 raise ValueError("use complete mode to finish a Card")
             if self.blocked and not (self.blocked_description or "").strip():

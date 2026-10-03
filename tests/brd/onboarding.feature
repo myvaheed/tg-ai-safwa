@@ -87,3 +87,8 @@ Feature: Onboarding
     Then the message says so, and the Advisor is asked to offer planning
     When the owner's previous message is less than 14 days old, or there is none
     Then no such message comes
+
+  Scenario: OB-CAPTURE-008 — Onboarding recognizes a captured note, idea or draft
+    Given a created Card carries Tag "Inbox"
+    Then the onboarding subagent is told that it is a captured note, idea or draft
+    And its manual explains that these captures are found in Requests → Inbox

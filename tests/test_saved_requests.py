@@ -5,16 +5,20 @@ from pydantic import ValidationError
 from sqlalchemy import select, text
 
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, PROPOSALS
+from safwa.constants import INBOX_TAG_NAME
 from safwa.features.cards.api import CardQueryError
 from safwa.features.cards.model import Card
+from safwa.features.cards.use_cases import create_card, toggle_card_tag
 from safwa.features.saved_requests.api import request_cards
 from safwa.features.saved_requests.model import SavedRequest
 from safwa.features.saved_requests.use_cases import (
     create_saved_request,
     delete_saved_request,
+    seed_inbox_request,
     update_saved_request,
 )
 from safwa.features.tags.model import CardTag, Tag
+from safwa.features.tags.use_cases import create_tag, seed_inbox_tag
 from safwa.features.workspace_mutator.remove import RemoveToolInput
 from tg_agent_shell.ai.sql import create_ai_views
 from tg_agent_shell.foundation.errors import DomainError
@@ -254,3 +258,31 @@ def test_the_remove_tool_refuses_to_archive_a_request():
     assert RemoveToolInput(mode="delete", entity="request", id=1).entity == "request"
     with pytest.raises(ValidationError, match="a request is deleted, never archived"):
         RemoveToolInput(mode="archive", entity="request", id=1)
+
+
+async def test_the_inbox_selection_matches_the_exact_tag_in_creation_order(sessions):
+    """SR-INBOX-014 — tests/brd/saved_requests.feature"""
+    async with sessions() as session:
+        await seed_inbox_tag(session)
+        await seed_inbox_request(session, views=ALLOWED_VIEWS)
+        await seed_inbox_request(session, views=ALLOWED_VIEWS)
+        inbox = await session.scalar(select(Tag).where(Tag.name == INBOX_TAG_NAME))
+        similar = await create_tag(session, "Inbox другое")
+        other = await create_tag(session, "Другой")
+        cards = []
+        for title in ("Z first", "A second", "Similar Tag", "No Tag"):
+            cards.append(await create_card(session, kind="action", title=title))
+        for card, tag in ((cards[0], inbox), (cards[1], other), (cards[1], inbox), (cards[2], similar)):
+            await toggle_card_tag(session, card.id, tag.id)
+        await session.commit()
+
+        request = await session.scalar(select(SavedRequest))
+        assert len(list(await session.scalars(select(SavedRequest)))) == 1
+        assert [card.id for card in await request_cards(session, request.query_sql, ALLOWED_VIEWS)] == [
+            cards[0].id, cards[1].id
+        ]
+        await toggle_card_tag(session, cards[0].id, inbox.id)
+        await session.commit()
+        assert [card.id for card in await request_cards(session, request.query_sql, ALLOWED_VIEWS)] == [
+            cards[1].id
+        ]

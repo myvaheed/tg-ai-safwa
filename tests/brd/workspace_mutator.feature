@@ -66,3 +66,11 @@ Feature: The workspace
     And Goals created at the same instant keep their creation order
     And each Goal says its Priority, stage and compiled Deadline when there is one
     And when there are no open Goals, there is no empty Priority Goals heading
+
+  Scenario: WS-CAPTURE-008 — A captured record waits for a decision, not for filled fields
+    Given the owner asks to record a note, idea or draft
+    Then it can be captured as an Action with Tag "Inbox", without extra detail
+    When the Card's fields are edited
+    Then the Tag stays attached
+    When the owner explicitly resolves the input or asks to remove the Tag
+    Then it is taken off that Card, without requiring any set of filled fields

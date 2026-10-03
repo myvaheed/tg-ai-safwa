@@ -109,7 +109,7 @@ Priority, derived stage and compiled Deadline. The Advisor starts advice and pla
 - **Everything is deleted; only a Card and a Check are also archived**, two Sprints after they
   closed (`ARCHIVE_AFTER_SPRINTS`). Archived is a matter of sight: it still counts everywhere it
   counted. A Value, a Tag and a Saved Request carry no `archived_at` at all.
-  Deleting a Value or Tag removes its links and frees its name; creating that name later creates
+  Deleting a Value or an ordinary Tag removes its links and frees its name; creating that name later creates
   a new item. Their names are unique under Unicode case folding, for both create and rename.
   `DatabaseFile.connect` registers `UNICODE_NOCASE`, used by their name columns' unique indexes
   and by proposal reference lookups.
@@ -132,6 +132,13 @@ Priority, derived stage and compiled Deadline. The Advisor starts advice and pla
   `set_card_parent` each write an `edit_kind` event saying so.
 
 ## Links
+
+An Action can hold a note, captured idea or draft. The built-in Tag **Inbox** marks these
+captures without requiring extra detail. It is seeded on startup and cannot be renamed or
+deleted; its links and description remain editable. Ordinary field edits leave the Tag
+attached; taking it off requires no particular set of filled fields.
+Request **Inbox**, supplied when the Tag is first installed, lists tagged Cards oldest
+first. It is an ordinary Request and stays deleted or renamed across restarts.
 
 A Card owns three link sets of one shape — Values, Tags, Checks — and a Check owns one, its Values.
 All four are `ReferenceSpec`s: adding another means adding a spec, not a special case. A Check's

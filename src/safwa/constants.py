@@ -7,6 +7,9 @@ both sides of a boundary, so it belongs to neither: this module imports nothing 
 
 from __future__ import annotations
 
+# The built-in Tag used by capture, its saved Request and the agents' instructions.
+INBOX_TAG_NAME = "Inbox"
+
 # What the Profile accepts as a Sprint length, and what Planning plans one for.
 SPRINT_LENGTH_MIN_DAYS = 2
 SPRINT_LENGTH_MAX_DAYS = 60

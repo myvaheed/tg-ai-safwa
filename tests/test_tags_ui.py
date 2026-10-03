@@ -5,10 +5,12 @@ from __future__ import annotations
 from sqlalchemy import select
 from ui_harness import CALLBACK_ACTIONS, FakeMessage, button_texts, services_for
 
+from safwa.constants import INBOX_TAG_NAME
 from safwa.features.cards.use_cases import create_card, toggle_card_tag
+from safwa.features.tags.model import Tag
 from safwa.features.tags.telegram import render_tag
 from safwa.features.tags.telegram.screens import render_tag_text_prompt
-from safwa.features.tags.use_cases import create_tag
+from safwa.features.tags.use_cases import create_tag, seed_inbox_tag
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.history import TelegramMessage
 from tg_agent_shell.telegram.dialogue import ordinary_text
@@ -89,3 +91,18 @@ async def test_the_tag_screen_counts_its_cards_and_has_no_focus(sessions) -> Non
     message = FakeMessage(98, bot_message=True)
     await render_tag(message, services, mode="view", item_id=tag_id)
     assert "Linked Cards: 2" in message.edits[-1][0]
+
+
+async def test_the_inbox_tag_screen_offers_neither_rename_nor_delete(sessions) -> None:
+    """TA-INBOX-010 — tests/brd/tags.feature"""
+    async with sessions() as session:
+        await seed_inbox_tag(session)
+        tag = await session.scalar(select(Tag).where(Tag.name == INBOX_TAG_NAME))
+        await session.commit()
+        tag_id = tag.id
+
+    message = FakeMessage(99, bot_message=True)
+    await render_tag(message, services_for(sessions), mode="view", item_id=tag_id)
+    text, markup = message.edits[-1]
+    assert "cannot be renamed or deleted" in text
+    assert button_texts(markup) == ["📝 Description", "↩️ Back"]

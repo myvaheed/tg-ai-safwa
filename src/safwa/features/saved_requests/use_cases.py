@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.errors import DomainError
 
+from ...constants import INBOX_TAG_NAME
 from ...enums import ActorType
 from ...foundation.log_events import CREATE, DELETE, UPDATE, record_log_event, snapshot
 from ...foundation.workspace import bump_workspace
@@ -29,12 +30,21 @@ REQUEST_CREATED = "request.created"
 # What a new workspace starts with, so the owner sees what a Request is before
 # asking for one. It is an ordinary Request from the moment it exists: renaming,
 # re-aiming and deleting it work as they do for any other.
+INBOX_REQUEST = (
+    INBOX_TAG_NAME,
+    f"Записи с Тегом «{INBOX_TAG_NAME}», которые ждут разбора.",
+    "SELECT id FROM ai_cards "
+    f"WHERE instr(',' || COALESCE(direct_tags, '') || ',', ',{INBOX_TAG_NAME},') > 0 "
+    "ORDER BY created_at, id",
+)
+
 DEFAULT_REQUESTS: tuple[tuple[str, str, str], ...] = (
     (
         "Все цели",
         "Каждая Цель, включая архивные.",
         "SELECT id FROM ai_cards WHERE kind = 'goal' ORDER BY title",
     ),
+    INBOX_REQUEST,
 )
 
 
@@ -125,7 +135,7 @@ async def _record(
 async def seed_default_requests(
     session: AsyncSession, *, views: Collection[str]
 ) -> list[SavedRequest]:
-    """Write the Request a brand new workspace starts with.
+    """Write the Requests a brand new workspace starts with.
 
     Called once, when the workspace row is created, so a Request the owner deletes
     stays deleted rather than coming back on the next start.
@@ -134,6 +144,16 @@ async def seed_default_requests(
         await create_saved_request(session, name, query_sql, description, views=views)
         for name, description, query_sql in DEFAULT_REQUESTS
     ]
+
+
+async def seed_inbox_request(session: AsyncSession, *, views: Collection[str]) -> None:
+    """Install the Inbox selection when an existing workspace first receives its Tag."""
+    name, description, query_sql = INBOX_REQUEST
+    existing = await session.scalar(
+        select(SavedRequest).where(SavedRequest.name.collate("NOCASE") == name)
+    )
+    if existing is None:
+        await create_saved_request(session, name, query_sql, description, views=views)
 
 
 async def delete_saved_request(

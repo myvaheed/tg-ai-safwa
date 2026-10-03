@@ -42,10 +42,11 @@ from ..features.memory.use_cases import BackgroundRunner, MemoryReader
 from ..features.planning.key_actions import KeyActions
 from ..features.profile.model import UserProfile
 from ..features.retro.analysis import SprintAnalyst
-from ..features.saved_requests.use_cases import seed_default_requests
+from ..features.saved_requests.use_cases import seed_default_requests, seed_inbox_request
 from ..features.schedules.module import ScheduleCompiler, scheduled_tool
 from ..features.summary.summary import DialogueSummary
 from ..features.summary.window import SummaryEdge
+from ..features.tags.use_cases import seed_inbox_tag
 from ..features.workspace_mutator.state import workspace_context
 from ..foundation.models import Base
 from ..foundation.tokens import estimate_tokens
@@ -158,10 +159,13 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
         await session.run_sync(
             lambda sync_session: create_ai_views(sync_session.connection(), AI_VIEWS)
         )
+        inbox_created = await seed_inbox_tag(session)
         if created:
             # A saved query is compiled against the views, so the defaults are written
             # once the views exist and only for a workspace that has just been made.
             await seed_default_requests(session, views=ALLOWED_VIEWS)
+        elif inbox_created:
+            await seed_inbox_request(session, views=ALLOWED_VIEWS)
         await session.commit()
 
     provider = OpenAICompatibleProvider(settings.ai_config())

@@ -10,8 +10,9 @@ from database_key import keyed
 from safwa import featuretoggles
 from safwa.bootstrap import main as safwa_main
 from safwa.config import Settings
+from safwa.constants import INBOX_TAG_NAME
 from safwa.foundation.models import Base
-from tg_agent_shell.foundation.database import DatabaseFile, upgrade_database
+from tg_agent_shell.foundation.database import Database, DatabaseFile, upgrade_database
 from tg_agent_shell.similarity import SIMILAR_MODEL, Similarity
 
 pytestmark = pytest.mark.e2e
@@ -155,6 +156,40 @@ async def test_full_startup_reaches_polling_and_cleans_up(tmp_path: Path, monkey
         assert connection.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='view' AND name='ai_cards'"
         ).fetchone() == (1,)
+        assert connection.execute("SELECT name FROM tags").fetchall() == [(INBOX_TAG_NAME,)]
+        assert connection.execute("SELECT name FROM saved_requests ORDER BY id").fetchall() == [
+            ("Все цели",), ("Inbox",)
+        ]
+    finally:
+        connection.close()
+
+
+async def test_an_existing_workspace_receives_inbox_once_and_deleted_requests_stay_deleted(
+    tmp_path: Path, monkeypatch
+):
+    """SR-INBOX-014 — tests/brd/saved_requests.feature"""
+    database, settings = _prepared_startup(tmp_path, monkeypatch)
+    stored = Database(database)
+    async with stored.sessions() as session:
+        await safwa_main.bootstrap_workspace(session, 42, settings.timezone)
+        await session.commit()
+    await stored.dispose()
+
+    await safwa_main.run(settings, database)
+    connection = database.connect()
+    try:
+        assert connection.execute("SELECT name FROM tags").fetchall() == [(INBOX_TAG_NAME,)]
+        assert connection.execute("SELECT name FROM saved_requests").fetchall() == [("Inbox",)]
+        connection.execute("DELETE FROM saved_requests WHERE name = ?", ("Inbox",))
+        connection.commit()
+    finally:
+        connection.close()
+
+    await safwa_main.run(settings, database)
+    connection = database.connect()
+    try:
+        assert connection.execute("SELECT name FROM tags").fetchall() == [(INBOX_TAG_NAME,)]
+        assert connection.execute("SELECT COUNT(*) FROM saved_requests").fetchone() == (0,)
     finally:
         connection.close()
 

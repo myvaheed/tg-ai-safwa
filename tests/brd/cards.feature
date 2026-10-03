@@ -308,7 +308,7 @@ Feature: Cards
     When the Profile's Morning time passes, 09:00 unless the owner moved it (MORNING_TIME_DEFAULT = "09:00"), and the chat is free
     Then the Advisor is asked once, about all of them together, to put both ways forward for each in one message: plan its Actions now, or create one Action to plan them later
     And the owner's choice is awaited: nothing is created before their answer
-    And one younger than that, archived, or given an Action before the question is said is left out; with none left, nothing is asked
+    And one younger than that, archived, carrying "Inbox", or given an Action before the question is said is left out; with none left, nothing is asked
     And the same one still without an Action is asked about again the next morning
     And a check that fires again before the question is said adds no second one
 

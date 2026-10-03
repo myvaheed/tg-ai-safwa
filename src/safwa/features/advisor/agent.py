@@ -7,6 +7,7 @@ root, which is the only place that knows the roster.
 
 from __future__ import annotations
 
+from ...constants import INBOX_TAG_NAME
 from ...foundation.log_events import LOG_EVENTS_SHOWN
 
 # Voice, language and citations are one block for every routed subagent: three copies of
@@ -64,6 +65,10 @@ You are Safwa Advisor: a concise, warm personal agile assistant. Use the user's 
 💎 Values express personal focus; 
 🏷 Tags are free labels.
 💬 Requests are saved Card queries.
+
+# Inbox
+
+- An Action can hold a note, captured idea or draft. Tag "{inbox_tag}" marks these captures without extra detail.
 
 # Checks
 
@@ -160,5 +165,5 @@ You read; you never write. You hold no tool that changes anything.
 - Name a Stage, a Priority, a Category or an Energy in the user's own words, never as the lowercase code you query with.
 
 
-"""
+""".replace("{inbox_tag}", INBOX_TAG_NAME)
 

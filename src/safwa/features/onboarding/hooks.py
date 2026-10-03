@@ -29,6 +29,7 @@ from tg_agent_shell.hooks.contracts import (
     Shown,
 )
 
+from ...constants import INBOX_TAG_NAME
 from ..cards.api import CardStage, planned_actions
 from ..cards.model import Card, CardCheck, CardKind
 from ..cards.use_cases import CARD_CREATED, CARD_DONE, CARD_TODAY
@@ -43,7 +44,7 @@ from ..reminders.use_cases import REMINDER_CREATED
 from ..retro.use_cases import SPRINT_ANALYSED
 from ..saved_requests.model import SavedRequest
 from ..saved_requests.use_cases import REQUEST_CREATED
-from ..tags.model import Tag
+from ..tags.model import CardTag, Tag
 from ..tags.use_cases import TAG_CREATED
 from ..values.model import CardValue, Value
 from ..values.use_cases import VALUE_CREATED
@@ -115,6 +116,13 @@ async def _card_state(session: AsyncSession, card: Card) -> str:
     if card.schedule:
         parts.append("has a Schedule")
     parts += [_count(checks or 0, "Check"), _count(values or 0, "Value")]
+    inbox = await session.scalar(
+        select(CardTag.card_id)
+        .join(Tag, Tag.id == CardTag.tag_id)
+        .where(CardTag.card_id == card.id, Tag.name == INBOX_TAG_NAME)
+    )
+    if inbox is not None:
+        parts.append(f'carries Tag "{INBOX_TAG_NAME}"; captured note, idea or draft')
     return ", ".join(parts)
 
 

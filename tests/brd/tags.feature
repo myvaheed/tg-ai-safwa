@@ -1,7 +1,7 @@
 Feature: Tags
   A Tag is a label the owner puts on Cards so they can find them together later. It has a name, a
-  description, and nothing else — no focus, no meaning Safwa is asked to weigh, and it never goes on
-  anything but a Card.
+  description, and no focus, and it never goes on anything but a Card. The built-in Tag
+  "Inbox" marks a record the owner chose to save for later clarification.
 
   Numbers below name the constant they come from; the tests read the constant.
 
@@ -33,7 +33,7 @@ Feature: Tags
     And Back returns to the Card the list was opened from
 
   Scenario: TA-DELETE-008 — A Tag is deleted, not archived
-    Given a Tag on several Cards
+    Given an ordinary Tag on several Cards
     When the owner or Safwa asks for it to be removed
     Then it is deleted, and those Cards lose the label and are otherwise untouched
     And no screen offers to archive a Tag, and the remove tool refuses to
@@ -45,3 +45,12 @@ Feature: Tags
     Then it has already been handed all of them, by name and in alphabetical order
     And each arrives as a link it can hand straight back to the owner
     And none is left out: a Tag has no focus to be out of, which is what makes it unlike a Value
+
+  Scenario: TA-INBOX-010 — The Inbox Tag always exists and cannot be deleted or renamed
+    Given a new or an existing workspace
+    When Safwa starts
+    Then it has one built-in Tag "Inbox", and a restart does not duplicate it
+    When the owner or Safwa tries to delete or rename that Tag
+    Then the change is refused, and its Cards keep their links
+    And its screen offers neither renaming nor deletion
+    But its description can be edited, and the Tag can be put on a Card and taken off it

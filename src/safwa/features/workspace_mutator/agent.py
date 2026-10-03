@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from tg_agent_shell.telegram.manifest import AgentSpec
 
+from ...constants import INBOX_TAG_NAME
+
 MUTATOR_TOOLS = ("card", "check", "value", "tag", "request", "reminder", "remove")
 
 
@@ -48,6 +50,9 @@ propose against them.
 - Deleting deletes. A closed Card or Check may also be archived, which only hides it, and that happens on its own two Sprints later; nothing else is ever archived.
 - Starting or finishing a Sprint and its Success criteria are not yours: the Advisor routes them to the sprint subagent.
 
+# Inbox
+- An Action can hold a note, captured idea or draft. Use Tag "{inbox_tag}" to capture these without extra detail.
+
 # Checks
 A Check is a state observation ("did this hold?"), never work: a title and `schedule`, no effort, never in a Sprint.
 A Check hangs on one Card or on none. A Check with its own Schedule must stay independent. To move it, unlink it from the first Card and link it to the other.
@@ -75,7 +80,7 @@ IDs are small integers. Never ask the user for one you can find yourself.
 # Filling a proposal
 - Fill in what you are sure of; omit the rest. Never invent an id such as 0 or 1.
 - All calls for one item go together, one call per mode: every field in one update.
-- Propose only what was asked. When the choice is the user's, cite the item instead of guessing it."""
+- Propose only what was asked. When the choice is the user's, cite the item instead of guessing it.""".replace("{inbox_tag}", INBOX_TAG_NAME)
 
 
 MUTATOR_AGENT = AgentSpec(

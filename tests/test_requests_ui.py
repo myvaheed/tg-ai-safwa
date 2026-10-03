@@ -145,7 +145,7 @@ async def test_deleting_a_request_takes_it_off_every_surface(sessions) -> None:
     labels = button_texts(screen.edits[-1][1])
     assert "Pick me" in labels and "Skip me" in labels
 
-async def test_sr_ui_013_a_new_workspace_starts_with_one_request_and_a_screen_about_it(
+async def test_sr_ui_013_a_new_workspace_starts_with_requests_and_a_screen_about_them(
     sessions,
 ) -> None:
     """SR-UI-013 — tests/brd/saved_requests.feature"""
@@ -154,7 +154,7 @@ async def test_sr_ui_013_a_new_workspace_starts_with_one_request_and_a_screen_ab
         await create_card(session, kind="action", title="Run", effort_points=1)
         seeded = await seed_default_requests(session, views=ALLOWED_VIEWS)
         await session.commit()
-        assert [request.name for request in seeded] == ["Все цели"]
+        assert [request.name for request in seeded] == ["Все цели", "Inbox"]
         goal_id, goals_id = goal.id, seeded[0].id
 
     async with sessions() as session:

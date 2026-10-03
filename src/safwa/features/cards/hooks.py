@@ -28,6 +28,7 @@ from tg_agent_shell.hooks.contracts import (
     Tick,
 )
 
+from ...constants import INBOX_TAG_NAME
 from ..planning.api import SPRINT_STARTED, active_sprint_end_date, plan_load, sprint_is_active
 from ..profile.api import (
     EFFORT_TRACKING_REMINDER,
@@ -37,6 +38,7 @@ from ..profile.api import (
     morning_time,
 )
 from ..schedules.api import workspace_zone
+from ..tags.model import CardTag, Tag
 from .api import PLANNED_STAGES, SCHEDULE_NOTICE_DAYS, actions_on_stages
 from .hierarchy import branch_actions
 from .model import (
@@ -444,6 +446,10 @@ async def empty_parents_request(
             Card.kind.in_([CardKind.GOAL.value, CardKind.SUBGOAL.value]),
             Card.archived_at.is_(None),
             Card.created_at <= cutoff,
+            ~select(CardTag.card_id)
+            .join(Tag, Tag.id == CardTag.tag_id)
+            .where(CardTag.card_id == Card.id, Tag.name == INBOX_TAG_NAME)
+            .exists(),
         )
         .order_by(Card.id)
     )

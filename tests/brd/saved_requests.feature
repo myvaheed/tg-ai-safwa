@@ -14,7 +14,7 @@ Feature: Saved Requests
     When they look for a way to write one themselves
     Then there is none: the screens list them, open them and run them, and nothing else
     And the only way one comes into being is the owner approving a proposed Request,
-      or the one a brand new workspace is given, by SR-UI-013
+      or the defaults supplied at installation, by SR-UI-013 and SR-INBOX-014
     And the part of Safwa that keeps the workspace is what proposes one; the part that talks to the
       owner never does
 
@@ -61,10 +61,10 @@ Feature: Saved Requests
     And any change that touches the query always goes to the owner first
     And a brand new Request always goes to the owner first
 
-  Scenario: SR-UI-013 — A new workspace starts with one Request, and a screen saying what it is
+  Scenario: SR-UI-013 — A new workspace starts with Requests, and a screen saying what they are
     Given a workspace being created for the first time
-    Then it already has "Все цели"
-    And it is an ordinary Request from that moment: renaming, re-aiming and deleting it work
+    Then it already has "Все цели" and "Inbox"
+    And they are ordinary Requests from that moment: renaming, re-aiming and deleting them work
       as they do for any other, and once deleted it is not written again on the next start
     And the Requests list offers "О Запросах", which says what a Request is, that Safwa is what
       writes one, and that Tags are how Cards from different Goals are gathered
@@ -94,3 +94,12 @@ Feature: Saved Requests
     Then it is deleted, and the filter stops using it without an error anywhere
     And no screen offers to archive a Request, and the remove tool refuses to
     And its name is free from that moment
+
+  Scenario: SR-INBOX-014 — The Inbox selection follows the Tag on each Card
+    Given a workspace first receives the built-in Tag "Inbox"
+    Then it is also given Request "Inbox", unless that Request already exists
+    And it lists Cards carrying that exact Tag, oldest first, regardless of their filled fields
+    When that Tag is taken off a Card
+    Then the Card leaves the selection
+    And the Request can be renamed, re-aimed or deleted like any other Request
+    And a restart does not replace or restore it

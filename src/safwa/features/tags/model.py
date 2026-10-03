@@ -5,6 +5,7 @@ from __future__ import annotations
 from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
+from ...constants import INBOX_TAG_NAME
 from ...foundation.models import Base, TimestampMixin
 
 
@@ -14,6 +15,10 @@ class Tag(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(200, collation="UNICODE_NOCASE"), unique=True)
     description: Mapped[str] = mapped_column(Text, default="")
     version: Mapped[int] = mapped_column(Integer, default=1)
+
+    @property
+    def is_inbox(self) -> bool:
+        return self.name.casefold() == INBOX_TAG_NAME.casefold()
 
 
 class CardTag(Base):

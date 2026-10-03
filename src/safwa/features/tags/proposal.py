@@ -14,12 +14,14 @@ from tg_agent_shell.proposals.api import (
     PreparationContext,
     PreparedChange,
     ProposalChange,
+    ToolPreparationError,
     require_target,
 )
 
+from ...constants import INBOX_TAG_NAME
 from ...enums import ActorType
 from .model import Tag
-from .use_cases import create_tag, delete_tag, update_tag_fields
+from .use_cases import create_tag, delete_tag, update_tag_fields, validate_tag_change
 
 
 class TagProposalHandler:
@@ -27,7 +29,19 @@ class TagProposalHandler:
     version_model: type[Any] | None = Tag
 
     async def prepare(self, context: PreparationContext, change: Any) -> PreparedChange:
-        _tag, expected_version = await require_target(context, change, Tag)
+        tag, expected_version = await require_target(context, change, Tag)
+        if tag is not None:
+            try:
+                validate_tag_change(
+                    tag, name=change.values.get("name"), deleting=change.action == "delete"
+                )
+            except DomainError as error:
+                raise ToolPreparationError(
+                    "protected_tag",
+                    str(error),
+                    f'Use card mode="unlink" with the Card id and tag_query="{INBOX_TAG_NAME}" '
+                    "to remove this Tag from a Card.",
+                ) from error
         return PreparedChange(values=dict(change.values), expected_version=expected_version)
 
     async def apply(self, context: ApplyContext, change: ProposalChange) -> list[int]:

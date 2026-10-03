@@ -12,6 +12,7 @@ from tg_agent_shell.ai.contracts import AgentChange, ChangeAction, ToolInput
 from tg_agent_shell.proposals.api import MutationToolSpec
 from tg_agent_shell.telegram.manifest import AgentSpec
 
+from ...constants import INBOX_TAG_NAME
 from ..cards.model import CATEGORY_MEANINGS, EFFORT_RUNGS, ENERGY_MEANINGS, effort_label
 from ..schedules.api import ACTION_DAILY_EXECUTIONS_MAX
 
@@ -63,6 +64,9 @@ MANUAL = f"""# Safwa
 - With buttons: "➕ Add" creates a Goal or an Action. "📚 Backlog" and "☀️ Today" list Cards. On a Card: "✅ Done", "📍 Stage", "☑️ Checks", and "✏️ Full editing" for every field, its Values and Tags, "Archive" and "Delete".
 - Not with buttons: placing a Card under another Card, or making a Subgoal. Ask the Advisor.
 - Not at all: moving an Action straight to Done. Finish it with "✅ Done".
+
+# Inbox
+- An Action can hold a note, captured idea or draft. Tag "{INBOX_TAG_NAME}" marks these captures. Find them in "🔎 Requests" → "{INBOX_TAG_NAME}".
 
 # Effort Points (EP)
 - "🔢 Effort Points" in the Profile switches the estimates, Sprint capacity, Today overload warnings and Effort Points reminder on or off. Switching off keeps saved estimates and capacity. It does not change Time tracking.

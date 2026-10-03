@@ -187,3 +187,8 @@ ended. `/summarize` writes a `📜 Summary` on demand, which becomes the far edg
 
 Creating a Card by hand stores nothing until **Save**: the draft lives in the screen and is gone if
 you leave it.
+
+An Action can hold a note, captured idea or draft. Ask Safwa to record it; the built-in
+**Inbox** Tag marks these captures without requiring extra detail.
+Open **Requests → Inbox** to return to these records. Remove the Tag after deciding
+what to do with one; ordinary edits do not remove it. The Tag cannot be renamed or deleted.
