@@ -27,7 +27,7 @@ from telegram_llm import TELEGRAM_ALBUM_LIMIT
 from tg_agent_shell.ai.mini import ReadToolSpec
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner
 from tg_agent_shell.foundation.kinds import MessageKind
-from tg_agent_shell.history import TelegramMessage
+from tg_agent_shell.history import CONVERSATION_KINDS, TelegramMessage
 from tg_agent_shell.media.library import (
     DESCRIBE_PROMPT,
     DESCRIBE_REASONING,
@@ -317,7 +317,12 @@ async def test_a_photo_the_answer_points_at_opens_as_that_photo(wallet_bot):
     shown = running.message.sent[-1].message_id
 
     await dismiss_prior_ui(QueueTestMessage(message_id=991, is_bot=False, parent=running.message), running.services)
-    assert shown in bot.deleted
+    assert shown not in bot.deleted
+    async with running.sessions() as session:
+        kept = await session.scalar(
+            select(TelegramMessage).where(TelegramMessage.message_id == shown)
+        )
+    assert kept.kind not in CONVERSATION_KINDS
 
 
 def tool_names(request) -> set[str]:

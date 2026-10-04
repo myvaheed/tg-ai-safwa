@@ -121,8 +121,7 @@ Feature: Diary
   Scenario: DI-PHOTO-017 — A photo the owner sends with no words is put up for today
     Given the owner sends a photo with no words
     When Safwa answers
-    Then one screen puts that photo on today, named in at most 5 words
-      (DESCRIPTION_MAX_WORDS = 5)
+    Then one screen puts that photo on today, under the name its link already shows
     And the words already saved for today stay as they are
     And nothing is in the Diary until the owner saves it
 
@@ -149,6 +148,7 @@ Feature: Diary
     When the owner approves taking one of them off
     Then the day keeps its words and the other photo
     And a day left with neither words nor photos is gone
+    And taking the last photo off a day with no words is put up as removing that day
 
   Scenario: DI-PHOTO-022 — A day's screen shows its photos above its words
     Given 26.09.2026 reads "День в парке.", rated 7, and holds 3 photos
@@ -161,3 +161,12 @@ Feature: Diary
     When Safwa checks them
     Then they go back to the Diary, asking it to read that day first
     And nothing is put up for the owner until it has read that day and sent them again
+
+  Scenario: DI-PHOTO-024 — A photo the owner corrects is called by the new words everywhere
+    Given 26.09.2026 holds a photo called "Кот на окне"
+    When the owner says the photo is "Рыжий кот на окне"
+    Then one screen shows "Кот на окне" struck through and "Рыжий кот на окне" beside it
+    And the photo stays on that day
+    And once the owner saves it, the photo is called "Рыжий кот на окне" on its links, under it
+      when it opens, and on that day
+    And the Diary is asked for a name of at most 5 words (DESCRIPTION_MAX_WORDS = 5)

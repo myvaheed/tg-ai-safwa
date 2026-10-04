@@ -28,7 +28,7 @@ class DiaryEntry(Base, TimestampMixin):
 
 
 class DiaryMedia(Base):
-    """One photo on a Diary day, under the few words the Diary gave it there."""
+    """One photo on a Diary day; it is named by its label, the same everywhere."""
 
     __tablename__ = "diary_media"
     __table_args__ = (UniqueConstraint("entry_id", "media_id"),)
@@ -36,5 +36,4 @@ class DiaryMedia(Base):
     entry_id: Mapped[int] = mapped_column(ForeignKey("diary_entries.id"))
     # The photo the shell keeps in `chat_media`, which is another schema's table.
     media_id: Mapped[int] = mapped_column(Integer)
-    meta: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, server_default=func.now())

@@ -1,4 +1,4 @@
-"""A photo the owner sent: kept once, labelled once, and read in words from then on.
+"""A photo the owner sent: kept once, labelled as it arrives, and read in words from then on.
 
 The conversation never carries a photo. When one arrives it is looked at once, to write the
 few words of its label, and the label is what every reader of the conversation gets from
@@ -24,6 +24,7 @@ from llm_gateway import CompletionRequest, LlmProvider, ToolCall
 from ..ai.contracts import ToolResultStatus
 from ..ai.conversation import conversation_block
 from ..ai.mini import ReadToolSpec
+from ..foundation.errors import DomainError
 from ..foundation.models import Base, UtcDateTime
 
 # How long a label is asked to be, and how many of the newest exchanges it is written from.
@@ -50,7 +51,10 @@ _NOT_IN_A_LABEL = str.maketrans("", "", "[]()\"«»“”")
 
 
 class ChatMedia(Base):
-    """One photo the owner sent, in the size that is kept, under the label it was given."""
+    """One photo the owner sent, in the size that is kept, under its label.
+
+    The label is the photo's one name: every link to it and its caption when it opens show it.
+    """
 
     __tablename__ = "chat_media"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -80,6 +84,14 @@ def media_label(media_id: int, meta: str) -> str:
     return f"[{meta}]({MEDIA_TYPE}:{media_id})"
 
 
+async def rename_media(session: AsyncSession, media_id: int, words: str) -> None:
+    """Give a kept photo the words the owner corrected its label to."""
+    media = await session.get(ChatMedia, media_id)
+    if media is None:
+        raise DomainError(f"No photo has the number {media_id}")
+    media.meta = label_words(words)
+
+
 def image_part(data: bytes, mime: str) -> dict[str, Any]:
     """A photo as a model is handed it: the file itself, in base64, inside the request.
 
@@ -98,7 +110,8 @@ def last_exchanges(
     return dialogue[starts[-count] :] if len(starts) >= count else dialogue
 
 
-def _label_words(text: str) -> str:
+def label_words(text: str) -> str:
+    """Words fit to be a label: one line, with nothing that would break its citation."""
     line = next((line.strip() for line in text.splitlines() if line.strip()), "")
     return line.translate(_NOT_IN_A_LABEL).strip(" .'`") or "photo"
 
@@ -133,7 +146,7 @@ class MediaLibrary:
             photo.mime,
             reasoning_effort=DESCRIBE_REASONING,
         )
-        return _label_words(words)
+        return label_words(words)
 
     async def keep(self, photos: Sequence[tuple[Photo, str]]) -> list[int]:
         """Keep each photo under its label's words, and return the numbers it is cited by."""

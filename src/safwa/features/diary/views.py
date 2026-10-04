@@ -7,8 +7,9 @@ from tg_agent_shell.ai.sql import SqlView
 AI_DIARY = SqlView(
     "ai_diary",
     """SELECT d.id, d.entry_date, d.body, d.feeling_score,
-       (SELECT group_concat('[' || m.meta || '](media:' || m.media_id || ')', ' ')
-        FROM diary_media m WHERE m.entry_id = d.id) AS media,
+       (SELECT group_concat('[' || c.meta || '](media:' || m.media_id || ')', ' ')
+        FROM diary_media m JOIN chat_media c ON c.id = m.media_id
+        WHERE m.entry_id = d.id) AS media,
        d.created_at, d.updated_at
 FROM diary_entries d""",
     doc="""- `ai_diary(id, entry_date, body, feeling_score, media, created_at, updated_at)`

@@ -673,7 +673,11 @@ flowchart LR
 - An album reaches the bot as one message per photo. `AlbumGatherer` holds the first for
   `ALBUM_GATHER_SECONDS` and the rest join it, so the album is one turn (`TG-ALBUM-019`).
 - The label is a citation, so the model reads a photo in the shape it cites one, and the media
-  `MODULE` opens it: `open_media` sends the photo under its label's words (`SC-CITE-011`).
+  `MODULE` opens it: `open_media` sends the photo under its label's words, as a `RECEIPT`, so it
+  stays in the chat when the next screen comes (`SC-CITE-011`).
+- The label is the photo's one name: every link to it shows the label as it is now, not the
+  words the model wrote in the link. `rename_media` gives it the words the owner corrected it to;
+  an application calls it from the Save of a proposal that renames the photo.
 - A photo reaches a model as the file itself, in base64 inside the request (`image_part`),
   never as a Telegram link, which carries the bot's token.
 - Where `Services.media` is None a photo is refused with one line and nothing is answered

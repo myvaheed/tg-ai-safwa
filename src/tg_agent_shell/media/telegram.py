@@ -185,7 +185,11 @@ async def send_photo_screen(
 async def open_media(
     message: Message, services: Services, media_id: int, *, replace: bool | None = None
 ) -> None:
-    """One photo, under the words of its label."""
+    """One photo, under the words of its label.
+
+    It stays in the chat like a message when the next screen comes: there is nothing on it to
+    act on.
+    """
     async with services.sessions() as session:
         media = await session.get(ChatMedia, media_id)
     if media is None:
@@ -199,7 +203,7 @@ async def open_media(
         message,
         services,
         (media_id,),
-        kind=MessageKind.DASHBOARD,
+        kind=MessageKind.RECEIPT,
         caption=html.escape(media.meta),
         related_id=media_id,
     )

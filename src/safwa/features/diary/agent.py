@@ -20,18 +20,19 @@ from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
 from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec
 
 from ...constants import WEEKDAY_NAMES
-from .model import DiaryEntry, DiaryMedia
+from .api import day_media
+from .model import DiaryEntry
 
 DIARY_DAY_TOKEN_BUDGET = 12_000
 
 
 class DiaryMediaInput(ToolInput):
-    """One photo put on a day."""
+    """New words for one photo on a day."""
 
     media_id: PositiveInt = Field(description="N from the photo's [words](media:N) label.")
     meta: str = Field(
         description=f"At most {DESCRIPTION_MAX_WORDS} words: what the photo shows, as the user "
-        "names it."
+        "names it.",
     )
 
 
@@ -61,11 +62,14 @@ class DiaryToolInput(ToolInput):
             "With update: how the day felt, 0-10. Omit it to keep the score already saved."
         ),
     )
-    add_media: list[DiaryMediaInput] | None = Field(
-        default=None, description="With update: photos to put on that day."
+    add_media: list[PositiveInt] | None = Field(
+        default=None, description="With update: N of each photo to put on that day."
     )
     remove_media: list[PositiveInt] | None = Field(
         default=None, description="With update: N of each photo to take off that day."
+    )
+    rename_media: list[DiaryMediaInput] | None = Field(
+        default=None, description="With update: new words for photos on that day."
     )
 
     @field_validator("date")
@@ -78,16 +82,10 @@ class DiaryToolInput(ToolInput):
 
     @model_validator(mode="after")
     def entry_needs_its_text(self) -> DiaryToolInput:
-        if self.mode == "update" and not (
-            (self.pov or "").strip() or self.add_media or self.remove_media
-        ):
-            raise ValueError("An update carries pov, add_media or remove_media")
-        if self.mode == "delete" and (
-            self.pov
-            or self.feeling_score is not None
-            or self.add_media
-            or self.remove_media
-        ):
+        media = self.add_media or self.remove_media or self.rename_media
+        if self.mode == "update" and not ((self.pov or "").strip() or media):
+            raise ValueError("An update carries pov, add_media, remove_media or rename_media")
+        if self.mode == "delete" and (self.pov or self.feeling_score is not None or media):
             raise ValueError("A deletion carries only mode and date")
         return self
 
@@ -109,12 +107,12 @@ DIARY_PROMPT = f"""You keep the user's Diary. One day, one entry, in their own v
 
 # Photos
 A photo the user sent reads as `[words](media:N)`, then their caption if they wrote one.
-- A photo with no caption: `diary(mode="update", date=…, add_media=[{{"media_id": N, "meta": "…"}}])`
-  and nothing more. No `pov`, no `remark`: a photo is not words of the user's, and the saved words
-  stay.
+- A photo with no caption: `diary(mode="update", date=…, add_media=[N])` and nothing more. No
+  `pov`, no `remark`: a photo is not words of the user's, and the saved words stay.
 - A caption that says something about the day: put the photo on it and write `pov` too.
-- `meta`: at most {DESCRIPTION_MAX_WORDS} words, what the photo shows, as the user names it.
 - Take one off the day: `remove_media=[N]`.
+- The user corrects what a photo shows: `rename_media=[{{"media_id": N, "meta": "…"}}]`, at most
+  {DESCRIPTION_MAX_WORDS} words, as the user names it. Never take the photo off for that.
 
 # pov
 `pov` is the day itself, and only the user speaks in it: first person, their words, their language.
@@ -247,12 +245,8 @@ def day_read_tool(
             )
             photos = (
                 [
-                    media_label(row.media_id, row.meta)
-                    for row in await session.scalars(
-                        select(DiaryMedia)
-                        .where(DiaryMedia.entry_id == entry.id)
-                        .order_by(DiaryMedia.id)
-                    )
+                    media_label(media_id, meta)
+                    for media_id, meta in await day_media(session, entry.id)
                 ]
                 if entry
                 else []
@@ -293,7 +287,7 @@ async def _diary_now(context: AgentContext) -> str:
 
 DIARY_AGENT = AgentSpec(
     name="diary",
-    purpose="write, rewrite or delete a day.",
+    purpose="write, rewrite or delete a day, and rename the photos on it.",
     instructions=DIARY_PROMPT,
     mutation_tools=("diary",),
     read_tools=_diary_read_tools,
