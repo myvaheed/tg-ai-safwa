@@ -6,8 +6,11 @@ from advisor_e2e_helpers import mutation_turn, route_turn
 from tg_agent_shell.ai.outcome import AIOutcomeKind
 from tg_agent_shell.ai.steps import STEP_ERROR_CHARS, listening
 from tg_agent_shell.hooks.contracts import (
+    AfterRequest,
     BeforeProposals,
+    HoldAnswer,
     HookSpec,
+    OnAfterRequest,
     OnBeforeProposals,
     ReturnProposals,
 )
@@ -33,11 +36,31 @@ async def steps_of(advisor, request: str) -> tuple[list[str], object]:
     return steps, outcome
 
 
+def reading(title: str) -> HookSpec:
+    """A check that reads every answer and lets it through."""
+
+    async def candidate(event: AfterRequest) -> tuple[AfterRequest, ...]:
+        return (event,)
+
+    async def review(_event: AfterRequest, _provider) -> str | None:
+        return None
+
+    return HookSpec(
+        name="test.read",
+        owner="proposals",
+        on=(OnAfterRequest(),),
+        evaluate=candidate,
+        effect=HoldAnswer(review),
+        title=title,
+        description=title,
+    )
+
+
 async def test_each_request_to_the_model_and_each_check_is_a_step(e2e_harness):
     """AG-TURN-053 — tests/brd/tg_agent_shell/agents.feature"""
     advisor, _provider = e2e_harness.advisor(
-        [route_turn("workspace_mutator"), "Готово.", "Сделал.", "done"],
-        checks=(REQUEST_REVIEW_HOOK,),
+        [route_turn("workspace_mutator"), "Готово.", "Сделал."],
+        checks=(reading("Answer check"),),
     )
 
     steps, outcome = await steps_of(advisor, "Что у меня сегодня?")
@@ -47,7 +70,26 @@ async def test_each_request_to_the_model_and_each_check_is_a_step(e2e_harness):
         "Advisor is thinking.",
         "Workspace mutator is thinking.",
         "Advisor continues after Workspace mutator.",
-        "Checking: Request review.",
+        "Checking: Answer check.",
+    ]
+
+
+async def test_a_check_that_finds_nothing_to_read_is_no_step(e2e_harness):
+    """AG-TURN-053 — tests/brd/tg_agent_shell/agents.feature"""
+    # The request made no change, so the request review has nothing to read.
+    advisor, provider = e2e_harness.advisor(
+        [route_turn("workspace_mutator"), "Готово.", "Сделал."],
+        checks=(REQUEST_REVIEW_HOOK,),
+    )
+
+    steps, outcome = await steps_of(advisor, "Что у меня сегодня?")
+
+    assert outcome.message == "Сделал."
+    assert len(provider.calls) == 3
+    assert steps == [
+        "Advisor is thinking.",
+        "Workspace mutator is thinking.",
+        "Advisor continues after Workspace mutator.",
     ]
 
 

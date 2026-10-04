@@ -373,7 +373,7 @@ class ProposalMaterializer:
         async for checked in self.adapters.hooks.evaluate(event, self.sessions):
             effect = checked.spec.effect
             error = checked.error
-            if error is None and isinstance(effect, effect_type):
+            if error is None and isinstance(effect, effect_type) and checked.payloads:
                 await announce(checking_line(checked.spec.title))
                 try:
                     for payload in checked.payloads:

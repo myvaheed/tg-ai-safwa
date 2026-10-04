@@ -451,7 +451,12 @@ flowchart LR
   (`AG-DONE-045`): `REQUEST_REVIEW_HOOK`, one completion over the conversation, each change the
   request made and the answer. A missing change can be judged only there: before it, the model
   may not have made it yet. It stands between the answer and the chat, so it asks with no tools
-  and `reasoning_effort` "none", and its verdict is one line, `done` or `missing: …`.
+  and `reasoning_effort` "none", and its verdict is one line, `done` or `missing: …`. It reads
+  only a request that made a change: that is where the Advisor stops after one part of a
+  request that needs several subagents. A request that made none is the Advisor answering
+  itself, and whether the owner asked for a change is its routing call; a second model with no
+  reasoning would only second-guess it, and a wrong `missing` there opens a screen nobody
+  asked for.
 - **Every mutation tool belongs to a subagent**, never to the Advisor. `workspace_mutator` owns the workspace,
   `diary` owns the Diary. Preparation runs where the change was authored.
 - **Every proposal screen is exactly Save/Discard.** A screen that needs a field control is the
