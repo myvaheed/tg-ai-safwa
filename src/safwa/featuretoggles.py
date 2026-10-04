@@ -9,9 +9,9 @@ from __future__ import annotations
 
 # A subagent response that carries changes and no plan is sent back (PR-PLAN-028).
 PLAN_REQUIRED = True
-# Before the answer to the owner's message is sent, one model call reads the request for
-# what was asked and nothing did (AG-DONE-045).
-REQUEST_REVIEW = False
+# Before the answer to the owner's message is sent, one model call reads a request that made
+# a change for what was asked and nothing did (AG-DONE-045).
+REQUEST_REVIEW = True
 # A Diary response that writes new words for a day it has not read is sent back
 # (DI-READ-023).
 DAY_READ_REQUIRED = True

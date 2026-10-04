@@ -375,7 +375,8 @@ Feature: Agents — the session, the hand-over, and what comes back
 
   Scenario: AG-DONE-045 — Before Safwa answers the owner's message, the request is read for what was asked and not done
     Given the request review is on in the feature toggles
-    When Safwa is about to answer the owner's message, by AG-HOOK-047
+    When Safwa is about to answer the owner's message, by AG-HOOK-047, and the request made a
+      change
     Then one review reads it, with no tools and reasoning_effort "none", and is told that a
       change the owner discarded, refused or took back is not missing, and neither is one the
       answer asks them about
@@ -384,6 +385,8 @@ Feature: Agents — the session, the hand-over, and what comes back
     Then Safwa is told what is not done: to route it now, or to tell the owner it was not done
     When it answers "done", or a line that is neither
     Then the answer is sent as it is
+    When the request made no change, whether or not it was routed to a subagent
+    Then the answer is sent without being read
     When the request review is off in the feature toggles
     Then no answer is read before it is sent
 
@@ -455,6 +458,7 @@ Feature: Agents — the session, the hand-over, and what comes back
     Then the line is "<session> is preparing <n> changes."
     When a check reads the model's work with the model
     Then the line is "Checking: <the check's title>."
+    And a check that finds nothing to read adds no line
     And the message shows the newest 10 lines (NOTICE_STEPS), each keeping its number
     When Telegram refuses to show a line
     Then the answer is still written
