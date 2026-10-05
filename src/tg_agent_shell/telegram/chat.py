@@ -420,9 +420,10 @@ async def clear_draw_home(message: Message, services: Services, text: str) -> No
         await session.commit()
 
 
-async def discard_stale_status(bot: Bot, services: Services, chat_id: int) -> None:
-    """Take back the Toasts and progress lines the process died under."""
-    await services.chat.discard_stale(bot, chat_id, kind=MessageKind.STATUS.value)
+async def discard_stale_messages(bot: Bot, services: Services, chat_id: int) -> None:
+    """Take back the Toasts, progress lines and passing Cues the process died under."""
+    for kind in (MessageKind.STATUS, MessageKind.PASSING_CUE):
+        await services.chat.discard_stale(bot, chat_id, kind=kind.value)
 
 
 async def send_summary(message: Message, services: Services, text: str) -> None:

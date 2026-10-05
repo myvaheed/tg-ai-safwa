@@ -49,8 +49,9 @@ TELEGRAM_DELETE_WINDOW = timedelta(hours=48)
 # it is from then on, or None to take it out of the chat.
 Freeze = Callable[[Note], Awaitable[tuple[str, str] | None]]
 
-# How a Toast's timer is started.  The package never starts one itself: a timer it started
-# would outlive the host's shutdown, because nothing outside would know it exists.
+# How a Toast's or a passing message's timer is started.  The package never starts one
+# itself: a timer it started would outlive the host's shutdown, because nothing outside would
+# know it exists.
 Spawn = Callable[[Coroutine[None, None, None], str], "asyncio.Task[None]"]
 
 
@@ -85,6 +86,9 @@ class ChatHost:
     # One Toast at a time per chat: a burst of them would otherwise stack above the
     # screen and push it out of sight, which is the one thing a Toast must not do.
     toasts: dict[int, tuple[int, asyncio.Task[None]]] = field(default_factory=dict)
+    # The passing messages already given their time, by chat and message, so each is taken
+    # back once.
+    passing: set[tuple[int, int]] = field(default_factory=set)
 
     async def send(
         self,
@@ -540,6 +544,25 @@ class ChatHost:
         await asyncio.sleep(seconds)
         self.toasts.pop(message.chat.id, None)
         await self.remove_screen(message, message_id)
+
+    async def let_pass(self, message: Message, *, kind: str, seconds: float) -> None:
+        """Take the messages of this kind with no time yet out of the chat `seconds` from now.
+
+        Called just after one is sent, that one is all of them, every part of it. Its note
+        goes with it. A timer does not outlive the process, so what one leaves behind is
+        `discard_stale`'s at the next start.
+        """
+        for note in await self.notes.outgoing(message.chat.id, kinds={kind}):
+            key = (message.chat.id, note.message_id)
+            if key in self.passing:
+                continue
+            self.passing.add(key)
+            self.spawn(self._pass(message, note.message_id, seconds), "passing-expiry")
+
+    async def _pass(self, message: Message, message_id: int, seconds: float) -> None:
+        await asyncio.sleep(seconds)
+        await self.remove_screen(message, message_id)
+        self.passing.discard((message.chat.id, message_id))
 
     async def discard_stale(self, bot: Bot, chat_id: int, *, kind: str) -> None:
         """Take back the transient messages the process died under.

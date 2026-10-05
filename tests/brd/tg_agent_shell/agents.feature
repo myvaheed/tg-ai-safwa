@@ -444,6 +444,16 @@ Feature: Agents — the session, the hand-over, and what comes back
     And the owner acting while it goes stops it
     And work that puts nothing in the chat runs on whatever the owner does
 
+  Scenario: AG-HOOK-054 — A hook's request may leave the chat a set time after it is said
+    Given a hook whose request to the Advisor passes after a set time
+    When a message of Safwa's says only requests that pass
+    Then the longest of their times after it was sent, the message leaves the chat, every part
+      of it, and Safwa no longer reads it
+    When the message also says a request that does not pass, or a Reminder's words
+    Then it stays
+    When Safwa restarts before that time is out
+    Then the message leaves the chat on start
+
   Scenario: AG-OPEN-052 — A subagent opens only the kinds of screen it declared
     Given a subagent declares that it may open one kind of screen
     When it opens an item of that kind
@@ -451,7 +461,7 @@ Feature: Agents — the session, the hand-over, and what comes back
     And a subagent that declared no kind is not given the tool
     And a kind it did not declare is refused (SC-OPEN-006)
 
-  Scenario: AG-OPEN-054 — An item Safwa cannot find is left to the subagent that opens its kind
+  Scenario: AG-OPEN-055 — An item Safwa cannot find is left to the subagent that opens its kind
     Given a subagent declares that it may open one kind of screen
     When Safwa asks to open an item of that kind that does not exist
     Then it is refused, and told to route the request to that subagent

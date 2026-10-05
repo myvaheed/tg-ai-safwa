@@ -72,7 +72,7 @@ async def test_cd_time_041_an_action_done_by_hand_is_asked_about_and_the_answer_
 
     said: list[str] = []
 
-    async def speak(event_id: str, text: str, shown: tuple[str, ...] = ()) -> bool:
+    async def speak(event_id: str, text: str, shown=(), passing=None) -> bool:
         said.append(text)
         return True
 

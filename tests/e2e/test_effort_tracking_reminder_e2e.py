@@ -80,7 +80,7 @@ async def test_done_actions_are_asked_about_together_and_the_answer_updates_the_
 
     said = []
 
-    async def speak(event_id, text, shown=()):
+    async def speak(event_id, text, shown=(), passing=None):
         said.append(text)
         return True
 
@@ -140,7 +140,7 @@ async def test_switching_off_suppresses_pending_questions_and_new_completions(e2
     await sink.drain()
     said = []
 
-    async def speak(event_id, text, shown=()):
+    async def speak(event_id, text, shown=(), passing=None):
         said.append(text)
         return True
 

@@ -176,10 +176,10 @@ async def test_ag_open_052_a_subagent_opens_only_the_kinds_it_declared(e2e_harne
     assert open_enum("sprint") == []
 
 
-async def test_ag_open_054_an_item_not_found_is_left_to_the_subagent_that_opens_its_kind(
+async def test_ag_open_055_an_item_not_found_is_left_to_the_subagent_that_opens_its_kind(
     e2e_harness,
 ):
-    """AG-OPEN-054 — tests/brd/tg_agent_shell/agents.feature"""
+    """AG-OPEN-055 — tests/brd/tg_agent_shell/agents.feature"""
     missing = {"item_type": "retro", "id": 999}
     advisor, provider = e2e_harness.advisor(
         [read_turn("open", missing, "open"), "I could not find it."],

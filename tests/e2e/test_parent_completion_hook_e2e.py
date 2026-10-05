@@ -80,7 +80,7 @@ async def test_finished_actions_ask_once_and_the_owners_choice_closes_only_the_g
 
     said = []
 
-    async def speak(event_id, text, shown=()):
+    async def speak(event_id, text, shown=(), passing=None):
         said.append(text)
         return True
 

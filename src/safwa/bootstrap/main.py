@@ -26,7 +26,7 @@ from tg_agent_shell.similarity import SIMILAR_MODEL, FastEmbedEncoder, Similarit
 from tg_agent_shell.telegram import (
     SHELL_COMMANDS,
     Services,
-    discard_stale_status,
+    discard_stale_messages,
     sync_bot_commands,
 )
 from tg_agent_shell.telegram.manifest import AgentContext
@@ -306,7 +306,7 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
     dispatcher.include_router(build_router(commands))
     dispatcher["services"] = services
     await sync_bot_commands(bot, commands)
-    await discard_stale_status(bot, services, settings.telegram_owner_id)
+    await discard_stale_messages(bot, services, settings.telegram_owner_id)
 
     background = BackgroundContext(
         owner_id=settings.telegram_owner_id,

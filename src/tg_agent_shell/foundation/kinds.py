@@ -16,6 +16,8 @@ class MessageKind(StrEnum):
     # system line, never as something the assistant said.
     EVENT = "event"
     CUE = "cue"
+    # A Cue that leaves the chat a set time after it was sent, its note with it.
+    PASSING_CUE = "passing_cue"
     SUMMARY = "summary"
     UI_INPUT = "ui_input"
     DASHBOARD = "dashboard"

@@ -24,6 +24,7 @@ from tg_agent_shell.foundation.changes import Committed
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.hooks.contracts import Shown
+from tg_agent_shell.hooks.registry import HookRegistry
 from tg_agent_shell.proposals.model import ChangeAction, ProposalChange
 from tg_agent_shell.proposals.store import PROPOSAL_REVIEW_MINUTES, ProposalStore
 from tg_agent_shell.turn import TurnManager
@@ -38,6 +39,7 @@ class Recorder:
         self.lands = lands
         self.said: list[str] = []
         self.shown: list[tuple[str, ...]] = []
+        self.passing: list[timedelta | None] = []
         self.events: list[str] = []
         self.registered: set[str] = set()
         self.releases = 0
@@ -45,10 +47,13 @@ class Recorder:
     async def gate(self) -> bool:
         return self.open_gate
 
-    async def speak(self, event_id: str, text: str, shown: tuple[str, ...] = ()) -> bool:
+    async def speak(
+        self, event_id: str, text: str, shown: tuple[str, ...] = (), passing=None
+    ) -> bool:
         self.events.append(event_id)
         self.said.append(text)
         self.shown.append(shown)
+        self.passing.append(passing)
         if self.lands:
             self.registered.add(event_id)
         return self.lands
@@ -200,7 +205,9 @@ async def test_ag_cue_029_a_turn_registered_but_not_settled_is_settled_alone_by_
     await write(sessions, "Sprint 1 is over.")
     recorder = Recorder()
 
-    async def register_then_stop(event_id: str, text: str, shown: tuple[str, ...]) -> bool:
+    async def register_then_stop(
+        event_id: str, text: str, shown: tuple[str, ...], passing
+    ) -> bool:
         recorder.events.append(event_id)
         recorder.said.append(text)
         recorder.registered.add(event_id)
@@ -226,7 +233,7 @@ async def test_ag_cue_029_settling_a_turn_never_takes_a_row_written_in_its_place
     recorder = Recorder()
 
     async def speak_while_the_row_is_replaced(
-        event_id: str, text: str, shown: tuple[str, ...]
+        event_id: str, text: str, shown: tuple[str, ...], passing
     ) -> bool:
         async with sessions() as session:
             await session.delete(await session.get(Cue, first))
@@ -376,17 +383,45 @@ async def test_ag_hook_048_each_block_is_shown_once_oldest_first_and_its_request
     ]
 
 
+async def test_ag_hook_054_only_requests_that_pass_make_a_message_that_passes(sessions):
+    """AG-HOOK-054 — tests/brd/tg_agent_shell/agents.feature"""
+    lasts = {"tip": timedelta(seconds=60), "later": timedelta(seconds=90), "kept": None}
+    recorder = Recorder()
+
+    async def prepare(hook: str, payload: list) -> str:
+        return f"Ask about {hook}."
+
+    async def said_with(*hooks: str, words: str | None = None) -> timedelta | None:
+        async with sessions() as session:
+            for hook in hooks:
+                await add_hook_cue(session, hook=hook, items=[1])
+            if words is not None:
+                await add_cue(session, text=words)
+            await session.commit()
+        assert await tick(sessions, **_hooks(recorder), prepare=prepare, passing=lasts.get)
+        return recorder.passing[-1]
+
+    assert await said_with("tip") == timedelta(seconds=60)
+    assert await said_with("tip", "later") == timedelta(seconds=90)
+    assert await said_with("tip", "kept") is None
+    assert await said_with("tip", words="A Reminder went off.") is None
+
+
 class CueChat:
     """What a Cue turn puts in the chat, in order: the published words and the answer."""
 
     def __init__(self) -> None:
         self.said: list[str] = []
+        self.passing: list[tuple[str, float]] = []
 
     async def send_parts(
         self, _message, text, *, kind, event_id=None, replace=None, reads_as=None
     ):
         del event_id, replace, reads_as
         self.said.append(f"{kind}: {text}")
+
+    async def let_pass(self, _message, *, kind, seconds):
+        self.passing.append((kind, seconds))
 
 
 class CueAdvisor:
@@ -465,3 +500,23 @@ async def test_ag_hook_042_the_owner_arriving_stops_it_before_it_says_anything(s
     assert chat.said == []
     assert advisor.asked == 0
     runtime.release()
+
+
+async def test_ag_hook_054_a_passing_answer_is_sent_as_one_and_given_its_time(
+    sessions, monkeypatch
+):
+    """AG-HOOK-054 — tests/brd/tg_agent_shell/agents.feature"""
+    runtime, chat, _ = _speaking(sessions, HookRegistry.of())
+
+    async def render(_message, _services, outcome, *, kind, event_id):
+        chat.said.append(f"{kind}: {outcome.message}")
+
+    monkeypatch.setattr("tg_agent_shell.cues.runtime.render_ai_outcome", render)
+
+    for event_id, passing in (("f" * 32, timedelta(seconds=60)), ("a" * 32, None)):
+        assert await runtime.can_speak() is True
+        assert await runtime.speak(event_id, "Onboarding.", (), passing) is True
+        runtime.release()
+
+    assert chat.said == ["passing_cue: The answer.", "cue: The answer."]
+    assert chat.passing == [(MessageKind.PASSING_CUE.value, 60.0)]

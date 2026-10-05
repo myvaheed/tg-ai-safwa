@@ -554,7 +554,7 @@ class ToolAdapters:
 
     def _find_to_open(self, routed: RoutedSubagent | None, item_type: str) -> str:
         # The root has no read tool for a kind a subagent opens, so it is pointed at that
-        # subagent rather than told to look the id up itself (AG-OPEN-054).
+        # subagent rather than told to look the id up itself (AG-OPEN-055).
         if routed is None:
             finder = next(
                 (name for name, sub in self.subagents.items() if item_type in sub.opens), None

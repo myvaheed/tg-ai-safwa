@@ -350,7 +350,7 @@ Scenario: AD-ASK-007 — Safwa hands over a change only when the owner asks for 
 Новый, в [agents.feature](../tests/brd/tg_agent_shell/agents.feature):
 
 ```gherkin
-Scenario: AG-OPEN-054 — An item Safwa cannot find is left to the subagent that opens its kind
+Scenario: AG-OPEN-055 — An item Safwa cannot find is left to the subagent that opens its kind
   Given a subagent declares that it may open one kind of screen
   When Safwa asks to open an item of that kind that does not exist
   Then it is refused, and told to route the request to that subagent
@@ -364,7 +364,7 @@ Scenario: AG-OPEN-054 — An item Safwa cannot find is left to the subagent that
 ### Тесты
 
 - AD-ASK-007: промпт несёт правило просьбы и исключение для фото.
-- AG-OPEN-054 (`tests/e2e/test_retro_e2e.py`): `open` корневой сессии по несуществующему retro —
+- AG-OPEN-055 (`tests/e2e/test_retro_e2e.py`): `open` корневой сессии по несуществующему retro —
   `hint` с маршрутом retro; у сабагента — прежний `hint`.
 - PL-ASK-026: к проверкам `sprint_now` добавлены проверки `workspace_context`: день, остаток,
   capacity идущего Sprint и даты Sprint, начатого сегодня.
@@ -706,7 +706,7 @@ message… If they tell you, route to…». Это тоже промпты: он
   views: три строки A4. `purpose` Sprint, Retro, Onboarding. Mutator: строка о временах Profile.
   Shell: подсказка маршрута при `not_found` у `open` корневой сессии. State Advisor: день, остаток
   и capacity идущего Sprint, даты Sprint, начатого сегодня. Сценарии: новые AD-ASK-007 и
-  AG-OPEN-054, PL-ASK-026 переформулирован. Снапшот промптов: Advisor, Heavy analyzer, Mutator,
+  AG-OPEN-055, PL-ASK-026 переформулирован. Снапшот промптов: Advisor, Heavy analyzer, Mutator,
   Sprint. `SYSTEM_PROMPT` 14237 → 14032 символов. Полный набор: 1949 passed, 4 skipped; Ruff и
   сканер архитектуры чистые. Батч 2: владелец ответил — capacity переезжает тоже, ввод числом,
   словами через `sprint`.
@@ -718,3 +718,5 @@ message… If they tell you, route to…». Это тоже промпты: он
   PLAN_FEATURES.md удалён по слову владельца. Полный набор: 1947 passed, 4 skipped — на два
   меньше, чем после Батча 1: тесты документов шли и по PLAN_FEATURES.md. Ruff и сканер
   архитектуры чистые.
+- **2026-10-05.** Батч 2 закоммичен (v9.126) и влит в main вместе с v9.124. Сценарий Батча 1
+  стал AG-OPEN-055: номер 054 в main уже занял AG-HOOK-054.
