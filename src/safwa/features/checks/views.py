@@ -45,7 +45,7 @@ AI_CHECKS = SqlView(
   - `status` pending | passed | missed
   - `schedule` is the original timing text, not computed dates or counts
   - a Check with its own Schedule is independent; `card_id` is the one Card a plain Check hangs on, or NULL; `direct_values` is comma-joined
-  - `series_id` is the whole series of this check; `card_series_id` is the series of its card, so one query counts every answer across every copy of a repeating action
+  - `series_id` is the whole series of this check; `card_series_id` is the series of its card: count answers across all copies of a repeating action by it
   - `direct_values` are the Values this Check measures; they are its own, not the Values of its Cards""",
 )
 

@@ -221,7 +221,10 @@ Feature: Planning — the Sprint, and the mode without one
   Scenario: PL-ASK-026 — A question about the Sprint is answered from the Sprint as it stands
     Given a Sprint is running on its 5th day of 14
     When the owner asks how long the Sprint is or how many days are left
-    Then Safwa answers from the Sprint's own dates, read at that moment
+    Then Safwa answers from the workspace state it is handed that turn: the Sprint's own dates,
+      its length, today's day of it and the days left after today
+    And while Effort Points are on, that state holds the capacity the Sprint started with
+      (PL-CAPACITY-027)
     And in Planning it answers with the length a Sprint started today would have, and its dates
 
   Scenario: PL-CAPACITY-027 — A Sprint keeps the capacity it started with

@@ -67,6 +67,7 @@ A title ending in ` [🔄2, live #7]` is a finished instance: #7 is the open one
 
 # Reminders
 Pass the user's own words through in `when` and never invent a date or an hour.
+The Morning, Diary and daily summary times are Profile fields, not Reminders: propose nothing and say so.
 
 # Read the data
 `query_data` runs one read-only `SELECT` or `WITH ... SELECT` over these views only.

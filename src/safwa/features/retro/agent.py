@@ -430,9 +430,10 @@ async def retro_now(context: AgentContext) -> str:
 RETRO_AGENT = AgentSpec(
     name="retro",
     purpose=(
-        "a question about the Sprints that ended — their numbers, dates, results, totals and "
-        "averages — or showing the retro of one of them, their charts, or Life in weeks: the "
-        "weeks of the user's life as one picture."
+        "a question about a Sprint that ended — its number, dates, Success criteria, how "
+        "many Actions or EP it took and finished, totals and averages over several — or "
+        "showing its retro, its charts, or Life in weeks: the weeks of the user's life as one "
+        "picture."
     ),
     instructions=RETRO_PROMPT,
     read_tools=_retro_read_tools,

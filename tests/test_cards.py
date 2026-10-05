@@ -1423,7 +1423,7 @@ async def test_cd_blocked_034_the_request_names_what_is_still_blocked_and_open(s
     """CD-BLOCKED-034 — tests/brd/cards.feature"""
     assert BLOCKER_HOOK.agent_related
     # The switch is named where the Advisor reads it on every turn, not in the request.
-    assert "switches off in Profile" in SYSTEM_PROMPT
+    assert "The user switches them off in Profile." in SYSTEM_PROMPT
     async with sessions() as session:
         blocked = [
             await create_card(

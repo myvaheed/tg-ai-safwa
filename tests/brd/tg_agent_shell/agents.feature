@@ -451,6 +451,12 @@ Feature: Agents — the session, the hand-over, and what comes back
     And a subagent that declared no kind is not given the tool
     And a kind it did not declare is refused (SC-OPEN-006)
 
+  Scenario: AG-OPEN-054 — An item Safwa cannot find is left to the subagent that opens its kind
+    Given a subagent declares that it may open one kind of screen
+    When Safwa asks to open an item of that kind that does not exist
+    Then it is refused, and told to route the request to that subagent
+    But when that subagent cannot find one, it is told to look the id up with its own tools
+
   Scenario: AG-TURN-053 — The message that says an answer is being written lists each step as it starts
     Given the owner asked Safwa something, and the message of AG-TURN-022 stands in the chat
     When a session is about to ask the model

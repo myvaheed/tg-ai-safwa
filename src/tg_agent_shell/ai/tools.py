@@ -540,7 +540,7 @@ class ToolAdapters:
                     "status": ToolResultStatus.ERROR.value,
                     "code": "not_found",
                     "error": f"There is no {request.item_type} #{request.id}.",
-                    "hint": "Find the id with your read tools, then call open again.",
+                    "hint": self._find_to_open(routed, request.item_type),
                     "retryable": True,
                 }
             item_id = item.id
@@ -551,6 +551,17 @@ class ToolAdapters:
             "opened": {"item_type": request.item_type, "id": item_id},
             "next": "The screen follows your message. Answer in one short line.",
         }
+
+    def _find_to_open(self, routed: RoutedSubagent | None, item_type: str) -> str:
+        # The root has no read tool for a kind a subagent opens, so it is pointed at that
+        # subagent rather than told to look the id up itself (AG-OPEN-054).
+        if routed is None:
+            finder = next(
+                (name for name, sub in self.subagents.items() if item_type in sub.opens), None
+            )
+            if finder is not None:
+                return f'route("{finder}") finds a {item_type} by what the user said and opens it.'
+        return "Find the id with your read tools, then call open again."
 
     async def mutation(
         self, agent: AgentSession, call: ToolCall

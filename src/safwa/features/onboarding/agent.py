@@ -189,8 +189,9 @@ Write one line saying you turn it off, and call `stop_onboarding` in that same r
 ONBOARDING_AGENT = AgentSpec(
     name="onboarding",
     purpose=(
-        "the user asks what Safwa is, what a part of it is for or how to do something in "
-        'it, wants a tour, or asks to stop onboarding; or a request starts with "Onboarding.".'
+        "the user asks what Safwa is, what a part of it is for, or how to do something in "
+        "it with its screens, buttons and commands; wants a tour; asks to stop onboarding; "
+        'or a request starts with "Onboarding.".'
     ),
     instructions=ONBOARDING_PROMPT,
     mutation_tools=("stop_onboarding",),

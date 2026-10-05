@@ -18,8 +18,9 @@ from tg_agent_shell.foundation.clock import utcnow
 
 from ...foundation.workspace import Workspace
 from ..cards.model import Card, CardKind, CardStage, Priority, effort_label
-from ..planning.api import plan_load, today_actions
+from ..planning.api import plan_load, sprint_day, today_actions
 from ..planning.model import Sprint
+from ..profile.api import sprint_length_days
 from ..profile.model import UserProfile
 from ..schedules.api import appointment_label
 from ..tags.model import Tag
@@ -94,23 +95,29 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
     )
     timezone = ZoneInfo(workspace.timezone if workspace else "Europe/Istanbul")
     local_now = utcnow().astimezone(timezone)
+    local_day = local_now.date()
+    effort_on = bool(profile and profile.effort_tracking)
     lines = [
         f"Workspace mode: {workspace.mode if workspace else 'planning'}",
         f"About me: {(profile.about_me if profile else '').strip()}",
         f"Advisor instructions: {(profile.advisor_instructions if profile else '').strip()}",
-        f"Effort Points: {'on' if profile and profile.effort_tracking else 'off'}",
+        f"Effort Points: {'on' if effort_on else 'off'}",
         "Active Values: "
         + ", ".join(citation(value.name, "value", value.id) for value in active_values),
         "Available Tags: " + ", ".join(citation(tag.name, "tag", tag.id) for tag in tags),
     ]
     if sprint is not None:
-        lines.extend(
-            [
-                f"Sprint {sprint.number}: {sprint.planned_start_date} – {sprint.planned_end_date}",
-                f"Success criteria: {sprint.success_criteria.strip()}",
-            ]
+        # The day is counted here, not by the model: a small model misreads date arithmetic.
+        day, days = sprint_day(sprint, local_day)
+        lines.append(
+            f"Sprint {sprint.number}: {sprint.planned_start_date} – {sprint.planned_end_date}, "
+            f"{days} days. Today is day {day}. Days left after today: {max(days - day, 0)}."
         )
+        if effort_on and sprint.capacity_effort_points is not None:
+            lines.append(f"Sprint capacity: {effort_label(sprint.capacity_effort_points)} EP.")
+        lines.append(f"Success criteria: {sprint.success_criteria.strip()}")
     else:
+        length = await sprint_length_days(session)
         lines.append(
             "No Sprint is running; the workspace is in Planning. "
             + (
@@ -119,6 +126,10 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
                 if workspace and workspace.sprint_success_criteria.strip()
                 else "No Success criteria have been written yet."
             )
+        )
+        lines.append(
+            f"A Sprint started today runs {local_day} – {local_day + timedelta(days=length - 1)}, "
+            f"{length} days."
         )
     goals = await _priority_goals(session, local_now)
     # An empty heading would read the owner's next line as its first item.
@@ -134,13 +145,12 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
             for goal in goals
         )
     today = await today_actions(session)
-    local_day = local_now.date()
     load = await plan_load(session, today, start_date=local_day, end_date=local_day)
     lines.append("Today Actions:")
     lines.append(f"Planned executions remaining today: {load.actions}" + (
         " (lower bound; Schedule quantities are unknown)" if load.unknown_schedules else ""
     ))
-    if profile and profile.effort_tracking:
+    if effort_on:
         lines.append(f"Remaining planned effort today: {effort_label(load.effort)} EP")
         if load.unestimated:
             lines.append(f"Unestimated executions: {load.unestimated}; EP total is partial.")
@@ -151,7 +161,7 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
             if load.counts[card.id] != 1
             else ""
         )
-        + (f" effort={effort_label(card.effort_points)}" if profile and profile.effort_tracking else "")
+        + (f" effort={effort_label(card.effort_points)}" if effort_on else "")
         + (
             f" schedule_at={appointment_label(card.schedule_record.rule, card.scheduled_at, timezone, '%d.%m')}"
             if card.scheduled_at

@@ -173,3 +173,35 @@ async def test_ag_open_052_a_subagent_opens_only_the_kinds_it_declared(e2e_harne
 
     assert open_enum("retro") == [["retro"]]
     assert open_enum("sprint") == []
+
+
+async def test_ag_open_054_an_item_not_found_is_left_to_the_subagent_that_opens_its_kind(
+    e2e_harness,
+):
+    """AG-OPEN-054 — tests/brd/tg_agent_shell/agents.feature"""
+    missing = {"item_type": "retro", "id": 999}
+    advisor, provider = e2e_harness.advisor(
+        [read_turn("open", missing, "open"), "I could not find it."],
+        subagents=(e2e_harness.subagent("retro"),),
+    )
+
+    await advisor.handle("Open the retro of my last Sprint")
+
+    refused = _tool_result(provider.calls[1], "open")
+    assert refused["code"] == "not_found"
+    assert refused["hint"] == 'route("retro") finds a retro by what the user said and opens it.'
+
+    advisor, provider = e2e_harness.advisor(
+        [
+            route_turn("retro"),
+            read_turn("open", missing, "open"),
+            "No Sprint has that retro.",
+            forward_turn("retro"),
+        ],
+        subagents=(e2e_harness.subagent("retro"),),
+    )
+
+    await advisor.handle("Open the retro of my last Sprint")
+
+    refused = _tool_result(provider.calls[2], "open")
+    assert refused["hint"] == "Find the id with your read tools, then call open again."

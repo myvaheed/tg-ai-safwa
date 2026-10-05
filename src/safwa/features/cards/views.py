@@ -62,7 +62,7 @@ AI_CARDS = SqlView(
   - `effort_points` 0.5 | 1 | 2 | 3 | 5 | 8 | 13, cost of one execution; NULL when unestimated or Effort Points are off
   - `tracked_mins` is the minutes the user spent on an action, NULL when not recorded
   - on a goal or a subgoal, `stage`, `effort_points` and `tracked_mins` are what the cards under it add up to
-  - to total effort or time always add `WHERE kind = 'action'`, or each action is counted again inside every parent
+  - to total effort or time, add `WHERE kind = 'action'`
   - open Card rows are not planned execution counts; use `ai_current_sprint_metrics` for Sprint load and `get_scheduled` for calendar quantities
   - `categories` growth | people | work | chores | rest
   - `energy_types` physical | cognitive | emotional | spiritual

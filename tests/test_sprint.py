@@ -404,7 +404,7 @@ async def test_pl_end_015_a_sprint_that_closed_itself_says_so(sessions):
     assert words is not None and "its end date passed" in words
 
 
-async def test_pl_ask_026_the_sprint_is_read_as_it_stands(sessions):
+async def test_pl_ask_026_the_sprint_is_read_as_it_stands(sessions, effort_on):
     """PL-ASK-026 — tests/brd/planning.feature"""
     context = AgentContext(
         owner_id=42,
@@ -417,9 +417,12 @@ async def test_pl_ask_026_the_sprint_is_read_as_it_stands(sessions):
     async with sessions() as session:
         await plan_one(session)
         await set_sprint_success_criteria(session, "Ship v2")
+        await set_profile_field(session, ProfileField.CAPACITY_EFFORT_POINTS, 20)
         await session.commit()
 
     planning = await sprint_now(context)
+    async with sessions() as session:
+        planning_state = (await workspace_context(session)).state
 
     last = today + timedelta(days=SPRINT_LENGTH_DAYS - 1)
     assert "Mode: Planning. No Sprint is running." in planning
@@ -429,6 +432,11 @@ async def test_pl_ask_026_the_sprint_is_read_as_it_stands(sessions):
         f"runs {today} – {last}." in planning
     )
     assert "It can start now." in planning
+    # The Advisor answers from its own state, where the length is already counted.
+    assert (
+        f"A Sprint started today runs {today} – {last}, {SPRINT_LENGTH_DAYS} days."
+        in planning_state
+    )
 
     async with sessions() as session:
         sprint = await start_sprint(session, success_criteria="Ship v2")
@@ -437,10 +445,17 @@ async def test_pl_ask_026_the_sprint_is_read_as_it_stands(sessions):
         await session.commit()
 
     running = await sprint_now(context)
+    async with sessions() as session:
+        running_state = (await workspace_context(session)).state
 
     assert f"Sprint {sprint.number} runs {today - timedelta(days=4)}" in running
     assert "Today is day 5 of 14. Days left after today: 9." in running
     assert "last day" not in running
+    assert (
+        f"Sprint {sprint.number}: {today - timedelta(days=4)} – {today + timedelta(days=9)}, "
+        "14 days. Today is day 5. Days left after today: 9." in running_state
+    )
+    assert "Sprint capacity: 20 EP." in running_state
 
 
 async def test_pl_capacity_027_a_sprint_keeps_the_capacity_it_started_with(sessions, effort_on):

@@ -118,5 +118,5 @@ AI_LOG_EVENTS = SqlView(
   - `actor` user_ui | ai — the user on a screen, or a proposal the user approved
   - `sprint_id` is the Sprint that was running then, or NULL
   - `date` is the local day, `YYYY-MM-DD`
-  - archiving that happened on its own writes no row, so `archive` is always the user's own""",
+  - `archive` rows are always the user's own""",
 )

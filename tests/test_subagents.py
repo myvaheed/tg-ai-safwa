@@ -94,9 +94,21 @@ def test_the_advisor_is_told_how_to_read_what_the_retro_left() -> None:
     memory = SYSTEM_PROMPT.split("# Memory", 1)[1].split("\n# ", 1)[0]
     assert "1 Sprint is a hypothesis" in memory and "2 or more is a pattern" in memory
     assert "lowered it in others is not a rule" in memory and "do not plan by it" in memory
-    assert "Last analysed Sprint" in memory and "not a durable fact about the user" in memory
-    assert "Nothing checked the experiment's result" in memory
-    assert "nothing else writes it" in memory
+    assert "Last analysed Sprint" in memory and "never a durable fact about the user" in memory
+    assert "Its experiment is unchecked" in memory
+    assert "You cannot change it" in memory
+
+
+def test_ad_ask_007_a_change_is_routed_only_when_the_owner_asks() -> None:
+    """AD-ASK-007 — tests/brd/advisor.feature"""
+    rules = SYSTEM_PROMPT.split("# Routing", 1)[1].split("\n# ", 1)[0]
+    assert "Route a change only when the user's newest message asks for it." in rules
+    assert '"yes" to a change you offered' in rules
+    assert "When it does not ask: answer in words." in rules
+    assert 'end with one question, like "Create it?"' in rules
+    # The one exception the rule names stays where the photo rule is.
+    assert "One exception: a photo, below." in rules
+    assert '`route("diary")` at once' in rules
 
 
 def test_the_diary_is_written_only_by_its_subagent() -> None:

@@ -135,8 +135,7 @@ def _capacity(points: float | None) -> str:
 SPRINT_AGENT = AgentSpec(
     name="sprint",
     purpose=(
-        "start or finish the Sprint, write the next Sprint's Success criteria, or answer "
-        "about the running Sprint: its dates, its length, its days left, its effort."
+        "start or finish the Sprint, or write the next Sprint's Success criteria."
     ),
     instructions=SPRINT_PROMPT,
     mutation_tools=("sprint",),

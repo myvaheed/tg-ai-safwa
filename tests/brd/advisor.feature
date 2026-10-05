@@ -56,3 +56,11 @@ Feature: Advisor
     And Cards carrying "Inbox" wait for the owner's decision before being recommended for work
     But missing category, effort or Note never makes an ordinary Card an Inbox item
     And "Prepare a draft contract" is ordinary work, not a request to capture a thought
+
+  Scenario: AD-ASK-007 — Safwa hands over a change only when the owner asks for it
+    Given the owner asks a question, asks for advice, or talks over a plan
+    Then Safwa answers in words and hands nothing over to be changed
+    And when a change would help, it asks whether to make it
+    When the owner asks for a change, or says yes to one Safwa offered
+    Then Safwa hands it to the part that makes it
+    And a photo still goes to the Diary at once (AD-PHOTO-005)
