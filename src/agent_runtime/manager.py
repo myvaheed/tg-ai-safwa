@@ -136,18 +136,15 @@ class AgentManager:
         message: str,
         summaries: list[str],
         *,
-        shown: list[str] | None = None,
         error: str | None = None,
     ) -> dict[str, Any]:
-        """One receipt, in this host's wording. Every hand-back in the chain uses it, and
-        carries the blocks to show that the session gathered."""
+        """One receipt, in this host's wording. Every hand-back in the chain uses it."""
         return route_receipt(
             name,
             message,
             summaries,
             error=error,
             receipt_prefixes=self.receipt_prefixes,
-            shown=shown,
         )
 
     async def _complete(
@@ -453,9 +450,7 @@ class AgentManager:
         """
         if agent.parent_run_id is None:
             return outcome
-        receipt = self._receipt(
-            agent.kind, outcome.message, agent.display_result_summaries, shown=agent.shown_blocks
-        )
+        receipt = self._receipt(agent.kind, outcome.message, agent.display_result_summaries)
         return await self._deliver_to_parent(agent, receipt)
 
     async def _replay(
@@ -513,7 +508,6 @@ class AgentManager:
         # The interface owns the result receipts, so they travel with the session that will
         # write to the chat rather than being left for the model to echo.
         agent.display_result_summaries.extend(str(line) for line in receipt.get("did") or [])
-        agent.shown_blocks.extend(str(block) for block in receipt.get("shown") or [])
         return receipt, None
 
     async def _run_child(
@@ -549,9 +543,7 @@ class AgentManager:
                 return outcome, None
             parent.host_state.update(agent.host_state)
             # The materialized outcome, not the raw loop result: a repair round answers again.
-            return outcome, self._receipt(
-                name, outcome.message, agent.display_result_summaries, shown=agent.shown_blocks
-            )
+            return outcome, self._receipt(name, outcome.message, agent.display_result_summaries)
         except TimeoutError:
             await self._fail(agent.run_id, started, "timeout")
             return TurnOutcome(message=""), self._timed_out(name)
@@ -587,7 +579,6 @@ class AgentManager:
                 parent.display_result_summaries.extend(
                     str(line) for line in receipt.get("did") or []
                 )
-                parent.shown_blocks.extend(str(block) for block in receipt.get("shown") or [])
                 await self._replay(parent, transcript, receipt, str(waiting.get("call_id", "")))
                 result = await self.run(parent)
                 outcome = await self._complete(parent, result, started)
@@ -602,12 +593,7 @@ class AgentManager:
                 raise
             if outcome.waiting or parent.parent_run_id is None:
                 return outcome
-            receipt = self._receipt(
-                parent.kind,
-                outcome.message,
-                parent.display_result_summaries,
-                shown=parent.shown_blocks,
-            )
+            receipt = self._receipt(parent.kind, outcome.message, parent.display_result_summaries)
             agent = parent
         return None
 

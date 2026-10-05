@@ -44,6 +44,7 @@ from ..hooks.contracts import OfferTool, RefuseTool
 from ..hooks.registry import HookRegistry
 from .contracts import (
     CALL_HELPER_TOOL,
+    FORWARD_TOOL,
     QUERY_TOOL,
     ROUTE_TOOL,
     AgentChange,
@@ -86,7 +87,7 @@ class WatcherFailed(RuntimeError):
 # The tools the adapters answer themselves, and the ones that run during the turn instead
 # of becoming a proposal the owner approves. A session's own read tools are immediate too,
 # but they are its own: a subagent that named one of these would never be heard.
-IMMEDIATE_TOOLS = frozenset({"query_data", "route", "open", "call_helper"})
+IMMEDIATE_TOOLS = frozenset({"query_data", "route", "forward", "open", "call_helper"})
 
 
 def query_read_tool(query_runner: ReadOnlyQueryRunner) -> ReadToolSpec:
@@ -191,13 +192,13 @@ class ToolAdapters:
         # The root session reads and routes. Every mutation tool belongs to the
         # subagent that owns that feature, so judging *which* change to propose
         # happens where the change is authored. An empty roster means there is
-        # nothing to route to, so the tool is not offered. The root's own reads are the
-        # application's, beside the two every root session has.
+        # nothing to route to, so neither `route` nor `forward` is offered. The root's own
+        # reads are the application's, beside the two every root session has.
         self.root_reads = {spec.name: spec for spec in read_tools}
         if taken := sorted(IMMEDIATE_TOOLS & set(self.root_reads)):
             raise RuntimeError(f"A root read tool takes the name of a shell tool: {taken}")
         reads = (QUERY_TOOL, open_tool(screens), *(spec.schema for spec in read_tools))
-        self.root_tools = (*reads, ROUTE_TOOL) if self.subagents else reads
+        self.root_tools = (*reads, ROUTE_TOOL, FORWARD_TOOL) if self.subagents else reads
         self.helpers = dict(helpers or {})
 
     # ------------------------------------------------------------- the tool port
@@ -243,8 +244,8 @@ class ToolAdapters:
         A RefuseTool hook that answers refuses the call: the tool does not run, its notice is
         what the model reads in its place, and its helper is granted. A check that fails ends
         the turn rather than being stepped over, because a refusal that failed is not a pass.
-        `route` is not seen here at all — the runtime answers it before the adapters are
-        reached.
+        `route` and `forward` are not seen here at all — the runtime answers them before the
+        adapters are reached.
         """
         refusal = await self._refuse(agent, call)
         if refusal is not None:

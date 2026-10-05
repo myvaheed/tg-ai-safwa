@@ -20,6 +20,18 @@ def route_turn(name: str) -> ProviderTurn:
     )
 
 
+def forward_turn(name: str) -> ProviderTurn:
+    """The Advisor sending a subagent's answer as it is, which ends its turn."""
+    return ProviderTurn(
+        content="",
+        tool_calls=(
+            ProviderToolCall(
+                id=f"forward-{name}", name="forward", arguments_json=json.dumps({"name": name})
+            ),
+        ),
+    )
+
+
 # What a scripted subagent says it is about to do: a response carrying mutation tools
 # has to carry its plan as text, or every call in it is refused.
 PLAN = "Plan: the changes below, in this order."

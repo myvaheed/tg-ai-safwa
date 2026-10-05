@@ -6,6 +6,7 @@ from datetime import date
 
 import pytest
 from advisor_e2e_helpers import PLAN, route_turn
+from agent_turns import forward_turn
 from sqlalchemy import select
 
 from llm_gateway import CompletionTurn as ProviderTurn
@@ -19,7 +20,6 @@ from tg_agent_shell.ai.outcome import AIOutcomeKind
 from tg_agent_shell.ai.runs import AgentRun, AgentStep
 from tg_agent_shell.ai.subagents import RoutedSubagent
 from tg_agent_shell.ai.tools import IMMEDIATE_TOOLS
-from tg_agent_shell.proposals.materialize import SHOWN_AS_IS
 from tg_agent_shell.proposals.model import BatchDecision
 from tg_agent_shell.proposals.use_cases import approve_proposal
 from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec
@@ -110,6 +110,10 @@ async def test_a_routed_subagent_hands_its_words_back_and_the_advisor_speaks(e2e
         "outcome": "done",
         "did": [],
         "text": "Записал тот день: [08.03.2026](diary:4).",
+        "next": (
+            'If text answers the request, call forward("diary") to send it as it is. '
+            "Otherwise route again or answer in your own words."
+        ),
     }
     async with e2e_harness.sessions() as session:
         runs = list(await session.scalars(select(AgentRun).order_by(AgentRun.id)))
@@ -276,7 +280,7 @@ async def test_the_board_owns_every_mutation_tool(e2e_harness):
     assert outcome.kind is AIOutcomeKind.PROPOSAL
     # The Advisor has no way to describe a change instead of routing it: it has no tool.
     advisor_tools = {tool["function"]["name"] for tool in provider.options[0]["tools"]}
-    assert advisor_tools == {"query_data", "open", "get_scheduled", "route"}
+    assert advisor_tools == {"query_data", "open", "get_scheduled", "route", "forward"}
     board_tools = {tool["function"]["name"] for tool in provider.options[1]["tools"]}
     assert board_tools == {
         "query_data",
@@ -838,12 +842,12 @@ GUIDE_WORDS = (
 
 
 def guide_subagent(harness, **declared) -> RoutedSubagent:
-    """A subagent that reads nothing and whose words are shown, bound as the root binds one."""
+    """A subagent that reads nothing and answers questions, bound as the root binds one."""
     spec = AgentSpec(
         name="guide",
         purpose="explain Safwa.",
         instructions="You explain Safwa.",
-        shown_as_is=True,
+        answers_questions=True,
         **declared,
     )
     return spec.bind(
@@ -853,9 +857,108 @@ def guide_subagent(harness, **declared) -> RoutedSubagent:
     )
 
 
-async def test_ag_receipt_044_words_shown_as_is_open_the_message_and_survive_a_screen(
-    e2e_harness,
-):
+async def test_ag_receipt_044_forwarded_words_are_the_whole_message(e2e_harness):
+    """AG-RECEIPT-044 — tests/brd/tg_agent_shell/agents.feature"""
+    advisor, provider = e2e_harness.advisor(
+        [route_turn("guide"), GUIDE_WORDS, forward_turn("guide")],
+        subagents=(guide_subagent(e2e_harness),),
+    )
+
+    outcome = await advisor.handle("What is a Check?")
+
+    # Exactly its words, repeated line included, and nothing of the Advisor's beside them.
+    assert outcome.kind is AIOutcomeKind.ANSWER
+    assert outcome.message == GUIDE_WORDS
+    # It answers questions, so nothing made it open with a tool call.
+    assert provider.options[1]["tool_choice"] is None
+    offered = [tool["function"]["name"] for tool in provider.options[0]["tools"]]
+    assert {"route", "forward"} <= set(offered)
+    receipt = route_receipts(provider)[0]
+    assert receipt["text"] == GUIDE_WORDS
+    assert 'forward("guide")' in receipt["next"]
+    # The conversation keeps the words once, as the answer's own, after the forward call.
+    kept = outcome.turn
+    assert kept[-1] == {"role": "assistant", "content": GUIDE_WORDS}
+    routed = next(item for item in kept if item.get("name") == "route")
+    assert json.loads(routed["content"]) == {"subagent": "guide", "outcome": "done", "did": []}
+    assert any(item.get("name") == "forward" for item in kept)
+
+
+async def test_ag_receipt_044_words_of_its_own_send_none_of_the_subagents(e2e_harness):
+    """AG-RECEIPT-044 — tests/brd/tg_agent_shell/agents.feature"""
+    advisor, _ = e2e_harness.advisor(
+        [route_turn("guide"), GUIDE_WORDS, "A Check is a yes-or-no question about a Card."],
+        subagents=(guide_subagent(e2e_harness),),
+    )
+
+    outcome = await advisor.handle("What is a Check?")
+
+    assert outcome.message == "A Check is a yes-or-no question about a Card."
+
+
+async def test_ag_receipt_044_only_the_newest_answer_is_forwarded(e2e_harness):
+    """AG-RECEIPT-044 — tests/brd/tg_agent_shell/agents.feature"""
+    advisor, _ = e2e_harness.advisor(
+        [
+            route_turn("guide"),
+            "A Card is a thing to do.",
+            route_turn("guide"),
+            GUIDE_WORDS,
+            forward_turn("guide"),
+        ],
+        subagents=(guide_subagent(e2e_harness),),
+    )
+
+    outcome = await advisor.handle("What is a Check?")
+
+    assert outcome.message == GUIDE_WORDS
+
+
+async def test_ag_receipt_044_nothing_is_forwarded_that_did_not_answer(e2e_harness):
+    """AG-RECEIPT-044 — tests/brd/tg_agent_shell/agents.feature"""
+    advisor, provider = e2e_harness.advisor(
+        [
+            forward_turn("guide"),
+            route_turn("guide"),
+            GUIDE_WORDS,
+            ProviderTurn(
+                content="",
+                tool_calls=(
+                    ProviderToolCall(
+                        id="forward-1", name="forward", arguments_json='{"name": "guide"}'
+                    ),
+                    ProviderToolCall(
+                        id="read-1", name="query_data", arguments_json='{"sql": "SELECT 1"}'
+                    ),
+                ),
+            ),
+            forward_turn("diary"),
+            forward_turn("guide"),
+        ],
+        subagents=(guide_subagent(e2e_harness), diary_subagent(e2e_harness)),
+    )
+
+    outcome = await advisor.handle("What is a Check?")
+
+    assert outcome.message == GUIDE_WORDS
+    refusals = [
+        json.loads(str(item["content"]))
+        for item in provider.calls[-1]
+        if item.get("role") == "tool" and item.get("name") in {"forward", "query_data"}
+    ]
+    # Before any route there is nothing to send; beside another call it does not end the
+    # turn; and a subagent that never answered has no words to send.
+    assert [refusal["code"] for refusal in refusals] == [
+        "nothing_to_forward",
+        "forward_is_not_shared",
+        "forward_is_not_shared",
+        "nothing_to_forward",
+    ]
+    assert refusals[0]["next"] == "Nothing to forward. Answer in your own words."
+    assert refusals[3]["next"] == "Call forward with one of: guide."
+
+
+async def test_ag_receipt_044_words_survive_a_screen_and_open_the_message(e2e_harness):
     """AG-RECEIPT-044 — tests/brd/tg_agent_shell/agents.feature"""
     advisor, provider = e2e_harness.advisor(
         [
@@ -869,20 +972,6 @@ async def test_ag_receipt_044_words_shown_as_is_open_the_message_and_survive_a_s
 
     first = await advisor.handle("Explain Checks and add one about posture")
 
-    # Its words are the work, so nothing made it open with a tool call.
-    assert provider.options[1]["tool_choice"] is None
-    receipt = route_receipts(provider)[0]
-    assert receipt == {
-        "subagent": "guide",
-        "outcome": "done",
-        "did": [],
-        "shown": [GUIDE_WORDS],
-        "text": SHOWN_AS_IS,
-    }
-    assert "`shown` above your answer" in receipt["text"]
-    assert "Do not repeat or paraphrase" in receipt["text"]
-    assert "add one short sentence" in receipt["text"]
-    assert "`shown` (blocks the interface prints above your answer)" in provider.calls[2][0]["content"]
     # The next subagent is not told the explanation was work already saved.
     mutator_context = json.dumps(provider.calls[3], ensure_ascii=False)
     assert "Already saved" not in mutator_context
@@ -891,16 +980,44 @@ async def test_ag_receipt_044_words_shown_as_is_open_the_message_and_survive_a_s
     async with e2e_harness.sessions() as session:
         affected = await approve_proposal(session, advisor.reviews, PROPOSALS, first.proposal_id)
         await session.commit()
-    provider.responses.extend(["Added the Check.", "Here it is."])
+    provider.responses.extend(["Added the Check.", forward_turn("guide")])
     answered = await advisor.resolve_approval(
         first.proposal_id, decision=BatchDecision.APPROVED, result={"affected_ids": affected}
     )
 
-    # The screen came between, and the block is still first, whole, with its repeated line.
+    # The screen came between, and the words are still first, whole, above the receipt.
     assert answered is not None and answered.kind is AIOutcomeKind.ANSWER
     assert answered.message.startswith(GUIDE_WORDS + "\n\n")
-    rest = answered.message[len(GUIDE_WORDS):]
-    assert rest.index("Saved") < rest.index("Here it is.")
+    assert "Saved" in answered.message[len(GUIDE_WORDS):]
+    assert "Added the Check." not in answered.message
+
+
+async def test_dg_source_002_the_mark_says_who_wrote_the_answer(e2e_harness):
+    """DG-SOURCE-002 — tests/brd/diagnostics.feature"""
+    forwarded, _ = e2e_harness.advisor(
+        [route_turn("guide"), GUIDE_WORDS, forward_turn("guide")],
+        subagents=(guide_subagent(e2e_harness),),
+        mark_answer_source=True,
+    )
+    retold, _ = e2e_harness.advisor(
+        [route_turn("guide"), GUIDE_WORDS, "Checks ask yes or no."],
+        subagents=(guide_subagent(e2e_harness),),
+        mark_answer_source=True,
+    )
+    unmarked, _ = e2e_harness.advisor(
+        [route_turn("guide"), GUIDE_WORDS, forward_turn("guide")],
+        subagents=(guide_subagent(e2e_harness),),
+    )
+
+    sent = await forwarded.handle("What is a Check?")
+    written = await retold.handle("What is a Check?")
+    plain = await unmarked.handle("What is a Check?")
+
+    assert sent.message == f"{GUIDE_WORDS}\n\n↪️ guide"
+    assert written.message == "Checks ask yes or no.\n\n✍️ advisor"
+    assert plain.message == GUIDE_WORDS
+    # The mark is the interface's: the conversation keeps the words alone.
+    assert sent.turn[-1] == {"role": "assistant", "content": GUIDE_WORDS}
 
 
 async def test_ag_route_002_a_subagent_reads_the_window_it_declared(e2e_harness):

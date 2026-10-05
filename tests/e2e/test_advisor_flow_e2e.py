@@ -442,6 +442,7 @@ async def test_advisor_sends_layered_system_blocks_and_canonical_dialogue(e2e_ha
         "open",
         "get_scheduled",
         "route",
+        "forward",
     ]
 
 

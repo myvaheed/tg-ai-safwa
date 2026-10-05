@@ -183,9 +183,8 @@ flowchart TB
 ```
 
 Only the Advisor generates the dialogue answer. Adapters and hooks may send typed system messages
-and screens through `ChatHost`. A subagent hands its words back to its caller,
-and words come back either to be retold or to be printed as they are: a subagent declared
-`shown_as_is` hands its final words over as a block of the Advisor's own message.
+and screens through `ChatHost`. A subagent hands its words back to its caller, and the Advisor
+decides what reaches the owner: those words as they are, with `forward`, or words of its own.
 
 ## A session is the unit
 
@@ -196,7 +195,7 @@ row. The row is what survives a suspension:
 |---|---|
 | `kind` | `advisor`, or the subagent's name |
 | `parent_run_id` | who routed here; null for the Advisor |
-| `state_json` | dialogue, transcript, tool count, repair rounds, receipts, the blocks shown as is, `host_state`, `offered_helpers`, `interaction_token` |
+| `state_json` | dialogue, transcript, tool count, repair rounds, receipts, the blocks a hook request opens the answer with, `host_state`, `offered_helpers`, `interaction_token` |
 | `claimed_at` | the atomic claim that stops two resumes of one session |
 | `status` | `running`, `awaiting_approval`, `interrupted`, `completed`, `failed`, `abandoned` |
 
@@ -259,8 +258,9 @@ sequenceDiagram
     A-->>O: one message, citations rendered
 ```
 
-`IMMEDIATE_TOOLS` are `query_data`, `route`, `open` and `call_helper` — the tools `ToolAdapters`
-answers itself, and they run inside the turn. `query_data` is published to every session it runs
+`IMMEDIATE_TOOLS` are `query_data`, `route`, `forward`, `open` and `call_helper` — the tools that
+never become a proposal, and they run inside the turn; the runtime answers `route` and `forward`
+before `ToolAdapters` is reached. `query_data` is published to every session it runs
 that has a view to read, the Advisor's and a subagent's alike, so a feature declares only its own
 readers; a subagent that declares no view is not handed it. `open` is the same: the Advisor opens
 every published type, and a subagent only the types in its `AgentSpec.opens`, or is not handed the
@@ -328,8 +328,8 @@ sequenceDiagram
     Note over A,B: whole chain suspends, status awaiting_approval
     O->>S: Save / Discard
     S->>B: resume
-    B-->>A: receipt {did, shown, text, error}
-    A-->>O: one message
+    B-->>A: receipt {did, text, next, error}
+    A-->>O: forward(text), or words of its own
 ```
 
 - A subagent reads the conversation as **data**: the newest messages come as one `<Conversation>`
@@ -337,13 +337,17 @@ sequenceDiagram
   many is the subagent's own declaration, `AgentSpec.history_messages`, and
   `SUBAGENT_HISTORY_LAST_MESSAGES = 10` unless it says otherwise.
 - A routed session must open with a tool call — only its first turn, because the loop ends on a turn
-  that calls none — unless it is declared `shown_as_is`: its words are the work.
-- A subagent declared `shown_as_is` hands its final words back as `shown`, not as `text`: they
-  are not split into receipt lines, not handed to the next subagent as work already saved, kept in
-  the session's state across a screen, and printed first in the Advisor's message, whole, above
-  the receipts and the Advisor's own words. `text` then tells the Advisor that `shown` appears
-  above its answer: do not repeat or paraphrase those blocks; if nothing else was asked, add
-  one short sentence.
+  that calls none — unless it is declared `answers_questions`: an answer in words is its work.
+- A subagent's final words come back as the receipt's `text`, with a `next` that names the
+  choice. The Advisor **forwards** them, routes again, or answers in its own words. One author
+  per message: `forward(name)`, alone in its response, ends the turn and sends that subagent's
+  newest words as they are — first and whole, above the receipts — with nothing of the Advisor's
+  beside them, so they cannot be repeated; words of the Advisor's own send none of the
+  subagent's. The words are found in the session's transcript, so they survive a screen, and a
+  subagent routed to again replaces its own answer. In the kept turn they are the answer's
+  words and leave the receipt that carried them (`kept_turn`). `SHOW_ANSWER_SOURCE` in the
+  diagnostics feature ends each answer with who wrote it: `↪️` and the subagent, or
+  `✍️ advisor`.
 - A routed subagent has no `route`, so there is no recursion.
 - A request naming two domains is two routes and one message.
 - `SUBAGENT_DEADLINE_SECONDS = 300` bounds a subagent by the clock, not by a call count, because it

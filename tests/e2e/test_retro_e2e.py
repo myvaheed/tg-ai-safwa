@@ -11,6 +11,7 @@ import json
 
 import pytest
 from advisor_e2e_helpers import route_turn
+from agent_turns import forward_turn
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
@@ -78,7 +79,7 @@ async def test_rt_ask_013_totals_and_averages_come_from_the_code(e2e_harness):
             read_turn("get_aggregate", {"numbers": numbers, "op": "mean"}, "mean"),
             read_turn("get_aggregate", {"numbers": [*numbers, running.number], "op": "sum"}, "sum"),
             words,
-            "Anything else?",
+            forward_turn("retro"),
         ],
         subagents=(e2e_harness.subagent("retro"),),
     )
@@ -86,7 +87,7 @@ async def test_rt_ask_013_totals_and_averages_come_from_the_code(e2e_harness):
     outcome = await advisor.handle("Average capacity and total Actions over the last 3 Sprints?")
 
     assert outcome.kind is AIOutcomeKind.ANSWER
-    assert outcome.message.startswith(words)
+    assert outcome.message == words
     # It reads no view: its own three reads, and `open` over retros alone.
     offered = [tool["function"]["name"] for tool in provider.options[1]["tools"]]
     assert offered == ["open", "get_retro_number", "get_retro_data", "get_aggregate"]
@@ -126,7 +127,7 @@ async def test_rt_open_015_a_retro_named_by_a_date_or_a_number_is_put_on_screen(
     by_number = [read_turn("open", {"item_type": "retro", "id": sprint.id}, "open")]
     for script in (by_date, by_number):
         advisor, provider = e2e_harness.advisor(
-            [route_turn("retro"), *script, "Here is its retro.", "Take a look."],
+            [route_turn("retro"), *script, "Here is its retro.", forward_turn("retro")],
             subagents=(e2e_harness.subagent("retro"),),
         )
 

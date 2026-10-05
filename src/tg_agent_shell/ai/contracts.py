@@ -329,10 +329,27 @@ ROUTE_TOOL: dict[str, Any] = {
         "name": "route",
         "description": (
             "Hand this turn to a subagent. It reads this same conversation, does the work, "
-            "and comes back with a receipt of what it did. You write the message the user "
-            "sees. You just pass the name of the subagent."
+            "and comes back with what it did and its answer. You just pass the name of the "
+            "subagent."
         ),
         "parameters": tool_json_schema(RouteInput),
+    },
+}
+
+
+class ForwardInput(ToolInput):
+    name: str = Field(description="The subagent whose answer to send, spelled as routed.")
+
+
+FORWARD_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "forward",
+        "description": (
+            "Send a subagent's newest answer to the user as it is, and end your turn. "
+            "You write nothing yourself."
+        ),
+        "parameters": tool_json_schema(ForwardInput),
     },
 }
 

@@ -1,8 +1,8 @@
 """The onboarding subagent: a manual of Safwa, answered from as it is, and one tool to stop.
 
 It reads no data. The manual is its prompt, the items a tip is about are cited in the
-request that routed it, and the rest is the workspace state. Its words reach the user as it
-wrote them, so the Advisor does not retell them.
+request that routed it, and the rest is the workspace state. The Advisor forwards its words
+to the user as it wrote them, rather than retelling them.
 """
 
 from __future__ import annotations
@@ -196,7 +196,7 @@ ONBOARDING_AGENT = AgentSpec(
     mutation_tools=("stop_onboarding",),
     workspace_state=True,
     history_messages=ONBOARDING_HISTORY_MESSAGES,
-    shown_as_is=True,
+    answers_questions=True,
 )
 
 

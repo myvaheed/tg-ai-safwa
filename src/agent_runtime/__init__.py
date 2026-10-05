@@ -23,6 +23,7 @@ from .model import (
     flatten_content,
     json_safe,
     log_preview,
+    routed_answers,
 )
 from .ports import ContextSource, Materializer, Observer, SessionStore, ToolRunner
 from .testing import InMemorySessionStore
@@ -50,5 +51,6 @@ __all__ = [
     "flatten_content",
     "json_safe",
     "log_preview",
+    "routed_answers",
     "system_note",
 ]

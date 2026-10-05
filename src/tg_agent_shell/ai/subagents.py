@@ -34,9 +34,8 @@ class RoutedSubagent:
     workspace_state: bool = False
     # How many of the conversation's newest messages it reads.
     history_messages: int = SUBAGENT_HISTORY_LAST_MESSAGES
-    # Its words are the work: they reach the owner as they are, inside the Advisor's own
-    # message, instead of being retold.
-    shown_as_is: bool = False
+    # It answers questions as well as doing work, so its first step may be words.
+    answers_questions: bool = False
     # Its own current values, read again at every step and put after the dialogue, never
     # into the cached prefix.
     current: Callable[[], Awaitable[str]] | None = field(default=None)

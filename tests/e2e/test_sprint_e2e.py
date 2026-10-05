@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from advisor_e2e_helpers import mutation_turn, route_turn
+from agent_turns import forward_turn
 from sqlalchemy import select
 
 from safwa.bootstrap.modules import PROPOSALS
@@ -91,7 +92,7 @@ async def test_pl_mode_002_a_sprint_started_in_words_is_the_one_the_button_start
     assert drawn.blocks[2].startswith("Planned: 1 Actions · 3 EP · capacity 10 EP")
 
     affected, answered = await _save(
-        e2e_harness, advisor, provider, screen.proposal_id, ["The Sprint is on.", "Good luck."]
+        e2e_harness, advisor, provider, screen.proposal_id, ["The Sprint is on.", forward_turn("sprint")]
     )
 
     assert answered is not None and answered.message.startswith("The Sprint is on.")
@@ -166,7 +167,7 @@ async def test_pl_mode_002_refusals_are_the_buttons_own_and_nothing_is_proposed(
             route_turn("sprint"),
             mutation_turn(("sprint", {"mode": "update", "success_criteria": "Ship v3"})),
             "They were fixed when the Sprint started.",
-            "Anything else?",
+            forward_turn("sprint"),
         ],
         subagents=(e2e_harness.subagent("sprint"),),
     )

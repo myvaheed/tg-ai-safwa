@@ -85,7 +85,7 @@ PROFILE_AGENT = AgentSpec(
     instructions=PROFILE_PROMPT,
     mutation_tools=("profile",),
     current=profile_now,
-    shown_as_is=True,
+    answers_questions=True,
 )
 
 

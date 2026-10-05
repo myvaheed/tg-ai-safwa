@@ -10,6 +10,7 @@ import json
 
 import pytest
 from advisor_e2e_helpers import mutation_turn, route_turn
+from agent_turns import forward_turn
 from sqlalchemy import select
 
 from llm_gateway import CompletionTurn as ProviderTurn
@@ -25,7 +26,6 @@ from telegram_llm import DialogueMessage
 from tg_agent_shell.ai.outcome import AIOutcomeKind
 from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.cues.queue import add_hook_cue
-from tg_agent_shell.proposals.materialize import SHOWN_AS_IS
 from tg_agent_shell.proposals.model import BatchDecision
 from tg_agent_shell.proposals.use_cases import approve_proposal
 
@@ -87,18 +87,16 @@ async def test_ob_tip_002_the_tip_opens_the_message_in_the_subagents_own_words(e
         e2e_harness.sessions, ONBOARDING_HOOK.name, [["value.created", value.id]]
     )
     advisor, provider = e2e_harness.advisor(
-        [route_turn("onboarding"), TIP, "Anything else for today?"],
+        [route_turn("onboarding"), TIP, forward_turn("onboarding")],
         subagents=subagents(e2e_harness),
     )
 
     outcome = await advisor.handle(request, dialogue=a_cue_turn(request))
 
+    # The tip as the subagent wrote it, and nothing of the Advisor's beside it.
     assert outcome.kind is AIOutcomeKind.ANSWER
-    assert outcome.message == f"{TIP}\n\nAnything else for today?"
-    assert route_receipts(provider) == [
-        {"subagent": "onboarding", "outcome": "done", "did": [], "shown": [TIP],
-         "text": SHOWN_AS_IS},
-    ]
+    assert outcome.message == TIP
+    assert [receipt["text"] for receipt in route_receipts(provider)] == [TIP]
     # The subagent reads the request as the newest message, reads no data, and was not made
     # to open with its one tool.
     read = "\n".join(str(message["content"]) for message in provider.calls[1])
@@ -121,14 +119,19 @@ async def test_ob_tip_003_the_tip_is_its_own_block_and_the_blocker_is_still_aske
         e2e_harness.sessions, ONBOARDING_HOOK.name, [["card.created", card.id]]
     )
     request = f"{blocker}\n\n{tip}"
-    question = f"Shall I set a Reminder to come back to [Call the bank](card:{card.id})?"
-    advisor, _ = e2e_harness.advisor(
-        [route_turn("onboarding"), TIP, question], subagents=subagents(e2e_harness)
+    answer = (
+        "You created [Call the bank](card:1); put it on a Goal in ✏️ Full editing.\n"
+        f"Shall I set a Reminder to come back to [Call the bank](card:{card.id})?"
+    )
+    advisor, provider = e2e_harness.advisor(
+        [route_turn("onboarding"), TIP, answer], subagents=subagents(e2e_harness)
     )
 
     outcome = await advisor.handle(request, dialogue=a_cue_turn(request))
 
-    assert outcome.message == f"{TIP}\n\n{question}"
+    # The tip came back to the Advisor, which writes the one message holding both.
+    assert [receipt["text"] for receipt in route_receipts(provider)] == [TIP]
+    assert outcome.message == answer
 
 
 async def test_ob_ask_004_a_question_is_answered_in_the_subagents_words_on_or_off(e2e_harness):
@@ -138,14 +141,14 @@ async def test_ob_ask_004_a_question_is_answered_in_the_subagents_words_on_or_of
             await set_hook_switch(session, ONBOARDING_HOOK.name, on=on)
             await session.commit()
         advisor, _ = e2e_harness.advisor(
-            [route_turn("onboarding"), EXPLANATION, "Want one on a Card?"],
+            [route_turn("onboarding"), EXPLANATION, forward_turn("onboarding")],
             subagents=subagents(e2e_harness),
         )
 
         outcome = await advisor.handle("What is a Check?")
 
-        # Paragraphs and the repeated line intact, and the Advisor's own words after it.
-        assert outcome.message == f"{EXPLANATION}\n\nWant one on a Card?", on
+        # Paragraphs and the repeated line intact, and nothing of the Advisor's beside them.
+        assert outcome.message == EXPLANATION, on
 
 
 async def test_ob_ask_004_explaining_and_adding_a_check_explains_once_the_screen_is_answered(
@@ -169,13 +172,14 @@ async def test_ob_ask_004_explaining_and_adding_a_check_explains_once_the_screen
     async with e2e_harness.sessions() as session:
         affected = await approve_proposal(session, advisor.reviews, PROPOSALS, screen.proposal_id)
         await session.commit()
-    provider.responses.extend(["Added the Check.", "It is on your list."])
+    provider.responses.extend(["Added the Check.", forward_turn("onboarding")])
     answered = await advisor.resolve_approval(
         screen.proposal_id, decision=BatchDecision.APPROVED, result={"affected_ids": affected}
     )
 
     assert answered is not None and answered.message.startswith(f"{EXPLANATION}\n\n")
-    assert answered.message.endswith("It is on your list.")
+    assert "Saved" in answered.message[len(EXPLANATION):]
+    assert "Added the Check." not in answered.message
 
 
 STOP = mutation_turn(("stop_onboarding", {}), prefix="stop", content="I turn onboarding off.")
@@ -198,7 +202,7 @@ async def test_ob_stop_005_an_unambiguous_request_is_saved_with_no_screen(e2e_ha
             STOP,
             review_turn("autoapprove", "The user asked to stop the onboarding."),
             OFF,
-            "Done.",
+            forward_turn("onboarding"),
         ],
         subagents=subagents(e2e_harness),
         autoapprove=True,
