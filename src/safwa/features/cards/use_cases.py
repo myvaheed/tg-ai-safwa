@@ -703,7 +703,7 @@ async def finish_action(
         raise DomainError("Action is already terminal")
     validate_tracked_mins(tracked_mins)
     # Asked before anything is written, so a refusal leaves the Action where it was.
-    resolutions = await require_check_answers(session, card.id, check_outcomes)
+    answers = await require_check_answers(session, card.id, check_outcomes)
     await prepare_occurrence(session, card)
     previous_live_stage = CardStage(card.effective_stage)
     before = snapshot(card)
@@ -719,7 +719,7 @@ async def finish_action(
     result = OperationResult(card_ids=[card.id])
     if card.blocked:
         result.warnings.append(f"Blocked: {card.blocked_description}")
-    await settle_checks(session, card.id, resolutions, actor=actor)
+    await settle_checks(session, answers, actor=actor)
     repeats, slot = await successor_slot(session, card)
     successor = (
         await _copy_repeat_successor(session, card, previous_live_stage, slot) if repeats else None
@@ -773,14 +773,14 @@ async def finish_card(
     if tracked_mins is not None:
         raise DomainError("Only an Action carries time spent")
     await require_finished_actions(session, card.id)
-    resolutions = await require_check_answers(session, card.id, check_outcomes)
+    answers = await require_check_answers(session, card.id, check_outcomes)
     before = snapshot(card)
     card.manual_stage = CardStage.DONE.value
     card.effective_stage = CardStage.DONE.value
     card.completed_at = utcnow()
     card.version += 1
     await record_card_event(session, card, CardStage.DONE.value, actor, before)
-    await settle_checks(session, card.id, resolutions, actor=actor)
+    await settle_checks(session, answers, actor=actor)
     await follow_remind(session, card, actor=actor)
     ancestors = await propagate_ancestors(session, card.id)
     await bump_workspace(session)

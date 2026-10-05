@@ -210,8 +210,7 @@ async def render_card(
             value_buttons[index : index + 2] for index in range(0, len(value_buttons), 2)
         )
         direct_checks = await card_checks(session, card.id)
-        check_total = len(direct_checks)
-        pending_total = sum(1 for check in direct_checks if check.outcome is None)
+        answered_total = sum(1 for check in direct_checks if check.outcome is not None)
         # A Check reaches a Card through a proposal, so an empty list has nothing to offer.
         if direct_checks:
             relationship_rows.append(
@@ -219,7 +218,7 @@ async def render_card(
                     await token_button(
                         session,
                         services.owner_id,
-                        f"☑️ Checks ({pending_total}/{check_total})",
+                        f"☑️ Checks ({answered_total}/{len(direct_checks)})",
                         "check_list",
                         {
                             "card_id": card.id,

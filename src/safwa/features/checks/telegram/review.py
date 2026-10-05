@@ -61,8 +61,8 @@ class CheckProposalPresenter:
             groups = await reference_groups(session, values, (CHECK_VALUE_REFERENCE,))
             return [f"{verb}: {group}" for group in groups]
         proposed = {name: values[name] for name in ("title", "schedule") if name in values}
-        if change.action in {ChangeAction.COMPLETE, ChangeAction.CANCEL}:
-            proposed["outcome"] = CHECK_ANSWER_ACTIONS[change.action]
+        if change.action in CHECK_ANSWER_ACTIONS:
+            proposed["outcome"] = CHECK_OUTCOME_LABELS[CHECK_ANSWER_ACTIONS[change.action]]
         check = (
             await session.get(Check, change.entity_id)
             if change.entity_id is not None
@@ -75,7 +75,7 @@ class CheckProposalPresenter:
         before = {
             "title": check.title,
             "schedule": check.schedule,
-            "outcome": check.outcome or "pending",
+            "outcome": CHECK_OUTCOME_LABELS[check.status],
         }
         return [
             f"{detail_label(field, CHECK_LABELS)}: {detail_value(before.get(field))} → {detail_value(value)}"
@@ -86,7 +86,7 @@ class CheckProposalPresenter:
     async def summary(
         self, session: AsyncSession, change: ProposalChange, details: list[str]
     ) -> str:
-        if change.action in {ChangeAction.COMPLETE, ChangeAction.CANCEL}:
+        if change.action in CHECK_ANSWER_ACTIONS:
             check = (
                 await session.get(Check, change.entity_id)
                 if change.entity_id is not None
@@ -112,7 +112,7 @@ class CheckProposalPresenter:
                 proposed = {
                     "title": check.title,
                     "schedule": check.schedule,
-                    "status": CHECK_OUTCOME_LABELS[check.outcome or "pending"],
+                    "status": CHECK_OUTCOME_LABELS[check.status],
                     "values": await _value_names(session, list(linked)),
                 }
         # One diff for each change, in the order Save applies them.
