@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
@@ -19,7 +20,8 @@ from ...constants import WEEKDAY_NAMES
 from ...foundation.workspace import require_workspace
 from ..cards.model import Card, CardKind
 from ..checks.model import Check
-from ..reminders.api import describe, schedule_from_payload
+from ..reminders.api import Schedule, describe, schedule_from_payload
+from ..reminders.model import Reminder, ScheduleKind
 from .model import ScheduleDefinition
 from .rules import deadline_moment, first_slot, next_slot, period_end, period_start, windows
 
@@ -29,12 +31,28 @@ DEADLINE_INSTRUCTION = "Send the deadline, e.g. 20 October, end of next month, o
 SCHEDULED_RANGE_DAYS_MAX = 93
 # More executions a day than this are a Check's to observe, not an Action's to do.
 ACTION_DAILY_EXECUTIONS_MAX = 10
+# The words of the Reminder that Remind makes; the Cue adds the Schedule it fires on.
+REMIND_TEXT = "Remind is on for {label} #{id} «{title}». Remind the owner about it."
 
 type ScheduleTarget = Literal["action", "check", "deadline"]
 
 
 async def workspace_zone(session: AsyncSession) -> ZoneInfo:
     return ZoneInfo((await require_workspace(session)).timezone)
+
+
+def item_type(model: type[Card] | type[Check]) -> str:
+    """How a Schedule revision and a Reminder name a Card or a Check."""
+    return "card" if model is Card else "check"
+
+
+def item_label(entity: Card | Check) -> str:
+    return entity.kind.capitalize() if isinstance(entity, Card) else "Check"
+
+
+def is_open(entity: Card | Check) -> bool:
+    """An Action or Goal not yet finished, a Check not yet answered."""
+    return (entity.completed_at if isinstance(entity, Card) else entity.outcome) is None
 
 
 def schedule_target(entity: Card | Check) -> ScheduleTarget:
@@ -59,13 +77,11 @@ async def set_schedule(
         return
     if entity.is_closed_repeat():
         raise DomainError("Edit Schedule on the current instance of this series")
-    if (isinstance(entity, Card) and entity.completed_at is not None) or (
-        isinstance(entity, Check) and entity.outcome is not None
-    ):
+    if not is_open(entity):
         raise DomainError(
             "Edit Schedule on an open Card or Pending Check to preserve the completed instance"
         )
-    type_ = "card" if isinstance(entity, Card) else "check"
+    type_ = item_type(type(entity))
     series_id = (entity.repeat_series_id if type_ == "card" else entity.series_id) or entity.id
     now = utcnow()
     old = await session.scalar(
@@ -107,7 +123,7 @@ async def close_deleted_schedules(
     )
     for definition in await session.scalars(
         select(ScheduleDefinition).where(
-            ScheduleDefinition.type == ("card" if model is Card else "check"),
+            ScheduleDefinition.type == item_type(model),
             ScheduleDefinition.entity_id.in_(roots - remaining),
             ScheduleDefinition.valid_until.is_(None),
         )
@@ -208,11 +224,42 @@ async def schedule_summary(session: AsyncSession, entity: Card | Check) -> str |
         )
     if rule["kind"] != "fixed":
         return rule_summary(rule, tz)
-    open_ = entity.completed_at is None if isinstance(entity, Card) else entity.outcome is None
-    overdue = " It is overdue." if open_ and entity.period_start < utcnow() else ""
+    overdue = " It is overdue." if is_open(entity) and entity.period_start < utcnow() else ""
     return (
         f"{rule_summary(rule, tz)} Appointment: "
         f"{appointment_label(rule, entity.period_start, tz)}.{overdue}"
+    )
+
+
+def remind_timing(entity: Card | Check, now: datetime) -> Schedule | None:
+    """The Reminder timing Remind gives an open item: its Schedule's clock, counted from the
+    open instance's moment, so a copy finished early is reminded at its next appointment.
+    None when the Schedule has no clock, or a one-time moment has passed."""
+    definition = entity.schedule_record
+    if definition is None or not is_open(entity):
+        return None
+    rule = definition.rule
+    if rule["kind"] == "deadline" and rule["time"]:
+        timing = Schedule(kind=ScheduleKind.ONCE, at_time=time.fromisoformat(rule["time"]))
+    elif rule["kind"] == "fixed" and not rule.get("all_day"):
+        timing = schedule_from_payload(rule["timing"])
+    else:
+        return None
+    if not timing.repeating and entity.period_start <= now:
+        return None
+    return replace(timing, anchor_at=entity.period_start)
+
+
+def remind_text(entity: Card | Check) -> str:
+    return REMIND_TEXT.format(label=item_label(entity), id=entity.id, title=entity.title)
+
+
+async def entity_reminder(session: AsyncSession, entity: Card | Check) -> Reminder | None:
+    """The Reminder Remind made for this item, if it is on."""
+    return await session.scalar(
+        select(Reminder).where(
+            Reminder.item_type == item_type(type(entity)), Reminder.item_id == entity.id
+        )
     )
 
 

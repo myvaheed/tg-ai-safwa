@@ -42,14 +42,20 @@ async def create_reminder(
     schedule: Schedule,
     tz: ZoneInfo,
     actor: ActorType = ActorType.USER_UI,
+    item_type: str | None = None,
+    item_id: int | None = None,
 ) -> Reminder:
     """Store the owner's Reminder and compute its first fire. The schedule arrives already
-    resolved."""
+    resolved; an item is named when Remind on its Schedule made it."""
     clean = instruction.strip()
     if not clean:
         raise DomainError("Reminder text cannot be empty")
     reminder = Reminder(
-        instruction=clean, next_fire_at=_first_fire(schedule, tz), **schedule_columns(schedule)
+        instruction=clean,
+        next_fire_at=_first_fire(schedule, tz),
+        item_type=item_type,
+        item_id=item_id,
+        **schedule_columns(schedule),
     )
     session.add(reminder)
     await session.flush()
@@ -93,6 +99,12 @@ async def reschedule_reminder(
     await _record(session, reminder, "reschedule", actor, before)
     await bump_workspace(session)
     return reminder
+
+
+async def move_reminder(session: AsyncSession, reminder_id: int, item_id: int) -> None:
+    """Hand a Reminder that Remind made on to the next instance of its item's series."""
+    reminder = await _existing_reminder(session, reminder_id)
+    reminder.item_id = item_id
 
 
 async def delete_reminder(session: AsyncSession, reminder_id: int, *, actor: ActorType = ActorType.USER_UI) -> None:

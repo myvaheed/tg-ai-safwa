@@ -49,6 +49,7 @@ from ..schedules.api import (
     successor_slot,
     workspace_zone,
 )
+from ..schedules.use_cases import drop_reminders, follow_remind
 from ..tags.api import Tag, attach_tags, unlinkable_tag_id
 from ..tags.model import CardTag
 from ..values.api import Value, attach_values, unlinkable_value_id
@@ -210,6 +211,7 @@ async def edit_card_text(session: AsyncSession, card_id: int, field: str, value:
     validate_blocked_fields(card.blocked, card.blocked_description)
     card.version += 1
     await record_card_event(session, card, f"edit_{field}", ActorType.USER_UI, before)
+    await follow_remind(session, card)
     await bump_workspace(session)
     return card
 
@@ -225,6 +227,7 @@ async def edit_card_schedule(
     await _write_schedule(session, card, text, rule)
     card.version += 1
     await record_card_event(session, card, "edit_schedule", ActorType.USER_UI, before)
+    await follow_remind(session, card)
     await bump_workspace(session)
     return card
 
@@ -295,6 +298,7 @@ async def update_card_fields(
         validate_blocked_fields(card.blocked, card.blocked_description)
     card.version += 1
     await record_card_event(session, card, UPDATE, actor, before)
+    await follow_remind(session, card, actor=actor)
     if card.blocked and not before["blocked"]:
         record_change(session, CARD_BLOCKED, card.id)
     await propagate_ancestors(session, card.parent_id)
@@ -717,9 +721,12 @@ async def finish_action(
         result.warnings.append(f"Blocked: {card.blocked_description}")
     await settle_checks(session, card.id, resolutions, actor=actor)
     repeats, slot = await successor_slot(session, card)
-    if repeats:
-        successor = await _copy_repeat_successor(session, card, previous_live_stage, slot)
+    successor = (
+        await _copy_repeat_successor(session, card, previous_live_stage, slot) if repeats else None
+    )
+    if successor is not None:
         result.successor_ids.append(successor.id)
+    await follow_remind(session, card, successor, actor=actor)
     result.ancestor_ids = await propagate_ancestors(session, card.parent_id)
     parent_id = card.parent_id
     while parent_id:
@@ -774,6 +781,7 @@ async def finish_card(
     card.version += 1
     await record_card_event(session, card, CardStage.DONE.value, actor, before)
     await settle_checks(session, card.id, resolutions, actor=actor)
+    await follow_remind(session, card, actor=actor)
     ancestors = await propagate_ancestors(session, card.id)
     await bump_workspace(session)
     return OperationResult(card_ids=[card.id], ancestor_ids=ancestors)
@@ -843,6 +851,7 @@ async def _purge_cards(session: AsyncSession, ids: list[int], actor: ActorType) 
     # which is a connection pragma and not guaranteed here. The events stay, and each
     # Card's deletion is one more.
     await close_deleted_schedules(session, Card, ids)
+    await drop_reminders(session, Card, ids, actor=actor)
     for card in await session.scalars(select(Card).where(Card.id.in_(ids))):
         await record_card_event(session, card, DELETE, actor, snapshot(card))
     await delete_checks_of_cards(session, ids)

@@ -24,6 +24,7 @@ from tg_agent_shell.telegram import (
 from ...checks.use_cases import pending_checks
 from ...profile.api import effort_tracking_on
 from ...schedules.api import DEADLINE_INSTRUCTION, SCHEDULE_INSTRUCTION
+from ...schedules.telegram import render_schedule
 from ..model import Card, CardKind, CardStage, minutes_label
 from ..use_cases import (
     archive_subtree,
@@ -141,6 +142,24 @@ async def _on_edit_text(context: CallbackContext) -> None:
         ),
         state={"flow": "card", "card_id": card_id, "field": field, "back": back_state},
     )
+
+
+async def _on_open_schedule(context: CallbackContext) -> None:
+    """A Schedule or Deadline with a clock still ahead offers Remind beside Edit; any other
+    opens its editor at once."""
+    card_id = context.payload["id"]
+    async with context.sessions() as session:
+        back_state = await card_editor_back_state(session, context.owner_id)
+    shown = await render_schedule(
+        context.message,
+        context.services,
+        Card,
+        card_id,
+        edit=("card_edit_text", {"id": card_id, "field": "schedule"}),
+        back=("card_view", {"id": card_id, "back": back_state, "full": True}),
+    )
+    if not shown:
+        await _on_edit_text(context)
 
 
 async def _on_choices(context: CallbackContext) -> None:
@@ -351,6 +370,7 @@ CARD_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "card_back": go_back_action,
     "card_move": _on_move,
     "card_edit_text": _on_edit_text,
+    "card_open_schedule": _on_open_schedule,
     "card_set_field": _on_set_field,
     "card_toggle_field": _on_toggle_field,
     "card_archive": _on_archive,

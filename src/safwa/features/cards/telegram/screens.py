@@ -105,7 +105,7 @@ async def render_card(
                 ("⚠️ Priority", "card_choose_priority", {"id": card.id}),
                 (
                     "⏱ Schedule" if card.kind == CardKind.ACTION.value else "⏰ Deadline",
-                    "card_edit_text",
+                    "card_open_schedule",
                     {"id": card.id, "field": "schedule"},
                 ),
             ]

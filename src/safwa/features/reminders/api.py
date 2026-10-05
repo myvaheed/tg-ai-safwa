@@ -18,6 +18,7 @@ from .schedule import (
     resolve,
     roll_forward,
     schedule_from_payload,
+    schedule_of,
     schedule_payload,
 )
 
@@ -33,5 +34,6 @@ __all__ = [
     "resolve",
     "roll_forward",
     "schedule_from_payload",
+    "schedule_of",
     "schedule_payload",
 ]

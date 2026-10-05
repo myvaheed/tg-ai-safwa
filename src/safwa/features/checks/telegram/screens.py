@@ -182,7 +182,7 @@ async def render_check(
                 rows.append(
                     [
                         await token_button(
-                            session, services.owner_id, "⏱ Schedule", "check_edit_schedule", payload
+                            session, services.owner_id, "⏱ Schedule", "check_open_schedule", payload
                         )
                     ]
                 )

@@ -26,6 +26,7 @@ from ..schedules.api import (
     set_schedule,
     successor_slot,
 )
+from ..schedules.use_cases import drop_reminders, follow_remind
 from ..values.api import Value
 from ..values.model import CheckValue
 from .model import Check, CheckOutcome
@@ -157,6 +158,7 @@ async def update_check_fields(
             setattr(check, name, value)
     check.version += 1
     await _record(session, check, UPDATE, actor, before)
+    await follow_remind(session, check, actor=actor)
     await bump_workspace(session)
     return check
 
@@ -172,6 +174,7 @@ async def edit_check_schedule(
     await _write_schedule(session, check, text, rule)
     check.version += 1
     await _record(session, check, UPDATE, ActorType.USER_UI, before)
+    await follow_remind(session, check)
     await bump_workspace(session)
     return check
 
@@ -218,6 +221,7 @@ async def _delete_checks(session: AsyncSession, check_ids: list[int]) -> None:
     if not check_ids:
         return
     await close_deleted_schedules(session, Check, check_ids)
+    await drop_reminders(session, Check, check_ids)
     await session.execute(delete(CheckValue).where(CheckValue.check_id.in_(check_ids)))
     await session.execute(delete(CardCheck).where(CardCheck.check_id.in_(check_ids)))
     await session.execute(delete(Check).where(Check.id.in_(check_ids)))
@@ -303,7 +307,9 @@ async def apply_check_outcome(
     if not (was_pending and spawn):
         return None
     repeats, slot = await successor_slot(session, check)
-    return await _spawn_check_successor(session, check, slot) if repeats else None
+    successor = await _spawn_check_successor(session, check, slot) if repeats else None
+    await follow_remind(session, check, successor, actor=actor)
+    return successor
 
 
 async def _record(

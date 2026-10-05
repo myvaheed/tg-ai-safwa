@@ -2,7 +2,8 @@
 
 An Action or an independent Check carries one `schedule` text field: when it repeats or
 happens, in the owner's words. On a Goal or a Subgoal the same field is its Deadline.
-Reminders are separate messages to Safwa and do not use it.
+Reminders are separate messages to Safwa and do not use it; [Remind](#remind) makes one from a
+Schedule.
 
 The text expresses intent. `schedules` stores a revision of that text and its validated rule.
 The model reads the text once per revision; completion, counting and the next occurrence use
@@ -192,12 +193,46 @@ Action; earlier repeating instances remain closed. Deleting the last open instan
 active plan while retaining the history of surviving instances. An early interval completion
 advances past the consumed appointment.
 
+## Remind
+
+A Schedule or Deadline with a clock can remind. `remind_timing` gives the Reminder timing an
+open item has: a `fixed` rule that is not all-day, or a Deadline with a time, with `anchor_at`
+set to the open instance's moment, and nothing for a one-time moment already past. While it
+has one, or Remind is on, the "⏱ Schedule" or "⏰ Deadline" button opens a screen with how the
+Schedule was read, `🔔 Remind: Off|On`, `✏️ Edit` and `↩️ Back`; otherwise it opens the editor
+at once. Every kind is offered it alike: Action, Goal, Subgoal and independent Check.
+
+Remind On is an ordinary Reminder, fired by the Reminders' tick, with the words of
+`REMIND_TEXT` naming the item by `#id` and title. Its `item_type` and `item_id` name the item.
+The link is on the Reminder because SQLite hands a deleted row's id out again: a link on the
+Card would outlive a Reminder deleted from `/reminders` or by its one-time firing, and point at
+someone else's. Remind Off deletes the Reminder, and deleting it anywhere turns Remind off.
+
+```mermaid
+flowchart TD
+    A[Item operation] --> B{Remind on?}
+    B -->|No| Z[Nothing]
+    B -->|Yes| C{remind_timing of the open item}
+    C -->|None: closed, no clock, past| D[Delete the Reminder]
+    C -->|Timing| E[Point it at the open item, rewrite its words]
+    E --> F{Timing changed?}
+    F -->|Yes| G[Reschedule: next fire from the new anchor]
+    F -->|No| H[Keep its next fire]
+```
+
+`follow_remind` keeps it true after every operation that could change it: a Schedule written,
+a title changed, an Action finished or a Goal closed, a Check answered. A copy finished early
+moves the Reminder to the next copy, whose moment is its anchor, so it is not said for the
+appointment already done. An overdue copy keeps it: a repeating Reminder fires at each later
+moment of the rule until the copy is finished. Only a changed timing reschedules, so a rename
+never moves the next fire. Deleting an item deletes its Reminder with it (`drop_reminders`).
+
 ## Where it lives
 
-The `schedules` package owns the revisions, the period arithmetic in `rules.py`, the compiler
-and the Advisor read tool. It has no hooks. Cards and Checks ask its `api.py` to change a source
-or calculate an occurrence; their proposal handlers read a proposed text through
-`read_proposed_schedule` in its `agent.py`, and their editors compile typed text through its
-`telegram.py`. Bootstrap binds the editors' compiler to the provider in `SafwaFeatures`, which
-Telegram adapters reach as `services.features`; preparation builds one on the proposal's
-provider.
+The `schedules` package owns the revisions, the period arithmetic in `rules.py`, the compiler,
+the Advisor read tool and Remind. It has no hooks. Cards and Checks ask its `api.py` to change a
+source or calculate an occurrence, and its `use_cases.py` to keep Remind in step. Their
+proposal handlers read a proposed text through `read_proposed_schedule` in its `agent.py`;
+their editors compile typed text, and draw the Remind screen, through its `telegram.py`.
+Bootstrap binds the editors' compiler to the provider in `SafwaFeatures`, which Telegram
+adapters reach as `services.features`; preparation builds one on the proposal's provider.

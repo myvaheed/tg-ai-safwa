@@ -116,3 +116,21 @@ Feature: One plain-language Schedule for Actions and independent Checks
     And weekdays or a date without a clock become an appointment for that whole day, due by 23:59 (END_OF_DAY)
     And the screens show its day without a clock, and it is overdue only after that day ends
     And an all-day appointment set during its day is planned for that day
+
+  Scenario: SCH-REMIND-019 — A Schedule with a clock offers Remind beside Edit
+    Given an Action, a Goal or a Subgoal, or a Check whose Schedule or Deadline has a clock still ahead
+    When the owner opens its Schedule
+    Then the screen shows how it was read, with "🔔 Remind: Off", "✏️ Edit" and "↩️ Back"
+    And Remind On makes a Reminder at the Schedule's moments, with the words "Remind is on for Action #12 «Stretch». Remind the owner about it." (REMIND_TEXT)
+    And Remind Off deletes that Reminder
+    And a quota, a whole-day appointment, repetition after completion, a Deadline without a time, or a one-time moment already past opens the editor at once
+
+  Scenario: SCH-REMIND-020 — Remind's Reminder follows its item
+    Given Remind is on for a repeating Action or Check
+    When it is finished before its appointment
+    Then the Reminder names the next instance and fires first at that instance's appointment
+    And an instance left overdue is reminded at the Schedule's next moment, and at each one after it
+    And a changed Schedule moves the Reminder to it, and a Schedule without a clock deletes it
+    And a renamed item rewrites the Reminder's words
+    And finishing a one-time Action, closing a Goal, or deleting the item deletes the Reminder
+    And deleting the Reminder in /reminders turns Remind off

@@ -56,6 +56,7 @@ MANUAL = f"""# Safwa
 - An Action repeats at most {ACTION_DAILY_EXECUTIONS_MAX} times a day; more often is a Check.
 - A Goal or a Subgoal has "⏰ Deadline" instead: one date, with a time if it matters. It never repeats and blocks nothing. A Card with a Deadline comes first in lists, the sooner one first.
 - Clear Schedule with "off" on the current instance to stop repetition. Deleting it also stops the plan. Past instances still count; the final Action can be reopened.
+- A Schedule or Deadline with a time still ahead opens on "🔔 Remind" and "✏️ Edit"; any other opens the editor. Remind On makes a Reminder at those times that follows the Card or Check: its next copy, a changed Schedule or title. Remind Off, or deleting that Reminder, stops it.
 - Ask the Advisor for scheduled work and progress: planned, done and remaining counts for the asked dates, the current Sprint and all time.
 - Blocked is a warning on an Action, with its reason. It stops nothing.
 - A repeating Action makes its next copy when it is finished.
@@ -131,7 +132,7 @@ MANUAL = f"""# Safwa
 
 # Reminders
 - A Reminder is words and a time. When it fires, its words come to the Advisor as a request, and the Advisor answers them.
-- In words only: create one, or change when it fires. Say the time in plain words.
+- In words only: create one, or change when it fires. Say the time in plain words. "🔔 Remind" on a Schedule also makes one.
 - With buttons: "⏰ Reminders" or /reminders: "✏️ Text" to change the words, "🗑 Delete".
 - Deleting is the only way to stop one.
 

@@ -24,7 +24,7 @@ from tg_agent_shell.telegram import (
 from tg_agent_shell.telegram.contributions import TextInputFlow
 
 from ...schedules.api import SCHEDULE_INSTRUCTION
-from ...schedules.telegram import compile_typed_schedule
+from ...schedules.telegram import compile_typed_schedule, render_schedule
 from ..model import Check, CheckOutcome
 from ..use_cases import delete_check, edit_check_schedule, resolve_check, toggle_check_value
 from .screens import render_check, render_check_values, render_checks
@@ -75,6 +75,21 @@ async def _on_view(context: CallbackContext) -> None:
         card_id=_card_id(context),
         back=_back(context),
     )
+
+
+async def _on_open_schedule(context: CallbackContext) -> None:
+    """A Schedule with a clock still ahead offers Remind beside Edit; any other opens its
+    editor at once."""
+    shown = await render_schedule(
+        context.message,
+        context.services,
+        Check,
+        int(context.payload["id"]),
+        edit=("check_edit_schedule", context.payload),
+        back=("check_view", context.payload),
+    )
+    if not shown:
+        await _on_edit_schedule(context)
 
 
 async def _on_edit_schedule(context: CallbackContext) -> None:
@@ -196,6 +211,7 @@ CHECK_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "check_choose_values": _on_choose_values,
     "check_toggle_value": _on_toggle_value,
     "check_view": _on_view,
+    "check_open_schedule": _on_open_schedule,
     "check_edit_schedule": _on_edit_schedule,
     "check_set_status": _on_set_status,
     "check_delete_prompt": _on_delete_prompt,
