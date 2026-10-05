@@ -349,3 +349,19 @@ async def named_ids(
         )
     # Unknown numeric IDs stay for the domain command to reject with its own message.
     return resolved.ids | set(resolved.unknown_ids)
+
+
+async def set_named_links(
+    session: AsyncSession,
+    spec: ReferenceSpec,
+    owner_id: int,
+    values: dict[str, Any],
+    *,
+    linked: bool,
+    actor: Any,
+) -> None:
+    """Link or unlink every item the approved change names, leaving each already right."""
+    for entity_id in sorted(await named_ids(session, values, spec)):
+        exists = await session.get(spec.link_model, spec.link_key(owner_id, entity_id))
+        if linked != (exists is not None):
+            await spec.toggle(session, owner_id, entity_id, actor=actor)

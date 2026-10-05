@@ -15,8 +15,8 @@ from tg_agent_shell.proposals.api import (
     PreparedChange,
     ProposalChange,
     ToolPreparationError,
-    named_ids,
     require_target,
+    set_named_links,
     validate_named_references,
 )
 
@@ -82,11 +82,14 @@ class CheckProposalHandler:
         elif change.action is ChangeAction.DELETE:
             await delete_check(session, check.id, actor=ActorType.AI)
         elif change.action in {ChangeAction.LINK, ChangeAction.UNLINK}:
-            spec = CHECK_VALUE_REFERENCE
-            for value_id in sorted(await named_ids(session, values, spec)):
-                exists = await session.get(spec.link_model, spec.link_key(check.id, value_id))
-                if (change.action is ChangeAction.LINK) != (exists is not None):
-                    await spec.toggle(session, check.id, value_id, actor=ActorType.AI)
+            await set_named_links(
+                session,
+                CHECK_VALUE_REFERENCE,
+                check.id,
+                values,
+                linked=change.action is ChangeAction.LINK,
+                actor=ActorType.AI,
+            )
         else:
             raise DomainError(f"Unsupported Check action: {change.action}")
         return [check.id]
