@@ -47,6 +47,7 @@ class FakeBot:
         self.deleted_batches: list[list[int]] = []
         self.cleared_markup: list[int] = []
         self.published_commands: list[list[str]] = []
+        self.chat_actions: list[str] = []
 
     async def edit_message_text(
         self,
@@ -77,7 +78,8 @@ class FakeBot:
         self.cleared_markup.append(message_id)
 
     async def send_chat_action(self, chat_id: int, action) -> None:
-        del chat_id, action
+        del chat_id
+        self.chat_actions.append(action)
 
     async def download(self, file_id: str, destination):
         self.downloads.append(file_id)

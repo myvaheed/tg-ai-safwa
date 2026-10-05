@@ -6,14 +6,17 @@ all the shell's, and they are here."""
 
 from __future__ import annotations
 
+import asyncio
 import html
 import logging
 import secrets
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
 from aiogram import Bot
+from aiogram.enums import ChatAction
 from aiogram.exceptions import TelegramAPIError
 from aiogram.types import (
     Chat,
@@ -328,6 +331,34 @@ async def remove_turn_notice(
 async def end_turn(message: Message, services: Services) -> None:
     """Give the turn back and take its notice out of the chat, in that order."""
     await remove_turn_notice(message, services, services.turn.end(message.message_id))
+
+
+# Telegram shows a chat action for five seconds at most, so it is said again sooner.
+TYPING_REPEAT_SECONDS = 4
+
+
+@asynccontextmanager
+async def keep_typing(message: Message) -> AsyncIterator[None]:
+    """Show Safwa typing in the chat header for as long as the block runs."""
+
+    async def show() -> None:
+        try:
+            await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+        except TelegramAPIError as error:
+            # A header Telegram would not show is not a wait that failed.
+            logger.warning("Telegram refused the typing action: %s", error)
+
+    async def again() -> None:
+        while True:
+            await asyncio.sleep(TYPING_REPEAT_SECONDS)
+            await show()
+
+    await show()
+    repeating = asyncio.create_task(again())
+    try:
+        yield
+    finally:
+        repeating.cancel()
 
 
 async def send_toast(message: Message, services: Services, text: str) -> None:

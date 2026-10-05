@@ -43,6 +43,7 @@ from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.history import TelegramMessage, TelegramNotes
 from tg_agent_shell.proposals.model import (
+    SAVED_RECEIPT,
     BatchDecision,
     ChangeAction,
     ProposalChange,
@@ -50,7 +51,12 @@ from tg_agent_shell.proposals.model import (
 from tg_agent_shell.proposals.store import PROPOSAL_REVIEW_MINUTES
 from tg_agent_shell.proposals.telegram import render_proposal
 from tg_agent_shell.proposals.use_cases import approve_proposal
-from tg_agent_shell.telegram import callback_token_handler, dismiss_prior_ui, expire_review
+from tg_agent_shell.telegram import (
+    TURN_NOTICE,
+    callback_token_handler,
+    dismiss_prior_ui,
+    expire_review,
+)
 from tg_agent_shell.telegram.model import CallbackToken
 from tg_agent_shell.telegram.services import STILL_ANSWERING
 from tg_agent_shell.turn import TurnManager
@@ -988,7 +994,7 @@ async def test_pr_expire_029_what_was_saved_before_the_time_ran_out_stays_saved(
     first = await advisor.handle("Create three actions")
     assert first.proposal_id is not None
     services = review_services(e2e_harness, advisor)
-    screen = QueueTestMessage()
+    screen = QueueTestMessage(answer_as_new=True)
     await render_proposal(screen, services, first.proposal_id)
     first_shown = advisor.reviews.proposal(first.proposal_id).shown_at
     await resolve_queued_proposal(
@@ -1314,7 +1320,7 @@ async def test_new_message_discarding_a_queue_reports_what_was_already_saved(e2e
     )
     first = await advisor.handle("Create three actions")
     assert first.proposal_id is not None
-    screen = QueueTestMessage()
+    screen = QueueTestMessage(answer_as_new=True)
     services = SimpleNamespace(
         sessions=e2e_harness.sessions,
         root=advisor,
@@ -2016,7 +2022,7 @@ class _ReceiptRefused(QueueTestMessage):
     """A chat that refuses the receipt a decision sends before its follow-up."""
 
     def _refuse(self, text: str) -> None:
-        if "Continuing" in text:
+        if text == f"{SAVED_RECEIPT}.":
             raise TelegramAPIError(method=SimpleNamespace(), message="Too Many Requests")
 
     async def edit_text(self, text, **options):
@@ -2085,6 +2091,30 @@ async def test_ag_turn_024_a_save_takes_the_turn_from_background_work(e2e_harnes
     assert await _title(e2e_harness, card_id) == "Buy oat milk"
     assert "Renamed it." in screen.rendered[-1]
     assert await chat_is_free(services)
+
+
+async def test_ag_turn_022_a_saved_request_carries_on_under_the_notice(e2e_harness):
+    """AG-TURN-022 — tests/brd/tg_agent_shell/agents.feature"""
+    screen = QueueTestMessage(answer_as_new=True)
+    services, card_id, proposal_id = await _renaming_on_screen(
+        e2e_harness, ["Renamed it.", "Renamed it."], screen
+    )
+
+    await resolve_queued_proposal(e2e_harness, services, screen, proposal_id, "proposal_approve")
+
+    assert await _title(e2e_harness, card_id) == "Buy oat milk"
+    # The screen became the receipt, and the answer took its place after it.
+    receipt = screen.rendered.index(f"{SAVED_RECEIPT}.")
+    assert "Renamed it." in screen.rendered[-1]
+    assert receipt < len(screen.rendered) - 1
+    # The notice stood below it while the request went on, its steps listed, and is gone.
+    [notice] = screen.sent
+    assert notice.text == TURN_NOTICE
+    assert notice.message_id in screen.bot.deleted
+    assert screen.bot.edits
+    assert all(edit.startswith("⏳ Writing an answer.\n1. ") for edit in screen.bot.edits)
+    assert screen.bot.typing_calls >= 1
+    assert services.turn.active is False
 
 
 async def test_ag_turn_015_a_save_the_chat_cannot_announce_still_moves_the_request_on(

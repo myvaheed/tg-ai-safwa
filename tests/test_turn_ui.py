@@ -154,6 +154,29 @@ async def test_ag_turn_022_a_cancelled_turn_leaves_no_notice_and_no_answer(sessi
     assert [item for item in message.sent_messages if "Auto-saved" in item.text] == []
 
 
+async def test_ag_turn_022_safwa_is_shown_typing_until_the_answer(sessions, monkeypatch) -> None:
+    """AG-TURN-022 — tests/brd/tg_agent_shell/agents.feature"""
+    monkeypatch.setattr("tg_agent_shell.telegram.chat.TYPING_REPEAT_SECONDS", 0.01)
+    services = turn_services(sessions)
+    answer = services.root.handle
+
+    async def slow(request, *, source_message_id=None, dialogue=None):
+        await asyncio.sleep(0.1)
+        return await answer(request, source_message_id=source_message_id, dialogue=dialogue)
+
+    services.root.handle = slow
+    message = FakeMessage(971, text="Save it", bot_message=False, answer_as_new=True)
+
+    await run_dialogue_turn(message, services, "Save it", 971)
+
+    typed = len(message.bot.chat_actions)
+    assert typed > 2
+    assert set(message.bot.chat_actions) == {"typing"}
+    # It stopped with the wait, so the answer is not followed by Safwa typing.
+    await asyncio.sleep(0.05)
+    assert len(message.bot.chat_actions) == typed
+
+
 def stepping_services(sessions, steps: list[str]):
     """A turn whose answer is preceded by `steps`, said the way the sessions say them."""
     services = turn_services(sessions)

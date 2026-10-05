@@ -13,7 +13,6 @@ from collections.abc import Sequence
 from io import BytesIO
 from typing import Any
 
-from aiogram.enums import ChatAction
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import BufferedInputFile, InlineKeyboardMarkup, Message, PhotoSize
 from sqlalchemy import select
@@ -21,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..foundation.errors import DomainError
 from ..foundation.kinds import MessageKind
-from ..telegram.chat import dismiss_prior_ui, send_registered
+from ..telegram.chat import dismiss_prior_ui, keep_typing, send_registered
 from ..telegram.dialogue import run_dialogue_turn
 from ..telegram.progress import Progress
 from ..telegram.services import Services
@@ -50,21 +49,23 @@ async def photo_message(
         return
     caption = next((photo.caption for photo in photos if photo.caption), "")
     owner = (message.from_user.full_name.strip() if message.from_user else "") or "the user"
-    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
     progress = Progress(message, services, "👀 Looking at the photo…")
     try:
-        dialogue = [item.as_message() for item in await services.history.dialogue(message.chat.id)]
-        labelled: list[tuple[Photo, str]] = []
-        for index, item in enumerate(photos):
-            await progress.report(index, len(photos))
-            size = kept_size(item.photo)
-            buffer = await item.bot.download(size.file_id, destination=BytesIO())
-            photo = Photo(buffer.getvalue(), size.width, size.height, size.file_id)
-            meta = await services.media.describe(
-                photo, owner=owner, caption=caption, dialogue=dialogue
-            )
-            labelled.append((photo, meta))
-        media_ids = await services.media.keep(labelled)
+        async with keep_typing(message):
+            dialogue = [
+                item.as_message() for item in await services.history.dialogue(message.chat.id)
+            ]
+            labelled: list[tuple[Photo, str]] = []
+            for index, item in enumerate(photos):
+                await progress.report(index, len(photos))
+                size = kept_size(item.photo)
+                buffer = await item.bot.download(size.file_id, destination=BytesIO())
+                photo = Photo(buffer.getvalue(), size.width, size.height, size.file_id)
+                meta = await services.media.describe(
+                    photo, owner=owner, caption=caption, dialogue=dialogue
+                )
+                labelled.append((photo, meta))
+            media_ids = await services.media.keep(labelled)
     except Exception as error:
         logger.exception("Could not read a photo")
         await send_registered(

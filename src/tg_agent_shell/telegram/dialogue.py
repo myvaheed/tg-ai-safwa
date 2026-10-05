@@ -6,7 +6,6 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from io import BytesIO
 
-from aiogram.enums import ChatAction
 from aiogram.exceptions import TelegramAPIError
 from aiogram.types import Message
 from sqlalchemy import select
@@ -20,6 +19,7 @@ from ..proposals.telegram import render_ai_outcome
 from .chat import (
     dismiss_prior_ui,
     end_turn,
+    keep_typing,
     open_turn_notice,
     send_owner_turn,
     send_prose,
@@ -94,19 +94,19 @@ async def voice_message(message: Message, services: Services) -> None:
         )
         return
 
-    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
     progress = Progress(message, services, "🎧 Transcribing…")
     try:
-        buffer = await message.bot.download(audio.file_id, destination=BytesIO())
-        result = await services.transcriber.transcribe(
-            AudioClip(
-                data=buffer.getvalue(),
-                filename=_audio_filename(message),
-                mime_type=getattr(audio, "mime_type", None) or "audio/ogg",
-                duration_seconds=float(duration),
-            ),
-            progress=progress.report,
-        )
+        async with keep_typing(message):
+            buffer = await message.bot.download(audio.file_id, destination=BytesIO())
+            result = await services.transcriber.transcribe(
+                AudioClip(
+                    data=buffer.getvalue(),
+                    filename=_audio_filename(message),
+                    mime_type=getattr(audio, "mime_type", None) or "audio/ogg",
+                    duration_seconds=float(duration),
+                ),
+                progress=progress.report,
+            )
     except (TranscriptionError, TelegramAPIError) as error:
         await send_registered(
             message,
@@ -246,22 +246,22 @@ async def run_dialogue_turn(
     try:
         services.turn.begin(message.message_id)
         notice = await open_turn_notice(message, services)
-        await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-        dialogue = await services.history.dialogue(message.chat.id)
-        await run_before_turn(
-            message, services,
-            BeforeTurn(
-                owner_id=services.owner_id, chat_id=message.chat.id,
-                dialogue_revision=dialogue_revision,
-            ),
-            lambda: services.turn.dialogue_revision == dialogue_revision,
-        )
-        with listening(notice.step):
-            outcome = await services.root.handle(
-                request,
-                source_message_id=source_message_id,
-                dialogue=dialogue,
+        async with keep_typing(message):
+            dialogue = await services.history.dialogue(message.chat.id)
+            await run_before_turn(
+                message, services,
+                BeforeTurn(
+                    owner_id=services.owner_id, chat_id=message.chat.id,
+                    dialogue_revision=dialogue_revision,
+                ),
+                lambda: services.turn.dialogue_revision == dialogue_revision,
             )
+            with listening(notice.step):
+                outcome = await services.root.handle(
+                    request,
+                    source_message_id=source_message_id,
+                    dialogue=dialogue,
+                )
         # Only the owner invalidates their own answer. The workspace revision does not:
         # an autoapproved change bumps it from inside this very turn.
         if services.turn.dialogue_revision != dialogue_revision:
