@@ -8,7 +8,8 @@ Feature: Onboarding
   Scenario: OB-NOTICE-001 — Safwa's first turn is preceded by the notice, and only the first
     Given onboarding is on and no onboarding notice was ever sent to this chat
     When Safwa's first turn begins — on the owner's word or on its own initiative
-    Then before the answer comes one notice: tips will come, ask anything, say stop to end it
+    Then before the answer comes one notice: tips will come and leave the chat a minute later,
+      ask anything, say stop to end it
     And it is kept as a line the interface wrote, and the model reads it as a system line in
       later turns
     When any later turn begins, or Safwa restarts, or onboarding is switched off and on
@@ -93,3 +94,10 @@ Feature: Onboarding
     Given a created Card carries Tag "Inbox"
     Then the onboarding subagent is told that it is a captured note, idea or draft
     And its manual explains that these captures are found in Requests → Inbox
+
+  Scenario: OB-TIP-009 — A tip leaves the chat a minute after it comes
+    Given a message of Safwa's holds only a tip
+    Then 60 seconds after it was sent it leaves the chat, by AG-HOOK-054
+      (TIP_PASSES_AFTER = 60 seconds)
+    Given one message holds a tip and a blocker's question (OB-TIP-003)
+    Then it stays

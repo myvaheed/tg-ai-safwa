@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -24,14 +25,17 @@ logger = logging.getLogger(__name__)
 
 # Supplied by the runtime so this module stays free of the Advisor and the bot.
 Gate = Callable[[], Awaitable[bool]]
-# The turn's id, the request, and the blocks that open the answer as they are.
-Speaker = Callable[[str, str, tuple[str, ...]], Awaitable[bool]]
+# The turn's id, the request, the blocks that open the answer as they are, and how long its
+# message stays in the chat, or None to keep it.
+Speaker = Callable[[str, str, tuple[str, ...], timedelta | None], Awaitable[bool]]
 # Whether the message of the turn under this id reached the chat.
 Delivered = Callable[[str], Awaitable[bool]]
 LeaseRelease = Callable[[], None]
 Expiry = Callable[[], Awaitable[None]]
 # The words of a hook's request, made now from what it refers to; None drops the request.
 Preparer = Callable[[str, list[Any]], Awaitable[str | Shown | None]]
+# How long a message saying a hook's request stays in the chat, or None to keep it.
+Passing = Callable[[str], timedelta | None]
 
 # What the Advisor reads after a request whose block opens its answer.
 BLOCK_SHOWN = "Its block is already shown to the user above your words. Do not repeat it."
@@ -45,6 +49,10 @@ async def _nothing_expires() -> None:
 
 
 async def _no_words(hook: str, payload: list[Any]) -> str | Shown | None:
+    return None
+
+
+def _kept(hook: str) -> timedelta | None:
     return None
 
 
@@ -87,6 +95,7 @@ async def tick(
     release: LeaseRelease = lambda: None,
     expire: Expiry = _nothing_expires,
     prepare: Preparer = _no_words,
+    passing: Passing = _kept,
 ) -> bool:
     """One poll. Returns whether a turn was delivered.
 
@@ -100,7 +109,8 @@ async def tick(
     say settles it without a turn. A request that carries a block puts it before the
     answer, in the order the requests are said. The rows the turn says are stamped with its id before
     it starts, the message is registered under that id, and exactly those rows are settled
-    once the answer landed — a row written meanwhile carries no stamp.
+    once the answer landed — a row written meanwhile carries no stamp. The message passes
+    only when every request it says passes, and a request of words never does.
     """
     await expire()
     async with sessions() as session:
@@ -128,6 +138,7 @@ async def tick(
         texts: list[str] = []
         blocks: list[str] = []
         nothing: list[int] = []
+        lasts: list[timedelta | None] = []
         for request in requests:
             text: str | Shown | None = request.text
             if request.hook is not None:
@@ -140,6 +151,7 @@ async def tick(
                     nothing += request.ids
                     continue
             said += request.ids
+            lasts.append(passing(request.hook) if request.hook is not None else None)
             if isinstance(text, Shown):
                 blocks.append(text.block)
                 text = f"{text.request}\n{BLOCK_SHOWN}"
@@ -154,7 +166,8 @@ async def tick(
         async with sessions() as session:
             await stamp(session, said, event_id)
             await session.commit()
-        if not await speak(event_id, "\n\n".join(texts), tuple(blocks)):
+        passes = None if None in lasts else max(last for last in lasts if last is not None)
+        if not await speak(event_id, "\n\n".join(texts), tuple(blocks), passes):
             # The stamp stays: the next tick asks whether the message reached the chat
             # after all, and settles or frees the rows by the answer.
             return False
@@ -175,6 +188,7 @@ async def run_cue_queue(
     release: LeaseRelease = lambda: None,
     expire: Expiry = _nothing_expires,
     prepare: Preparer = _no_words,
+    passing: Passing = _kept,
     poll_seconds: float,
 ) -> None:
     await run_poll(
@@ -186,6 +200,7 @@ async def run_cue_queue(
             release=release,
             expire=expire,
             prepare=prepare,
+            passing=passing,
         ),
         poll_seconds=poll_seconds,
         name="The Cue poll",

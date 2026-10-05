@@ -2,26 +2,30 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from uuid import uuid4
 
 from sqlalchemy import select
 from ui_harness import (
     FakeMessage,
+    history_source,
     services_for,
 )
 
 from safwa.features.summary.window import SUMMARY_HEADER
 from telegram_llm import (
     TELEGRAM_TEXT_LIMIT,
+    ChatHost,
     split_telegram_text,
 )
 from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
 from tg_agent_shell.foundation.kinds import MessageKind
-from tg_agent_shell.history import TelegramMessage
+from tg_agent_shell.history import TelegramMessage, TelegramNotes
 from tg_agent_shell.proposals.telegram import render_ai_outcome
 from tg_agent_shell.telegram.chat import (
-    discard_stale_status,
+    discard_stale_messages,
+    send_prose,
     send_registered,
 )
 
@@ -121,7 +125,7 @@ async def test_a_status_message_the_process_died_under_is_swept_at_startup(sessi
     await send_registered(screen, services, "Thinking", kind=MessageKind.STATUS, replace=False)
     orphan = screen.sent_messages[-1].message_id
 
-    await discard_stale_status(screen.bot, services, screen.chat.id)
+    await discard_stale_messages(screen.bot, services, screen.chat.id)
 
     assert orphan in screen.bot.deleted
     async with sessions() as session:
@@ -131,3 +135,48 @@ async def test_a_status_message_the_process_died_under_is_swept_at_startup(sessi
             )
             is None
         )
+
+
+async def test_ag_hook_054_a_passing_cue_leaves_the_chat_every_part_once(sessions) -> None:
+    """AG-HOOK-054 — tests/brd/tg_agent_shell/agents.feature"""
+    timers: list[asyncio.Task[None]] = []
+
+    def spawn(work, name: str) -> asyncio.Task[None]:
+        timers.append(asyncio.create_task(work, name=name))
+        return timers[-1]
+
+    services = services_for(sessions)
+    services.chat = ChatHost(TelegramNotes(sessions), spawn=spawn)
+    message = FakeMessage(973, bot_message=False, answer_as_new=True)
+    history = history_source(sessions)
+    await send_prose(
+        message,
+        services,
+        " ".join(f"word{index}" for index in range(1_500)),
+        kind=MessageKind.PASSING_CUE,
+        event_id=uuid4().hex,
+    )
+    parts = [sent.message_id for sent in message.sent_messages]
+    assert len(parts) > 1
+    assert [entry.role for entry in await history.dialogue(message.chat.id)] == ["assistant"]
+
+    for _ in range(2):
+        await services.chat.let_pass(message, kind=MessageKind.PASSING_CUE.value, seconds=0)
+    await asyncio.gather(*timers)
+
+    assert sorted(message.bot.deleted) == sorted(parts)
+    assert await history.dialogue(message.chat.id) == []
+
+
+async def test_ag_hook_054_a_passing_cue_the_process_died_under_leaves_on_start(sessions) -> None:
+    """AG-HOOK-054 — tests/brd/tg_agent_shell/agents.feature"""
+    services = services_for(sessions)
+    message = FakeMessage(974, bot_message=False, answer_as_new=True)
+    await send_prose(message, services, "Onboarding tip: a Value.", kind=MessageKind.PASSING_CUE)
+    sent = message.sent_messages[-1].message_id
+
+    await discard_stale_messages(message.bot, services, message.chat.id)
+
+    assert sent in message.bot.deleted
+    async with sessions() as session:
+        assert await session.scalar(select(TelegramMessage)) is None

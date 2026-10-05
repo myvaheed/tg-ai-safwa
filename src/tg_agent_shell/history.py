@@ -41,7 +41,8 @@ __all__ = [
 EDGE_CONTEXT_MESSAGE_LIMIT = 20
 
 # What was said, in every kind it is kept under: what a clear keeps of the chat, because a
-# period is still read after it left the chat.
+# period is still read after it left the chat. A passing Cue is not kept: its note leaves
+# with it.
 CONVERSATION_KINDS = frozenset(
     {
         MessageKind.DIALOGUE_USER.value,
@@ -74,7 +75,13 @@ def vocabulary(citation_types: tuple[str, ...]) -> ChatVocabulary:
     """How the reader reads the chat back. The citation types are the features' own."""
     return ChatVocabulary(
         person=MessageKind.DIALOGUE_USER.value,
-        assistant=frozenset({MessageKind.DIALOGUE_ASSISTANT.value, MessageKind.CUE.value}),
+        assistant=frozenset(
+            {
+                MessageKind.DIALOGUE_ASSISTANT.value,
+                MessageKind.CUE.value,
+                MessageKind.PASSING_CUE.value,
+            }
+        ),
         events=frozenset({MessageKind.EVENT.value}),
         citation_types=citation_types,
         resets=frozenset({MessageKind.HOME.value}),

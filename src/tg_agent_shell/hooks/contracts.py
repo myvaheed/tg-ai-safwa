@@ -337,9 +337,13 @@ class Advise[Item]:
     A check returns items — references, not words. Each check writes them down as one row;
     a turn words every row of the hook together, and `prepare` reads what the items refer
     to and returns the request text, a `Shown`, or None when nothing is left to ask about.
+
+    `passing` is how long the message the request is said in stays in the chat once sent,
+    when every request said in it passes; the longest of their times counts. None keeps it.
     """
 
     prepare: Callable[[AsyncSession, Sequence[Item]], Awaitable[str | Shown | None]]
+    passing: timedelta | None = None
 
 
 @dataclass(frozen=True, slots=True)

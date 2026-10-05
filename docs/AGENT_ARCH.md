@@ -548,7 +548,11 @@ interrupts mid-turn all lose nothing: the row is still there, and the next poll 
   before and after the turn, so an owner who speaks mid-turn wins and the half-written answer is
   discarded.
 - The answer is posted with `MessageKind.CUE`: it stays in dialogue, marked as something Safwa
-  volunteered rather than a reply to a message that is not there.
+  volunteered rather than a reply to a message that is not there. When every request it says
+  comes from an `Advise` with `passing`, it is `MessageKind.PASSING_CUE` instead, and
+  `ChatHost.let_pass` takes it and its note out of the chat the longest of those times after it
+  was sent; `discard_stale_messages` takes back at start what a stopped process left
+  (AG-HOOK-054).
 - Everything waiting when the gate opens is said in one turn, as one request, oldest first. A
   Cue row is written once and never edited: the poll stamps the rows the turn says with the
   turn's id (`stamp`) before it starts, the message is registered under that id, and exactly

@@ -10,7 +10,7 @@ import asyncio
 import html
 import logging
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from aiogram import Bot
@@ -165,11 +165,18 @@ class CueRuntime:
             )
         return found is not None
 
-    async def speak(self, event_id: str, text: str, shown: tuple[str, ...] = ()) -> bool:
+    async def speak(
+        self,
+        event_id: str,
+        text: str,
+        shown: tuple[str, ...] = (),
+        passing: timedelta | None = None,
+    ) -> bool:
         """Run one Advisor turn over the request. Returns whether the answer was delivered.
 
         `shown` opens the answer as it is, before the Advisor's words. Returning False leaves the caller's own record untouched, so whatever produced the
-        request is still owed a turn and the next poll asks for it again.
+        request is still owed a turn and the next poll asks for it again. With `passing`,
+        the answer leaves the chat that long after it was sent.
         """
         if not self.still_current():
             return False
@@ -196,13 +203,14 @@ class CueRuntime:
                 return False
             # CUE keeps the answer in dialogue while marking it as something the model
             # volunteered, not a reply to a message that is not there.
+            kind = MessageKind.CUE if passing is None else MessageKind.PASSING_CUE
             await render_ai_outcome(
-                self._anchor(),
-                self.services,
-                outcome,
-                kind=MessageKind.CUE,
-                event_id=event_id,
+                self._anchor(), self.services, outcome, kind=kind, event_id=event_id
             )
+            if passing is not None:
+                await self.services.chat.let_pass(
+                    self._anchor(), kind=kind.value, seconds=passing.total_seconds()
+                )
             return True
         except Exception:
             # A review that could not be drawn was already ended by `render_ai_outcome`;

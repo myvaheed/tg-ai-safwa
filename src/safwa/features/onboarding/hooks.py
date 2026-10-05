@@ -10,6 +10,7 @@ The return has its own switch: the owner who stopped the tips may still want it.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import timedelta
 from typing import Any
 
 from sqlalchemy import func, select
@@ -53,6 +54,8 @@ from .model import OnboardingNotice, OwnerPresence
 # How many items one tip cites; the rest are counted, so a screen that held many saves back
 # still gives one short tip.
 ONBOARDING_TIP_ITEMS = 5
+# How long a message holding only a tip stays in the chat once sent.
+TIP_PASSES_AFTER = timedelta(minutes=1)
 
 # How many days since the owner's last message make their next one a return.
 RETURN_AFTER_DAYS = 14
@@ -86,8 +89,9 @@ TIP_REQUEST = "Onboarding. The user just:\n{items}\nCall route(\"onboarding\") w
 
 ONBOARDING_NOTICE = (
     "Onboarding is on. After you create or finish something, a short tip will explain what "
-    "happened and what it makes possible. Ask me anything about Safwa at any time — for "
-    'example, "what can Safwa do?". If you do not want onboarding, say so and it stops.'
+    "happened and what it makes possible, and leave the chat a minute later. Ask me anything "
+    'about Safwa at any time — for example, "what can Safwa do?". If you do not want '
+    "onboarding, say so and it stops."
 )
 
 _KIND_NAMES = {
@@ -248,9 +252,12 @@ ONBOARDING_HOOK = HookSpec(
     owner="onboarding",
     on=tuple(OnCommitted(kind=kind) for kind in TIP_FACTS),
     evaluate=what_changed,
-    effect=Advise(prepare=onboarding_request),
+    effect=Advise(prepare=onboarding_request, passing=TIP_PASSES_AFTER),
     title="Onboarding",
-    description="After you create or finish something, explains what happened and what it makes possible.",
+    description=(
+        "After you create or finish something, explains what happened and what it makes "
+        "possible. Each tip leaves the chat a minute after it comes."
+    ),
 )
 
 

@@ -237,3 +237,8 @@ class HookRegistry:
             return None
         async with sessions() as session:
             return await spec.effect.prepare(session, items)
+
+    def passing(self, name: str) -> timedelta | None:
+        """How long a message saying this hook's request stays in the chat, or None to keep it."""
+        spec = next((spec for spec in self.specs if spec.name == name), None)
+        return spec.effect.passing if spec is not None and isinstance(spec.effect, Advise) else None

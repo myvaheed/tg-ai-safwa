@@ -34,6 +34,7 @@ from safwa.features.onboarding.hooks import (
     RETURN_AFTER_DAYS,
     RETURN_HOOK,
     RETURN_LIST_ACTIONS,
+    TIP_PASSES_AFTER,
     onboarding_request,
     return_request,
 )
@@ -359,7 +360,7 @@ async def test_ob_tip_002_a_turn_that_does_not_route_loses_the_tip(sessions):
         await session.commit()
     said: list[str] = []
 
-    async def speak(_event_id: str, text: str, shown: tuple[str, ...]) -> bool:
+    async def speak(_event_id: str, text: str, shown: tuple[str, ...], passing) -> bool:
         # Whatever the Advisor did with it, the answer reached the chat.
         said.append(text)
         return True
@@ -413,7 +414,7 @@ async def test_ob_tip_003_a_tip_and_a_blocker_are_one_request_both_asked(session
         await session.commit()
     said: list[str] = []
 
-    async def speak(_event_id: str, text: str, shown: tuple[str, ...]) -> bool:
+    async def speak(_event_id: str, text: str, shown: tuple[str, ...], passing) -> bool:
         said.append(text)
         return True
 
@@ -432,6 +433,43 @@ async def test_ob_tip_003_a_tip_and_a_blocker_are_one_request_both_asked(session
     assert "«Call the bank»: Line is busy" in text
     assert text.index("Blocked since") < text.index("Onboarding. The user just:")
     assert 'Call route("onboarding")' in text
+
+
+async def test_ob_tip_009_a_tip_alone_passes_after_a_minute_and_beside_a_blocker_stays(
+    sessions,
+):
+    """OB-TIP-009 — tests/brd/onboarding.feature"""
+    passing: list[timedelta | None] = []
+
+    async def speak(_event_id: str, _text: str, _shown: tuple[str, ...], lasts) -> bool:
+        passing.append(lasts)
+        return True
+
+    async def yes() -> bool:
+        return True
+
+    async def delivered(_event_id: str) -> bool:
+        return True
+
+    async def prepare(hook, items):
+        return await REGISTRY.hooks.prepare(sessions, hook, items)
+
+    for hooks in ((ONBOARDING_HOOK,), (BLOCKER_HOOK, ONBOARDING_HOOK)):
+        async with sessions() as session:
+            card = await create_card(
+                session, kind="action", title="Call the bank", effort_points=1,
+                blocked=True, blocked_description="Line is busy",
+            )
+            for hook in hooks:
+                items = [card.id] if hook is BLOCKER_HOOK else [["card.created", card.id]]
+                await add_hook_cue(session, hook=hook.name, items=items)
+            await session.commit()
+        assert await tick(
+            sessions, gate=yes, speak=speak, delivered=delivered, prepare=prepare,
+            passing=REGISTRY.hooks.passing,
+        )
+
+    assert passing == [TIP_PASSES_AFTER, None]
 
 
 # ----------------------------------------------------------------------- return
