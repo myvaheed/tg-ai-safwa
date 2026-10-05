@@ -11,18 +11,20 @@ import html
 import logging
 from typing import Any
 
-from aiogram.enums import ChatAction
 from aiogram.exceptions import TelegramAPIError
 from aiogram.types import Message
 
 from telegram_llm import markdown_to_telegram_html
 
 from ...ai.outcome import AIOutcome
+from ...ai.steps import Listener, listening
 from ...foundation.errors import failure_reason
 from ...foundation.kinds import MessageKind
 from ...telegram import (
     Services,
+    keep_typing,
     open_citation,
+    open_turn_notice,
     render_citations,
     send_prose,
     send_registered,
@@ -83,27 +85,26 @@ async def continue_agent_approval(
     """Advance an open approval queue, resuming the model only after its last item.
 
     The caller holds the turn, and the decision is already applied: the queue moves on
-    whatever the chat can show, or the review stays open with nothing on screen.
+    whatever the chat can show, or the review stays open with nothing on screen. The
+    request goes on under the turn's notice, which the caller takes down with the turn.
     """
     if not services.root.has_pending_approval(proposal_id):
         return False
     resolved_text = f"{DECISION_RECEIPTS[decision]}."
+    steps: Listener | None = None
     try:
-        await send_registered(
-            message,
-            services,
-            f"{resolved_text} Continuing…",
-            kind=MessageKind.RECEIPT,
-        )
-        await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+        await send_registered(message, services, resolved_text, kind=MessageKind.RECEIPT)
+        steps = (await open_turn_notice(message, services)).step
     except TelegramAPIError as error:
         logger.warning("Could not say that %s #%s continues: %s", decision, proposal_id, error)
     try:
-        outcome = await services.root.resolve_approval(
-            proposal_id,
-            decision=decision,
-            result=result,
-        )
+        async with keep_typing(message):
+            with listening(steps):
+                outcome = await services.root.resolve_approval(
+                    proposal_id,
+                    decision=decision,
+                    result=result,
+                )
     except Exception as error:
         logger.exception("AI continuation failed after %s #%s", decision, proposal_id)
         await send_registered(

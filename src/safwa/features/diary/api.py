@@ -7,7 +7,9 @@ from datetime import date
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .model import DiaryEntry
+from tg_agent_shell.media.library import ChatMedia
+
+from .model import DiaryEntry, DiaryMedia
 
 
 async def last_entries(session: AsyncSession, limit: int) -> list[DiaryEntry]:
@@ -20,6 +22,18 @@ async def last_entries(session: AsyncSession, limit: int) -> list[DiaryEntry]:
             .limit(limit)
         )
     )
+
+
+async def day_media(session: AsyncSession, entry_id: int) -> list[tuple[int, str]]:
+    """The photos on one day, each by its number and its label, in the order they were put
+    there."""
+    rows = await session.execute(
+        select(DiaryMedia.media_id, ChatMedia.meta)
+        .join(ChatMedia, ChatMedia.id == DiaryMedia.media_id)
+        .where(DiaryMedia.entry_id == entry_id)
+        .order_by(DiaryMedia.id)
+    )
+    return [(media_id, meta) for media_id, meta in rows]
 
 
 async def feeling_scores(session: AsyncSession) -> dict[date, int]:

@@ -26,15 +26,6 @@ async def diary_entry_for(session: AsyncSession, entry_date: date) -> DiaryEntry
     return await session.scalar(select(DiaryEntry).where(DiaryEntry.entry_date == entry_date))
 
 
-async def day_media(session: AsyncSession, entry_id: int) -> list[DiaryMedia]:
-    """The photos on one day, in the order they were put there."""
-    return list(
-        await session.scalars(
-            select(DiaryMedia).where(DiaryMedia.entry_id == entry_id).order_by(DiaryMedia.id)
-        )
-    )
-
-
 def _validated_feeling_score(score: int | None) -> int | None:
     if score is not None and not 0 <= score <= 10:
         raise DomainError("A feeling score runs from 0 to 10")
@@ -52,24 +43,26 @@ def _words(body: str | None) -> str | None:
 
 
 async def _put_media(
-    session: AsyncSession,
-    entry: DiaryEntry,
-    add: Sequence[tuple[int, str]],
-    remove: Sequence[int],
+    session: AsyncSession, entry: DiaryEntry, add: Sequence[int], remove: Sequence[int]
 ) -> int:
     """Take photos off a day and put others on it; says how many the day holds after."""
-    on_day = {row.media_id: row for row in await day_media(session, entry.id)}
+    on_day = {
+        row.media_id: row
+        for row in await session.scalars(
+            select(DiaryMedia).where(DiaryMedia.entry_id == entry.id)
+        )
+    }
     for media_id in remove:
         row = on_day.pop(media_id, None)
         if row is None:
             raise DomainError(f"Photo {media_id} is not on that day")
         await session.delete(row)
-    for media_id, meta in add:
+    for media_id in add:
         if media_id in on_day:
             raise DomainError(f"Photo {media_id} is already on that day")
         if await session.get(ChatMedia, media_id) is None:
             raise DomainError(f"No photo has the number {media_id}")
-        on_day[media_id] = DiaryMedia(entry_id=entry.id, media_id=media_id, meta=meta.strip())
+        on_day[media_id] = DiaryMedia(entry_id=entry.id, media_id=media_id)
         session.add(on_day[media_id])
     if len(on_day) > DIARY_DAY_PHOTOS:
         raise DomainError(f"A Diary day holds at most {DIARY_DAY_PHOTOS} photos")
@@ -83,7 +76,7 @@ async def create_diary_entry(
     entry_date: date,
     body: str | None,
     feeling_score: int | None = None,
-    media: Sequence[tuple[int, str]] = (),
+    media: Sequence[int] = (),
 ) -> DiaryEntry:
     """Start a day with its words, its photos, or both; a second one for the same date is an
     update."""
@@ -109,7 +102,7 @@ async def update_diary_entry(
     body: str | None,
     feeling_score: int | None = None,
     *,
-    add_media: Sequence[tuple[int, str]] = (),
+    add_media: Sequence[int] = (),
     remove_media: Sequence[int] = (),
 ) -> DiaryEntry:
     """Replace a day's words, keep them when `body` is None, and change its photos.

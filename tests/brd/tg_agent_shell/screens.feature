@@ -108,4 +108,4 @@ Feature: Screens
     Given Safwa's answer cites a photo by its label
     When the owner taps it
     Then Safwa sends that photo, under its description
-    And it goes when the next screen comes, like any other screen
+    And it stays in the chat when the next screen comes, and is not part of the conversation

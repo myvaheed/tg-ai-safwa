@@ -13,8 +13,9 @@ from test_subagent_e2e import diary_subagent
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.bootstrap.modules import PROPOSALS
+from safwa.features.diary.api import day_media
 from safwa.features.diary.hooks import DAY_NOT_READ
-from safwa.features.diary.model import DiaryEntry, DiaryMedia
+from safwa.features.diary.model import DiaryEntry
 from safwa.features.diary.use_cases import DIARY_DAY_PHOTOS, create_diary_entry
 from tg_agent_shell.ai.outcome import AIOutcomeKind
 from tg_agent_shell.ai.runs import AgentRun
@@ -56,8 +57,7 @@ async def save(harness, advisor, proposal_id: int):
 async def the_day(harness) -> tuple[str | None, list[tuple[int, str]]]:
     async with harness.sessions() as session:
         entry = await session.scalar(select(DiaryEntry))
-        photos = await session.scalars(select(DiaryMedia).order_by(DiaryMedia.id))
-        return entry.body, [(photo.media_id, photo.meta) for photo in photos]
+        return entry.body, await day_media(session, entry.id)
 
 
 def tool_results(call: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -77,11 +77,7 @@ async def test_di_photo_017_a_photo_with_no_words_is_put_up_for_today(e2e_harnes
             turn(
                 (
                     "diary",
-                    {
-                        "mode": "update",
-                        "date": TODAY,
-                        "add_media": [{"media_id": cat, "meta": "Кот на окне"}],
-                    },
+                    {"mode": "update", "date": TODAY, "add_media": [cat]},
                 )
             ),
         ],
@@ -113,7 +109,7 @@ async def test_di_photo_018_words_sent_with_a_photo_reach_the_days_words(e2e_har
                         "date": TODAY,
                         "pov": "Отличный день: гуляли с Лейлой в парке.",
                         "feeling_score": 8,
-                        "add_media": [{"media_id": park, "meta": "Анна с Лейлой в парке"}],
+                        "add_media": [park],
                     },
                 )
             ),
@@ -141,7 +137,7 @@ async def test_di_photo_020_safwa_carries_on_from_a_full_day(e2e_harness):
     )
     async with e2e_harness.sessions() as session:
         await create_diary_entry(
-            session, entry_date=date.today(), body=None, media=[(media_id, "Фото") for media_id in full]
+            session, entry_date=date.today(), body=None, media=full
         )
         await session.commit()
     advisor, provider = e2e_harness.advisor(
@@ -150,7 +146,7 @@ async def test_di_photo_020_safwa_carries_on_from_a_full_day(e2e_harness):
             turn(
                 (
                     "diary",
-                    {"mode": "update", "date": TODAY, "add_media": [{"media_id": extra, "meta": "Ещё"}]},
+                    {"mode": "update", "date": TODAY, "add_media": [extra]},
                 )
             ),
             "В этом дне уже 10 фото.",
@@ -164,6 +160,40 @@ async def test_di_photo_020_safwa_carries_on_from_a_full_day(e2e_harness):
     assert outcome.kind is AIOutcomeKind.ANSWER
     (refused,) = tool_results(provider.calls[2])
     assert (refused["code"], refused["retryable"]) == ("day_full", True)
+
+
+async def test_di_photo_024_the_owner_corrects_what_a_photo_on_a_day_is_called(e2e_harness):
+    """DI-PHOTO-024 — tests/brd/diary.feature"""
+    (sons,) = await keep_photos(e2e_harness, "Мукхаммет и сын в музее")
+    async with e2e_harness.sessions() as session:
+        await create_diary_entry(session, entry_date=date.today(), body=None, media=[sons])
+        await session.commit()
+    advisor, _ = e2e_harness.advisor(
+        [
+            turn(("route", {"name": "diary"})),
+            turn(("read_day", {"date": TODAY})),
+            turn(
+                (
+                    "diary",
+                    {
+                        "mode": "update",
+                        "date": TODAY,
+                        "rename_media": [{"media_id": sons, "meta": "Мухаммет с двумя сыновьями"}],
+                    },
+                )
+            ),
+        ],
+        subagents=(diary_subagent(e2e_harness),),
+    )
+
+    outcome = await advisor.handle("Не Мукхаммет, а Мухаммет, и там два моих сына")
+
+    assert outcome.kind is AIOutcomeKind.PROPOSAL
+    description = await save(e2e_harness, advisor, outcome.proposal_id)
+    assert (
+        "Photo renamed: Мукхаммет и сын в музее → Мухаммет с двумя сыновьями" in description.fields
+    )
+    assert await the_day(e2e_harness) == (None, [(sons, "Мухаммет с двумя сыновьями")])
 
 
 async def test_di_read_023_words_for_an_unread_day_go_back_to_the_diary(e2e_harness):

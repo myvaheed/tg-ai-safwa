@@ -189,6 +189,12 @@ Feature: Agents — the session, the hand-over, and what comes back
     Then one message stands in the chat saying the answer is being written, offering /cancel as
       something they can tap
     And there is one of those however much the owner sends meanwhile
+    And while it stands, Telegram shows Safwa typing
+    When the owner saves or discards a proposal and the request that proposed it carries on
+    Then its screen becomes the line "✅ Saved." or "🗑 Discarded."
+    And the same message stands below that line until the answer arrives, with Safwa typing
+    When the owner sends a recording or a photo
+    Then Telegram shows Safwa typing while it is transcribed or looked at
     When the answer arrives
     Then that message is taken out of the chat
     When the owner cancels instead

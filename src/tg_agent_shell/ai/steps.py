@@ -24,8 +24,8 @@ _listener: ContextVar[Listener | None] = ContextVar("turn_steps", default=None)
 
 
 @contextmanager
-def listening(listener: Listener) -> Iterator[None]:
-    """Hand every step taken inside this block to `listener`, in order."""
+def listening(listener: Listener | None) -> Iterator[None]:
+    """Hand every step taken inside this block to `listener`, in order; None hears none."""
     token = _listener.set(listener)
     try:
         yield

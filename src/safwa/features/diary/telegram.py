@@ -25,8 +25,8 @@ from tg_agent_shell.proposals.render import (
 )
 from tg_agent_shell.telegram import Services
 
+from .api import day_media
 from .model import DiaryEntry
-from .use_cases import day_media
 
 DIARY_MONTH_NAMES = (
     "января",
@@ -81,7 +81,7 @@ async def render_diary(
             raise DomainError("Diary entry does not exist")
         label = diary_label(entry.entry_date, entry.feeling_score)
         body = entry.body
-        media_ids = [row.media_id for row in await day_media(session, entry_id)]
+        media_ids = [media_id for media_id, _label in await day_media(session, entry_id)]
     rows: list[list[InlineKeyboardButton]] = []
     await send_photo_screen(
         message,
@@ -115,6 +115,10 @@ def _day_lines(change: ProposalChange) -> list[str]:
         lines.append(f"Feeling: {values['feeling_score']}")
     lines += [f"Photo added: {item['meta']}" for item in values.get("add_media") or ()]
     lines += [f"Photo taken off: {item['meta']}" for item in values.get("remove_media") or ()]
+    lines += [
+        f"Photo renamed: {item['was']} → {item['meta']}"
+        for item in values.get("rename_media") or ()
+    ]
     return lines
 
 
@@ -147,14 +151,16 @@ class DiaryProposalPresenter:
             entry = await session.get(DiaryEntry, changes[0].entity_id)
             if entry is not None:
                 current = {"body": entry.body, "feeling_score": entry.feeling_score}
-                on_day = [row.meta for row in await day_media(session, entry.id)]
+                on_day = [label for _media_id, label in await day_media(session, entry.id)]
         proposed = dict(current)
         added: list[str] = []
         removed: list[str] = []
+        renamed: list[dict[str, Any]] = []
         for change in changes:
             values = dict(change.values)
             added += [item["meta"] for item in values.pop("add_media", None) or ()]
             removed += [item["meta"] for item in values.pop("remove_media", None) or ()]
+            renamed += values.pop("rename_media", None) or ()
             if values.get("body") is None:
                 # No words in the change: the words already saved stay.
                 values.pop("body", None)
@@ -179,9 +185,11 @@ class DiaryProposalPresenter:
             blocks.append(html.escape(str(proposed.get("body") or "")))
             if proposed.get("remark"):
                 blocks.append(f"<i>{html.escape(str(proposed['remark']))}</i>")
-        photos = [f"📷 {html.escape(meta)}" for meta in added] + [
-            f"📷 <s>{html.escape(meta)}</s>" for meta in removed
+        photos = [f"📷 {html.escape(meta)}" for meta in added]
+        photos += [
+            f"📷 <s>{html.escape(item['was'])}</s> {html.escape(item['meta'])}" for item in renamed
         ]
+        photos += [f"📷 <s>{html.escape(meta)}</s>" for meta in removed]
         if photos:
             blocks.append("\n".join(photos))
         return ProposalScreen(
