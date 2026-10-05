@@ -26,9 +26,11 @@ from safwa.features.planning.telegram import (
     render_sprint,
 )
 from safwa.features.planning.telegram.plan import PLAN_LINK_BURST_TAPS, claims_plan_payload
-from safwa.features.planning.use_cases import set_sprint_success_criteria, start_sprint
-from safwa.features.profile.model import ProfileField
-from safwa.features.profile.use_cases import set_profile_field
+from safwa.features.planning.use_cases import (
+    set_sprint_capacity,
+    set_sprint_success_criteria,
+    start_sprint,
+)
 from safwa.features.saved_requests.use_cases import create_saved_request
 from safwa.foundation.workspace import Workspace
 from tg_agent_shell.ai.sql import create_ai_views
@@ -580,9 +582,7 @@ async def test_pl_plan_018_the_plans_cost_is_shown_against_the_capacity(sessions
     assert "Above configured capacity" not in planning.edits[-1][0]
 
     async with sessions() as session:
-        await set_profile_field(
-            session, ProfileField.CAPACITY_EFFORT_POINTS, 10
-        )
+        await set_sprint_capacity(session, 10)
         await session.commit()
 
     await render_sprint(planning, services)
@@ -596,3 +596,73 @@ async def test_pl_plan_018_the_plans_cost_is_shown_against_the_capacity(sessions
 
     assert "In Sprint: 1 Actions · 13 EP · capacity 10 EP" in plan.edits[-1][0]
     assert "Above configured capacity" in plan.edits[-1][0]
+
+
+async def _tap(message, services, prefix: str) -> None:
+    button = next(
+        button
+        for row in message.edits[-1][1].inline_keyboard
+        for button in row
+        if button.text.startswith(prefix)
+    )
+    await callback_token_handler(
+        FakeCallback(button.callback_data.split(":", 1)[1], message), services
+    )
+
+
+async def test_pl_length_035_the_next_sprints_length_is_set_on_the_planning_screen(
+    sessions, monkeypatch
+) -> None:
+    """PL-LENGTH-035 — tests/brd/planning.feature"""
+    monkeypatch.setattr(
+        "safwa.features.planning.telegram.sprint.utcnow",
+        lambda: datetime(2026, 10, 5, 9, 0, tzinfo=UTC),
+    )
+    services = services_for(sessions)
+    message = FakeMessage(140, bot_message=True, answer_as_new=True)
+    await render_sprint(message, services)
+
+    text, markup = message.edits[-1]
+    assert "Length: 14 days, 05.10 – 18.10" in text
+    assert "🏁 Length: 14 days" in button_texts(markup)
+    assert not any(label.startswith("⚖️ Capacity") for label in button_texts(markup))
+
+    await _tap(message, services, "🏁 Length")
+    assert "Send a number of days between 2 and 60" in message.bot.edits[-1][1]
+
+    refused = FakeMessage(141, text="61", bot_message=False, bot=message.bot)
+    await ordinary_text(refused, services)
+    assert "Send a whole number between 2 and 60." in message.bot.edits[-1][1]
+
+    typed = FakeMessage(142, text="7", bot_message=False, bot=message.bot)
+    await ordinary_text(typed, services)
+
+    _, planning_text, planning_markup = message.bot.edits[-1]
+    assert "Length: 7 days, 05.10 – 11.10" in planning_text
+    assert "🏁 Length: 7 days" in button_texts(planning_markup)
+    async with sessions() as session:
+        assert (await session.get(Workspace, 1)).sprint_length_days == 7
+
+
+async def test_pl_capacity_036_the_next_sprints_capacity_is_set_on_the_planning_screen(
+    sessions, effort_on
+) -> None:
+    """PL-CAPACITY-036 — tests/brd/planning.feature"""
+    services = services_for(sessions)
+    message = FakeMessage(150, bot_message=True, answer_as_new=True)
+    await render_sprint(message, services)
+    assert "⚖️ Capacity: off" in button_texts(message.edits[-1][1])
+
+    await _tap(message, services, "⚖️ Capacity")
+    refused = FakeMessage(151, text="0", bot_message=False, bot=message.bot)
+    await ordinary_text(refused, services)
+    assert "Send a positive number of effort points, or off." in message.bot.edits[-1][1]
+
+    typed = FakeMessage(152, text="12,5", bot_message=False, bot=message.bot)
+    await ordinary_text(typed, services)
+
+    _, planning_text, planning_markup = message.bot.edits[-1]
+    assert "capacity 12.5 EP" in planning_text
+    assert "⚖️ Capacity: 12.5 EP" in button_texts(planning_markup)
+    async with sessions() as session:
+        assert (await session.get(Workspace, 1)).sprint_capacity_effort_points == 12.5

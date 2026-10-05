@@ -19,19 +19,23 @@ from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 
-from ...constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
 from ...foundation.workspace import Workspace, WorkspaceMode, require_workspace
 from ..cards.api import action_titles, effort_label, planned_actions
 from ..cards.use_cases import archive_settled_cards
 from ..checks.use_cases import archive_settled_checks
-from ..profile.api import capacity_effort_points, effort_tracking_on
-from ..profile.api import sprint_length_days as _profile_sprint_length_days
+from ..profile.api import effort_tracking_on
 from ..schedules.api import remaining_occurrences
 from .api import (
     SPRINT_ENDED,
+    SPRINT_LENGTH_MAX_DAYS,
+    SPRINT_LENGTH_MIN_DAYS,
     SPRINT_STARTED,
+    capacity_effort_points,
+    capacity_refusal,
     criteria_refusal,
+    length_refusal,
     sprint_counts,
+    sprint_length_days,
     sprint_metrics,
     start_refusal,
 )
@@ -56,8 +60,25 @@ async def set_sprint_success_criteria(session: AsyncSession, criteria: str) -> W
     return workspace
 
 
-async def sprint_length_days(session: AsyncSession) -> int:
-    return await _profile_sprint_length_days(session)
+async def set_sprint_length(session: AsyncSession, days: int) -> Workspace:
+    """Store how many days the next Sprint runs. A running Sprint keeps its own dates."""
+    if (refusal := await length_refusal(session, days)) is not None:
+        raise DomainError(refusal)
+    workspace = await require_workspace(session)
+    workspace.sprint_length_days = days
+    workspace.revision += 1
+    return workspace
+
+
+async def set_sprint_capacity(session: AsyncSession, points: float | None) -> Workspace:
+    """Store the effort the next Sprint means to hold, or None for none. A running Sprint
+    keeps the capacity it started with."""
+    if (refusal := await capacity_refusal(session, points)) is not None:
+        raise DomainError(refusal)
+    workspace = await require_workspace(session)
+    workspace.sprint_capacity_effort_points = points
+    workspace.revision += 1
+    return workspace
 
 
 async def start_sprint(

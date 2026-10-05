@@ -30,10 +30,9 @@ Answer a question about the Profile from that message.
 # The `profile` tool
 - One call, with every field the user asked to change, and `mode` "update".
 - A time is HH:MM, like 08:00.
-- `sprint_length_days` and `home_after_minutes` are whole numbers.
-- `capacity_effort_points` is a number of effort points; null turns the capacity off.
+- `home_after_minutes` is a whole number.
 - `time_tracking` is true or false.
-- `effort_tracking` is true or false; it switches Effort Points and their capacity warnings.
+- `effort_tracking` is true or false; it switches Effort Points.
 - A text field is replaced whole. To add to it, write the text it holds now, then the new words.
 - Write one short line naming what you propose, in the same response. The review screen shows the rest.
 
@@ -47,8 +46,6 @@ Your answer goes to the user as you wrote it. Keep it short."""
 
 def _shown(profile: UserProfile, field: ProfileField) -> str:
     value = getattr(profile, field.value)
-    if field is ProfileField.CAPACITY_EFFORT_POINTS:
-        return "off" if value is None else f"{value:g}"
     if field in {ProfileField.TIME_TRACKING, ProfileField.EFFORT_TRACKING}:
         return "on" if value else "off"
     if hasattr(value, "strftime"):
@@ -79,8 +76,8 @@ PROFILE_AGENT = AgentSpec(
     name="profile",
     purpose=(
         "change a Profile field or answer what it holds: About me, Advisor instructions, "
-        "Sprint length and capacity, the Morning, Diary and daily summary times, the Diary "
-        "instruction, Home after, Time tracking, Effort Points; or asks to switch an automatic reaction."
+        "the Morning, Diary and daily summary times, the Diary instruction, Home after, "
+        "Time tracking, Effort Points; or asks to switch an automatic reaction."
     ),
     instructions=PROFILE_PROMPT,
     mutation_tools=("profile",),
@@ -95,18 +92,11 @@ class ProfileToolInput(ToolInput):
     content_fields: ClassVar[frozenset[str]] = frozenset(
         {"about_me", "advisor_instructions", "diary_instructions"}
     )
-    semantic_null_fields: ClassVar[frozenset[str]] = frozenset({"capacity_effort_points"})
 
     mode: Literal["update"]
     about_me: str | None = Field(default=None, description="What Safwa should know about the user.")
     advisor_instructions: str | None = Field(
         default=None, description="Standing instructions for Safwa."
-    )
-    sprint_length_days: int | None = Field(
-        default=None, description="Days the next Sprint runs."
-    )
-    capacity_effort_points: float | None = Field(
-        default=None, description="Effort points one Sprint holds; null turns it off."
     )
     morning_time: str | None = Field(
         default=None, description="HH:MM when the morning checks run."

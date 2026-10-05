@@ -169,7 +169,7 @@ criteria, Priority Goals, Today Actions, локальное время. Длин
 верный маршрут.
 
 - Случаи 1 и 3 — приняты: готовые числа в state, Advisor отвечает сам, Sprint только меняет.
-- Случай 2 — снимается переносом длины Sprint из Profile на экран Sprint: «Батч 2» ниже.
+- Случай 2 — снят переносом длины и capacity Sprint из Profile в Planning: «Батч 2» ниже.
   До него длина идущего Sprint — его собственные даты, а не поле Profile: поле могли поменять
   после старта (PL-ASK-026).
 - Случай 4 — как есть: оба пути дают верный ответ.
@@ -373,9 +373,9 @@ Scenario: AG-OPEN-054 — An item Safwa cannot find is left to the subagent that
 - Обновить снапшот промптов именованным тестом `test_rule_i_prompt_prefix_is_byte_stable`.
 - Полный набор тестов и Ruff: правка широкая.
 
-## Батч 2 — длина Sprint на экране Sprint
+## Батч 2 — длина Sprint на экране Sprint — сделано
 
-Идея владельца. Решения приняты; план — следующий шаг.
+Идея владельца. Сделан 2026-10-05 по плану ниже; отличия — в «Как сделано».
 
 **Что.** Убрать длину Sprint из Profile. Длина следующего Sprint живёт рядом с его черновиком
 Success criteria (они уже хранятся в Workspace), задаётся на экране Sprint в Planning и словами
@@ -395,6 +395,124 @@ Sprint — это пользователю интересно); источник
    В Profile остаются личные поля и переключатели.
 2. Ввод на экране — число с клавиатуры, тот же приём, что сейчас в Profile.
 3. Словами: `sprint` с `mode="update"` принимает длину и capacity, только в Planning.
+
+### План
+
+**Хранение.** В Workspace, рядом с черновиком `sprint_success_criteria`, две колонки следующего
+Sprint: длина в днях (по умолчанию 14) и capacity в EP или пусто. Из профиля обе колонки и оба
+`ProfileField` уходят. Константа длины по умолчанию переезжает в `foundation/workspace.py`
+(это default колонки); `SPRINT_LENGTH_MIN_DAYS` и `SPRINT_LENGTH_MAX_DAYS` из `constants.py` —
+в Planning: после переноса их читает одна фича.
+
+**Дверь.** `sprint_length_days(session)` и `capacity_effort_points(session)` переезжают из
+`profile/api.py` в `planning/api.py` с теми же именами и смыслом: capacity при выключенных Effort
+Points — None. Обёртка в `planning/use_cases.py` удаляется.
+
+**Операции** в `planning/use_cases.py`: задать длину следующего Sprint (целое 2–60) и его capacity
+(положительное число или off). Обе — только в Planning; capacity — только при включённых Effort
+Points. Экран и Save вызывают их же.
+
+**Экран Planning** (`planning/telegram/sprint.py`):
+
+```text
+Planning
+Success criteria: …
+Length: 14 days, 05.10 – 18.10
+Planned: 6 Actions · 18 EP · capacity 20 EP
+```
+
+Кнопки: «🏁 Length: 14 days» и, при включённых Effort Points, «⚖️ Capacity: 20 EP». Каждая
+открывает ввод числа тем же приёмом, что Success criteria; формулировки ввода — из нынешнего
+Profile. Строка «Planned» уже показывает capacity, отдельной строки не нужно.
+
+**Словами.** Тул `sprint`: два поля — `length_days` (целое) и `capacity_effort_points` (число;
+null выключает, тот же приём, что был в Profile). С `mode="update"` задают их для следующего
+Sprint, с `mode="create"` — в том же Save, что и старт. Отказы — до экрана, как PS-AI-019: длина
+вне 2–60, capacity не больше нуля, Sprint уже идёт, capacity при выключенных Effort Points.
+Экран review для update показывает каждое изменённое поле: было → станет.
+
+**Промпты.**
+
+- Sprint, `purpose`: «start or finish the Sprint, or set the next Sprint's Success criteria,
+  length or capacity.»
+- `SPRINT_PROMPT`: строки о тул `sprint` — про два новых поля; «Change the Sprint length or the
+  capacity: they are in the Profile» → «Change a running Sprint's length or capacity»; «the
+  Profile's Sprint length» → «the next Sprint's length». Остальное — в раунде Sprint.
+- `sprint_now`: «Sprint length in the Profile: N days» → «Next Sprint's length: N days».
+- Profile, `purpose`: без «Sprint length and capacity»; `PROFILE_PROMPT`: без строк о них; тул
+  `profile`: без двух полей.
+- Advisor: строка «The Sprint length and capacity are Profile fields: `route("profile")`»
+  удаляется — это теперь говорит `purpose` Sprint.
+- State Advisor в Planning: к строке о Sprint, начатом сегодня, добавляется capacity при
+  включённых Effort Points.
+
+**Руководство onboarding** — это видит пользователь: раздел Sprint (кнопки «🏁 Length» и
+«⚖️ Capacity», длина задаётся в Planning), раздел Profile (без длины и capacity), строка «The
+length and the capacity are in the Profile», строка EP о Sprint length в Profile.
+
+**Сценарии.**
+
+PS-SPRINT-LENGTH-003 и PS-CAPACITY-004 выводятся из обращения; их содержание переходит в Planning
+под новыми номерами:
+
+```gherkin
+Scenario: PL-LENGTH-035 — The next Sprint's length is set in Planning, between 2 and 60 days
+  Given the workspace is in Planning
+  Then the Planning screen shows the next Sprint's length and the dates it would run if started today
+  When the owner sets it, on that screen or in words, to a whole number of days from 2 through 60
+    (SPRINT_LENGTH_MIN_DAYS = 2, SPRINT_LENGTH_MAX_DAYS = 60)
+  Then every Sprint started after that runs that many days, until the length is changed
+  But 1 day and 61 days are refused, and the length keeps what it had
+  And while a Sprint runs, setting it is refused: a running Sprint keeps its dates (PL-MODE-002)
+
+Scenario: PL-CAPACITY-036 — The next Sprint's capacity is set in Planning, a number of points or off
+  Given Effort Points are on and the workspace is in Planning
+  Then the Planning screen shows the next Sprint's capacity
+  When the owner sets it, on that screen or in words, to a positive number of effort points, a half included
+  Then it is accepted, and off means no capacity at all
+  But zero and a negative number are refused
+  And while a Sprint runs, setting it is refused: the Sprint keeps the capacity it started with (PL-CAPACITY-027)
+  And with Effort Points off the screen shows no capacity, and setting it in words is refused (PS-EP-021)
+```
+
+Переформулировки без смены исходов: PL-MODE-002 («the Profile's Sprint length» → «the next
+Sprint's length»; «the length and the capacity are the Profile's» → их можно задать и словами,
+только в Planning), PL-START-005, PL-PLAN-018, PL-CAPACITY-027 («in the Profile» → «of the next
+Sprint»), PS-FIELD-002 (полей на два меньше). PS-AI-019 меняет пример: Home after и Morning time
+вместо Sprint length и Morning time; отказ «61 day» → отказ Home after вне диапазона.
+
+**Тесты.** Около 60 мест в восьми файлах ставят длину или capacity через профиль: переводятся
+на новые операции. Новые: PL-LENGTH-035 и PL-CAPACITY-036 (операции, экран Planning, тул
+`sprint`, отказы). Снапшоты: схема (`user_profile` без двух колонок, `workspace` с двумя),
+промпты (Advisor, Sprint, Profile, тулы `sprint` и `profile`). Полный набор и Ruff.
+
+**Допущения.** Подписи кнопок «🏁 Length» и «⚖️ Capacity». Владелец согласился и велел удалить
+PLAN_FEATURES.md целиком.
+
+### Как сделано
+
+- **Хранение и дверь** — как в плане: `Workspace.sprint_length_days` и
+  `Workspace.sprint_capacity_effort_points`; `SPRINT_LENGTH_DAYS` в `foundation/workspace.py`;
+  `SPRINT_LENGTH_MIN_DAYS` и `SPRINT_LENGTH_MAX_DAYS` в `planning/api.py`. Там же отказы
+  `length_refusal` и `capacity_refusal`, их спрашивают и операции, и подготовка proposal.
+- **Операции:** `set_sprint_length` и `set_sprint_capacity` в `planning/use_cases.py`.
+- **Экран.** Кнопка Success criteria, «🏁 Length» и «⚖️ Capacity» ведут на один callback
+  `sprint_edit` с именем поля; ввод — один поток `sprint` с полем в состоянии, поля описаны
+  в `PLANNING_FIELDS`, как `PROFILE_FIELDS` в Profile. «⚖️ Capacity» — только при
+  включённых Effort Points.
+- **Review.** Update показывает «Next Sprint» и блок на каждое изменённое поле: Now / Becomes.
+  Старт показывает длину и capacity из proposal, если они в нём есть.
+- **Отличие от плана: `sprint_now` в идущем Sprint** больше не называет длину следующего.
+  Её нельзя менять, пока Sprint идёт, а две длины в одном блоке путают малую модель. В
+  Planning строка — «Next Sprint's length: N days».
+- **Отличие: тул в `mode="create"`** не выключает capacity через null: пустое значение
+  сохраняется только в update. Выключить capacity — отдельным update.
+- **Сценарии сверх плана:** PL-MODE-002 получил строку о review изменения следующего Sprint;
+  PL-REPEAT-031 и PL-ASK-026 (capacity в Planning) переформулированы. PS-FIELD-002 теперь
+  «nine fields»: прежнее «ten» не совпадало с кодом, полей было 11.
+- **Промпт Profile:** у `effort_tracking` ушло «and their capacity warnings».
+- **Доки:** пример ответа двери в FEATURE_MODULES.md, строки о длине в SCHEDULES.md и
+  HOME_DASHBOARD.md. PLAN_FEATURES.md удалён.
 
 ## Workspace Mutator
 
@@ -592,3 +710,11 @@ message… If they tell you, route to…». Это тоже промпты: он
   Sprint. `SYSTEM_PROMPT` 14237 → 14032 символов. Полный набор: 1949 passed, 4 skipped; Ruff и
   сканер архитектуры чистые. Батч 2: владелец ответил — capacity переезжает тоже, ввод числом,
   словами через `sprint`.
+- **2026-10-05.** Батч 1 закоммичен (v9.125). Записан план Батча 2.
+- **2026-10-05.** Батч 2 сделан: длина и capacity следующего Sprint — в Workspace, на экране
+  Planning и в тул `sprint`; из Profile ушли. Новые сценарии PL-LENGTH-035 и PL-CAPACITY-036;
+  PS-SPRINT-LENGTH-003 и PS-CAPACITY-004 выведены. Снапшоты: схема (`user_profile`,
+  `workspace`), промпты (Advisor, Onboarding, Profile, Sprint, тулы `profile` и `sprint`).
+  PLAN_FEATURES.md удалён по слову владельца. Полный набор: 1947 passed, 4 skipped — на два
+  меньше, чем после Батча 1: тесты документов шли и по PLAN_FEATURES.md. Ruff и сканер
+  архитектуры чистые.

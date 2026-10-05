@@ -105,8 +105,8 @@ list of Actions at once, the executions left from today — or a later window st
 the window's last day. An Action without a Schedule is 1; after-completion repetition is
 `None`; every other Action on the plan is at least 1, including when its
 appointment falls outside the window. A running Sprint's window is today to its planned last
-day, so an Action joining mid-Sprint counts only the days left. Planning uses the Profile's
-Sprint length from today.
+day, so an Action joining mid-Sprint counts only the days left. Planning uses the next
+Sprint's length from today.
 
 Each quota period the window covers in part gets its share by local days covered:
 `round(count × days covered / days in period)`. A period's facts reduce it only beyond the

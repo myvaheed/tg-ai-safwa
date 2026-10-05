@@ -21,6 +21,7 @@ from safwa.features.planning.model import Sprint
 from safwa.features.planning.use_cases import finish_sprint, start_sprint
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
+from safwa.foundation.workspace import Workspace
 from tg_agent_shell.ai.outcome import AIOutcomeKind
 
 pytestmark = pytest.mark.e2e
@@ -48,7 +49,7 @@ async def _three_ended(harness) -> list[Sprint]:
     ended = []
     async with harness.sessions() as session:
         for capacity in (10, 20, None):
-            await set_profile_field(session, ProfileField.CAPACITY_EFFORT_POINTS, capacity)
+            (await session.get(Workspace, 1)).sprint_capacity_effort_points = capacity
             card = await create_card(
                 session, kind="action", title="Ship", stage="sprint", effort_points=2
             )

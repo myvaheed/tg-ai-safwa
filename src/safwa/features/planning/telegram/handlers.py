@@ -16,7 +16,7 @@ from .plan import (
     on_plan_open,
     on_plan_page,
 )
-from .sprint import render_sprint, render_sprint_criteria_prompt
+from .sprint import render_sprint, render_sprint_field_prompt
 
 
 async def _clear_ui(context: CallbackContext) -> None:
@@ -35,8 +35,10 @@ async def _on_sprint_page(context: CallbackContext) -> None:
     )
 
 
-async def _on_criteria_prompt(context: CallbackContext) -> None:
-    await render_sprint_criteria_prompt(context.message, context.services)
+async def _on_edit(context: CallbackContext) -> None:
+    await render_sprint_field_prompt(
+        context.message, context.services, str(context.payload["field"])
+    )
 
 
 async def _on_back(context: CallbackContext) -> None:
@@ -73,7 +75,7 @@ async def _on_finish(context: CallbackContext) -> None:
 
 PLANNING_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "sprint_page": _on_sprint_page,
-    "sprint_criteria_prompt": _on_criteria_prompt,
+    "sprint_edit": _on_edit,
     "sprint_back": _on_back,
     "sprint_start": _on_start,
     "sprint_finish": _on_finish,

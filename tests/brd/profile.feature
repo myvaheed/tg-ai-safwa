@@ -14,21 +14,9 @@ Feature: Profile
     And About me and Advisor instructions come after it, so they are what it goes by
 
   Scenario: PS-FIELD-002 — Profile writes only the fields it has
-    Given the ten fields
+    Given the nine fields
     When anything tries to write a name that is not one of them
     Then it is refused, no field changes, and nothing is recorded as having changed
-
-  Scenario: PS-SPRINT-LENGTH-003 — A Sprint is between 2 and 60 days long
-    Given a whole number of days from 2 through 60
-      (SPRINT_LENGTH_MIN_DAYS = 2, SPRINT_LENGTH_MAX_DAYS = 60)
-    Then it is accepted
-    But 1 day and 61 days are refused, and the field keeps what it had
-
-  Scenario: PS-CAPACITY-004 — Sprint capacity is a real number of points, or off
-    Given a positive number of effort points, a half included
-    Then it is accepted
-    And off means the owner is not committing to a capacity at all
-    But zero and a negative number are refused
 
   Scenario: PS-CLOCK-005 — A time of day is a wall clock
     Given a time from 00:00 through 23:59, for the Diary or the daily summary
@@ -121,11 +109,11 @@ Feature: Profile
     Then the next quiet period is measured by it, without a restart
 
   Scenario: PS-AI-019 — A Profile field is set in words too, through the same check
-    Given the owner asks Safwa to set the Sprint length to 10 days and the Morning time to 08:00
+    Given the owner asks Safwa to set Home after to 45 minutes and the Morning time to 08:00
     Then one review screen shows both fields, each with what it was and what it becomes
     And Save stores each the way the Profile screen does, one change per field
-    When the owner asks for a Sprint of 61 days
-    Then it is refused before any screen, with the range (PS-SPRINT-LENGTH-003)
+    When the owner asks for a Home after of 2 minutes
+    Then it is refused before any screen, with the range (PS-HOME-018)
 
   Scenario: PS-AI-020 — The switches are reached through Profile
     When the owner asks Safwa to turn an automatic reaction off or on

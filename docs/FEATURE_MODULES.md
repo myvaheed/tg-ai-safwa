@@ -163,7 +163,7 @@ proposal and hands it on; Rule K is what says so.
 `api.py` **defines** what it publishes, and it exists only when another feature actually calls in.
 Two kinds of thing are on it, and the second is the one that surprises:
 
-- **An answer rather than a row** wherever an answer will do: `sprint_length_days(session)`, not
+- **An answer rather than a row** wherever an answer will do: `effort_tracking_on(session)`, not
   `UserProfile`.
 - **A write of this feature's own rows, driven by another feature's operation**: `attach_values`,
   `attach_tags`, `sync_commitment_for_stage`, `delete_commitments_of_cards`. The Card owns saving a

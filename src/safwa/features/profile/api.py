@@ -20,7 +20,6 @@ from .model import (
     DIARY_TIME_DEFAULT,
     HOME_AFTER_MINUTES_DEFAULT,
     MORNING_TIME_DEFAULT,
-    SPRINT_LENGTH_DAYS,
     SUMMARY_TIME_DEFAULT,
     UserProfile,
 )
@@ -31,18 +30,6 @@ from .model import (
 TIME_TRACKING_REMINDER = "cards.time_tracking_reminder"
 EFFORT_TRACKING_REMINDER = "cards.effort_tracking_reminder"
 TODAY_OVERLOAD = "cards.today_overload"
-
-
-async def sprint_length_days(session: AsyncSession) -> int:
-    """How many days the owner wants a Sprint to run, or the default nobody changed."""
-    profile = await session.get(UserProfile, 1)
-    return profile.sprint_length_days if profile is not None else SPRINT_LENGTH_DAYS
-
-
-async def capacity_effort_points(session: AsyncSession) -> float | None:
-    """The effort the owner means to take on in a Sprint, or None when it is off."""
-    profile = await session.get(UserProfile, 1)
-    return profile.capacity_effort_points if profile is not None and profile.effort_tracking else None
 
 
 async def effort_tracking_on(session: AsyncSession) -> bool:

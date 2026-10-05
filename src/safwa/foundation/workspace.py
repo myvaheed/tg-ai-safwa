@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import Float, ForeignKey, Integer, String, Text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
 from tg_agent_shell.foundation.errors import DomainError
 
 from .models import Base, TimestampMixin
+
+# How many days a Sprint runs until the owner sets another length in Planning.
+SPRINT_LENGTH_DAYS = 14
 
 
 class WorkspaceMode(StrEnum):
@@ -28,6 +31,10 @@ class Workspace(Base, TimestampMixin):
     # What the next Sprint is meant to achieve, edited during Planning and copied into the
     # Sprint at start. It outlives a Sprint so the next one can start from the last wording.
     sprint_success_criteria: Mapped[str] = mapped_column(Text, default="")
+    # The next Sprint's length and capacity, set the same way and copied into it at start.
+    # A capacity of None is none at all.
+    sprint_length_days: Mapped[int] = mapped_column(Integer, default=SPRINT_LENGTH_DAYS)
+    sprint_capacity_effort_points: Mapped[float | None] = mapped_column(Float)
     revision: Mapped[int] = mapped_column(Integer, default=1)
 
 

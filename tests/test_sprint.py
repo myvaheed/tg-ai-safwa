@@ -39,6 +39,8 @@ from safwa.features.planning.api import (
     SPRINT_JOINED,
     SPRINT_KEY_ACTIONS,
     SPRINT_LEFT,
+    SPRINT_LENGTH_MAX_DAYS,
+    SPRINT_LENGTH_MIN_DAYS,
     SPRINT_STARTED,
     today_actions,
 )
@@ -66,18 +68,18 @@ from safwa.features.planning.model import Sprint, SprintCommitment, next_sprint_
 from safwa.features.planning.use_cases import (
     expire_due_sprint,
     finish_sprint,
+    set_sprint_capacity,
+    set_sprint_length,
     set_sprint_success_criteria,
     sprint_metrics,
     start_sprint,
 )
 from safwa.features.profile.api import morning_time
-from safwa.features.profile.model import SPRINT_LENGTH_DAYS, ProfileField
-from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.reminders.model import Reminder
 from safwa.features.retro.records import aggregate, sprint_records, sprints_by_number
 from safwa.features.schedules.api import set_schedule
 from safwa.features.workspace_mutator.state import workspace_context
-from safwa.foundation.workspace import Workspace
+from safwa.foundation.workspace import SPRINT_LENGTH_DAYS, Workspace
 from tg_agent_shell.cues.initiatives import bind_committed, hand_on_start, queue_advice
 from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.foundation.changes import Committed, take_changes
@@ -152,7 +154,7 @@ async def test_pl_start_005_a_sprint_runs_the_length_settings_asked_for(sessions
     """PL-START-005 — tests/brd/planning.feature"""
     async with sessions() as session:
         await plan_one(session)
-        await set_profile_field(session, ProfileField.SPRINT_LENGTH_DAYS, 7)
+        await set_sprint_length(session, 7)
 
         sprint = await start_sprint(session, success_criteria="Ship v2")
 
@@ -161,6 +163,58 @@ async def test_pl_start_005_a_sprint_runs_the_length_settings_asked_for(sessions
         workspace = await session.get(Workspace, 1)
         local = sprint.actual_started_at.astimezone(ZoneInfo(workspace.timezone))
         assert sprint.planned_start_date == local.date()
+
+
+async def test_pl_length_035_the_next_sprint_runs_2_to_60_days_set_in_planning(sessions):
+    """PL-LENGTH-035 — tests/brd/planning.feature"""
+    async with sessions() as session:
+        await plan_one(session)
+        for accepted in (SPRINT_LENGTH_MIN_DAYS, SPRINT_LENGTH_MAX_DAYS):
+            assert (await set_sprint_length(session, accepted)).sprint_length_days == accepted
+        for refused in (SPRINT_LENGTH_MIN_DAYS - 1, SPRINT_LENGTH_MAX_DAYS + 1):
+            with pytest.raises(
+                DomainError,
+                match=f"between {SPRINT_LENGTH_MIN_DAYS} and {SPRINT_LENGTH_MAX_DAYS} days",
+            ):
+                await set_sprint_length(session, refused)
+        assert (await session.get(Workspace, 1)).sprint_length_days == SPRINT_LENGTH_MAX_DAYS
+
+        await set_sprint_length(session, 7)
+        first = await start_sprint(session, success_criteria="Ship v2")
+        with pytest.raises(DomainError, match="its dates were fixed when it started"):
+            await set_sprint_length(session, 10)
+        await finish_sprint(session)
+        second = await start_sprint(session, success_criteria="Ship v3")
+
+        assert [
+            (sprint.planned_end_date - sprint.planned_start_date).days
+            for sprint in (first, second)
+        ] == [6, 6]
+
+
+async def test_pl_capacity_036_the_next_sprints_capacity_is_points_or_off(sessions, effort_on):
+    """PL-CAPACITY-036 — tests/brd/planning.feature"""
+    async with sessions() as session:
+        for accepted in (1, 12.5, None):
+            workspace = await set_sprint_capacity(session, accepted)
+            assert workspace.sprint_capacity_effort_points == accepted
+        for refused in (0, -1):
+            with pytest.raises(DomainError, match="a positive number, or off"):
+                await set_sprint_capacity(session, refused)
+        assert (await session.get(Workspace, 1)).sprint_capacity_effort_points is None
+
+        await plan_one(session)
+        await start_sprint(session, success_criteria="Ship v2")
+        with pytest.raises(DomainError, match="keeps the capacity it started with"):
+            await set_sprint_capacity(session, 20)
+
+
+async def test_pl_capacity_036_with_effort_points_off_no_capacity_is_set(sessions):
+    """PL-CAPACITY-036 — tests/brd/planning.feature"""
+    async with sessions() as session:
+        with pytest.raises(DomainError, match="Effort Points are off"):
+            await set_sprint_capacity(session, 20)
+        assert (await session.get(Workspace, 1)).sprint_capacity_effort_points is None
 
 
 async def test_pl_start_005_the_default_length_is_the_constant(sessions):
@@ -259,7 +313,7 @@ async def test_pl_warn_011_a_two_day_sprint_only_warns_on_its_last_day(sessions)
     """PL-WARN-011 — tests/brd/planning.feature"""
     async with sessions() as session:
         await plan_one(session)
-        await set_profile_field(session, ProfileField.SPRINT_LENGTH_DAYS, 2)
+        await set_sprint_length(session, 2)
         sprint = await start_sprint(session, success_criteria="Ship v2")
         sprint.actual_started_at = _at(sprint.planned_start_date, time(18, 32))
         end = sprint.planned_end_date
@@ -417,7 +471,7 @@ async def test_pl_ask_026_the_sprint_is_read_as_it_stands(sessions, effort_on):
     async with sessions() as session:
         await plan_one(session)
         await set_sprint_success_criteria(session, "Ship v2")
-        await set_profile_field(session, ProfileField.CAPACITY_EFFORT_POINTS, 20)
+        await set_sprint_capacity(session, 20)
         await session.commit()
 
     planning = await sprint_now(context)
@@ -428,7 +482,7 @@ async def test_pl_ask_026_the_sprint_is_read_as_it_stands(sessions, effort_on):
     assert "Mode: Planning. No Sprint is running." in planning
     assert "Next Sprint's Success criteria: Ship v2" in planning
     assert (
-        f"Sprint length in the Profile: {SPRINT_LENGTH_DAYS} days. Started today, the Sprint "
+        f"Next Sprint's length: {SPRINT_LENGTH_DAYS} days. Started today, it "
         f"runs {today} – {last}." in planning
     )
     assert "It can start now." in planning
@@ -437,6 +491,7 @@ async def test_pl_ask_026_the_sprint_is_read_as_it_stands(sessions, effort_on):
         f"A Sprint started today runs {today} – {last}, {SPRINT_LENGTH_DAYS} days."
         in planning_state
     )
+    assert "Next Sprint's capacity: 20 EP." in planning_state
 
     async with sessions() as session:
         sprint = await start_sprint(session, success_criteria="Ship v2")
@@ -462,11 +517,12 @@ async def test_pl_capacity_027_a_sprint_keeps_the_capacity_it_started_with(sessi
     """PL-CAPACITY-027 — tests/brd/planning.feature"""
     async with sessions() as session:
         await plan_one(session)
-        await set_profile_field(session, ProfileField.CAPACITY_EFFORT_POINTS, 20)
+        await set_sprint_capacity(session, 20)
         kept = await start_sprint(session, success_criteria="Ship v2")
-        await set_profile_field(session, ProfileField.CAPACITY_EFFORT_POINTS, 30)
         await finish_sprint(session)
-        await set_profile_field(session, ProfileField.CAPACITY_EFFORT_POINTS, None)
+        await set_sprint_capacity(session, 30)
+        assert kept.capacity_effort_points == 20
+        await set_sprint_capacity(session, None)
         # The planned Action keeps its stage, so the next Sprint has work to start with.
         none = await start_sprint(session, success_criteria="Ship v3")
         await finish_sprint(session)

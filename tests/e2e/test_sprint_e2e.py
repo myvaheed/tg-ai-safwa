@@ -18,11 +18,12 @@ from sqlalchemy import select
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.cards.use_cases import create_card
 from safwa.features.planning.agent import SPRINT_PROMPT, SprintToolInput
+from safwa.features.planning.api import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
 from safwa.features.planning.model import Sprint, SprintCommitment
-from safwa.features.planning.use_cases import FINISHED_BY_HAND, start_sprint
-from safwa.features.profile.model import SPRINT_LENGTH_DAYS, ProfileField
+from safwa.features.planning.use_cases import FINISHED_BY_HAND, set_sprint_capacity, start_sprint
+from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
-from safwa.foundation.workspace import Workspace
+from safwa.foundation.workspace import SPRINT_LENGTH_DAYS, Workspace
 from tg_agent_shell.ai.outcome import AIOutcomeKind
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.proposals.model import BatchDecision
@@ -62,7 +63,7 @@ async def test_pl_mode_002_a_sprint_started_in_words_is_the_one_the_button_start
         card = await create_card(
             session, kind="action", title="Ship it", stage="sprint", effort_points=3
         )
-        await set_profile_field(session, ProfileField.CAPACITY_EFFORT_POINTS, 10)
+        await set_sprint_capacity(session, 10)
         await session.commit()
     advisor, provider = e2e_harness.advisor(
         [
@@ -101,8 +102,8 @@ async def test_pl_mode_002_a_sprint_started_in_words_is_the_one_the_button_start
         sprint = await session.get(Sprint, workspace.active_sprint_id)
         commitments = list(await session.scalars(select(SprintCommitment)))
     assert affected == [sprint.id]
-    # What the Start button makes: the Profile's length from today, the criteria, the plan
-    # at the effort it has now, and the capacity the Profile holds (PL-CAPACITY-027).
+    # What the Start button makes: the next Sprint's length from today, the criteria, the
+    # plan at the effort it has now, and the next Sprint's capacity (PL-CAPACITY-027).
     assert (sprint.planned_start_date, sprint.planned_end_date) == (today, last)
     assert sprint.success_criteria == workspace.sprint_success_criteria == "Ship v2"
     assert sprint.capacity_effort_points == 10
@@ -184,7 +185,9 @@ async def test_pl_mode_002_refusals_are_the_buttons_own_and_nothing_is_proposed(
         assert (await session.scalar(select(Sprint))).success_criteria == "Ship v2"
 
     # Dates, a pause, an extension or a Sprint brought back are nowhere in the tool.
-    assert set(SprintToolInput.model_fields) == {"mode", "success_criteria"}
+    assert set(SprintToolInput.model_fields) == {
+        "mode", "success_criteria", "length_days", "capacity_effort_points"
+    }
     assert "there is no way to" in SPRINT_PROMPT
 
 
@@ -217,3 +220,78 @@ async def test_pl_mode_002_a_sprint_finished_in_words_ends_as_the_button_ends_it
     assert workspace.active_sprint_id is None
     assert ended.finish_reason == FINISHED_BY_HAND
     assert ended.retro is not None
+
+
+async def test_pl_length_035_the_next_sprints_length_and_capacity_are_set_in_words(e2e_harness):
+    """PL-LENGTH-035 — tests/brd/planning.feature"""
+    async with e2e_harness.sessions() as session:
+        await set_profile_field(session, ProfileField.EFFORT_TRACKING, True)
+        await session.commit()
+    advisor, provider = e2e_harness.advisor(
+        [
+            route_turn("sprint"),
+            mutation_turn(
+                ("sprint", {"mode": "update", "length_days": 7, "capacity_effort_points": 12.5})
+            ),
+        ],
+        subagents=(e2e_harness.subagent("sprint"),),
+    )
+
+    screen = await advisor.handle("Make the next Sprint a week, with 12.5 points")
+
+    assert screen.kind is AIOutcomeKind.PROPOSAL
+    async with e2e_harness.sessions() as session:
+        drawn = await PROPOSALS.presenter("sprint").screen(
+            session, advisor.reviews.proposal(screen.proposal_id).changes
+        )
+    assert (drawn.mode, drawn.item) == ("Edit", "Next Sprint")
+    assert drawn.blocks == (
+        f"<b>Length</b>\nNow: {SPRINT_LENGTH_DAYS} days\nBecomes: 7 days",
+        "<b>Capacity</b>\nNow: off\nBecomes: 12.5 EP",
+    )
+
+    await _save(e2e_harness, advisor, provider, screen.proposal_id, ["Set.", "Done."])
+
+    async with e2e_harness.sessions() as session:
+        workspace = await session.get(Workspace, 1)
+    assert (workspace.sprint_length_days, workspace.sprint_capacity_effort_points) == (7, 12.5)
+
+    # Out of range: refused before any screen, with the range the screen gives.
+    advisor, provider = e2e_harness.advisor(
+        [
+            route_turn("sprint"),
+            mutation_turn(("sprint", {"mode": "update", "length_days": 61})),
+            "A Sprint runs 2 to 60 days.",
+            forward_turn("sprint"),
+        ],
+        subagents=(e2e_harness.subagent("sprint"),),
+    )
+
+    outcome = await advisor.handle("Make the next Sprint 61 days")
+
+    assert outcome.kind is AIOutcomeKind.ANSWER
+    refused = _tool_result(provider.calls[2], "sprint")
+    assert refused["code"] == "length_refused"
+    assert f"between {SPRINT_LENGTH_MIN_DAYS} and {SPRINT_LENGTH_MAX_DAYS} days" in refused["error"]
+    assert not e2e_harness.reviews.open_batches
+
+
+async def test_pl_capacity_036_with_effort_points_off_a_capacity_in_words_is_refused(e2e_harness):
+    """PL-CAPACITY-036 — tests/brd/planning.feature"""
+    advisor, provider = e2e_harness.advisor(
+        [
+            route_turn("sprint"),
+            mutation_turn(("sprint", {"mode": "update", "capacity_effort_points": 20})),
+            "Effort Points are off.",
+            forward_turn("sprint"),
+        ],
+        subagents=(e2e_harness.subagent("sprint"),),
+    )
+
+    outcome = await advisor.handle("Give the next Sprint a capacity of 20 points")
+
+    assert outcome.kind is AIOutcomeKind.ANSWER
+    refused = _tool_result(provider.calls[2], "sprint")
+    assert refused["code"] == "capacity_refused"
+    assert "Effort Points are off" in refused["error"]
+    assert not e2e_harness.reviews.open_batches

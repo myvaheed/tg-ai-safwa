@@ -91,60 +91,10 @@ async def test_profile_rejects_an_undeclared_field_without_changes(sessions) -> 
 def test_the_declared_fields_are_exactly_the_editable_settings() -> None:
     """PS-FIELD-002 — tests/brd/profile.feature"""
     # The two feature switches are pressed rather than typed.
-    assert len(ProfileField) == 11
+    assert len(ProfileField) == 9
     assert {field.value for field in ProfileField} == set(PROFILE_FIELDS) | {
         ProfileField.TIME_TRACKING.value, ProfileField.EFFORT_TRACKING.value
     }
-
-
-async def test_sprint_length_accepts_2_to_60_days_only(sessions) -> None:
-    """PS-SPRINT-LENGTH-003 — tests/brd/profile.feature"""
-    async with sessions() as session:
-        profile = await set_profile_field(
-            session, ProfileField.SPRINT_LENGTH_DAYS, 2
-        )
-        assert profile.sprint_length_days == 2
-        profile = await set_profile_field(
-            session, ProfileField.SPRINT_LENGTH_DAYS, 60
-        )
-        assert profile.sprint_length_days == 60
-
-        for rejected in (1, 61):
-            with pytest.raises(DomainError, match="between 2 and 60"):
-                await set_profile_field(
-                    session, ProfileField.SPRINT_LENGTH_DAYS, rejected
-                )
-
-        assert profile.sprint_length_days == 60
-
-
-async def test_sprint_capacity_accepts_positive_points_or_off(sessions) -> None:
-    """PS-CAPACITY-004 — tests/brd/profile.feature"""
-    async with sessions() as session:
-        profile = await set_profile_field(
-            session, ProfileField.CAPACITY_EFFORT_POINTS, 1
-        )
-        assert profile.capacity_effort_points == 1
-        profile = await set_profile_field(
-            session, ProfileField.CAPACITY_EFFORT_POINTS, None
-        )
-        assert profile.capacity_effort_points is None
-
-        profile = await set_profile_field(
-            session, ProfileField.CAPACITY_EFFORT_POINTS, 12.5
-        )
-        assert profile.capacity_effort_points == 12.5
-        await set_profile_field(
-            session, ProfileField.CAPACITY_EFFORT_POINTS, None
-        )
-
-        for rejected in (0, -1):
-            with pytest.raises(DomainError, match="positive number"):
-                await set_profile_field(
-                    session, ProfileField.CAPACITY_EFFORT_POINTS, rejected
-                )
-
-        assert profile.capacity_effort_points is None
 
 
 def test_scheduled_profile_clocks_accept_hhmm_and_refuse_off() -> None:
@@ -292,9 +242,6 @@ async def test_ag_hook_038_switching_a_hook_off_drops_its_pending_request_for_go
     [
         ("about_me", "I run in the mornings", "I run in the mornings"),
         ("advisor_instructions", "Be brief", "Be brief"),
-        ("capacity_effort_points", 12.5, 12.5),
-        ("capacity_effort_points", None, None),
-        ("sprint_length_days", 10, 10),
         ("diary_time", "21:30", time(21, 30)),
         ("diary_instructions", "Note how I slept", "Note how I slept"),
         ("summary_time", "19:00", time(19, 0)),
@@ -310,8 +257,6 @@ async def test_ps_ai_019_every_field_is_set_in_words_through_the_screens_check(
     handler = ProfileProposalHandler()
     change = PROPOSALS.change_from_tool("profile", {"mode": "update", name: sent})
     async with sessions() as session:
-        if name == "capacity_effort_points" and sent is None:
-            await set_profile_field(session, ProfileField.CAPACITY_EFFORT_POINTS, 20)
         revision = (await session.get(Workspace, 1)).revision
         prepared = await handler.prepare(SimpleNamespace(session=session), change)
         await handler.apply(
@@ -326,8 +271,6 @@ async def test_ps_ai_019_every_field_is_set_in_words_through_the_screens_check(
 @pytest.mark.parametrize(
     ("name", "sent"),
     [
-        ("sprint_length_days", 61),
-        ("capacity_effort_points", 0),
         ("diary_time", "25:00"),
         ("home_after_minutes", 2),
     ],

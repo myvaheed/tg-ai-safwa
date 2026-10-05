@@ -17,7 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.clock import utcnow
 
-from ...foundation.workspace import Workspace, WorkspaceMode, require_workspace
+from ...foundation.workspace import (
+    SPRINT_LENGTH_DAYS,
+    Workspace,
+    WorkspaceMode,
+    require_workspace,
+)
 from ..cards.api import (
     PLANNED_STAGES,
     SCHEDULE_NOTICE_DAYS,
@@ -28,9 +33,13 @@ from ..cards.api import (
     planned_actions,
 )
 from ..cards.model import CardKind, Priority
-from ..profile.api import sprint_length_days
+from ..profile.api import effort_tracking_on
 from ..schedules.api import planned_executions, remaining_occurrences
 from .model import Sprint, SprintCommitment
+
+# What the next Sprint's length may be set to, in days.
+SPRINT_LENGTH_MIN_DAYS = 2
+SPRINT_LENGTH_MAX_DAYS = 60
 
 # The stages an Action has to be on for a Sprint to have anything to say about it.
 SPRINT_SCOPE = frozenset({CardStage.SPRINT, CardStage.TODAY, CardStage.DONE})
@@ -59,6 +68,53 @@ async def criteria_refusal(session: AsyncSession, criteria: str) -> str | None:
         return "A Sprint is running: its Success criteria were fixed when it started"
     if not criteria.strip():
         return "Success criteria cannot be empty"
+    return None
+
+
+async def sprint_length_days(session: AsyncSession) -> int:
+    """How many days the next Sprint runs."""
+    workspace = await session.get(Workspace, 1)
+    return workspace.sprint_length_days if workspace is not None else SPRINT_LENGTH_DAYS
+
+
+async def capacity_effort_points(session: AsyncSession) -> float | None:
+    """The effort the next Sprint means to hold, or None when it is off or Effort Points are."""
+    workspace = await session.get(Workspace, 1)
+    if workspace is None or not await effort_tracking_on(session):
+        return None
+    return workspace.sprint_capacity_effort_points
+
+
+async def length_refusal(session: AsyncSession, days: object) -> str | None:
+    """Why the next Sprint cannot be set to this length now, or None when it can."""
+    workspace = await require_workspace(session)
+    if workspace.active_sprint_id:
+        return "A Sprint is running: its dates were fixed when it started"
+    if (
+        isinstance(days, bool)
+        or not isinstance(days, int)
+        or not SPRINT_LENGTH_MIN_DAYS <= days <= SPRINT_LENGTH_MAX_DAYS
+    ):
+        return (
+            f"Sprint length must be between {SPRINT_LENGTH_MIN_DAYS} and "
+            f"{SPRINT_LENGTH_MAX_DAYS} days"
+        )
+    return None
+
+
+async def capacity_refusal(session: AsyncSession, points: object) -> str | None:
+    """Why the next Sprint cannot be given this capacity now, or None when it can. None
+    turns it off."""
+    workspace = await require_workspace(session)
+    if workspace.active_sprint_id:
+        return "A Sprint is running: it keeps the capacity it started with"
+    if not await effort_tracking_on(session):
+        return "Effort Points are off: a Sprint has no capacity without them"
+    # Half a rung exists, so a capacity is a number and not a count.
+    if points is not None and (
+        isinstance(points, bool) or not isinstance(points, int | float) or points <= 0
+    ):
+        return "Sprint capacity must be a positive number, or off"
     return None
 
 
@@ -102,8 +158,8 @@ async def plan_load(
     session: AsyncSession, cards: list[Card],
     *, start_date: date | None = None, end_date: date | None = None,
 ) -> PlanLoad:
-    """What is left of the running Sprint from today, or of the Profile's next Sprint
-    starting today."""
+    """What is left of the running Sprint from today, or of the next Sprint starting
+    today."""
     if start_date is None:
         workspace = await require_workspace(session)
         sprint = await session.get(Sprint, workspace.active_sprint_id) if workspace.active_sprint_id else None

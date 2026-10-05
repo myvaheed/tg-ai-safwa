@@ -1,7 +1,8 @@
 """How a proposal about the Sprint reads to the owner.
 
 A Sprint about to start is shown the way the Planning screen would start it: its Success
-criteria, its first and last day and its length, and the plan against the capacity. One
+criteria, its first and last day and its length, and the plan against the capacity. A
+change to the next Sprint shows each value it changes, as it is and as it becomes. One
 about to finish is shown with the day it is on and what stays open.
 """
 
@@ -22,22 +23,34 @@ from tg_agent_shell.proposals.model import ChangeAction
 
 from ....foundation.workspace import Workspace, require_workspace
 from ...cards.api import CardStage, actions_on_stages
-from ...profile.api import capacity_effort_points, effort_tracking_on
-from ..api import plan_load, sprint_counts, sprint_day, sprint_metrics
+from ...profile.api import effort_tracking_on
+from ..api import (
+    capacity_effort_points,
+    plan_load,
+    sprint_counts,
+    sprint_day,
+    sprint_length_days,
+    sprint_metrics,
+)
 from ..model import Sprint, SprintCommitment
-from ..use_cases import sprint_length_days
-from .sprint import plan_cost
+from .sprint import capacity_label, plan_cost
 
 _SUMMARIES = {
-    ChangeAction.UPDATE: "Write the next Sprint's Success criteria",
+    ChangeAction.UPDATE: "Change the next Sprint",
     ChangeAction.CREATE: "Start the next Sprint",
     ChangeAction.COMPLETE: "Finish the running Sprint",
 }
 
 
-def _criteria_lines(values: dict) -> list[str]:
-    criteria = values.get("success_criteria")
-    return [f"Success criteria: {criteria}"] if criteria else []
+def _value_lines(values: dict) -> list[str]:
+    lines = []
+    if criteria := values.get("success_criteria"):
+        lines.append(f"Success criteria: {criteria}")
+    if "length_days" in values:
+        lines.append(f"Length: {values['length_days']} days")
+    if "capacity_effort_points" in values:
+        lines.append(f"Capacity: {capacity_label(values['capacity_effort_points'])}")
+    return lines
 
 
 def _today(workspace: Workspace) -> date:
@@ -48,12 +61,12 @@ class SprintProposalPresenter:
     entity = "sprint"
 
     def raw_details(self, change: AgentChange) -> list[str]:
-        return _criteria_lines(change.values)
+        return _value_lines(change.values)
 
     async def details(
         self, session: AsyncSession, change: ProposalChange, fallback: AgentChange | None
     ) -> list[str]:
-        return _criteria_lines(change.values)
+        return _value_lines(change.values)
 
     async def summary(
         self, session: AsyncSession, change: ProposalChange, details: list[str]
@@ -66,21 +79,52 @@ class SprintProposalPresenter:
         change = changes[0]
         workspace = await require_workspace(session)
         today = _today(workspace)
-        criteria = change.values.get("success_criteria")
+        values = change.values
+        criteria = values.get("success_criteria")
         if change.action is ChangeAction.UPDATE:
-            was = workspace.sprint_success_criteria.strip() or "not written yet"
+            changed = []
+            if criteria is not None:
+                changed.append((
+                    "Success criteria",
+                    workspace.sprint_success_criteria.strip() or "not written yet",
+                    criteria,
+                ))
+            if "length_days" in values:
+                changed.append((
+                    "Length",
+                    f"{workspace.sprint_length_days} days",
+                    f"{values['length_days']} days",
+                ))
+            if "capacity_effort_points" in values:
+                changed.append((
+                    "Capacity",
+                    capacity_label(workspace.sprint_capacity_effort_points),
+                    capacity_label(values["capacity_effort_points"]),
+                ))
             return ProposalScreen(
                 mode="Edit",
-                item="Success criteria",
-                blocks=(f"Now: {html.escape(was)}\nBecomes: {html.escape(criteria or '')}",),
+                item="Next Sprint",
+                blocks=tuple(
+                    f"<b>{name}</b>\nNow: {html.escape(was)}\nBecomes: {html.escape(becomes)}"
+                    for name, was, becomes in changed
+                ),
             )
         if change.action is ChangeAction.CREATE:
-            length = await sprint_length_days(session)
+            length = (
+                values["length_days"] if "length_days" in values
+                else await sprint_length_days(session)
+            )
+            capacity = (
+                values["capacity_effort_points"] if "capacity_effort_points" in values
+                else await capacity_effort_points(session)
+            )
             planned = await actions_on_stages(session, CardStage.SPRINT, CardStage.TODAY)
-            load = await plan_load(session, planned)
+            load = await plan_load(
+                session, planned, start_date=today,
+                end_date=today + timedelta(days=length - 1),
+            )
             cost, warning = plan_cost(
-                load, await capacity_effort_points(session),
-                effort_tracking=await effort_tracking_on(session),
+                load, capacity, effort_tracking=await effort_tracking_on(session)
             )
             last = today + timedelta(days=length - 1)
             return ProposalScreen(

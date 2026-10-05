@@ -76,7 +76,7 @@ MANUAL = f"""# Safwa
 {_EFFORT_SCALE}
 - Choose the closest rung for the whole Action in the user's usual state. Today's tiredness changes how much to plan, not the Action's EP.
 - For a repeating Action, estimate one occurrence. Work that does not fit in one day is a Subgoal with smaller Actions, not a 13 EP Action.
-- Planned load counts every scheduled execution left from today to the Sprint's last day: 5 EP repeated three times takes 3 Actions and 15 EP. A week the window covers in part counts its share of the days: three times a week over 2 of its days is 1. An Action on the plan counts at least once. Planning uses the Sprint length in the Profile; Today uses today's remaining executions. Unknown quantities are marked as incomplete totals.
+- Planned load counts every scheduled execution left from today to the Sprint's last day: 5 EP repeated three times takes 3 Actions and 15 EP. A week the window covers in part counts its share of the days: three times a week over 2 of its days is 1. An Action on the plan counts at least once. Planning uses the next Sprint's length; Today uses today's remaining executions. Unknown quantities are marked as incomplete totals.
 - EP totals help compare planned load with capacity. They do not convert to hours or predict recovery exactly.
 - With EP on, the Advisor proposes an estimate with each new Action. "🔢 Effort" in full editing or Card creation sets one; "No estimate" clears it. A Goal shows the total of its Actions. Partial totals name the Actions without estimates and show no completion percentage or EP per hour.
 - After an Action is Done without an estimate, the Advisor asks for its EP. The answer is recorded on that finished Action, including a finished repeat. If the user does not know, it stays empty. "Effort Points reminder" in Profile → Hooks switches this question off or on.
@@ -104,13 +104,13 @@ MANUAL = f"""# Safwa
 
 # Sprint
 - Planning is the mode with no Sprint. The user writes the Success criteria, what the next Sprint must achieve, and plans Actions into it. Today and /today work as in a Sprint; only the Planning screen leaves Today out.
-- A Sprint runs for the Sprint length set in the Profile. Every plan is judged against its Success criteria. "☀️ Today" is the day's work, and it exists only while a Sprint runs.
+- A Sprint runs for the length set in Planning, 14 days at first. Every plan is judged against its Success criteria. "☀️ Today" is the day's work, and it exists only while a Sprint runs.
 - Safwa warns the day before the last day and on the last day. The Sprint closes itself at midnight after its last day.
-- With buttons: "🏃 Sprint" or /sprint: "🎯 Set Success criteria", tap a Backlog Action in the plan to add it to Sprint, "▶️ Start N-day Sprint", "⏹ Finish early" or "⏹ Finish Sprint". Open an Action from Backlog or Today to move it with the two buttons at the top of its Card.
+- With buttons: "🏃 Sprint" or /sprint: "🎯 Set Success criteria", "🏁 Length", "⚖️ Capacity" while Effort Points are on, tap a Backlog Action in the plan to add it to Sprint, "▶️ Start N-day Sprint", "⏹ Finish early" or "⏹ Finish Sprint". Open an Action from Backlog or Today to move it with the two buttons at the top of its Card.
 - While a Sprint runs, its screen shows the dates, local day, Success criteria and taken and done Actions, or EP while Effort Points are on. "Today", "Remaining", "Done" and "Blocked" select one list in the same message; their counts are Actions. "Remaining" is only the Sprint stage; "Done" is only this Sprint's completions; "Blocked" includes open Actions in Sprint and Today with their reasons. The selected button has a checkmark. Actions are text, without separate buttons.
-- In words: start the next Sprint, finish the running one, write the next Sprint's Success criteria, or ask its dates, its length and the days left. A Sprint to start is shown with its Success criteria, its first and last day and its length, for Save.
+- In words: start the next Sprint, finish the running one, set the next Sprint's Success criteria, length or capacity, or ask its dates, its length and the days left. A Sprint to start is shown with its Success criteria, its first and last day and its length, for Save.
 - In words: moving Actions into Sprint or Today, or back to Backlog.
-- Not at all: changing a running Sprint's Success criteria or its dates, pausing or extending it, or bringing a finished one back. The length and the capacity are in the Profile.
+- Not at all: changing a running Sprint's Success criteria, length, capacity or dates, pausing or extending it, or bringing a finished one back.
 
 # Retro and memory
 - When a Sprint ends, Safwa says how it went and links its retro: "📊 Sprint … retro". The retro screen shows what the Sprint added up to, and its time when Time tracking was on as it ended.
@@ -145,7 +145,7 @@ MANUAL = f"""# Safwa
 - "Today overload" and "Effort Points reminder" are in Hooks only while Effort Points are on, and ask nothing while they are off.
 
 # Profile
-- "⚙️ Profile": About me and Advisor instructions (what the Advisor must know and follow), Sprint length, Sprint capacity while Effort Points are on, Morning time, Diary time, Diary instruction, Daily summary, Home after, Time tracking, Effort Points, and "🔔 Hooks".
+- "⚙️ Profile": About me and Advisor instructions (what the Advisor must know and follow), Morning time, Diary time, Diary instruction, Daily summary, Home after, Time tracking, Effort Points, and "🔔 Hooks".
 - "⌛ Time tracking" is off until pressed. On, it offers "⌛ Time spent" on an Action, keeps a Sprint's time for its retro and turns on "Time tracking reminder". The active day it measures runs from the Morning time to the Diary time.
 - In words too: any of its fields, shown for Save with what it was and what it becomes.
 - Time tracking and Effort Points can also be changed in words, through a Profile proposal. Hook switches are buttons only. Onboarding alone may be turned off in words.

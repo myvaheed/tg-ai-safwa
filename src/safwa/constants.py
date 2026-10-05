@@ -10,9 +10,6 @@ from __future__ import annotations
 # The built-in Tag used by capture, its saved Request and the agents' instructions.
 INBOX_TAG_NAME = "Inbox"
 
-# What the Profile accepts as a Sprint length, and what Planning plans one for.
-SPRINT_LENGTH_MIN_DAYS = 2
-SPRINT_LENGTH_MAX_DAYS = 60
 # Weekday tokens as stored in `reminders.weekdays`, indexed by `date.weekday()`.
 # Mirrored by the Literal in `reminders/agent.py`.
 WEEKDAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")

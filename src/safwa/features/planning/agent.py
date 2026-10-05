@@ -1,5 +1,5 @@
-"""The sprint subagent: it starts and finishes the Sprint, writes the next one's Success
-criteria, and answers what the Sprint is as it stands.
+"""The sprint subagent: it starts and finishes the Sprint, sets the next one's Success
+criteria, length and capacity, and answers what the Sprint is as it stands.
 
 Every change it makes is a proposal that Save applies through the same operations the
 Sprint screen's buttons call. What the Sprint is right now is not in its prompt: it is the
@@ -12,7 +12,7 @@ from datetime import timedelta
 from typing import ClassVar, Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from tg_agent_shell.ai.contracts import AgentChange, ChangeAction, ToolInput
 from tg_agent_shell.foundation.clock import utcnow
@@ -22,29 +22,37 @@ from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec
 from ...constants import WEEKDAY_NAMES
 from ...foundation.workspace import require_workspace
 from ..cards.api import CardStage, actions_on_stages, effort_label
-from ..profile.api import capacity_effort_points, effort_tracking_on, sprint_length_days
-from .api import plan_load, sprint_counts, sprint_day, sprint_metrics, start_refusal
+from ..profile.api import effort_tracking_on
+from .api import (
+    capacity_effort_points,
+    plan_load,
+    sprint_counts,
+    sprint_day,
+    sprint_length_days,
+    sprint_metrics,
+    start_refusal,
+)
 from .model import Sprint
 
-SPRINT_PROMPT = """You run the user's Sprint: you start it, finish it, and write the next Sprint's Success criteria. You also answer questions about the Sprint.
+SPRINT_PROMPT = """You run the user's Sprint: you start it, finish it, and set the next Sprint's Success criteria, length and capacity. You also answer questions about the Sprint.
 
 # What you know
-The last message lists the Sprint as it stands now: the mode, its days, its Actions, its effort and capacity while Effort Points are on, and the Profile's Sprint length.
+The last message lists the Sprint as it stands now: the mode, its days, its Actions, and its effort and capacity while Effort Points are on. In Planning it lists the next Sprint's length.
 Answer a question about the Sprint from that message: its dates, its length, which day it is, how many days are left.
 Read the Actions with `query_data` only when the question is about them.
 Planned Action counts and EP already include scheduled executions. Use these totals directly; an open Card is not necessarily one execution.
 
 # The `sprint` tool
-- `mode="update"` with `success_criteria`: write the next Sprint's Success criteria. Only in Planning.
-- `mode="create"`: start the next Sprint today. It runs for the Profile's Sprint length. Add `success_criteria` to write them in the same Save.
+- `mode="update"`: set the next Sprint's `success_criteria`, `length_days` or `capacity_effort_points`, one or more. Only in Planning.
+- `length_days` is a whole number of days. `capacity_effort_points` is a number of effort points, only while Effort Points are on; null turns it off.
+- `mode="create"`: start the next Sprint today. It runs for the next Sprint's length. Add any of those fields to set them in the same Save.
 - `mode="complete"`: finish the running Sprint. Its open Actions keep their stage.
 - Write the Success criteria in the user's own words.
 - Write one short line naming what you propose, in the same response. The review screen shows the rest.
 
 # What you cannot do
-- Change the running Sprint's Success criteria: they were fixed when it started. Say so, and propose nothing.
+- Change the running Sprint's Success criteria, length or capacity: they were fixed when it started. Say so, and propose nothing.
 - Change a Sprint's dates, pause it, extend it, or bring a finished one back. Say there is no way to.
-- Change the Sprint length or the capacity: they are in the Profile. Say so.
 - Move Actions into the Sprint or Today: say the Advisor does that with the workspace.
 
 # Answering
@@ -90,7 +98,7 @@ async def sprint_now(context: AgentContext) -> str:
                 + (f" Estimated load: {effort_label(effort)} EP. Capacity: {_capacity(capacity)}. "
                    f"Unestimated Actions: {load.unestimated}."
                    if effort_tracking else ""),
-                f"Sprint length in the Profile: {length} days. Started today, the Sprint "
+                f"Next Sprint's length: {length} days. Started today, it "
                 f"runs {today.isoformat()} – {(today + timedelta(days=length - 1)).isoformat()}.",
                 "It can start now." if refusal is None else f"It cannot start now: {refusal}.",
                 *(["Schedule quantities are unknown for some Actions; these totals are lower bounds."]
@@ -121,7 +129,6 @@ async def sprint_now(context: AgentContext) -> str:
             + ".",
             *([f"Capacity it started with: {_capacity(sprint.capacity_effort_points)}.",
                f"Unestimated Actions: {counts['unestimated']}."] if effort_tracking else []),
-            f"Sprint length in the Profile, for the next Sprint: {length} days.",
             *(["Schedule quantities are unknown for some Actions; these totals are lower bounds."]
               if counts["unknown_schedules"] else []),
         ]
@@ -135,7 +142,7 @@ def _capacity(points: float | None) -> str:
 SPRINT_AGENT = AgentSpec(
     name="sprint",
     purpose=(
-        "start or finish the Sprint, or write the next Sprint's Success criteria."
+        "start or finish the Sprint, or set the next Sprint's Success criteria, length or capacity."
     ),
     instructions=SPRINT_PROMPT,
     mutation_tools=("sprint",),
@@ -146,36 +153,43 @@ SPRINT_AGENT = AgentSpec(
 
 
 class SprintToolInput(ToolInput):
-    """One change to the Sprint: start the next one, write its Success criteria, or finish
-    the running one."""
+    """One change to the Sprint: start the next one, set its Success criteria, length or
+    capacity, or finish the running one."""
 
     content_fields: ClassVar[frozenset[str]] = frozenset({"success_criteria"})
+    semantic_null_fields: ClassVar[frozenset[str]] = frozenset({"capacity_effort_points"})
 
     mode: Literal["create", "update", "complete"] = Field(
         description=(
-            "create starts the next Sprint today; update writes the next Sprint's Success "
-            "criteria; complete finishes the running Sprint."
+            "create starts the next Sprint today; update sets the next Sprint's Success "
+            "criteria, length or capacity; complete finishes the running Sprint."
         )
     )
     success_criteria: str | None = Field(
         default=None,
-        description=(
-            "What the next Sprint must achieve, in the user's words. Required with update, "
-            "optional with create."
-        ),
+        description="What the next Sprint must achieve, in the user's words.",
     )
+    length_days: int | None = Field(default=None, description="Days the next Sprint runs.")
+    capacity_effort_points: float | None = Field(
+        default=None, description="Effort points the next Sprint holds; null turns it off."
+    )
+
+    @model_validator(mode="after")
+    def update_names_a_field(self) -> SprintToolInput:
+        if self.mode == "update" and not self.model_fields_set - {"mode"}:
+            raise ValueError("update needs success_criteria, length_days or capacity_effort_points")
+        return self
 
 
 def _sprint_change(call: SprintToolInput) -> AgentChange:
-    values = (
-        {"success_criteria": call.success_criteria} if call.success_criteria is not None else {}
-    )
+    values = call.model_dump(exclude_unset=True)
+    values.pop("mode", None)
     return AgentChange(entity="sprint", action=ChangeAction(call.mode), values=values)
 
 
 SPRINT_TOOL = MutationToolSpec(
     name="sprint",
     input_model=SprintToolInput,
-    description="Propose starting the next Sprint, writing its Success criteria, or finishing the running one.",
+    description="Propose starting the next Sprint, setting its Success criteria, length or capacity, or finishing the running one.",
     to_change=_sprint_change,
 )

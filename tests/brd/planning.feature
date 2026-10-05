@@ -21,16 +21,17 @@ Feature: Planning — the Sprint, and the mode without one
 
   Scenario: PL-MODE-002 — The Sprint is run on its screen or in words, through the same operations
     Given the owner is talking to Safwa
-    When they ask it to start the Sprint, finish it, or write the next Sprint's Success criteria
+    When they ask it to start the Sprint, finish it, or set the next Sprint's Success criteria,
+      length or capacity
     Then Safwa shows that change on a review screen with Save and Discard
     And a Sprint about to start is shown with its Success criteria, its first and last day and
-      its length in days, which is the Profile's Sprint length (PL-START-005)
+      its length in days, which is the next Sprint's length (PL-START-005)
+    And a change to the next Sprint shows each value it changes, what it is and what it becomes
     And Save does what the Sprint screen's button does, with the same refusals
     When a Sprint is running and they ask to change its Success criteria
     Then it is refused with that reason, and nothing is proposed
     When they ask it to change a Sprint's dates, pause it, extend it or bring a finished one back
     Then Safwa says there is no way to, in words or on a screen (PL-END-012)
-    And the length and the capacity are the Profile's
 
   Scenario: PL-CRITERIA-003 — A Sprint starts with words and with work
     Given the next Sprint has no Success criteria and nothing planned
@@ -49,7 +50,7 @@ Feature: Planning — the Sprint, and the mode without one
     And Safwa reads them as a draft and says no Sprint is running
 
   Scenario: PL-START-005 — Starting a Sprint fixes its days and its number
-    Given the Sprint length in the Profile is 14 days (SPRINT_LENGTH_DAYS = 14)
+    Given the next Sprint's length is 14 days, as in a new workspace (SPRINT_LENGTH_DAYS = 14)
     When the owner starts a Sprint
     Then it runs from the owner's today through the 14th day, that day included
     And its number is yy.MM-xx: the month it started in, then its place in that month
@@ -157,7 +158,7 @@ Feature: Planning — the Sprint, and the mode without one
 
   Scenario: PL-PLAN-018 — The plan's cost is shown against the capacity
     Given Effort Points are on in the Profile
-    Given the capacity in the Profile is 10 points and 13 points are planned
+    Given the next Sprint's capacity is 10 points and 13 points are planned
     Then wherever the plan's total effort is shown, the capacity is shown beside it, and the owner is told the plan is above it
     And the Sprint still starts
     When no capacity is set
@@ -225,14 +226,15 @@ Feature: Planning — the Sprint, and the mode without one
       its length, today's day of it and the days left after today
     And while Effort Points are on, that state holds the capacity the Sprint started with
       (PL-CAPACITY-027)
-    And in Planning it answers with the length a Sprint started today would have, and its dates
+    And in Planning it answers with the length a Sprint started today would have, its dates,
+      and its capacity while Effort Points are on
 
   Scenario: PL-CAPACITY-027 — A Sprint keeps the capacity it started with
     Given Effort Points are on in the Profile
-    Given the Sprint capacity in the Profile is 20 points
+    Given the next Sprint's capacity is 20 points
     When a Sprint starts, by the button or by Save
     Then the Sprint keeps 20 points as its capacity
-    When the owner later sets the Profile's capacity to 30
+    When it ends and the owner sets the next Sprint's capacity to 30
     Then that Sprint still says 20
     And a Sprint started with capacity off keeps none, and an average over capacity leaves it out
 
@@ -265,9 +267,9 @@ Feature: Planning — the Sprint, and the mode without one
     Then missing estimates are named beside partial totals and are never presented as zero load
 
   Scenario: PL-REPEAT-031 — Planned Actions and EP include calendar executions
-    Given a 5 EP Action scheduled once a day, selected for a Sprint of 3 days in the Profile
+    Given a 5 EP Action scheduled once a day, selected for a next Sprint of 3 days
     Then Planning, its proposal preview and AI context show 3 Actions and 15 EP
-    And changing the Profile length changes the next plan's quantity, not a running Sprint's dates
+    And changing the next Sprint's length changes the plan's quantity, not a running Sprint's dates
     And the window starts today: an Action that joins a running Sprint counts only the days left, today among them
     And a week the window covers in part counts its share of the weekly quota by the days covered, rounded, and never more than the week has left of it
     And a current overdue appointment counts once, and an Action on the plan counts at least once, even when its appointment falls outside the window
@@ -301,3 +303,21 @@ Feature: Planning — the Sprint, and the mode without one
     Then only the open copy's quantity is refreshed, with completed results and unit EP snapshots unchanged
     And a Schedule set on a Card in Today rechecks its load through the existing Today hook
     And clearing Schedule restores the ordinary one-execution quantity
+
+  Scenario: PL-LENGTH-035 — The next Sprint's length is set in Planning, between 2 and 60 days
+    Given the workspace is in Planning
+    Then the Planning screen shows the next Sprint's length and the dates it would run if started today
+    When the owner sets it, on that screen or in words, to a whole number of days from 2 through 60
+      (SPRINT_LENGTH_MIN_DAYS = 2, SPRINT_LENGTH_MAX_DAYS = 60)
+    Then every Sprint started after that runs that many days, until the length is changed
+    But 1 day and 61 days are refused, and the length keeps what it had
+    And while a Sprint runs, setting it is refused: a running Sprint keeps its dates (PL-MODE-002)
+
+  Scenario: PL-CAPACITY-036 — The next Sprint's capacity is set in Planning, a number of points or off
+    Given Effort Points are on and the workspace is in Planning
+    Then the Planning screen shows the next Sprint's capacity
+    When the owner sets it, on that screen or in words, to a positive number of effort points, a half included
+    Then it is accepted, and off means no capacity at all
+    But zero and a negative number are refused
+    And while a Sprint runs, setting it is refused: the Sprint keeps the capacity it started with (PL-CAPACITY-027)
+    And with Effort Points off the screen shows no capacity, and setting it in words is refused (PS-EP-021)

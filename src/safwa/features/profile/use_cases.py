@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.errors import DomainError
 
-from ...constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
 from ...foundation.workspace import bump_workspace
 from .model import (
     HOME_AFTER_MINUTES_MAX,
@@ -35,22 +34,6 @@ def profile_field(name: str) -> ProfileField:
 def validated_profile_value(field: ProfileField, value: ProfileValue) -> ProfileValue:
     """The value as the field stores it, or the DomainError that refuses it."""
     match field:
-        case ProfileField.SPRINT_LENGTH_DAYS:
-            if (
-                isinstance(value, bool)
-                or not isinstance(value, int)
-                or not SPRINT_LENGTH_MIN_DAYS <= value <= SPRINT_LENGTH_MAX_DAYS
-            ):
-                raise DomainError(
-                    f"Sprint length must be between {SPRINT_LENGTH_MIN_DAYS} and "
-                    f"{SPRINT_LENGTH_MAX_DAYS} days"
-                )
-        case ProfileField.CAPACITY_EFFORT_POINTS:
-            # Half a rung exists, so a Sprint's capacity is a number and not a count.
-            if value is not None and (
-                isinstance(value, bool) or not isinstance(value, int | float) or value <= 0
-            ):
-                raise DomainError("Sprint capacity must be a positive number, or off")
         case ProfileField.HOME_AFTER_MINUTES:
             if (
                 isinstance(value, bool)

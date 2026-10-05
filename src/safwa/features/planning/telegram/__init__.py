@@ -8,7 +8,7 @@ from .sprint import (
     TEXT_INPUT,
     plan_cost,
     render_sprint,
-    render_sprint_criteria_prompt,
+    render_sprint_field_prompt,
 )
 from .state import PLAN_UI_KIND
 
@@ -21,5 +21,5 @@ __all__ = [
     "plan_cost",
     "render_plan",
     "render_sprint",
-    "render_sprint_criteria_prompt",
+    "render_sprint_field_prompt",
 ]

@@ -46,14 +46,14 @@ async def test_ps_ai_019_two_fields_set_in_words_are_one_screen_and_one_change_e
             mutation_turn(
                 (
                     "profile",
-                    {"mode": "update", "sprint_length_days": 10, "morning_time": "08:00"},
+                    {"mode": "update", "home_after_minutes": 45, "morning_time": "08:00"},
                 )
             ),
         ],
         subagents=(e2e_harness.subagent("profile"),),
     )
 
-    screen = await advisor.handle("Sprints of 10 days, and mornings at 8")
+    screen = await advisor.handle("Home after 45 minutes, and mornings at 8")
 
     assert screen.kind is AIOutcomeKind.PROPOSAL
     async with e2e_harness.sessions() as session:
@@ -61,8 +61,8 @@ async def test_ps_ai_019_two_fields_set_in_words_are_one_screen_and_one_change_e
             session, advisor.reviews.proposal(screen.proposal_id).changes
         )
     assert drawn.diffs == (
-        "• Sprint length: 14 days → 10 days",
         "• Morning time: 09:00 → 08:00",
+        "• Home after: 30 min → 45 min",
     )
 
     async with e2e_harness.sessions() as session:
@@ -70,7 +70,7 @@ async def test_ps_ai_019_two_fields_set_in_words_are_one_screen_and_one_change_e
         await session.commit()
         profile = await session.get(UserProfile, 1)
         after = (await session.get(Workspace, 1)).revision
-    assert (profile.sprint_length_days, profile.morning_time) == (10, time(8, 0))
+    assert (profile.home_after_minutes, profile.morning_time) == (45, time(8, 0))
     assert after == revision + 2
     provider.responses.extend(["Saved both.", "Anything else?"])
     await advisor.resolve_approval(
@@ -81,21 +81,21 @@ async def test_ps_ai_019_two_fields_set_in_words_are_one_screen_and_one_change_e
     advisor, provider = e2e_harness.advisor(
         [
             route_turn("profile"),
-            mutation_turn(("profile", {"mode": "update", "sprint_length_days": 61})),
-            "A Sprint runs 2 to 60 days.",
-            "Which length then?",
+            mutation_turn(("profile", {"mode": "update", "home_after_minutes": 2})),
+            "Home after is 5 to 1440 minutes.",
+            "How many minutes then?",
         ],
         subagents=(e2e_harness.subagent("profile"),),
     )
 
-    outcome = await advisor.handle("Make Sprints 61 days")
+    outcome = await advisor.handle("Home after 2 minutes")
 
     assert outcome.kind is AIOutcomeKind.ANSWER
     refused = _tool_result(provider.calls[2], "profile")
     assert refused["code"] == "invalid_value"
-    assert "between 2 and 60 days" in refused["error"]
+    assert "between 5 and 1440 minutes" in refused["error"]
     async with e2e_harness.sessions() as session:
-        assert (await session.get(UserProfile, 1)).sprint_length_days == 10
+        assert (await session.get(UserProfile, 1)).home_after_minutes == 45
 
 
 async def test_ps_ai_020_a_switch_is_read_and_left_to_the_profile_screen(e2e_harness):

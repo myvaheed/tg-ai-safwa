@@ -43,7 +43,7 @@ Planned: 8 Actions
   come in the order of their first Action, Actions with no Goal after them.
   The shown/total heading counts Card rows for pagination. Today/Sprint also show planned
   execution counts and, with EP on, their load; repeating rows show × quantity. Today's
-  count uses its local day, Sprint uses its dates (Profile length while Planning).
+  count uses its local day, Sprint uses its dates (the next Sprint's length while Planning).
 - **Values in focus**, by name, each with the words written for it, or its name alone when
   none could be written.
 - **Time tracked today**, only while Time tracking is on: `tracked_mins` of the Actions finished

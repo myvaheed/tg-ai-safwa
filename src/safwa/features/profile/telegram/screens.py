@@ -30,8 +30,6 @@ from tg_agent_shell.telegram import (
 from tg_agent_shell.telegram.contributions import TextInputFlow
 from tg_agent_shell.telegram.model import UiSession
 
-from ....constants import SPRINT_LENGTH_MAX_DAYS, SPRINT_LENGTH_MIN_DAYS
-from ....features.cards.api import effort_label
 from ....foundation.workspace import Workspace
 from ...reminders.api import parse_clock
 from ..api import EFFORT_TRACKING_REMINDER, TIME_TRACKING_REMINDER, TODAY_OVERLOAD, set_hook_switch
@@ -55,14 +53,6 @@ class EditableField:
     show: Callable[[Any], str]
 
 
-def _parse_sprint_length(raw: str) -> int:
-    if not raw.isdigit() or not SPRINT_LENGTH_MIN_DAYS <= int(raw) <= SPRINT_LENGTH_MAX_DAYS:
-        raise ValueError(
-            f"Send a whole number between {SPRINT_LENGTH_MIN_DAYS} and {SPRINT_LENGTH_MAX_DAYS}."
-        )
-    return int(raw)
-
-
 def _parse_home_after(raw: str) -> int:
     if not raw.isdigit() or not HOME_AFTER_MINUTES_MIN <= int(raw) <= HOME_AFTER_MINUTES_MAX:
         raise ValueError(
@@ -70,18 +60,6 @@ def _parse_home_after(raw: str) -> int:
             f"{HOME_AFTER_MINUTES_MAX}."
         )
     return int(raw)
-
-
-def _parse_capacity(raw: str) -> float | None:
-    if raw.lower() == "off":
-        return None
-    try:
-        points = float(raw.replace(",", "."))
-    except ValueError:
-        raise ValueError("Send a positive number of effort points, or off.") from None
-    if points <= 0:
-        raise ValueError("Send a positive number of effort points, or off.")
-    return points
 
 
 def _parse_clock(raw: str) -> time:
@@ -109,23 +87,6 @@ PROFILE_FIELDS: dict[str, EditableField] = {
         instruction="Send standing instructions for Safwa. Send off to clear them.",
         parse=lambda raw: "" if raw.lower() == "off" else raw,
         show=lambda value: value or "off",
-    ),
-    "sprint_length_days": EditableField(
-        title="Sprint length",
-        label="🏁 Sprint length",
-        instruction=(
-            f"Send a number of days between {SPRINT_LENGTH_MIN_DAYS} and "
-            f"{SPRINT_LENGTH_MAX_DAYS}. It applies to the next Sprint you start."
-        ),
-        parse=_parse_sprint_length,
-        show=lambda value: f"{value} days",
-    ),
-    "capacity_effort_points": EditableField(
-        title="Sprint capacity",
-        label="🎯 Sprint capacity",
-        instruction="Send the effort points one Sprint holds, or off to stop tracking it.",
-        parse=_parse_capacity,
-        show=lambda value: f"{effort_label(value)} EP" if value else "off",
     ),
     "morning_time": EditableField(
         title="Morning time",
@@ -215,13 +176,11 @@ def profile_text(profile: UserProfile, timezone: str) -> str:
         f"Advisor instructions: {html.escape(profile.advisor_instructions or '—')}",
     ]
     for name, field in PROFILE_FIELDS.items():
-        if name == "capacity_effort_points" and not profile.effort_tracking:
-            continue
         lines.append(f"{field.title}: {html.escape(field.show(getattr(profile, name)))}")
     lines.append(f"Timezone: {html.escape(timezone)}")
     lines.append(
         f"Effort Points: {'on' if profile.effort_tracking else 'off'} — optional estimates "
-        "of Action load, Sprint capacity and Today overload warnings."
+        "of Action load, a Sprint's capacity and Today overload warnings."
     )
     lines.append(
         f"Time tracking: {'on' if profile.time_tracking else 'off'} — records the time an "
@@ -246,8 +205,6 @@ async def command_profile(
             raise DomainError("Workspace is not initialized")
         buttons = []
         for name, field in PROFILE_FIELDS.items():
-            if name == "capacity_effort_points" and not profile.effort_tracking:
-                continue
             buttons.append(
                 await token_button(
                     session, services.owner_id, field.label, "profile_edit", {"field": name}

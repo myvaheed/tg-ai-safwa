@@ -5,13 +5,11 @@ from __future__ import annotations
 from datetime import time
 from enum import StrEnum
 
-from sqlalchemy import JSON, Boolean, Float, Integer, Text, Time
+from sqlalchemy import JSON, Boolean, Integer, Text, Time
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...foundation.models import Base, TimestampMixin
 
-# The default Sprint length; the owner overrides it per workspace in the Profile.
-SPRINT_LENGTH_DAYS = 14
 # The local clocks the daily hooks read, out of the box: the Diary nudge, the daily summary
 # and the morning checks. Never off: each hook has a switch of its own.
 DIARY_TIME_DEFAULT = "22:00"
@@ -29,8 +27,6 @@ class UserProfile(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     about_me: Mapped[str] = mapped_column(Text, default="")
     advisor_instructions: Mapped[str] = mapped_column(Text, default="")
-    capacity_effort_points: Mapped[float | None] = mapped_column(Float)
-    sprint_length_days: Mapped[int] = mapped_column(Integer, default=SPRINT_LENGTH_DAYS)
     diary_time: Mapped[time] = mapped_column(Time, default=time.fromisoformat(DIARY_TIME_DEFAULT))
     diary_instructions: Mapped[str] = mapped_column(Text, default="")
     summary_time: Mapped[time] = mapped_column(
@@ -57,8 +53,6 @@ class ProfileField(StrEnum):
 
     ABOUT_ME = "about_me"
     ADVISOR_INSTRUCTIONS = "advisor_instructions"
-    CAPACITY_EFFORT_POINTS = "capacity_effort_points"
-    SPRINT_LENGTH_DAYS = "sprint_length_days"
     DIARY_TIME = "diary_time"
     DIARY_INSTRUCTIONS = "diary_instructions"
     SUMMARY_TIME = "summary_time"

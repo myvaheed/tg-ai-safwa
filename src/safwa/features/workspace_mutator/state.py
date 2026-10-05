@@ -18,9 +18,14 @@ from tg_agent_shell.foundation.clock import utcnow
 
 from ...foundation.workspace import Workspace
 from ..cards.model import Card, CardKind, CardStage, Priority, effort_label
-from ..planning.api import plan_load, sprint_day, today_actions
+from ..planning.api import (
+    capacity_effort_points,
+    plan_load,
+    sprint_day,
+    sprint_length_days,
+    today_actions,
+)
 from ..planning.model import Sprint
-from ..profile.api import sprint_length_days
 from ..profile.model import UserProfile
 from ..schedules.api import appointment_label
 from ..tags.model import Tag
@@ -131,6 +136,8 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
             f"A Sprint started today runs {local_day} – {local_day + timedelta(days=length - 1)}, "
             f"{length} days."
         )
+        if (capacity := await capacity_effort_points(session)) is not None:
+            lines.append(f"Next Sprint's capacity: {effort_label(capacity)} EP.")
     goals = await _priority_goals(session, local_now)
     # An empty heading would read the owner's next line as its first item.
     if goals:

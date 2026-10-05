@@ -9,7 +9,8 @@ itself is built one screen further in, in `plan.py`.
 from __future__ import annotations
 
 import html
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -39,10 +40,21 @@ from tg_agent_shell.telegram.contributions import TextInputFlow
 from ....foundation.workspace import Workspace
 from ...cards.api import CardStage, actions_on_stages, effort_label, list_order
 from ...cards.model import Card
-from ...profile.api import capacity_effort_points, effort_tracking_on
-from ..api import PlanLoad, plan_load, sprint_counts, sprint_day, sprint_metrics, today_actions
+from ...profile.api import effort_tracking_on
+from ..api import (
+    SPRINT_LENGTH_MAX_DAYS,
+    SPRINT_LENGTH_MIN_DAYS,
+    PlanLoad,
+    capacity_effort_points,
+    plan_load,
+    sprint_counts,
+    sprint_day,
+    sprint_length_days,
+    sprint_metrics,
+    today_actions,
+)
 from ..model import Sprint, SprintCommitment
-from ..use_cases import set_sprint_success_criteria, sprint_length_days
+from ..use_cases import set_sprint_capacity, set_sprint_length, set_sprint_success_criteria
 
 _PROMPT_TTL = timedelta(minutes=30)
 
@@ -181,26 +193,90 @@ async def render_sprint(
         await send_registered(message, services, text, kind=MessageKind.DASHBOARD, markup=markup)
 
 
-async def render_sprint_criteria_prompt(
-    message: Message, services: Services, *, notice: str | None = None
+@dataclass(frozen=True, slots=True)
+class PlanningField:
+    """One value of the next Sprint, edited through a button and a focused prompt."""
+
+    title: str
+    instruction: str
+    parse: Callable[[str], Any]
+    show: Callable[[Workspace], str]
+    write: Callable[[AsyncSession, Any], Awaitable[object]]
+
+
+def _parse_length(raw: str) -> int:
+    if not raw.isdigit() or not SPRINT_LENGTH_MIN_DAYS <= int(raw) <= SPRINT_LENGTH_MAX_DAYS:
+        raise ValueError(
+            f"Send a whole number between {SPRINT_LENGTH_MIN_DAYS} and {SPRINT_LENGTH_MAX_DAYS}."
+        )
+    return int(raw)
+
+
+def _parse_capacity(raw: str) -> float | None:
+    if raw.lower() == "off":
+        return None
+    try:
+        points = float(raw.replace(",", "."))
+    except ValueError:
+        raise ValueError("Send a positive number of effort points, or off.") from None
+    if points <= 0:
+        raise ValueError("Send a positive number of effort points, or off.")
+    return points
+
+
+def capacity_label(points: float | None) -> str:
+    return f"{effort_label(points)} EP" if points is not None else "off"
+
+
+PLANNING_FIELDS: dict[str, PlanningField] = {
+    "success_criteria": PlanningField(
+        title="Sprint Success criteria",
+        instruction="Send what this Sprint must achieve. It is what the Sprint is judged against.",
+        parse=required_text("Success criteria"),
+        show=lambda workspace: workspace.sprint_success_criteria.strip(),
+        write=set_sprint_success_criteria,
+    ),
+    "length_days": PlanningField(
+        title="Sprint length",
+        instruction=(
+            f"Send a number of days between {SPRINT_LENGTH_MIN_DAYS} and "
+            f"{SPRINT_LENGTH_MAX_DAYS}. It applies to the next Sprint you start."
+        ),
+        parse=_parse_length,
+        show=lambda workspace: f"{workspace.sprint_length_days} days",
+        write=set_sprint_length,
+    ),
+    "capacity_effort_points": PlanningField(
+        title="Sprint capacity",
+        instruction="Send the effort points the next Sprint holds, or off for no capacity.",
+        parse=_parse_capacity,
+        show=lambda workspace: capacity_label(workspace.sprint_capacity_effort_points),
+        write=set_sprint_capacity,
+    ),
+}
+
+
+async def render_sprint_field_prompt(
+    message: Message, services: Services, field: str, *, notice: str | None = None
 ) -> None:
-    """Ask what the next Sprint must achieve before showing its plan."""
+    """Ask for one value of the next Sprint."""
+    edited = PLANNING_FIELDS[field]
     async with services.sessions() as session:
         workspace = await session.get(Workspace, 1)
         if workspace is None or workspace.active_sprint_id:
             raise DomainError("A Sprint is already running")
-        current = workspace.sprint_success_criteria.strip()
+        current = edited.show(workspace)
     await render_text_input(
         message,
         services,
         screen=TextInputScreen(
-            title="Sprint Success criteria",
+            title=edited.title,
             current_value=current,
-            instruction="Send what this Sprint must achieve. It is what the Sprint is judged against.",
+            instruction=edited.instruction,
             back_action="sprint_back",
             back_payload={},
         ),
-        state={"flow": "sprint"},
+        state={"flow": "sprint", "field": field},
         notice=notice,
     )
 
@@ -212,7 +288,7 @@ async def _render_planning(
     notice: str | None = None,
     replace_message_id: int | None = None,
 ) -> None:
-    """What the next Sprint would be, and the three things that can change it."""
+    """What the next Sprint would be, and the things that can change it."""
     async with services.sessions() as session:
         workspace = await session.get(Workspace, 1)
         capacity = await capacity_effort_points(session)
@@ -221,15 +297,32 @@ async def _render_planning(
         planned = await actions_on_stages(session, CardStage.SPRINT, CardStage.TODAY)
         load = await plan_load(session, planned)
         criteria = (workspace.sprint_success_criteria or "").strip() if workspace else ""
+        first = utcnow().astimezone(ZoneInfo(workspace.timezone)).date()
+        last = first + timedelta(days=length - 1)
+        settings = [
+            await token_button(
+                session, services.owner_id, f"🏁 Length: {length} days",
+                "sprint_edit", {"field": "length_days"},
+            )
+        ]
+        if effort_tracking:
+            settings.append(
+                await token_button(
+                    session, services.owner_id, f"⚖️ Capacity: {capacity_label(capacity)}",
+                    "sprint_edit", {"field": "capacity_effort_points"},
+                )
+            )
         rows = [
             [
                 await token_button(
                     session,
                     services.owner_id,
                     "✏️ Edit Success criteria" if criteria else "🎯 Set Success criteria",
-                    "sprint_criteria_prompt",
+                    "sprint_edit",
+                    {"field": "success_criteria"},
                 )
             ],
+            settings,
             [await token_button(session, services.owner_id, "🗓 Plan", "plan_open")],
         ]
         if planned and criteria:
@@ -249,6 +342,7 @@ async def _render_planning(
     text = with_notice(
         "<b>Planning</b>\n"
         f"Success criteria: {html.escape(criteria) if criteria else 'not set yet'}\n"
+        f"Length: {length} days, {first:%d.%m} – {last:%d.%m}\n"
         f"Planned: {cost}" + (f"\n{warning}" if warning else ""),
         notice,
     )
@@ -295,11 +389,18 @@ def plan_cost(
     return line, above
 
 
-async def _apply_success_criteria(
-    session: AsyncSession, services: Any, state: Mapping[str, Any], value: str
+def _edited_field(state: Mapping[str, Any]) -> PlanningField:
+    field = PLANNING_FIELDS.get(str(state.get("field")))
+    if field is None:
+        raise DomainError("That setting is no longer available.")
+    return field
+
+
+async def _apply_field(
+    session: AsyncSession, services: Any, state: Mapping[str, Any], value: Any
 ) -> None:
-    del services, state
-    await set_sprint_success_criteria(session, value)
+    del services
+    await _edited_field(state).write(session, value)
 
 
 async def _render_sprint(
@@ -313,7 +414,7 @@ async def _render_sprint(
 
 TEXT_INPUT = TextInputFlow(
     name="sprint",
-    validator=lambda _state: required_text("Success criteria"),
-    apply=_apply_success_criteria,
+    validator=lambda state: _edited_field(state).parse,
+    apply=_apply_field,
     render=_render_sprint,
 )

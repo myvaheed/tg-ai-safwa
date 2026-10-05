@@ -29,7 +29,7 @@ from safwa.features.planning.closing import sprint_closing
 from safwa.features.planning.model import Sprint, SprintCommitment
 from safwa.features.planning.telegram.plan import render_plan
 from safwa.features.planning.telegram.sprint import render_sprint
-from safwa.features.planning.use_cases import start_sprint
+from safwa.features.planning.use_cases import set_sprint_capacity, set_sprint_length, start_sprint
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.retro.analysis import SprintColumn, overview_text, shares_text
@@ -56,11 +56,11 @@ async def scheduled_card(session, *, count=1, stage="sprint", effort_points=5):
     return card
 
 
-async def test_profile_length_weights_the_plan_and_its_ui(sessions, effort_on):
+async def test_the_next_sprints_length_weights_the_plan_and_its_ui(sessions, effort_on):
     """PL-REPEAT-031 — tests/brd/planning.feature"""
     async with sessions() as session:
-        await set_profile_field(session, ProfileField.SPRINT_LENGTH_DAYS, 3)
-        await set_profile_field(session, ProfileField.CAPACITY_EFFORT_POINTS, 10)
+        await set_sprint_length(session, 3)
+        await set_sprint_capacity(session, 10)
         card = await scheduled_card(session)
         load = await plan_load(session, [card])
         assert (load.actions, load.effort, load.counts) == (3, 15, {card.id: 3})
@@ -75,7 +75,7 @@ async def test_profile_length_weights_the_plan_and_its_ui(sessions, effort_on):
     assert "× 3" in message.answers[-1]
     assert ">15</td>" in message.answers[-1]
     async with sessions() as session:
-        await set_profile_field(session, ProfileField.SPRINT_LENGTH_DAYS, 7)
+        await set_sprint_length(session, 7)
         load = await plan_load(session, [await session.get(Card, card.id)])
         assert (load.actions, load.effort) == (7, 35)
 

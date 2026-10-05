@@ -39,9 +39,9 @@ from ...cards.api import CardStage, actions_on_stages, effort_label
 from ...cards.model import Card
 from ...cards.telegram import render_card
 from ...cards.use_cases import move_card
-from ...profile.api import capacity_effort_points, effort_tracking_on
+from ...profile.api import effort_tracking_on
 from ...saved_requests.model import SavedRequest
-from ..api import PlanLoad, plan_load
+from ..api import PlanLoad, capacity_effort_points, plan_load
 from .sprint import plan_cost
 from .state import (
     load_plan_state,

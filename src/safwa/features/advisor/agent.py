@@ -81,7 +81,6 @@ A Check is a state observation ("did this hold?"), not planned work: a checklist
 
 A Sprint is a fixed period with Success criteria that say what it must achieve. 
 Judge the plan and every proposal against those criteria.
-The Sprint length and capacity are Profile fields: `route("profile")`.
 In Planning mode no Sprint runs; Today still holds Actions. Remind the user to plan and start the next one.
 
 # Reminders

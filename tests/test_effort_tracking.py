@@ -23,12 +23,11 @@ from safwa.features.cards.use_cases import (
     finish_action,
     update_card_fields,
 )
-from safwa.features.planning.api import sprint_counts
+from safwa.features.planning.api import capacity_effort_points, sprint_counts
 from safwa.features.planning.model import SprintCommitment
 from safwa.features.planning.telegram import render_plan, render_sprint
-from safwa.features.planning.use_cases import finish_sprint, start_sprint
+from safwa.features.planning.use_cases import finish_sprint, set_sprint_capacity, start_sprint
 from safwa.features.profile.api import (
-    capacity_effort_points,
     effort_tracking_on,
     hook_switched_on,
     set_hook_switch,
@@ -41,6 +40,7 @@ from safwa.features.retro.analysis import overview_text, shares_text
 from safwa.features.retro.records import aggregate, sprint_records, sprints_by_number
 from safwa.features.retro.telegram import open_retro
 from safwa.features.retro.use_cases import analysis_input
+from safwa.foundation.workspace import Workspace
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner
 from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.cues.queue import add_hook_cue
@@ -70,20 +70,24 @@ async def test_ps_ep_021_the_switch_keeps_estimates_and_capacity(sessions):
     async with sessions() as session:
         assert not await effort_tracking_on(session)
         card = await create_card(session, kind="action", title="A full day", effort_points=13)
-        await set_profile_field(session, ProfileField.CAPACITY_EFFORT_POINTS, 20)
         await set_profile_field(session, ProfileField.TIME_TRACKING, True)
         assert await capacity_effort_points(session) is None
         assert not await hook_switched_on(session, TODAY_OVERLOAD_HOOK.name)
         await session.commit()
 
+    planning = FakeMessage(7102, bot_message=True)
+    await render_sprint(planning, services)
+    assert "⚖️ Capacity" not in " ".join(button_texts(planning.edits[-1][1]))
     message = FakeMessage(7101, bot_message=True)
     await command_profile(message, services)
-    text, markup = message.edits[-1]
+    _, markup = message.edits[-1]
     assert "🔢 Effort Points: off" in button_texts(markup)
-    assert "🎯 Sprint capacity" not in button_texts(markup)
-    assert "Sprint capacity:" not in text
     _, markup = await _press(message, services, markup, "🔢 Effort Points: off")
-    assert "🎯 Sprint capacity" in button_texts(markup)
+    async with sessions() as session:
+        await set_sprint_capacity(session, 20)
+        await session.commit()
+    await render_sprint(planning, services)
+    assert "⚖️ Capacity: 20 EP" in button_texts(planning.edits[-1][1])
     async with sessions() as session:
         assert await capacity_effort_points(session) == 20
         assert await hook_switched_on(session, TODAY_OVERLOAD_HOOK.name)
@@ -93,7 +97,8 @@ async def test_ps_ep_021_the_switch_keeps_estimates_and_capacity(sessions):
     async with sessions() as session:
         profile = await session.get(UserProfile, 1)
         assert not profile.effort_tracking and profile.time_tracking
-        assert profile.capacity_effort_points == 20
+        assert await capacity_effort_points(session) is None
+        assert (await session.get(Workspace, 1)).sprint_capacity_effort_points == 20
         assert (await session.get(Card, card.id)).effort_points == 13
         assert not await hook_switched_on(session, TODAY_OVERLOAD_HOOK.name)
     await render_card(message, services, card.id, full=True)
