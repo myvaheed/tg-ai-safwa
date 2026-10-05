@@ -8,7 +8,7 @@ suspension. What a change *is* belongs to whoever implements the ports.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -114,8 +114,8 @@ class AgentSession:
     repair_rounds: int = 0
     result_summaries: list[str] = field(default_factory=list)
     display_result_summaries: list[str] = field(default_factory=list)
-    # Words a subagent declared as shown wrote, for the person to read as they are: never
-    # split into receipt lines, and never handed to the next subagent as work done.
+    # Blocks the host wrote for the person, which open the answer as they are: never split
+    # into receipt lines, and never handed to a subagent as work done.
     shown_blocks: list[str] = field(default_factory=list)
     # Who routed here, and this session's own `route` call that has not been answered yet.
     parent_run_id: int | None = None
@@ -271,6 +271,9 @@ class AgentLoopResult:
     # Set when a session this one routed to opened a screen: the whole chain waits for the
     # person, and this is what they see meanwhile.
     suspended: TurnOutcome | None = None
+    # Set when the session ended by sending a routed subagent's words as they are: `message`
+    # is those words, and this is whose they are.
+    forwarded: str | None = None
 
 
 def json_safe(value: Any) -> Any:
@@ -295,16 +298,15 @@ def route_receipt(
     *,
     error: str | None = None,
     receipt_prefixes: tuple[str, ...] = (),
-    shown: list[str] | None = None,
 ) -> dict[str, Any]:
     """What a finished subagent hands back to whoever routed to it.
 
     `did` is the same set of lines the person reads, taken from the summaries this session
     accumulated, so there is one shape of receipt in the system.  `text` is the subagent's
     own words with its own citations — real ids the caller can reuse — and never the body
-    of what it proposed.  `receipt_prefixes` are the host's receipt openings, so a line the
-    model echoed is not counted twice.  `shown` are the blocks the person reads as they
-    were written, beside the receipts and apart from them: whole, and in order.
+    of what it proposed. The caller sends them as they are with `forward`, or answers in
+    words of its own; `next` says so where the choice is made.  `receipt_prefixes` are the
+    host's receipt openings, so a line the model echoed is not counted twice.
     """
     receipt_lines = [line for summary in summaries for line in summary.splitlines() if line.strip()]
     receipt: dict[str, Any] = {
@@ -316,10 +318,35 @@ def route_receipt(
         message = "\n".join(
             line for line in message.splitlines() if not line.strip().startswith(receipt_prefixes)
         )
-    if shown:
-        receipt["shown"] = list(shown)
     if message.strip():
         receipt["text"] = message.strip()
+        receipt["next"] = (
+            f'If text answers the request, call forward("{name}") to send it as it is. '
+            "Otherwise route again or answer in your own words."
+        )
     if error:
         receipt["error"] = error
     return receipt
+
+
+def routed_answers(transcript: Sequence[Mapping[str, Any]]) -> dict[str, tuple[int, str]]:
+    """Each routed subagent's newest words in this transcript, with the message holding them.
+
+    The newest receipt decides: a subagent routed to again answers anew, and one whose
+    newest receipt carries no words has nothing to send.
+    """
+    answers: dict[str, tuple[int, str]] = {}
+    for index, message in enumerate(transcript):
+        if message.get("role") != "tool" or message.get("name") != "route":
+            continue
+        try:
+            receipt = json.loads(str(message.get("content") or "{}"))
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(receipt, dict) or "subagent" not in receipt:
+            continue
+        name = str(receipt["subagent"])
+        answers.pop(name, None)
+        if str(receipt.get("text") or "").strip():
+            answers[name] = (index, str(receipt["text"]))
+    return answers

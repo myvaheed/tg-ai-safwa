@@ -63,7 +63,8 @@ When the Advisor's turn ends, `ProposalMaterializer.answer` hands the answer on 
 built by `kept_turn`: the calls the session made and what came back for each, in order, then the
 model's own words. `render_ai_outcome` keeps that turn on the answer's message. The owner reads
 the receipts and any shown block above the answer; the model reads the `route` result that carried
-them.
+them. Words the turn sent with `forward` are its own words in the kept turn, and leave the `route`
+result that carried them, so the conversation holds them once.
 
 - **A read's rows are cleared.** The results of `query_data` and `call_helper` (`CLEARED_READS`)
   are kept as `CLEARED_READ` — the call stays, the rows go, and the result says to read again.

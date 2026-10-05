@@ -36,6 +36,7 @@ from tg_agent_shell.turn import TurnManager
 from .. import featuretoggles
 from ..config import Settings
 from ..features.advisor.agent import ADVISOR_ROW_LIMITS, ADVISOR_VIEWS
+from ..features.diagnostics.module import SHOW_ANSWER_SOURCE
 from ..features.home.motivation import Motivator
 from ..features.memory.absorb import PatternReviewer
 from ..features.memory.use_cases import BackgroundRunner, MemoryReader
@@ -233,6 +234,7 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
         helpers=REGISTRY.helper_ports(provider, query_runner),
         media=media,
         read_tools=(scheduled_tool(database.sessions),),
+        mark_answer_source=SHOW_ANSWER_SOURCE,
     )
     summary = DialogueSummary(
         history,

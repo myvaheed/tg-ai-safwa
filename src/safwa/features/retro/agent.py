@@ -438,5 +438,5 @@ RETRO_AGENT = AgentSpec(
     read_tools=_retro_read_tools,
     current=retro_now,
     opens=("retro",),
-    shown_as_is=True,
+    answers_questions=True,
 )

@@ -79,8 +79,8 @@ class AgentSpec:
     opens: tuple[str, ...] = ()
     # How many of the conversation's newest messages it reads.
     history_messages: int = SUBAGENT_HISTORY_LAST_MESSAGES
-    # Its final words reach the owner as they are, as a block of the Advisor's message.
-    shown_as_is: bool = False
+    # It answers questions as well as doing work, so its first step may be words.
+    answers_questions: bool = False
 
     def bind(self, context: AgentContext, *, prompt: str) -> RoutedSubagent:
         """The session this declaration runs as here: its reads, its scope and its current
@@ -95,7 +95,7 @@ class AgentSpec:
             current=partial(self.current, context) if self.current else None,
             opens=self.opens,
             history_messages=self.history_messages,
-            shown_as_is=self.shown_as_is,
+            answers_questions=self.answers_questions,
         )
 
 

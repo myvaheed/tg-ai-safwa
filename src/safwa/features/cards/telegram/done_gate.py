@@ -27,13 +27,8 @@ from tg_agent_shell.telegram import (
 )
 from tg_agent_shell.telegram.model import UiSession
 
-from ...checks.model import CheckOutcome
-from ...checks.telegram import (
-    CHECK_OUTCOME_LABELS,
-    CHECK_STATUS_EMOJIS,
-    SETTABLE_OUTCOMES,
-    outcome_button_label,
-)
+from ...checks.model import PENDING, CheckOutcome
+from ...checks.telegram import answer_button_label, check_line
 from ...checks.use_cases import pending_checks
 from ..api import live_card_title
 from ..use_cases import finish_card
@@ -75,19 +70,22 @@ async def render_check_resolution(
                 expires_at=datetime.now(UTC) + _GATE_TTL,
             )
         )
+        # The buttons carry the answer, so several rows are told apart by the numbers in the text.
+        numbers = [f"{index}. " if len(pending) > 1 else "" for index in range(1, len(pending) + 1)]
         rows: list[list[InlineKeyboardButton]] = []
-        for check in pending:
-            current = state_outcomes[str(check.id)]
+        for number, check in zip(numbers, pending, strict=True):
             rows.append(
                 [
                     await token_button(
                         session,
                         services.owner_id,
-                        outcome_button_label(outcome, check.title, current=current),
+                        answer_button_label(
+                            outcome, current=state_outcomes[str(check.id)], prefix=number
+                        ),
                         "check_resolve_set",
-                        {"card_id": card_id, "check_id": check.id, "outcome": outcome},
+                        {"card_id": card_id, "check_id": check.id, "outcome": outcome.value},
                     )
-                    for outcome in SETTABLE_OUTCOMES
+                    for outcome in CheckOutcome
                 ]
             )
         closing = []
@@ -118,10 +116,8 @@ async def render_check_resolution(
         "Answer every Check before this Card is Done.",
         "",
         *[
-            f"{CHECK_STATUS_EMOJIS[state_outcomes[str(check.id)] or 'pending']}"
-            f" {html.escape(check.title)}"
-            f" — {CHECK_OUTCOME_LABELS[state_outcomes[str(check.id)] or 'pending']}"
-            for check in pending
+            number + check_line(check.title, state_outcomes[str(check.id)] or PENDING)
+            for number, check in zip(numbers, pending, strict=True)
         ],
     ]
     await send_registered(

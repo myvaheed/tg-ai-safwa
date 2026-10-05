@@ -133,8 +133,8 @@ class Registry:
                 hooks,
                 owners=frozenset(module.name for module in modules),
                 helpers=frozenset(helpers),
-                # route is answered by agent_runtime before ToolAdapters is reached.
-                tools=IMMEDIATE_TOOLS - {"route"},
+                # route and forward are answered by agent_runtime before ToolAdapters is reached.
+                tools=IMMEDIATE_TOOLS - {"route", "forward"},
                 policy=hook_policy,
             ),
         )
@@ -192,6 +192,7 @@ class Registry:
         reviews: ProposalStore | None = None,
         media: MediaLibrary | None = None,
         read_tools: tuple[ReadToolSpec, ...] = (),
+        mark_answer_source: bool = False,
     ) -> RootSession:
         """The one session that writes to the chat, carrying what the features declared.
 
@@ -199,7 +200,7 @@ class Registry:
         so the reader that answers is the reader its declaration describes. `row_limits`
         cuts a read of one of those views shorter than the rest. With `media` it can look
         at a photo again; without it, it has no way to. `read_tools` are the application's
-        own reads for it.
+        own reads for it. `mark_answer_source` ends each answer with who wrote it.
         """
         return RootSession(
             sessions,
@@ -217,6 +218,7 @@ class Registry:
             hooks=self.hooks,
             reviews=reviews,
             read_tools=(*((relook_tool(media),) if media is not None else ()), *read_tools),
+            mark_answer_source=mark_answer_source,
         )
 
 

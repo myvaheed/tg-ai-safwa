@@ -8,6 +8,7 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from agent_runtime import routed_answers
 from llm_gateway import standard_message
 
 # The reads whose rows are stale by the next turn. The call stays in the conversation and the
@@ -30,7 +31,11 @@ _CONVERSATION_LINE = re.compile(
 
 
 def kept_turn(
-    transcript: Sequence[Mapping[str, Any]], words: str, *, request: str | None = None
+    transcript: Sequence[Mapping[str, Any]],
+    words: str,
+    *,
+    request: str | None = None,
+    forwarded: str | None = None,
 ) -> tuple[dict[str, Any], ...]:
     """What a finished turn leaves in the conversation for the turns after it to read.
 
@@ -39,12 +44,19 @@ def kept_turn(
     not by saying so. A turn nobody asked for opens with the request that caused it.
     Only the standard chat keys are kept: the reasoning between its calls, and anything
     else its provider added, stays behind, so the next turn reads the same whichever model
-    answers it.
+    answers it. Words the turn `forwarded` are its own words now, so they leave the receipt
+    that carried them and the conversation holds them once.
     """
     turn: list[dict[str, Any]] = [{"role": "user", "content": request}] if request else []
-    for message in transcript:
+    moved = routed_answers(transcript)[forwarded][0] if forwarded else None
+    for index, message in enumerate(transcript):
         if message.get("role") == "tool" and message.get("name") in CLEARED_READS:
             message = {**message, "content": json.dumps(CLEARED_READ)}
+        elif index == moved:
+            receipt = json.loads(str(message["content"]))
+            receipt.pop("text")
+            receipt.pop("next", None)
+            message = {**message, "content": json.dumps(receipt, ensure_ascii=False)}
         turn.append(standard_message(message))
     if words.strip():
         turn.append({"role": "assistant", "content": words})

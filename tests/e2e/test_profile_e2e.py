@@ -11,6 +11,7 @@ from datetime import time
 
 import pytest
 from advisor_e2e_helpers import mutation_turn, route_turn
+from agent_turns import forward_turn
 
 from safwa.bootstrap.modules import PROPOSALS, REGISTRY, routed_prompt
 from safwa.features.cards.hooks import BLOCKER_HOOK
@@ -115,13 +116,13 @@ async def test_ps_ai_020_a_switch_is_read_and_left_to_the_profile_screen(e2e_har
     )
     words = "Blocker follow-up is off now. Open ⚙️ Profile → 🔔 Hooks → Blocker follow-up for its switch."
     advisor, provider = e2e_harness.advisor(
-        [route_turn("profile"), words, "Anything else?"], subagents=(profile,)
+        [route_turn("profile"), words, forward_turn("profile")], subagents=(profile,)
     )
 
     outcome = await advisor.handle("Ask me about blocked Actions again")
 
     assert outcome.kind is AIOutcomeKind.ANSWER
-    assert outcome.message.startswith(words)
+    assert outcome.message == words
     assert "- Blocker follow-up: off" in str(provider.calls[1][-1]["content"])
     # The one tool it holds has the ten fields and no switch.
     assert [tool["function"]["name"] for tool in provider.options[1]["tools"]] == ["profile"]

@@ -5,10 +5,8 @@ from __future__ import annotations
 from .handlers import CHECK_CALLBACK_ACTIONS, CHECK_TEXT_INPUTS
 from .review import CheckProposalPresenter, check_citation_label
 from .screens import (
-    CHECK_OUTCOME_LABELS,
-    CHECK_STATUS_EMOJIS,
-    SETTABLE_OUTCOMES,
-    outcome_button_label,
+    answer_button_label,
+    check_line,
     render_check,
     render_check_values,
     render_checks,
@@ -17,12 +15,10 @@ from .screens import (
 __all__ = [
     "CHECK_CALLBACK_ACTIONS",
     "CHECK_TEXT_INPUTS",
-    "CHECK_OUTCOME_LABELS",
-    "CHECK_STATUS_EMOJIS",
-    "SETTABLE_OUTCOMES",
     "CheckProposalPresenter",
+    "answer_button_label",
     "check_citation_label",
-    "outcome_button_label",
+    "check_line",
     "render_check",
     "render_check_values",
     "render_checks",

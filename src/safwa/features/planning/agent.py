@@ -142,7 +142,7 @@ SPRINT_AGENT = AgentSpec(
     mutation_tools=("sprint",),
     views=("ai_current_sprint", "ai_current_sprint_metrics", "ai_cards"),
     current=sprint_now,
-    shown_as_is=True,
+    answers_questions=True,
 )
 
 

@@ -51,6 +51,7 @@ from scripts.architecture_metrics import (
 )
 from tg_agent_shell.ai.contracts import (
     CALL_HELPER_TOOL,
+    FORWARD_TOOL,
     QUERY_TOOL,
     ROUTE_TOOL,
     open_tool,
@@ -253,6 +254,7 @@ def _tool_schemas() -> dict[str, dict]:
     tools = {
         "open": open_tool(SCREENS),
         "route": ROUTE_TOOL,
+        "forward": FORWARD_TOOL,
         "query_data": QUERY_TOOL,
         "call_helper": CALL_HELPER_TOOL,
         # The schema names no photo, so it is read without a library to read one from.

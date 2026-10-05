@@ -98,6 +98,7 @@ class RootSession:
         hooks: HookRegistry | None = None,
         reviews: ProposalStore | None = None,
         read_tools: tuple[ReadToolSpec, ...] = (),
+        mark_answer_source: bool = False,
     ) -> None:
         self.sessions = sessions
         self.proposals = proposals
@@ -140,6 +141,7 @@ class RootSession:
             self.adapters,
             provider=provider,
             resolve=self.resolve_approval,
+            mark_answer_source=mark_answer_source,
         )
         self.runtime = AgentManager(
             self.store,
@@ -147,10 +149,10 @@ class RootSession:
             self.adapters,
             self.context,
             self.materializer,
-            # A subagent whose words are shown is handed the turn for those words, so its
+            # A subagent that answers questions may be handed the turn for an answer, so its
             # first step need not be a tool call.
             routed_kinds=frozenset(
-                name for name, routed in self.subagents.items() if not routed.shown_as_is
+                name for name, routed in self.subagents.items() if not routed.answers_questions
             ),
             max_tool_calls=MAX_TOOL_CALLS,
             max_repair_rounds=MAX_REPAIR_ROUNDS,

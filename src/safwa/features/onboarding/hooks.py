@@ -158,7 +158,7 @@ async def _line(
         for check in answered:
             line += (
                 f"; answered its Check [{check.title}](check:{check.id}) "
-                f"{CHECK_OUTCOME_LABELS.get(check.outcome or 'pending', 'Pending')}"
+                f"{CHECK_OUTCOME_LABELS[check.status]}"
             )
         return line
     if item == "check":

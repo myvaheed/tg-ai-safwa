@@ -68,14 +68,6 @@ logger = logging.getLogger(__name__)
 
 MAX_REPAIR_ROUNDS = 5
 
-# What the Advisor reads in place of the words of a subagent whose words are shown as they
-# are. It speaks of that block alone, so it never argues with anything else in the turn.
-SHOWN_AS_IS = (
-    "The interface displays `shown` above your answer.\n"
-    "Do not repeat or paraphrase those blocks.\n"
-    "If nothing else was asked, add one short sentence."
-)
-
 # Set on a session that answers a message of the owner's, and taken off by its first answer
 # in words, which is the one `AfterRequest` is about.
 OWNER_REQUEST = "owner_request"
@@ -99,6 +91,7 @@ class ProposalMaterializer:
         *,
         provider: LlmProvider,
         resolve: ResolveApproval,
+        mark_answer_source: bool = False,
     ) -> None:
         self.sessions = sessions
         self.reviews = reviews
@@ -109,26 +102,34 @@ class ProposalMaterializer:
         self.resolve = resolve
         # What a check that holds an answer or saves a proposal reads it with.
         self.provider = provider
+        # Each answer ends with who wrote it: a subagent whose words were forwarded, or the
+        # root itself.
+        self.mark_answer_source = mark_answer_source
 
-    def answer(self, agent: AgentSession, message: str) -> TurnOutcome:
-        """One session's words, and — for the session the owner reads — the blocks shown as
-        they are and its receipts.
+    def answer(
+        self, agent: AgentSession, message: str, forwarded: str | None = None
+    ) -> TurnOutcome:
+        """One session's words, and — for the session the owner reads — its receipts.
 
-        A subagent's words go to whoever routed to it, so they are handed over untouched —
-        unless it is declared shown as is: then they are a block for the owner to read, and
-        its caller is told they were shown instead of being handed them to retell. The root
-        supplies the model's dialogue answer, which makes it the one place that
-        has to guarantee the owner is never left with nothing.
+        A subagent's words go to whoever routed to it, untouched. The root supplies the
+        model's dialogue answer, which makes it the one place that has to guarantee the
+        owner is never left with nothing. Words it `forwarded` are a subagent's, sent as
+        they are: first and whole, like a block the host wrote, and never the body the
+        receipts are taken out of.
         """
         if agent.parent_run_id is not None:
-            routed = self.adapters.subagents.get(agent.kind)
-            if routed is not None and routed.shown_as_is and message.strip():
-                agent.shown_blocks.append(message.strip())
-                message = SHOWN_AS_IS
             return as_turn(AIOutcome(AIOutcomeKind.ANSWER, message))
-        composed = compose_display_outcome(
-            message, agent.display_result_summaries, agent.shown_blocks
+        composed = (
+            compose_display_outcome(
+                "", agent.display_result_summaries, [*agent.shown_blocks, message]
+            )
+            if forwarded
+            else compose_display_outcome(
+                message, agent.display_result_summaries, agent.shown_blocks
+            )
         )
+        if composed and self.mark_answer_source:
+            composed += "\n\n" + (f"↪️ {forwarded}" if forwarded else f"✍️ {agent.kind}")
         return as_turn(
             AIOutcome(
                 AIOutcomeKind.ANSWER,
@@ -138,6 +139,7 @@ class ProposalMaterializer:
                     json_safe(agent.transcript),
                     message,
                     request=agent.host_state.get(CUE_REQUEST),
+                    forwarded=forwarded,
                 ),
             )
         )
@@ -152,7 +154,7 @@ class ProposalMaterializer:
         was held back with what is missing, which happens once per request.
         """
         if not result.pending_tools:
-            return await self._answer_unless_held(agent, result.message)
+            return await self._answer_unless_held(agent, result.message, result.forwarded)
         mutation_tools = [tool for tool in result.pending_tools if tool.change is not None]
         if mutation_tools:
             await announce(preparing_line(agent.kind, len(mutation_tools)))
@@ -326,7 +328,7 @@ class ProposalMaterializer:
         return None
 
     async def _answer_unless_held(
-        self, agent: AgentSession, message: str
+        self, agent: AgentSession, message: str, forwarded: str | None = None
     ) -> TurnOutcome | None:
         """The session's words, unless a check holds the answer to the owner's message back.
 
@@ -357,7 +359,7 @@ class ProposalMaterializer:
                 agent.messages.append({"role": "assistant", "content": message})
                 agent.messages.append(system_note(words))
                 return None
-        return self.answer(agent, message)
+        return self.answer(agent, message, forwarded)
 
     async def _reviewed(
         self,

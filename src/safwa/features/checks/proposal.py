@@ -39,6 +39,7 @@ CHECK_ANSWER_ACTIONS = {
     ChangeAction.CANCEL: CheckOutcome.MISSED.value,
 }
 
+
 class CheckProposalHandler:
     entity = "check"
     # A Check proposal keeps the version it was prepared against.
@@ -71,15 +72,7 @@ class CheckProposalHandler:
         if check is None or check.version != change.expected_version:
             raise StaleStateError("A Check changed; refresh this proposal")
         if change.action is ChangeAction.UPDATE:
-            scalar_fields = {
-                name: value
-                for name, value in values.items()
-                if name in {"title", "schedule", "schedule_rule"}
-            }
-            if scalar_fields:
-                await update_check_fields(
-                    session, check.id, scalar_fields, actor=ActorType.AI
-                )
+            await update_check_fields(session, check.id, values, actor=ActorType.AI)
         elif change.action in CHECK_ANSWER_ACTIONS:
             await resolve_check(
                 session, check.id, CHECK_ANSWER_ACTIONS[change.action], actor=ActorType.AI

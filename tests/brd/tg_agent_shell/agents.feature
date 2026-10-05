@@ -50,9 +50,8 @@ Feature: Agents — the session, the hand-over, and what comes back
   Scenario: AG-RECEIPT-006 — Only Safwa writes to the chat
     Given a subagent finished the work it was handed and has something to say about it
     When the request ends
-    Then its words went back to the part answering in the chat, and reach the chat only inside
-      the message that part writes: retold, or printed as they are when the subagent is declared
-      so, by AG-RECEIPT-044
+    Then its words went back to the part answering in the chat, and reach the chat only through
+      the message that part writes: forwarded as they are, or not at all, by AG-RECEIPT-044
     And that part writes the single message the owner reads, keeping the links to any item named
     And a subagent's read tool may send pictures to the chat itself, with no words or buttons of
       their own
@@ -129,7 +128,7 @@ Feature: Agents — the session, the hand-over, and what comes back
     Given a subagent has just been handed a turn
     When it takes its first step
     Then it has to do something, not answer in words — it was handed the turn for the work —
-      unless it is declared shown as is, whose words are the work, by AG-RECEIPT-044
+      unless it is declared as one that answers questions, whose words are the work
     And every step after that is free to be the answer, or the work would never finish
 
   Scenario: AG-TURN-015 — Safwa speaks unasked only when nothing of the owner's is open
@@ -366,18 +365,21 @@ Feature: Agents — the session, the hand-over, and what comes back
     And a hook naming an unknown hook, or one without a switch of its own, is refused before the
       application starts
 
-  Scenario: AG-RECEIPT-044 — A subagent may be shown as is, through the message Safwa writes
-    Given a subagent declared as one whose words are shown as they are
-    When it finishes with words
-    Then those words are a block of the single message Safwa writes, printed before the rest of it,
-      paragraphs and repeated lines intact, and Safwa is told they appear above its answer and
-      not to repeat or paraphrase them
-    And if nothing else was asked, Safwa is told to add one short sentence
-    And the block is not a receipt: it is not handed to the next subagent of the request as work
-      already saved
-    And it is not made to open with a tool call: its words are the work
+  Scenario: AG-RECEIPT-044 — Safwa forwards a subagent's answer as it is, or answers itself, never both
+    Given a subagent finished with words, and they went back to Safwa
+    When they answer the request
+    Then Safwa forwards them, and they are the message: first and whole, paragraphs and repeated
+      lines intact, above the receipts, with no words of Safwa's beside them
+    And forwarding is the only thing Safwa does in that step, and it ends the request
+    When they do not answer it, because they are wrong, incomplete or only a result for Safwa
+    Then Safwa routes again or answers in its own words, and none of the subagent's words is sent
+    And a subagent routed to again answers anew, and only its newest words can be forwarded
+    And nothing is forwarded from a subagent that did not answer in the request
+    And the words are not a receipt: they are not handed to the next subagent of the request as
+      work already saved
     When a screen stops the request between the subagent's answer and Safwa's
-    Then the block is still there when the request carries on
+    Then the words can still be forwarded when the request carries on
+    And the conversation keeps forwarded words once, as Safwa's answer
 
   Scenario: AG-DONE-045 — Before Safwa answers the owner's message, the request is read for what was asked and not done
     Given the request review is on in the feature toggles

@@ -24,8 +24,8 @@ Feature: Onboarding
     When a Value is saved — from a proposal or by hand on the Values screen
     Then once the chat is free, the Advisor is asked to route to onboarding, told that a Value
       was created, with that Value cited
-    And the tip reaches the owner as the subagent wrote it, as a block of its own at the top of
-      the message, with the Advisor's words after it, which do not repeat it
+    And the Advisor forwards the tip: it reaches the owner as the subagent wrote it, with no
+      words of the Advisor's beside it
     When several items are saved while the chat is busy
     Then they are handed to the subagent together — at most 5 cited, the rest counted
       (ONBOARDING_TIP_ITEMS = 5) — and one message comes
@@ -36,13 +36,14 @@ Feature: Onboarding
     Given a tip is owed and a proposal screen is open
     Then the tip waits until the screen is answered
     Given a tip and a blocker question are owed at the same time
-    Then the tip comes as its own block and the blocker's question is still asked, below it
+    Then the tip comes back to the Advisor, which writes one message holding the tip and the
+      blocker's question
 
   Scenario: OB-ASK-004 — Questions about Safwa are answered in the subagent's own words
     Given the owner asks what a Check is, or what Safwa can do
     When the Advisor routes to onboarding
-    Then the explanation reaches the owner as the subagent wrote it, paragraphs intact, with
-      the Advisor's words after it, which do not repeat it
+    Then the Advisor forwards the explanation: it reaches the owner as the subagent wrote it,
+      paragraphs intact, with no words of the Advisor's beside it
     And it is answered whether onboarding is on or off
     Given the owner asks to explain Checks and to add one
     Then the Check is proposed on its screen, and the explanation comes in the answer once the

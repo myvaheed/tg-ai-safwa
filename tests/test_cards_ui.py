@@ -46,6 +46,7 @@ from safwa.features.cards.use_cases import (
     toggle_card_check,
     toggle_card_value,
 )
+from safwa.features.checks.use_cases import resolve_check
 from safwa.features.planning.use_cases import start_sprint
 from safwa.features.tags.telegram import render_tag
 from safwa.features.tags.use_cases import create_tag
@@ -288,6 +289,7 @@ async def test_moving_a_blocked_card_shows_its_warning_on_the_card_screen(sessio
 
 
 async def test_checks_button_is_on_the_card_only(sessions) -> None:
+    """CH-ANSWER-004 — tests/brd/checks.feature"""
     async with sessions() as session:
         card = await create_card(session, kind="action", title="Card", effort_points=1)
         value = await create_value(session, "Value")
@@ -310,7 +312,14 @@ async def test_checks_button_is_on_the_card_only(sessions) -> None:
         await toggle_card_check(session, card_id, linked.id)
         await session.commit()
 
+    # The button counts the answered Checks, so a Pending one does not read as done.
     message = FakeMessage(card_id + 100, bot_message=True)
+    await render_card(message, services, card_id)
+    assert any("Checks (0/1)" in text for text in button_texts(message.edits[-1][1]))
+
+    async with sessions() as session:
+        await resolve_check(session, linked.id, "missed")
+        await session.commit()
     await render_card(message, services, card_id)
     assert any("Checks (1/1)" in text for text in button_texts(message.edits[-1][1]))
 

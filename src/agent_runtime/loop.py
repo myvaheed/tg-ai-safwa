@@ -1,8 +1,9 @@
 """One session, run until it answers in words.
 
-The loop knows three endings and no others: the model wrote something, its calls became
-changes that a person has to see, or a session it routed to opened a screen and the whole
-chain now waits. Everything else — what a tool does, what a change is — is a port.
+The loop knows four endings and no others: the model wrote something, it forwarded the
+words a session it routed to handed back, its calls became changes that a person has to
+see, or a session it routed to opened a screen and the whole chain now waits. Everything
+else — what a tool does, what a change is — is a port.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from .model import (
     TurnOutcome,
     flatten_content,
     log_preview,
+    routed_answers,
 )
 from .ports import Observer, ToolRunner
 
@@ -29,12 +31,23 @@ logger = logging.getLogger(__name__)
 
 RouteHandler = Callable[[AgentSession, ToolCall], Awaitable[tuple[dict[str, Any], TurnOutcome | None]]]
 
-_ROUTE_IS_NOT_SHARED = {
-    "status": "error",
-    "code": "route_is_not_shared",
-    "error": "route must be the only tool call in a response.",
-    "next": "Send route alone, then use what it hands back.",
-    "retryable": True,
+# The calls that end a step on their own: a route may suspend the chain, and a forward ends
+# the turn.
+_NOT_SHARED = {
+    "route": {
+        "status": "error",
+        "code": "route_is_not_shared",
+        "error": "route must be the only tool call in a response.",
+        "next": "Send route alone, then use what it hands back.",
+        "retryable": True,
+    },
+    "forward": {
+        "status": "error",
+        "code": "forward_is_not_shared",
+        "error": "forward must be the only tool call in a response.",
+        "next": "Send forward alone: it ends your turn.",
+        "retryable": True,
+    },
 }
 
 _STOPPED_WITHOUT_ANSWERING = (
@@ -51,6 +64,40 @@ def _tool_not_available(agent: AgentSession, name: str) -> dict[str, Any]:
         "error": f"You have no tool named {name!r}.",
         "next": f"Call one of: {', '.join(sorted(agent.tool_names))}.",
         "retryable": True,
+    }
+
+
+def _forward(
+    agent: AgentSession, call: ToolCall
+) -> tuple[str, str | None, dict[str, Any]]:
+    """The newest words the named subagent handed back in this request, to send as they
+    are — or, with no words, the result that says what can be sent instead."""
+    answers = routed_answers(agent.transcript)
+    try:
+        name = str(json.loads(call.arguments_json or "{}").get("name") or "").strip()
+    except (json.JSONDecodeError, AttributeError):
+        name = ""
+    if name in answers:
+        return name, answers[name][1], {"status": "ok", "forwarded": name}
+    return name, None, {
+        "status": "error",
+        "code": "nothing_to_forward",
+        "error": f"No subagent named {name!r} answered in this request.",
+        "next": (
+            f"Call forward with one of: {', '.join(answers)}."
+            if answers
+            else "Nothing to forward. Answer in your own words."
+        ),
+        "retryable": True,
+    }
+
+
+def _tool_message(call: ToolCall, result: Any) -> dict[str, Any]:
+    return {
+        "role": "tool",
+        "tool_call_id": call.id,
+        "name": call.name,
+        "content": json.dumps(result, ensure_ascii=False, default=str),
     }
 
 
@@ -106,9 +153,12 @@ async def run_loop(
         if turn.tool_calls:
             messages.append(turn.as_message())
             # A route can suspend the whole chain, and a suspended response cannot carry
-            # results for its siblings: the transcript would resume malformed.
-            route_not_shared = len(turn.tool_calls) > 1 and any(
-                call.name == "route" for call in turn.tool_calls
+            # results for its siblings: the transcript would resume malformed. A forward
+            # ends the turn, which its siblings would not survive either.
+            not_shared = (
+                next((call.name for call in turn.tool_calls if call.name in _NOT_SHARED), None)
+                if len(turn.tool_calls) > 1
+                else None
             )
             pending_tools: list[PendingTool] = []
             available = agent.tool_names
@@ -127,14 +177,27 @@ async def run_loop(
                 if agent.tool_count > max_tool_calls:
                     raise ToolBudgetExceeded("The session exceeded the tool-call limit")
                 change = None
-                if route_not_shared:
-                    result = _ROUTE_IS_NOT_SHARED
+                if not_shared is not None:
+                    result = _NOT_SHARED[not_shared]
                 elif call.name not in available:
                     result = _tool_not_available(agent, call.name)
                 elif call.name == "route":
                     result, suspended = await route(agent, call)
                     if suspended is not None:
                         return AgentLoopResult(message="", suspended=suspended)
+                elif call.name == "forward":
+                    name, words, result = _forward(agent, call)
+                    if words is not None:
+                        messages.append(_tool_message(call, result))
+                        if observer is not None:
+                            await observer.step(
+                                agent.run_id,
+                                agent.tool_count,
+                                "forward",
+                                {"tool_call_id": call.id, "subagent": name},
+                            )
+                        logger.info("FORWARD <- %s", name)
+                        return AgentLoopResult(words, forwarded=name)
                 elif immediate[call.name]:
                     result = (await tools.run(agent, call)).result
                 elif has_reads and has_mutations:
@@ -143,15 +206,8 @@ async def run_loop(
                     outcome = await tools.run(agent, call)
                     change, result = outcome.change, outcome.result
                 pending_tools.append(PendingTool(call=call, result=result, change=change))
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": call.id,
-                        "name": call.name,
-                        "content": json.dumps(result, ensure_ascii=False, default=str),
-                    }
-                )
-            if route_not_shared:
+                messages.append(_tool_message(call, result))
+            if not_shared is not None:
                 continue
             changes = [tool.change for tool in pending_tools if tool.change is not None]
             if changes:

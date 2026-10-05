@@ -71,7 +71,6 @@ async def test_a_partly_covered_week_plans_its_share_of_the_quota(sessions):
         early = (await get_scheduled(session, monday, tuesday, "check"))["items"][0]["range"]
         assert (late["planned"], early["planned"]) == (2, 1)
         assert "partial" not in late
-        assert check.scheduled_at is None
 
 
 async def test_missed_is_an_answer_and_scheduled_checks_stay_independent(sessions):

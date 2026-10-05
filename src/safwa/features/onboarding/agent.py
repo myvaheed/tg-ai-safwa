@@ -1,8 +1,8 @@
 """The onboarding subagent: a manual of Safwa, answered from as it is, and one tool to stop.
 
 It reads no data. The manual is its prompt, the items a tip is about are cited in the
-request that routed it, and the rest is the workspace state. Its words reach the user as it
-wrote them, so the Advisor does not retell them.
+request that routed it, and the rest is the workspace state. The Advisor forwards its words
+to the user as it wrote them, rather than retelling them.
 """
 
 from __future__ import annotations
@@ -87,7 +87,7 @@ MANUAL = f"""# Safwa
 - A Check with its own Schedule stays independent. Its next copy opens when answered. Checks on an Action follow that Action's cycle.
 - A Card is Done only when each Check on it has an answer; "✅ Done" asks for them.
 - In words: create, rename, put on a Card, answer, delete.
-- With buttons: "☑️ Checks" on its Card; on the Check, ✅ for Passed and ❌ for Missed, "⏱ Schedule", "💎 Values", "🗑 Delete".
+- With buttons: "☑️ Checks" on its Card, counting answered of all; on the Check, "✅ Yes" answers Passed and "❌ No" answers Missed, "⏱ Schedule", "💎 Values", "🗑 Delete".
 - Not with buttons: creating a Check, or putting it on a Card. Ask the Advisor.
 
 # Values and Tags
@@ -196,7 +196,7 @@ ONBOARDING_AGENT = AgentSpec(
     mutation_tools=("stop_onboarding",),
     workspace_state=True,
     history_messages=ONBOARDING_HISTORY_MESSAGES,
-    shown_as_is=True,
+    answers_questions=True,
 )
 
 

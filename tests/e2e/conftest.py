@@ -56,7 +56,7 @@ def registry_with(checks: tuple[HookSpec, ...]) -> Registry:
             (*(spec for spec in HOOKS if spec not in model_checks), *checks),
             owners=frozenset(module.name for module in MODULES),
             helpers=frozenset(HELPERS),
-            tools=IMMEDIATE_TOOLS - {"route"},
+            tools=IMMEDIATE_TOOLS - {"route", "forward"},
             policy=REGISTRY.hooks.policy,
         ),
     )
@@ -150,6 +150,7 @@ class E2EHarness:
         checks: tuple[HookSpec, ...] | None = None,
         provider_factory: Callable[[list[str | CompletionTurn]], ScriptedProvider] = ScriptedProvider,
         images: bool = False,
+        mark_answer_source: bool = False,
     ) -> tuple[RootSession, ScriptedProvider]:
         subagents = (self.subagent("workspace_mutator"),) if subagents is None else subagents
         # A test about what happens *during* a turn needs the boundary to hold still, so
@@ -186,6 +187,7 @@ class E2EHarness:
             # The photos are read by the same scripted model that answers.
             media=MediaLibrary(self.sessions, provider) if images else None,
             read_tools=(scheduled_tool(self.sessions),),
+            mark_answer_source=mark_answer_source,
         )
         return advisor, provider
 
