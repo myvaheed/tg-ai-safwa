@@ -21,10 +21,10 @@ def listed(value: Any) -> list[Any]:
 class ReferenceSpec:
     """Where one relationship lives in a payload and how it is written.
 
-    ``key`` is the whole naming: a payload offers ``value_id``, ``value_ids`` and
-    ``value_query``, and ``value_id`` is also the link table's own column name, so the same
-    spec addresses the payload, the lookup and the junction row. ``owner`` is the other half
-    of that row: a Card carries Values, Tags and Checks, and a Check carries Values.
+    ``key`` is the whole naming: a payload names the items in ``values``, each an id or an
+    exact name, and ``value_id`` is the link table's own column name, so the same spec
+    addresses the payload, the lookup and the junction row. ``owner`` is the other half of
+    that row: a Card carries Values, Tags and Checks, and a Check carries Values.
     """
 
     key: str
@@ -34,7 +34,7 @@ class ReferenceSpec:
     toggle: Callable[..., Awaitable[bool]]
     # What does the linking, for a screen that counts what carries this item.
     owner: str
-    # A Check is named by `title`, so the column a query_key resolves against varies.
+    # A Check is named by `title`, so the column a name resolves against varies.
     name_attr: str = "name"
     # Only a Check is ever archived; a Value and a Tag are deleted instead, so there is no
     # archived one for a link to be refused against.
@@ -46,16 +46,12 @@ class ReferenceSpec:
     )
 
     @property
+    def field(self) -> str:
+        return f"{self.key}s"
+
+    @property
     def singular_key(self) -> str:
         return f"{self.key}_id"
-
-    @property
-    def plural_key(self) -> str:
-        return f"{self.key}_ids"
-
-    @property
-    def query_key(self) -> str:
-        return f"{self.key}_query"
 
     @property
     def owner_key(self) -> str:
@@ -69,7 +65,7 @@ class ReferenceSpec:
         return (self.model.archived_at.is_(None),) if self.archivable else ()
 
     def mentioned_in(self, values: dict[str, Any]) -> bool:
-        return bool({self.singular_key, self.plural_key, self.query_key} & values.keys())
+        return self.field in values
 
     def link_key(self, owner_id: int, entity_id: int) -> dict[str, int]:
         return {self.owner_key: owner_id, self.singular_key: entity_id}
@@ -104,19 +100,18 @@ async def resolve_references(
     """Resolve one relationship's IDs and exact names against committed data."""
     ids: set[int] = set()
     unknown_ids: list[int] = []
-    for raw_id in [*listed(values.get(spec.singular_key)), *listed(values.get(spec.plural_key))]:
-        entity_id = int(raw_id)
-        entity = await session.get(spec.model, entity_id)
-        if entity is None or not spec.is_live(entity):
-            unknown_ids.append(entity_id)
-        else:
-            ids.add(entity_id)
-
     missing: list[str] = []
     ambiguous: list[str] = []
     blank = False
-    for raw_name in listed(values.get(spec.query_key)):
-        name = str(raw_name).strip()
+    for item in listed(values.get(spec.field)):
+        if isinstance(item, int) and not isinstance(item, bool):
+            entity = await session.get(spec.model, item)
+            if entity is None or not spec.is_live(entity):
+                unknown_ids.append(item)
+            else:
+                ids.add(item)
+            continue
+        name = str(item).strip()
         if not name:
             blank = True
             continue

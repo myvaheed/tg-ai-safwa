@@ -26,9 +26,11 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
 
 - A Goal is created root-level, and a Goal placed under a Goal becomes a Subgoal; a Subgoal is
   always under a Goal; an Action may be root or under Goal/Subgoal and has no children. **Live stage**, effort, time spent, categories, energy and **Blocked** belong to an
-  Action alone, and are stripped for Goal/Subgoal at both the AI and the domain boundary. A
-  Card's parent is set by proposal only; no screen offers the control, which is why no screen
-  offers Subgoal as a kind either.
+  Action alone. The model writes a Goal or a Subgoal with the `goal` tool, which has none of
+  them, and an Action with the `action` tool, whose call on a Goal or a Subgoal is refused before
+  review; the domain strips them from a Goal or a Subgoal. A Goal proposed with a parent is the
+  Subgoal it becomes. A Card's parent is set by proposal only; no screen offers the control,
+  which is why no screen offers Subgoal as a kind either.
 - **Schedule** is plain-language timing on an Action or independent Check, and the
   **Deadline** of a Goal or Subgoal: one date, never repeating, never gating Done and never
   planned. Its compiled revisions live in `schedules`; instances retain their revision and
@@ -81,7 +83,7 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
   past retro displays and the numbers handed to AI analysis.
 - **Time spent** (`tracked_mins`) is the minutes the owner says an Action took, 1 to
   `TRACKED_MINS_MAX`, shown as hours and minutes by `minutes_label`. It is optional and never
-  written on creation. The column and the `card` tool field always exist, because the prompt
+  written on creation. The column and the `action` tool field always exist, because the prompt
   prefix cannot follow a Profile setting; **Time tracking** in the Profile governs only the
   "⌛ Time spent" button, whether a closing Sprint keeps its time for the retro, and the
   question after Done. A finished repeat takes its own time and effort estimate; other

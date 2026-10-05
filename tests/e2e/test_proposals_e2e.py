@@ -68,11 +68,10 @@ async def test_invalid_create_returns_minimal_repair_arguments_to_the_model(e2e_
     """PR-REPAIR-015 — tests/brd/tg_agent_shell/proposals.feature"""
     invalid = mutation_turn(
         (
-            "card",
+            "action",
             {
                 "mode": "create",
                 "id": 1,
-                "kind": "action",
                 "title": "Подтянуться 20 раз",
                 "note": "",
                 "stage": "backlog",
@@ -82,26 +81,18 @@ async def test_invalid_create_returns_minimal_repair_arguments_to_the_model(e2e_
                 "effort_points": 1,
                 "categories": ["growth"],
                 "energy_types": ["physical"],
-                "value_id": 1,
-                "value_ids": [],
-                "value_query": "",
-                "tag_id": 1,
-                "tag_ids": [],
-                "tag_query": "",
-                "check_id": 1,
-                "check_ids": [],
-                "check_query": "",
-                "parent_id": None,
-                "parent_query": "",
+                "values": [],
+                "tags": "",
+                "checks": [],
+                "parent": "",
             },
         )
     )
     repaired = mutation_turn(
         (
-            "card",
+            "action",
             {
                 "mode": "create",
-                "kind": "action",
                 "title": "Подтянуться 20 раз",
                 "stage": "backlog",
                 "priority": "medium",
@@ -125,7 +116,6 @@ async def test_invalid_create_returns_minimal_repair_arguments_to_the_model(e2e_
     assert repair_result["code"] == "invalid_arguments"
     assert repair_result["expected_arguments"] == {
         "mode": "create",
-        "kind": "action",
         "title": "Подтянуться 20 раз",
         "stage": "backlog",
         "priority": "medium",
@@ -134,7 +124,7 @@ async def test_invalid_create_returns_minimal_repair_arguments_to_the_model(e2e_
         "energy_types": ["physical"],
     }
     assert "id" not in repair_result["expected_arguments"]
-    assert "value_id" not in repair_result["expected_arguments"]
+    assert "values" not in repair_result["expected_arguments"]
     assert any("placeholder 0 or 1" in rule for rule in repair_result["argument_rules"])
     assert "pydantic.dev" not in repair_result["error"]
 
@@ -144,8 +134,8 @@ async def test_pr_plan_028_a_subagent_says_what_it_will_change_before_its_calls_
 ):
     """PR-PLAN-028 — tests/brd/tg_agent_shell/proposals.feature"""
     create = (
-        "card",
-        {"mode": "create", "kind": "action", "title": "Подтянуться 20 раз", "effort_points": 1},
+        "action",
+        {"mode": "create", "title": "Подтянуться 20 раз", "effort_points": 1},
     )
     read = mutation_turn(
         ("query_data", {"sql": "SELECT id, title FROM ai_cards LIMIT 5"}), content="", prefix="read"
@@ -191,8 +181,8 @@ async def test_pr_plan_028_a_subagent_says_what_it_will_change_before_its_calls_
 async def test_pr_plan_028_the_plan_check_off_prepares_calls_with_no_text(e2e_harness):
     """PR-PLAN-028 — tests/brd/tg_agent_shell/proposals.feature"""
     create = (
-        "card",
-        {"mode": "create", "kind": "action", "title": "Подтянуться 20 раз", "effort_points": 1},
+        "action",
+        {"mode": "create", "title": "Подтянуться 20 раз", "effort_points": 1},
     )
     advisor, provider = e2e_harness.advisor(
         [route_turn("workspace_mutator"), mutation_turn(create, content="")],
@@ -206,43 +196,8 @@ async def test_pr_plan_028_the_plan_check_off_prepares_calls_with_no_text(e2e_ha
     assert len(e2e_harness.reviews.open_proposals) == 1
 
 
-async def test_ai_parent_query_sql_resolves_before_card_proposal(e2e_harness):
-    async with e2e_harness.sessions() as session:
-        parent = await create_manual_card(
-            session,
-            title="Реализовать новый Дизайн",
-            kind="goal",
-            effort_points=None,
-        )
-        await session.commit()
-
-    response = mutation_turn(
-        (
-            "card",
-            {
-                "mode": "create",
-                "kind": "action",
-                "title": "Применить новый дизайн",
-                "parent_query": (
-                    "SELECT id FROM ai_cards WHERE title = 'Реализовать новый Дизайн'"
-                ),
-                "effort_points": 5,
-            },
-        )
-    )
-    advisor, _provider = e2e_harness.advisor([route_turn("workspace_mutator"), response])
-
-    outcome = await advisor.handle("Создай экшен для идеи Реализовать новый Дизайн")
-
-    async with e2e_harness.sessions() as session:
-        change = e2e_harness.reviews.proposal(outcome.proposal_id).changes[0]
-        assert change.action == "create"
-        assert change.values["parent_id"] == parent.id
-        assert "parent_query" not in change.values
-        assert await session.scalar(select(func.count(Card.id))) == 1
-
-
-async def test_ai_goal_proposal_reports_a_parent_instead_of_dropping_it(e2e_harness):
+async def test_ai_goal_with_a_parent_named_by_title_is_proposed_as_a_subgoal(e2e_harness):
+    """CD-TREE-002 — tests/brd/cards.feature"""
     async with e2e_harness.sessions() as session:
         parent = await create_manual_card(
             session, title="Ship product", kind="goal", effort_points=None
@@ -253,38 +208,20 @@ async def test_ai_goal_proposal_reports_a_parent_instead_of_dropping_it(e2e_harn
         [
             route_turn("workspace_mutator"),
             mutation_turn(
-                (
-                    "card",
-                    {
-                        "mode": "create",
-                        "kind": "goal",
-                        "title": "Nested Goal",
-                        "parent_id": parent.id,
-                    },
-                )
+                ("goal", {"mode": "create", "title": "Nested Goal", "parent": "ship product"})
             ),
-            "A Goal has to stay root-level, so I left it there.",
-            "A Goal has to stay root-level, so I left it there.",
         ]
     )
 
     outcome = await advisor.handle("Create a Goal under Ship product")
 
-    # Silently dropping the parent would show a review screen with no parent change
-    # and never tell the model its call was wrong.
-    assert outcome.proposal_id is None
-    async with e2e_harness.sessions() as session:
-        assert len(advisor.reviews.open_proposals) == 0
-    tool_messages = [
-        message
-        for call in _provider.calls
-        for message in call
-        if message.get("role") == "tool"
-    ]
-    assert any("root-level" in str(message["content"]) for message in tool_messages)
+    assert outcome.kind is AIOutcomeKind.PROPOSAL
+    change = e2e_harness.reviews.proposal(outcome.proposal_id).changes[0]
+    assert (change.values["kind"], change.values["parent_id"]) == ("subgoal", parent.id)
+    assert "parent" not in change.values
 
 
-async def test_ai_stage_update_to_done_keeps_completion_accounting(e2e_harness):
+async def test_ai_completion_keeps_completion_accounting(e2e_harness):
     """PR-SAVE-009 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
         action = await create_manual_card(session, title="Ship", stage="sprint", effort_points=5)
@@ -292,24 +229,16 @@ async def test_ai_stage_update_to_done_keeps_completion_accounting(e2e_harness):
         await session.commit()
         action_id, sprint_id = action.id, sprint.id
 
+    # Done is reached by complete alone: no stage a proposal sends is Done.
     advisor, _provider = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
-            mutation_turn(
-                ("card", {"mode": "update", "id": action_id, "title": "Ship it", "note": "Done"})
-            ),
+            mutation_turn(("action", {"mode": "complete", "id": action_id})),
             "Saved.",
         ]
     )
-    outcome = await advisor.handle("Rename it")
+    outcome = await advisor.handle("I shipped it")
     assert outcome.proposal_id is not None
-
-    async with e2e_harness.sessions() as session:
-        change = e2e_harness.reviews.proposal(outcome.proposal_id).changes[0]
-        # An approved stage change routes terminal stages through finish_action, so the
-        # completion timestamp and Sprint result are never skipped.
-        change.values = {**change.values, "stage": CardStage.DONE.value}
-        await session.commit()
 
     async with e2e_harness.sessions() as session:
         await approve_proposal(session, advisor.reviews, PROPOSALS, outcome.proposal_id)
@@ -328,47 +257,43 @@ async def test_multiple_ai_card_creations_are_reviewed_sequentially(e2e_harness)
         await set_profile_field(session, ProfileField.EFFORT_TRACKING, True)
         await session.commit()
     first_turn = mutation_turn(
-        ("card", {"mode": "create", "kind": "goal", "title": "Быть здоровым"}),
+        ("goal", {"mode": "create", "title": "Быть здоровым"}),
         (
-            "card",
+            "action",
             {
                 "mode": "create",
-                "kind": "action",
                 "title": "Подтягиваться 20 раз",
                 "effort_points": 1,
-                "parent_query": "SELECT id FROM ai_cards WHERE title = 'Быть здоровым'",
+                "parent": "SELECT id FROM ai_cards WHERE title = 'Быть здоровым'",
             },
         ),
         (
-            "card",
+            "action",
             {
                 "mode": "create",
-                "kind": "action",
                 "title": "Гулять утром",
                 "effort_points": 2,
-                "parent_query": "SELECT id FROM ai_cards WHERE title = 'Быть здоровым'",
+                "parent": "SELECT id FROM ai_cards WHERE title = 'Быть здоровым'",
             },
         ),
     )
     repaired_turn = mutation_turn(
         (
-            "card",
+            "action",
             {
                 "mode": "create",
-                "kind": "action",
                 "title": "Подтягиваться 20 раз",
                 "effort_points": 1,
-                "parent_id": 1,
+                "parent": 1,
             },
         ),
         (
-            "card",
+            "action",
             {
                 "mode": "create",
-                "kind": "action",
                 "title": "Гулять утром",
                 "effort_points": 2,
-                "parent_id": 1,
+                "parent": 1,
             },
         ),
     )
@@ -470,7 +395,7 @@ async def test_current_request_progress_includes_current_card_update_diffs(e2e_h
 
     response = mutation_turn(
         (
-            "card",
+            "action",
             {
                 "mode": "update",
                 "id": card.id,
@@ -511,15 +436,14 @@ async def test_current_request_progress_includes_current_card_update_diffs(e2e_h
 async def test_child_proposal_fails_cleanly_when_earlier_parent_is_discarded(e2e_harness):
     """PR-FAIL-014 — tests/brd/tg_agent_shell/proposals.feature"""
     response = mutation_turn(
-        ("card", {"mode": "create", "kind": "goal", "title": "Be healthy"}),
+        ("goal", {"mode": "create", "title": "Be healthy"}),
         (
-            "card",
+            "action",
             {
                 "mode": "create",
-                "kind": "action",
                 "title": "Do twenty pull-ups",
                 "effort_points": 1,
-                "parent_query": "SELECT id FROM ai_cards WHERE title = 'Be healthy'",
+                "parent": "SELECT id FROM ai_cards WHERE title = 'Be healthy'",
             },
         ),
     )
@@ -566,10 +490,10 @@ async def test_new_tag_and_dependent_card_link_use_one_repair_round(e2e_harness)
 
     first_turn = mutation_turn(
         ("tag", {"mode": "create", "name": "VrWalk"}),
-        ("card", {"mode": "link", "id": card.id, "tag_query": "VrWalk"}),
+        ("action", {"mode": "link", "id": card.id, "tags": "VrWalk"}),
     )
     repaired_turn = mutation_turn(
-        ("card", {"mode": "link", "id": card.id, "tag_id": 1}),
+        ("action", {"mode": "link", "id": card.id, "tags": [1]}),
     )
     advisor, provider = e2e_harness.advisor(
         [
@@ -620,13 +544,12 @@ async def test_mutation_repair_loop_stops_after_five_rounds(e2e_harness):
     """PR-REPAIR-016 — tests/brd/tg_agent_shell/proposals.feature"""
     invalid_turn = mutation_turn(
         (
-            "card",
+            "action",
             {
                 "mode": "create",
-                "kind": "action",
                 "title": "Child without saved parent",
                 "effort_points": 1,
-                "parent_query": "SELECT id FROM ai_cards WHERE title = 'Still missing'",
+                "parent": "SELECT id FROM ai_cards WHERE title = 'Still missing'",
             },
         )
     )
@@ -688,12 +611,12 @@ async def test_ai_create_tag_and_links_are_reviewed_as_separate_proposals(e2e_ha
     )
     response = mutation_turn(
         ("tag", {"mode": "create", "name": "VrWalk"}),
-        ("card", {"mode": "link", "id": goal.id, "tag_query": "VrWalk"}),
-        ("card", {"mode": "link", "id": action.id, "tag_query": "VrWalk"}),
+        ("goal", {"mode": "link", "id": goal.id, "tags": "VrWalk"}),
+        ("action", {"mode": "link", "id": action.id, "tags": "VrWalk"}),
     )
     repaired_turn = mutation_turn(
-        ("card", {"mode": "link", "id": goal.id, "tag_id": 1}),
-        ("card", {"mode": "link", "id": action.id, "tag_id": 1}),
+        ("goal", {"mode": "link", "id": goal.id, "tags": [1]}),
+        ("action", {"mode": "link", "id": action.id, "tags": [1]}),
     )
     advisor, provider = e2e_harness.advisor(
         # The Advisor reads for itself, then hands the writing over.
@@ -744,10 +667,10 @@ async def test_ai_create_value_and_link_are_reviewed_as_separate_proposals(e2e_h
 
     response = mutation_turn(
         ("value", {"mode": "create", "name": "Health", "active": True}),
-        ("card", {"mode": "link", "id": action.id, "value_query": "Health"}),
+        ("action", {"mode": "link", "id": action.id, "values": "Health"}),
     )
     repaired_turn = mutation_turn(
-        ("card", {"mode": "link", "id": action.id, "value_id": 1}),
+        ("action", {"mode": "link", "id": action.id, "values": [1]}),
     )
     advisor, provider = e2e_harness.advisor(
         [
@@ -976,14 +899,14 @@ async def test_pr_expire_029_what_was_saved_before_the_time_ran_out_stays_saved(
         [
             route_turn("workspace_mutator"),
             mutation_turn(
-                ("card", {"mode": "create", "kind": "action", "title": "First", "effort_points": 3}),
+                ("action", {"mode": "create", "title": "First", "effort_points": 3}),
                 (
-                    "card",
-                    {"mode": "create", "kind": "action", "title": "Second", "effort_points": 5},
+                    "action",
+                    {"mode": "create", "title": "Second", "effort_points": 5},
                 ),
                 (
-                    "card",
-                    {"mode": "create", "kind": "action", "title": "Third", "effort_points": 8},
+                    "action",
+                    {"mode": "create", "title": "Third", "effort_points": 8},
                 ),
             ),
         ]
@@ -1042,8 +965,8 @@ async def test_query_then_link_continuation_can_suspend_for_a_second_queue(e2e_h
         ),
     )
     link_turn = mutation_turn(
-        ("card", {"mode": "link", "id": goal.id, "tag_query": "VrWalk"}),
-        ("card", {"mode": "link", "id": action.id, "tag_query": "VrWalk"}),
+        ("goal", {"mode": "link", "id": goal.id, "tags": "VrWalk"}),
+        ("action", {"mode": "link", "id": action.id, "tags": "VrWalk"}),
     )
     advisor, provider = e2e_harness.advisor(
         [
@@ -1226,10 +1149,10 @@ async def test_discarding_the_last_queued_proposal_still_reports_saved_siblings(
         [
             route_turn("workspace_mutator"),
             mutation_turn(
-                ("card", {"mode": "create", "kind": "action", "title": "First", "effort_points": 3}),
+                ("action", {"mode": "create", "title": "First", "effort_points": 3}),
                 (
-                    "card",
-                    {"mode": "create", "kind": "action", "title": "Second", "effort_points": 5},
+                    "action",
+                    {"mode": "create", "title": "Second", "effort_points": 5},
                 ),
             ),
             "Handled both proposals.",
@@ -1280,7 +1203,7 @@ async def test_failed_call_result_states_that_its_siblings_are_still_queued(e2e_
             route_turn("workspace_mutator"),
             mutation_turn(
                 ("tag", {"mode": "create", "name": "VrWalk"}),
-                ("card", {"mode": "link", "id": card.id, "tag_query": "VrWalk"}),
+                ("action", {"mode": "link", "id": card.id, "tags": "VrWalk"}),
             )
         ]
     )
@@ -1303,14 +1226,14 @@ async def test_new_message_discarding_a_queue_reports_what_was_already_saved(e2e
         [
             route_turn("workspace_mutator"),
             mutation_turn(
-                ("card", {"mode": "create", "kind": "action", "title": "First", "effort_points": 3}),
+                ("action", {"mode": "create", "title": "First", "effort_points": 3}),
                 (
-                    "card",
-                    {"mode": "create", "kind": "action", "title": "Second", "effort_points": 5},
+                    "action",
+                    {"mode": "create", "title": "Second", "effort_points": 5},
                 ),
                 (
-                    "card",
-                    {"mode": "create", "kind": "action", "title": "Third", "effort_points": 8},
+                    "action",
+                    {"mode": "create", "title": "Third", "effort_points": 8},
                 ),
             ),
         ]
@@ -1366,7 +1289,7 @@ async def test_proposal_ui_queues_mutations_and_reports_dependency_failure(e2e_h
             route_turn("workspace_mutator"),
             mutation_turn(
                 ("tag", {"mode": "create", "name": "VrWalk"}),
-                ("card", {"mode": "link", "id": card.id, "tag_query": "VrWalk"}),
+                ("action", {"mode": "link", "id": card.id, "tags": "VrWalk"}),
             ),
             "Finished processing the proposals.",
             "Finished processing the proposals.",
@@ -1535,16 +1458,15 @@ async def test_a_new_card_receipt_names_every_field_that_was_chosen(e2e_harness)
             route_turn("workspace_mutator"),
             mutation_turn(
                 (
-                    "card",
+                    "action",
                     {
                         "mode": "create",
-                        "kind": "action",
                         "title": "Тренировка бега",
                         "effort_points": 5,
                         "priority": "critical",
                         "categories": ["growth"],
                         "energy_types": ["physical"],
-                        "tag_query": "спорт",
+                        "tags": "спорт",
                     },
                 )
             )
@@ -1569,10 +1491,9 @@ async def test_cd_hardtime_033_a_schedule_is_read_before_its_proposal_is_saved(e
             route_turn("workspace_mutator"),
             mutation_turn(
                 (
-                    "card",
+                    "action",
                     {
                         "mode": "create",
-                        "kind": "action",
                         "title": "Call the clinic",
                         "effort_points": 1,
                         "schedule": "every Monday and Wednesday at nine",
@@ -1617,7 +1538,7 @@ async def test_a_backlog_card_receipt_says_nothing_about_its_stage(e2e_harness):
     advisor, _ = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
-            mutation_turn(("card", {"mode": "create", "kind": "goal", "title": "Быть здоровым"})),
+            mutation_turn(("goal", {"mode": "create", "title": "Быть здоровым"})),
         ]    )
     outcome = await advisor.handle("Заведи цель")
 
@@ -1634,7 +1555,7 @@ async def test_application_owned_saved_receipt_is_rendered_once_when_model_echoe
     advisor, provider = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
-            mutation_turn(("card", {"mode": "create", "kind": "goal", "title": title})),
+            mutation_turn(("goal", {"mode": "create", "title": title})),
             f"{receipt}\n\nГотово! Твоя вторая цель добавлена.",
             "Готово! Твоя вторая цель добавлена.",
         ]
@@ -1718,10 +1639,9 @@ async def test_one_call_setting_several_fields_is_one_proposal(e2e_harness):
             route_turn("workspace_mutator"),
             mutation_turn(
                 (
-                    "card",
+                    "action",
                     {
                         "mode": "create",
-                        "kind": "action",
                         "title": "Ship VrWalk",
                         "note": "cut the release branch",
                         "stage": "today",
@@ -1757,8 +1677,8 @@ async def _card_and_tag(e2e_harness) -> tuple[int, int]:
 
 def _rename_and_tag(card_id: int, tag_id: int) -> ProviderTurn:
     return mutation_turn(
-        ("card", {"mode": "update", "id": card_id, "title": "Ship VrWalk"}),
-        ("card", {"mode": "link", "id": card_id, "tag_id": tag_id}),
+        ("action", {"mode": "update", "id": card_id, "title": "Ship VrWalk"}),
+        ("action", {"mode": "link", "id": card_id, "tags": [tag_id]}),
     )
 
 
@@ -1853,9 +1773,9 @@ async def test_calls_for_one_item_with_another_item_between_stay_apart(e2e_harne
         [
             route_turn("workspace_mutator"),
             mutation_turn(
-                ("card", {"mode": "update", "id": card_id, "title": "Ship VrWalk"}),
-                ("card", {"mode": "update", "id": other_id, "note": "final"}),
-                ("card", {"mode": "link", "id": card_id, "tag_id": tag_id}),
+                ("action", {"mode": "update", "id": card_id, "title": "Ship VrWalk"}),
+                ("action", {"mode": "update", "id": other_id, "note": "final"}),
+                ("action", {"mode": "link", "id": card_id, "tags": [tag_id]}),
             ),
         ]
     )
@@ -1885,11 +1805,11 @@ async def test_saving_one_proposal_leaves_the_queued_ones_saveable(e2e_harness):
             route_turn("workspace_mutator"),
             # An edit to another Card between each two keeps the three apart, by PR-QUEUE-005.
             mutation_turn(
-                ("card", {"mode": "update", "id": card_id, "title": "Ship VrWalk"}),
-                ("card", {"mode": "update", "id": other_id, "note": "draft"}),
-                ("card", {"mode": "update", "id": card_id, "note": "cut the branch"}),
-                ("card", {"mode": "update", "id": other_id, "note": "final"}),
-                ("card", {"mode": "update", "id": card_id, "effort_points": 5}),
+                ("action", {"mode": "update", "id": card_id, "title": "Ship VrWalk"}),
+                ("action", {"mode": "update", "id": other_id, "note": "draft"}),
+                ("action", {"mode": "update", "id": card_id, "note": "cut the branch"}),
+                ("action", {"mode": "update", "id": other_id, "note": "final"}),
+                ("action", {"mode": "update", "id": card_id, "effort_points": 5}),
             ),
             "All five edits are saved.",
             "All five edits are saved.",
@@ -2033,7 +1953,7 @@ async def _renaming_on_screen(e2e_harness, follow_up: list[str], screen: QueueTe
     advisor, _provider = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
-            mutation_turn(("card", {"mode": "update", "id": card_id, "title": "Buy oat milk"})),
+            mutation_turn(("action", {"mode": "update", "id": card_id, "title": "Buy oat milk"})),
             *follow_up,
         ]
     )

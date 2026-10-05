@@ -249,7 +249,7 @@ async def test_a_proposal_screen_lists_its_fields_behind_save_and_discard(e2e_ha
     advisor, _provider = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
-            mutation_turn(("card", {"mode": "update", "id": card_id, "title": "Ship VrWalk"})),
+            mutation_turn(("action", {"mode": "update", "id": card_id, "title": "Ship VrWalk"})),
         ]
     )
     outcome = await advisor.handle("Rename the release card")
@@ -275,8 +275,8 @@ async def test_a_proposal_holding_two_changes_lists_both_on_one_screen(e2e_harne
         [
             route_turn("workspace_mutator"),
             mutation_turn(
-                ("card", {"mode": "update", "id": card_id, "title": "Ship VrWalk"}),
-                ("card", {"mode": "link", "id": card_id, "tag_id": tag_id}),
+                ("action", {"mode": "update", "id": card_id, "title": "Ship VrWalk"}),
+                ("action", {"mode": "link", "id": card_id, "tags": [tag_id]}),
             ),
         ]
     )

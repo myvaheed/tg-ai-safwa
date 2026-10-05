@@ -59,9 +59,8 @@ async def normalize_card_query(
 ) -> str:
     """Validate a read query that has to come back with Card ids.
 
-    Two callers, and neither owns it: a saved Request's SQL, and the `parent_query` a Card
-    proposal may resolve its parent with. Both need the shared read validator plus the two
-    rules that make the result usable as Card ids.
+    A saved Request's SQL needs the shared read validator plus the two rules that make the
+    result usable as Card ids.
 
     Both rules are asked of the statement itself rather than of its text: the validator says
     which views it reads, and SQLite says what its outermost SELECT comes back with. A

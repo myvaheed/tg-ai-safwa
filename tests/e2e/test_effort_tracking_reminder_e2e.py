@@ -58,7 +58,7 @@ async def test_done_actions_are_asked_about_together_and_the_answer_updates_the_
     else:
         advisor, _ = e2e_harness.advisor([
             route_turn("workspace_mutator"),
-            mutation_turn(("card", {"mode": "complete", "id": run_id})),
+            mutation_turn(("action", {"mode": "complete", "id": run_id})),
             "Proposed finishing the Action.",
         ])
         outcome = await advisor.handle("I finished running")
@@ -100,7 +100,7 @@ async def test_done_actions_are_asked_about_together_and_the_answer_updates_the_
 
     advisor, _ = e2e_harness.advisor([
         route_turn("workspace_mutator"),
-        mutation_turn(("card", {"mode": "update", "id": run_id, "effort_points": 3, "tracked_mins": 30})),
+        mutation_turn(("action", {"mode": "update", "id": run_id, "effort_points": 3, "tracked_mins": 30})),
         "Proposed the effort and time for the finished run.",
     ])
     outcome = await advisor.handle("The finished run was 3 EP and took 30 minutes")

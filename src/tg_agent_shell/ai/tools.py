@@ -46,6 +46,7 @@ from ..hooks.registry import HookRegistry
 from .contracts import (
     CALL_HELPER_TOOL,
     FORWARD_TOOL,
+    NOTHING_TO_DO_TOOL,
     QUERY_TOOL,
     ROUTE_TOOL,
     AgentChange,
@@ -208,7 +209,8 @@ class ToolAdapters:
         """What a session of this kind may call. The root session reads and routes; a
         subagent gets its own reads, `open` over the item types it declared, and the
         mutation tools of the features it owns. A subagent is routed to for the work, so its
-        first move is a tool call, unless it also answers questions.
+        first move is a tool call, unless it also answers questions; `nothing_to_do` is the
+        call that ends such a request with no work.
 
         `query_data` is the one read door rather than any feature's read tool, so it is
         published here to every session that has a view to read: a subagent scoped to none
@@ -226,6 +228,7 @@ class ToolAdapters:
         # No helper tool: a helper is offered by a complex read, and only the root
         # session's reads are ever offered one.
         reads_views = routed.query_runner is None or bool(routed.query_runner.views)
+        first_call_required = not routed.answers_questions
         return AgentDefinition(
             kind=kind,
             tools=(
@@ -233,9 +236,10 @@ class ToolAdapters:
                 *((open_tool(self.screens, routed.opens),) if routed.opens else ()),
                 *(spec.schema for spec in routed.read_tools),
                 *(self.proposals.tools[name].schema() for name in routed.mutation_tools),
+                *((NOTHING_TO_DO_TOOL,) if first_call_required else ()),
             ),
             read_specs={spec.name: spec for spec in routed.read_tools},
-            first_call_required=not routed.answers_questions,
+            first_call_required=first_call_required,
         )
 
     def is_immediate(self, agent: AgentSession, name: str) -> bool:
@@ -247,8 +251,8 @@ class ToolAdapters:
         A RefuseTool hook that answers refuses the call: the tool does not run, its notice is
         what the model reads in its place, and its helper is granted. A check that fails ends
         the turn rather than being stepped over, because a refusal that failed is not a pass.
-        `route` and `forward` are not seen here at all — the runtime answers them before the
-        adapters are reached.
+        `route`, `forward` and `nothing_to_do` are not seen here at all — the runtime answers
+        them before the adapters are reached.
         """
         refusal = await self._refuse(agent, call)
         if refusal is not None:

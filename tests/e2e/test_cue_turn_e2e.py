@@ -132,7 +132,7 @@ async def test_ag_turn_015_the_owner_arriving_while_a_cue_is_prepared_leaves_it_
         await session.commit()
         card_id = card.id
     advisor, provider = e2e_harness.advisor(
-        [mutation_turn(("card", {"mode": "update", "id": card_id, "title": "Buy oat milk"}))],
+        [mutation_turn(("action", {"mode": "update", "id": card_id, "title": "Buy oat milk"}))],
         provider_factory=lambda responses: GatedProvider(responses, stop_on=_any_call),
     )
     turn = TurnManager()
@@ -158,7 +158,7 @@ async def test_ag_cue_029_a_cue_turn_cancelled_before_autoapproval_leaves_no_rev
     advisor, provider = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
-            mutation_turn(("card", {"mode": "update", "id": card_id, "title": "Buy oat milk"})),
+            mutation_turn(("action", {"mode": "update", "id": card_id, "title": "Buy oat milk"})),
         ],
         autoapprove=True,
         provider_factory=lambda responses: GatedProvider(
@@ -197,7 +197,7 @@ async def test_ag_turn_015_a_follow_up_that_fails_after_a_save_leaves_nothing_op
     advisor, _provider = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
-            mutation_turn(("card", {"mode": "update", "id": card_id, "title": "Buy oat milk"})),
+            mutation_turn(("action", {"mode": "update", "id": card_id, "title": "Buy oat milk"})),
             "Renamed it.",
             ConnectionError("The provider is down"),
         ],
@@ -254,7 +254,7 @@ async def test_ag_turn_015_a_turn_that_fails_before_its_screen_is_drawn_leaves_n
     advisor, _provider = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
-            mutation_turn(("card", {"mode": "update", "id": card_id, "title": "Buy oat milk"})),
+            mutation_turn(("action", {"mode": "update", "id": card_id, "title": "Buy oat milk"})),
         ],
         autoapprove=True,
     )
@@ -288,8 +288,8 @@ async def test_ag_turn_010_cancelled_while_the_next_screen_is_checked_leaves_not
         [
             route_turn("workspace_mutator"),
             mutation_turn(
-                ("card", {"mode": "update", "id": first_card, "title": "Buy oat milk"}),
-                ("card", {"mode": "update", "id": second_card, "title": "Buy rye bread"}),
+                ("action", {"mode": "update", "id": first_card, "title": "Buy oat milk"}),
+                ("action", {"mode": "update", "id": second_card, "title": "Buy rye bread"}),
             ),
             CompletionTurn(
                 content="",

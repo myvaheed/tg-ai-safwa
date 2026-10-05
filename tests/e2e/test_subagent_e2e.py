@@ -139,7 +139,7 @@ async def test_an_autoapproved_board_route_hands_back_its_receipt(e2e_harness):
         [
             turn(("route", {"name": "workspace_mutator"})),
             turn(
-                ("card", {"mode": "update", "id": card.id, "title": "Купить овсяное молоко"}),
+                ("action", {"mode": "update", "id": card.id, "title": "Купить овсяное молоко"}),
                 prefix="workspace_mutator",
             ),
             review_turn("The operation and every non-default value are explicit."),
@@ -261,10 +261,10 @@ async def test_a_routed_subagent_is_offered_only_its_own_tools(e2e_harness):
     await advisor.handle("Запиши сегодняшний день")
 
     offered = {tool["function"]["name"] for tool in provider.options[1]["tools"]}
-    assert offered == {"read_day", "read_conversation", "diary"}
+    assert offered == {"read_day", "read_conversation", "diary", "nothing_to_do"}
     # No recursion, and no reach into the workspace.
     assert "route" not in offered
-    assert "card" not in offered
+    assert "action" not in offered
 
 
 async def test_the_board_owns_every_mutation_tool(e2e_harness):
@@ -272,7 +272,7 @@ async def test_the_board_owns_every_mutation_tool(e2e_harness):
     advisor, provider = e2e_harness.advisor(
         [
             turn(("route", {"name": "workspace_mutator"})),
-            turn(("card", {"mode": "create", "kind": "goal", "title": "Быть здоровым"})),
+            turn(("goal", {"mode": "create", "title": "Быть здоровым"})),
         ]
     )
 
@@ -285,13 +285,15 @@ async def test_the_board_owns_every_mutation_tool(e2e_harness):
     board_tools = {tool["function"]["name"] for tool in provider.options[1]["tools"]}
     assert board_tools == {
         "query_data",
-        "card",
+        "goal",
+        "action",
         "check",
         "value",
         "tag",
         "request",
         "reminder",
         "remove",
+        "nothing_to_do",
     }
     async with e2e_harness.sessions() as session:
         runs = list(await session.scalars(select(AgentRun).order_by(AgentRun.id)))
@@ -372,6 +374,62 @@ async def test_a_subagent_is_required_to_open_with_a_tool_call(e2e_harness):
 
     # The Advisor may answer in words; the session routed to for the work may not.
     assert provider.options[1]["tool_choice"] == "required"
+
+
+async def test_ag_nothing_056_a_subagent_with_nothing_to_do_ends_with_the_reason(e2e_harness):
+    """AG-NOTHING-056 — tests/brd/tg_agent_shell/agents.feature"""
+    reason = "Время утра — поле Profile, а не Reminder."
+    advisor, provider = e2e_harness.advisor(
+        [
+            route_turn("workspace_mutator"),
+            turn(("nothing_to_do", {"reason": reason})),
+            forward_turn("workspace_mutator"),
+        ],
+        subagents=(e2e_harness.subagent("workspace_mutator"),),
+    )
+
+    outcome = await advisor.handle("Поставь утро на 7:00")
+
+    offered = [tool["function"]["name"] for tool in provider.options[1]["tools"]]
+    assert "nothing_to_do" in offered
+    assert provider.options[1]["tool_choice"] == "required"
+    receipt = route_receipts(provider)[0]
+    assert (receipt["outcome"], receipt["did"], receipt["text"]) == ("done", [], reason)
+    assert outcome.kind is AIOutcomeKind.ANSWER
+    assert reason in outcome.message
+    assert not e2e_harness.reviews.open_proposals
+
+
+async def test_ag_nothing_056_it_goes_alone_and_only_to_a_subagent_that_must_act(e2e_harness):
+    """AG-NOTHING-056 — tests/brd/tg_agent_shell/agents.feature"""
+    advisor, provider = e2e_harness.advisor(
+        [
+            route_turn("workspace_mutator"),
+            turn(
+                ("nothing_to_do", {"reason": "Nothing to change."}),
+                ("query_data", {"sql": "SELECT 1"}),
+            ),
+            turn(("nothing_to_do", {"reason": "Nothing to change."}), prefix="again"),
+            "Nothing to change.",
+        ],
+        subagents=(e2e_harness.subagent("workspace_mutator"),),
+    )
+
+    await advisor.handle("Сделай так же")
+
+    refused = [
+        json.loads(str(item["content"])) for item in provider.calls[2] if item.get("role") == "tool"
+    ]
+    assert {entry["code"] for entry in refused} == {"nothing_to_do_is_not_shared"}
+    assert route_receipts(provider)[0]["text"] == "Nothing to change."
+
+    guide, guide_provider = e2e_harness.advisor(
+        [route_turn("guide"), GUIDE_WORDS, forward_turn("guide")],
+        subagents=(guide_subagent(e2e_harness),),
+    )
+    await guide.handle("What is a Check?")
+    offered = [tool["function"]["name"] for tool in guide_provider.options[1]["tools"]]
+    assert "nothing_to_do" not in offered
 
 
 async def test_route_cannot_share_its_response_with_another_call(e2e_harness):
@@ -460,7 +518,7 @@ async def test_two_domains_in_one_request_are_both_finished(e2e_harness):
     advisor, provider = e2e_harness.advisor(
         [
             turn(("route", {"name": "workspace_mutator"})),
-            turn(("card", {"mode": "update", "id": card_id, "title": "Приготовить пиццу"})),
+            turn(("action", {"mode": "update", "id": card_id, "title": "Приготовить пиццу"})),
         ],
         subagents=(workspace, diary),
     )
@@ -553,7 +611,7 @@ async def test_the_second_subagent_reads_what_the_first_one_saved(e2e_harness):
     advisor, provider = e2e_harness.advisor(
         [
             turn(("route", {"name": "workspace_mutator"})),
-            turn(("card", {"mode": "update", "id": card_id, "title": "Приготовить пиццу"})),
+            turn(("action", {"mode": "update", "id": card_id, "title": "Приготовить пиццу"})),
         ],
         subagents=(workspace, diary),
     )

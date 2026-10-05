@@ -130,7 +130,7 @@ async def test_a_finished_repeat_accepts_its_estimate_but_refuses_other_edits(se
         run = await create_card(session, kind="action", title="Run", schedule="after completion")
         [successor_id] = (await finish_action(session, run.id)).successor_ids
         await session.commit()
-        change = PROPOSALS.change_from_tool("card", {"mode": "update", "id": run.id, **fields})
+        change = PROPOSALS.change_from_tool("action", {"mode": "update", "id": run.id, **fields})
         preparer = ChangePreparer(None, None, PROPOSALS)
         prepared = await preparer.prepare(session, change)
         await PROPOSALS.handler("card").apply(ApplyContext(session, frozenset()), ProposalChange(
@@ -139,7 +139,7 @@ async def test_a_finished_repeat_accepts_its_estimate_but_refuses_other_edits(se
         ))
         assert run.effort_points == 3
         assert (await session.get(Card, successor_id)).effort_points is None
-        change = PROPOSALS.change_from_tool("card", {"mode": "update", "id": run.id, "effort_points": 5, "title": "Run far"})
+        change = PROPOSALS.change_from_tool("action", {"mode": "update", "id": run.id, "effort_points": 5, "title": "Run far"})
         with pytest.raises(ToolPreparationError) as refused:
             await preparer.prepare(session, change)
         assert refused.value.code == "closed_repeat"

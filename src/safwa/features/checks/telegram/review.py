@@ -123,7 +123,7 @@ class CheckProposalPresenter:
             payload = {
                 k: v
                 for k, v in change.values.items()
-                if not k.startswith("value_") and k != "schedule_rule"
+                if k not in {CHECK_VALUE_REFERENCE.field, "schedule_rule"}
             }
             proposed = {**current, **payload}
             if "schedule" in change.values:

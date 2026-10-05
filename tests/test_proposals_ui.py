@@ -160,7 +160,7 @@ async def test_card_check_link_proposal_shows_the_check_in_overview_and_diff(ses
                     action=ChangeAction.LINK,
                     entity_id=card.id,
                     expected_version=card.version,
-                    values={"check_ids": [check.id]},
+                    values={"checks": [check.id]},
                 )
             ],
         )
@@ -355,8 +355,8 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
                     "parent_id": parent.id,
                     "categories": ["rest", "work"],
                     "energy_types": ["physical", "emotional"],
-                    "value_ids": [value.id],
-                    "tag_ids": [tag.id],
+                    "values": [value.id],
+                    "tags": [tag.id],
                     },
                 )
             ],

@@ -30,7 +30,7 @@ DEADLINE_INSTRUCTION = "Send the deadline, e.g. 20 October, end of next month, o
 # The longest date range one get_scheduled call reads.
 SCHEDULED_RANGE_DAYS_MAX = 93
 # More executions a day than this are a Check's to observe, not an Action's to do.
-ACTION_DAILY_EXECUTIONS_MAX = 10
+ACTION_DAILY_EXECUTIONS_MAX = 5
 # The words of the Reminder that Remind makes; the Cue adds the Schedule it fires on.
 REMIND_TEXT = "Remind is on for {label} #{id} «{title}». Remind the owner about it."
 

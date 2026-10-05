@@ -179,13 +179,13 @@ async def test_cd_effort_008_a_draft_and_a_proposal_save_without_an_estimate(ses
     async with sessions() as session:
         manual = await session.scalar(select(Card).where(Card.title == "Run"))
         assert manual.effort_points is None
-        change = PROPOSALS.change_from_tool("card", {"mode": "create", "kind": "action", "title": "Walk"})
+        change = PROPOSALS.change_from_tool("action", {"mode": "create", "title": "Walk"})
         prepared = await ChangePreparer(None, None, PROPOSALS).prepare(session, change)
         proposal = ProposalChange(entity="card", action=change.action, values=prepared.values)
         result = await PROPOSALS.handler("card").apply(ApplyContext(session, frozenset()), proposal)
         assert result and (await session.get(Card, result[0])).effort_points is None
         await update_card_fields(session, manual.id, {"effort_points": 3})
-        clearing = PROPOSALS.change_from_tool("card", {"mode": "update", "id": manual.id, "effort_points": None})
+        clearing = PROPOSALS.change_from_tool("action", {"mode": "update", "id": manual.id, "effort_points": None})
         if enabled:
             prepared = await ChangePreparer(None, None, PROPOSALS).prepare(session, clearing)
             assert "effort_points" in prepared.values and prepared.values["effort_points"] is None

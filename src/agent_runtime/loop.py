@@ -1,9 +1,9 @@
 """One session, run until it answers in words.
 
-The loop knows four endings and no others: the model wrote something, it forwarded the
-words a session it routed to handed back, its calls became changes that a person has to
-see, or a session it routed to opened a screen and the whole chain now waits. Everything
-else — what a tool does, what a change is — is a port.
+The loop knows four endings and no others: the model wrote something or said it had
+nothing to do, it forwarded the words a session it routed to handed back, its calls became
+changes that a person has to see, or a session it routed to opened a screen and the whole
+chain now waits. Everything else — what a tool does, what a change is — is a port.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 RouteHandler = Callable[[AgentSession, ToolCall], Awaitable[tuple[dict[str, Any], TurnOutcome | None]]]
 
 # The runtime's own tools, answered here and never by the `ToolRunner`. Each ends a step on
-# its own: a route may suspend the chain, and a forward ends the turn.
+# its own: a route may suspend the chain, and a forward or a nothing_to_do ends the turn.
 _NOT_SHARED = {
     "route": {
         "status": "error",
@@ -47,6 +47,13 @@ _NOT_SHARED = {
         "code": "forward_is_not_shared",
         "error": "forward must be the only tool call in a response.",
         "next": "Send forward alone: it ends your turn.",
+        "retryable": True,
+    },
+    "nothing_to_do": {
+        "status": "error",
+        "code": "nothing_to_do_is_not_shared",
+        "error": "nothing_to_do must be the only tool call in a response.",
+        "next": "Send nothing_to_do alone: it ends your turn.",
         "retryable": True,
     },
 }
@@ -90,6 +97,23 @@ def _forward(
             if answers
             else "Nothing to forward. Answer in your own words."
         ),
+        "retryable": True,
+    }
+
+
+def _nothing_to_do(call: ToolCall) -> tuple[str, dict[str, Any]]:
+    """The reason the session gives for ending with no work, or the result asking for one."""
+    try:
+        reason = str(json.loads(call.arguments_json or "{}").get("reason") or "").strip()
+    except (json.JSONDecodeError, AttributeError):
+        reason = ""
+    if reason:
+        return reason, {"status": "ok"}
+    return "", {
+        "status": "error",
+        "code": "reason_missing",
+        "error": "nothing_to_do needs a reason.",
+        "next": "Call nothing_to_do again with the reason in one short sentence.",
         "retryable": True,
     }
 
@@ -183,6 +207,12 @@ async def run_loop(
                             )
                         logger.info("FORWARD <- %s", name)
                         return AgentLoopResult(words, forwarded=name)
+                elif call.name == "nothing_to_do":
+                    reason, result = _nothing_to_do(call)
+                    if reason:
+                        messages.append(tool_message(call.id, call.name, result))
+                        logger.info("NOTHING TO DO: %s", log_preview(reason))
+                        return AgentLoopResult(reason)
                 elif immediate[call.name]:
                     result = (await tools.run(agent, call)).result
                 elif has_reads and has_mutations:

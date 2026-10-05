@@ -20,8 +20,8 @@ pytestmark = pytest.mark.e2e
 
 REQUEST = "Сделай Action: подтянуться 20 раз"
 PULL_UPS = (
-    "card",
-    {"mode": "create", "kind": "action", "title": "Подтянуться 20 раз", "effort_points": 1},
+    "action",
+    {"mode": "create", "title": "Подтянуться 20 раз", "effort_points": 1},
 )
 
 

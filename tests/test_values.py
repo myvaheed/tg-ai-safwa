@@ -83,7 +83,7 @@ async def test_a_value_unicode_name_is_unique_in_storage_and_resolves_in_proposa
         value = await create_value(session, "Здоровье")
         await update_value_fields(session, value.id, name="СЕМЬЯ")
         await session.commit()
-        resolved = await resolve_references(session, VALUE_REFERENCE, {"value_query": "семья"})
+        resolved = await resolve_references(session, VALUE_REFERENCE, {"values": "семья"})
         assert resolved.ids == {value.id}
         session.add(Value(name="Семья"))
         with pytest.raises(IntegrityError):

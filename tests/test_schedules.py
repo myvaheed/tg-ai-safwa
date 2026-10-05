@@ -589,12 +589,12 @@ async def test_a_proposed_schedule_is_read_before_its_proposal_is_saved(sessions
 
     provider, requests = _answering("set_schedule_config", {"period": "day", "count": 1})
     arguments = (
-        {"mode": "create", "kind": "action", "title": "Walk", "schedule": "every evening"}
+        {"mode": "create", "title": "Walk", "schedule": "every evening"}
         if entity == "card"
         else {"mode": "create", "title": "Walked?", "schedule": "every evening"}
     )
     async with sessions() as session:
-        change = PROPOSALS.change_from_tool(entity, arguments)
+        change = PROPOSALS.change_from_tool("action" if entity == "card" else entity, arguments)
         prepared = await ChangePreparer(provider, None, PROPOSALS).prepare(session, change)
         assert len(requests) == 1
         assert prepared.values["schedule_rule"] == {"kind": "quota", "period": "day", "count": 1}
@@ -619,7 +619,7 @@ async def test_an_unclear_proposed_schedule_is_asked_in_the_same_reply(sessions)
 
     provider, _ = _answering("not_clear_enough", {"reason": "When does it happen?"})
     change = PROPOSALS.change_from_tool(
-        "card", {"mode": "create", "kind": "action", "title": "Walk", "schedule": "sometimes"}
+        "action", {"mode": "create", "title": "Walk", "schedule": "sometimes"}
     )
     async with sessions() as session:
         with pytest.raises(ToolPreparationError) as refusal:

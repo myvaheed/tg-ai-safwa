@@ -37,13 +37,12 @@ async def test_a_capture_request_reaches_save_with_only_the_thought_and_inbox_ta
             route_turn("workspace_mutator"),
             mutation_turn(
                 (
-                    "card",
+                    "action",
                     {
                         "mode": "create",
-                        "kind": "action",
                         "title": "Разобрать: формат ретро",
                         "note": thought,
-                        "tag_query": INBOX_TAG_NAME,
+                        "tags": INBOX_TAG_NAME,
                     },
                 )
             ),
@@ -89,7 +88,7 @@ async def test_an_ordinary_edit_keeps_capture_and_explicit_unlink_resolves_it(e2
         [
             route_turn("workspace_mutator"),
             mutation_turn(
-                ("card", {"mode": "unlink", "id": card_id, "tag_query": INBOX_TAG_NAME})
+                ("action", {"mode": "unlink", "id": card_id, "tags": INBOX_TAG_NAME})
             ),
         ]
     )

@@ -136,7 +136,8 @@ class FeatureModule:
     # A helper the root session calls instead of handing the turn to a subagent.
     helpers: tuple[HelperSpec, ...] = ()
     proposals: tuple[ProposalContribution, ...] = ()
-    # A mutation tool whose change lands on an entity another feature owns.
+    # A mutation tool whose change lands on an entity another feature owns, or a second tool
+    # for an entity this feature owns.
     mutation_tools: tuple[MutationToolSpec, ...] = ()
 
     # Data

@@ -19,7 +19,7 @@ Feature: Cards
   Scenario: CD-TREE-002 — A Goal is created root-level, and one placed under a Goal becomes a Subgoal
     Given the owner has Goals "Health" and "Life"
     When a Goal is proposed with a parent
-    Then it is refused, and the refusal says a Goal is created root-level
+    Then it is created as a Subgoal under that parent
     When "Health" is placed under "Life"
     Then "Health" is a Subgoal under "Life", and its history records the change of kind
     And the review screen showed the kind changing before Save
@@ -33,8 +33,7 @@ Feature: Cards
     Then it is placed there
     When another Subgoal is placed under "Sleep better"
     Then it is refused, and the refusal says a Subgoal may only be placed under a Goal
-    And a Subgoal written with no parent is refused the same way, and so is taking its
-      parent away
+    And taking a Subgoal's parent away is refused the same way
     And no screen offers Subgoal as a kind, because no screen sets a parent
 
   Scenario: CD-TREE-004 — An Action belongs to a Goal, a Subgoal or no one, and nothing belongs to an Action
@@ -58,11 +57,12 @@ Feature: Cards
 
   Scenario: CD-FIELD-007 — Effort, categories, energy and Blocked belong to an Action alone
     Given a Goal is being written, by hand or as a proposal
-    When effort, a category, an energy type, or a blocked reason is set on it
+    When effort, a category, an energy type, or a blocked reason is set on it in a draft
     Then the Goal is saved without them, rather than refused
     And the screens never offer those controls for a Goal or a Subgoal
-    And the same holds for a Subgoal, and for a change to one that already exists
-    And a proposed change that was nothing but those fields is refused instead of saved empty
+    And the same holds for a Subgoal
+    And a proposal for a Goal or a Subgoal has no field for them
+    And a proposal that sets them on an existing Goal or Subgoal is refused before review
 
   Scenario: CD-EFFORT-008 — An Action may say what it costs, on the one scale
     Given an Action is being written

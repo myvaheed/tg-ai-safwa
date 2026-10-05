@@ -40,11 +40,10 @@ pytestmark = pytest.mark.e2e
 async def test_placeholder_heavy_card_tool_payload_stays_a_root_action(e2e_harness):
     response = mutation_turn(
         (
-            "card",
+            "action",
             {
                 "mode": "create",
                 "id": 0,
-                "kind": "action",
                 "title": "Подтянуться 20 раз",
                 "note": "",
                 "stage": "backlog",
@@ -54,17 +53,10 @@ async def test_placeholder_heavy_card_tool_payload_stays_a_root_action(e2e_harne
                 "effort_points": 1,
                 "categories": ["growth"],
                 "energy_types": ["physical"],
-                "value_id": 0,
-                "value_ids": [],
-                "value_query": "",
-                "tag_id": 0,
-                "tag_ids": [],
-                "tag_query": "",
-                "check_id": 0,
-                "check_ids": [],
-                "check_query": "",
-                "parent_id": None,
-                "parent_query": "",
+                "values": [],
+                "tags": "",
+                "checks": [None],
+                "parent": "",
             },
         )
     )
@@ -76,40 +68,7 @@ async def test_placeholder_heavy_card_tool_payload_stays_a_root_action(e2e_harne
     change = e2e_harness.reviews.proposal(outcome.proposal_id).changes[0]
     assert change.values["title"] == "Подтянуться 20 раз"
     assert "parent_id" not in change.values
-    assert "parent_query" not in change.values
-
-
-async def test_ai_parent_query_rejects_non_ai_card_sql(
-    e2e_harness,
-):
-    response = mutation_turn(
-        (
-            "card",
-            {
-                "mode": "create",
-                "kind": "action",
-                "title": "Unsafe parent lookup",
-                "parent_query": "SELECT id FROM cards WHERE title = 'Hidden table'",
-                "effort_points": 2,
-            },
-        )
-    )
-    advisor, provider = e2e_harness.advisor(
-        [
-            route_turn("workspace_mutator"),
-            response,
-            "I could not safely resolve that parent, so nothing was proposed.",
-            "I could not safely resolve that parent, so nothing was proposed.",
-        ]
-    )
-
-    outcome = await advisor.handle("Create an action under that parent")
-
-    assert outcome.kind is AIOutcomeKind.ANSWER
-    assert len(provider.calls) == 4
-    tool_result = json.loads(str(provider.calls[2][-1]["content"]))
-    assert tool_result["code"] == "unsafe_query"
-    assert "read-only SELECT over ai_cards" in tool_result["hint"]
+    assert "parent" not in change.values
 
 
 async def test_ai_card_proposal_reaches_the_sprint_it_was_planned_into(e2e_harness):
@@ -130,17 +89,16 @@ async def test_ai_card_proposal_reaches_the_sprint_it_was_planned_into(e2e_harne
 
     response = mutation_turn(
         (
-            "card",
+            "action",
             {
                 "mode": "create",
-                "kind": "action",
                 "title": "Push ups 30 times",
-                "parent_query": "SELECT id FROM ai_cards WHERE title = 'To be fit'",
+                "parent": "To be fit",
                 "schedule": "after completion",
                 "categories": ["growth"],
                 "energy_types": ["physical"],
-                "value_query": "Fitness",
-                "tag_query": "Family",
+                "values": "Fitness",
+                "tags": "Family",
                 "effort_points": 2,
             },
         )
@@ -322,15 +280,13 @@ async def test_read_and_mutation_in_one_turn_rejects_only_the_mutation(e2e_harne
             ),
             ProviderToolCall(
                 id="mixed-write",
-                name="card",
-                arguments_json=json.dumps(
-                    {"mode": "create", "kind": "goal", "title": "Be healthy"}
-                ),
+                name="goal",
+                arguments_json=json.dumps({"mode": "create", "title": "Be healthy"}),
             ),
         ),
     )
     repaired = mutation_turn(
-        ("card", {"mode": "create", "kind": "goal", "title": "Be healthy"}),
+        ("goal", {"mode": "create", "title": "Be healthy"}),
         prefix="after-read",
     )
     advisor, provider = e2e_harness.advisor([route_turn("workspace_mutator"), mixed, repaired])
@@ -344,8 +300,8 @@ async def test_read_and_mutation_in_one_turn_rejects_only_the_mutation(e2e_harne
         if item.get("role") == "tool"
     }
     assert isinstance(tool_results["query_data"], list)
-    assert tool_results["card"]["code"] == "mixed_read_and_mutation_tools"
-    assert tool_results["card"]["retryable"] is True
+    assert tool_results["goal"]["code"] == "mixed_read_and_mutation_tools"
+    assert tool_results["goal"]["retryable"] is True
 
 
 async def test_scheduled_action_preserves_tags_in_e2e_flow(e2e_harness):
@@ -522,7 +478,7 @@ async def test_resumed_request_replays_its_own_intermediate_steps(e2e_harness):
     advisor, provider = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
-            mutation_turn(("card", {"mode": "create", "kind": "goal", "title": "Быть здоровым"})),
+            mutation_turn(("goal", {"mode": "create", "title": "Быть здоровым"})),
             ProviderTurn(
                 content="",
                 tool_calls=(
@@ -535,10 +491,9 @@ async def test_resumed_request_replays_its_own_intermediate_steps(e2e_harness):
             ),
             mutation_turn(
                 (
-                    "card",
+                    "action",
                     {
                         "mode": "create",
-                        "kind": "action",
                         "title": "Подтянуться 20 раз",
                         "effort_points": 1,
                     },

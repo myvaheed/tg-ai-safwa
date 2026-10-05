@@ -60,7 +60,7 @@ async def test_a_tag_unicode_name_is_unique_in_storage_and_resolves_in_proposals
         tag = await create_tag(session, "Семья")
         await update_tag_fields(session, tag.id, name="РОДНЫЕ")
         await session.commit()
-        resolved = await resolve_references(session, TAG_REFERENCE, {"tag_query": "родные"})
+        resolved = await resolve_references(session, TAG_REFERENCE, {"tags": "родные"})
         assert resolved.ids == {tag.id}
         session.add(Tag(name="Родные"))
         with pytest.raises(IntegrityError):
@@ -184,8 +184,8 @@ async def test_an_ai_proposal_cannot_delete_or_rename_the_inbox_tag(sessions):
             with pytest.raises(ToolPreparationError) as refused:
                 await ChangePreparer(None, None, PROPOSALS).prepare(session, change)
             assert refused.value.code == "protected_tag"
-            assert 'card mode="unlink"' in refused.value.hint
-            assert f'tag_query="{INBOX_TAG_NAME}"' in refused.value.hint
+            assert 'action mode="unlink"' in refused.value.hint
+            assert f'tags=["{INBOX_TAG_NAME}"]' in refused.value.hint
 
 
 async def test_an_inbox_goal_is_not_asked_to_add_actions_until_the_tag_is_removed(sessions):

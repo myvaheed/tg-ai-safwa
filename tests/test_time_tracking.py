@@ -17,7 +17,7 @@ from sqlalchemy import select
 from ui_harness import FakeCallback, FakeMessage, button_texts, services_for
 
 from safwa.bootstrap.modules import PROPOSALS, REGISTRY
-from safwa.features.cards.agent import CARD_AUTOAPPROVALS, CardToolInput
+from safwa.features.cards.agent import CARD_AUTOAPPROVALS, ActionToolInput
 from safwa.features.cards.hooks import (
     TIME_TRACKING_REMINDER_HOOK,
     time_tracking_request,
@@ -80,8 +80,8 @@ async def _track_time(sessions, on: bool = True) -> None:
 
 
 async def _prepared(session, arguments: dict) -> ProposalChange:
-    """A `card` call checked the way a proposal is, ready for Save."""
-    change = PROPOSALS.change_from_tool("card", arguments)
+    """An `action` call checked the way a proposal is, ready for Save."""
+    change = PROPOSALS.change_from_tool("action", arguments)
     prepared = await ChangePreparer(None, None, PROPOSALS).prepare(  # type: ignore[arg-type]
         session, change
     )
@@ -157,13 +157,13 @@ async def test_cd_time_039_an_action_carries_the_minutes_it_took(sessions):
 async def test_cd_time_039_safwa_proposes_the_time_on_an_action_or_with_finishing_it(sessions):
     """CD-TIME-039 — tests/brd/cards.feature"""
     with pytest.raises(ValidationError, match="no time spent yet"):
-        CardToolInput(mode="create", kind="action", title="New", effort_points=1, tracked_mins=30)
+        ActionToolInput(mode="create", title="New", effort_points=1, tracked_mins=30)
     for out_of_range in (0, TRACKED_MINS_MAX + 1):
         with pytest.raises(ValidationError):
-            CardToolInput(mode="update", id=1, tracked_mins=out_of_range)
-    with pytest.raises(ValidationError, match="accepts only tracked_mins"):
-        CardToolInput(mode="complete", id=1, tracked_mins=30, title="Renamed")
-    assert CardToolInput(mode="update", id=1, tracked_mins=None).model_dump(
+            ActionToolInput(mode="update", id=1, tracked_mins=out_of_range)
+    with pytest.raises(ValidationError, match="does not accept: title"):
+        ActionToolInput(mode="complete", id=1, tracked_mins=30, title="Renamed")
+    assert ActionToolInput(mode="update", id=1, tracked_mins=None).model_dump(
         exclude_unset=True
     ) == {"mode": "update", "id": 1, "tracked_mins": None}
     # A time the owner named is a plain correction; finishing never saves itself.
@@ -193,8 +193,9 @@ async def test_cd_time_039_safwa_proposes_the_time_on_an_action_or_with_finishin
         await _save(session, {"mode": "update", "id": report.id, "tracked_mins": "null"})
         await session.refresh(report)
         assert report.tracked_mins is None
-        with pytest.raises(DomainError, match="no applicable fields"):
+        with pytest.raises(ToolPreparationError) as refused:
             await _prepared(session, {"mode": "update", "id": goal.id, "tracked_mins": 30})
+        assert refused.value.code == "wrong_tool"
 
         # A finished repeat takes its own time without changing the open instance.
         run = await create_card(session, kind="action", title="Run", effort_points=2, schedule="after completion")

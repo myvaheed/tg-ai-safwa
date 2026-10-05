@@ -125,11 +125,7 @@ def _normalized_tool_payload(model: type[BaseModel], value: Any) -> Any:
                 and not (isinstance(item, str) and not item.strip())
             ]
             # [] is an explicit set clear; [null]/["none"] is placeholder noise.
-            if name.endswith("_ids"):
-                cleaned = [item for item in cleaned if item != 0 and item != "0"]
-            if (decoded and not cleaned) or (
-                mode == "create" and name.endswith("_ids") and not cleaned
-            ):
+            if decoded and not cleaned:
                 payload.pop(name)
             else:
                 payload[name] = cleaned
@@ -237,6 +233,10 @@ class ToolResultStatus(StrEnum):
     ERROR = "error"
     # Prepared and waiting: the owner has the screen, and the result comes with the answer.
     PREPARED = "prepared"
+
+
+# One item a relationship field names: its id, or its exact name.
+Reference = PositiveInt | str
 
 
 class ToolInput(BaseModel):
@@ -350,6 +350,23 @@ FORWARD_TOOL: dict[str, Any] = {
             "You write nothing yourself."
         ),
         "parameters": tool_json_schema(ForwardInput),
+    },
+}
+
+
+class NothingToDoInput(ToolInput):
+    reason: str = Field(description="Why, in one short sentence in the user's language.")
+
+
+NOTHING_TO_DO_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "nothing_to_do",
+        "description": (
+            "End the request without changes. Call it alone: the request is not yours, or "
+            "nothing needs to change."
+        ),
+        "parameters": tool_json_schema(NothingToDoInput),
     },
 }
 

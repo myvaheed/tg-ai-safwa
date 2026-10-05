@@ -23,7 +23,7 @@ from tg_agent_shell.registry import Registry
 from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec, FeatureModule
 
 from .. import featuretoggles
-from ..features.advisor.agent import ADVISOR_VIEWS, PERSONA, SYSTEM_PROMPT_TEMPLATE
+from ..features.advisor.agent import ADVISOR_VIEWS, ITEMS, PERSONA, SYSTEM_PROMPT_TEMPLATE
 from ..features.cards.module import (
     BLOCKER_HOOK,
     EFFORT_TRACKING_REMINDER_HOOK,
@@ -187,14 +187,19 @@ HELPERS = REGISTRY.helpers
 
 # The routing rules are prose in the prompt, so a subagent they omit is never routed to,
 # and so is a view the Advisor's own list leaves out.
-SYSTEM_PROMPT: str = SYSTEM_PROMPT_TEMPLATE.replace(
-    "{routes}", REGISTRY.routes(lambda agent: f'- `route("{agent.name}")` — {agent.purpose}')
-).replace("{views}", view_catalogue(AI_VIEWS, ADVISOR_VIEWS))
+SYSTEM_PROMPT: str = (
+    SYSTEM_PROMPT_TEMPLATE.replace(
+        "{routes}", REGISTRY.routes(lambda agent: f'- `route("{agent.name}")` — {agent.purpose}')
+    )
+    .replace("{views}", view_catalogue(AI_VIEWS, ADVISOR_VIEWS))
+    .replace("{items}", ITEMS)
+)
 
 
 def routed_prompt(agent: AgentSpec) -> str:
-    """What a routed subagent reads: the one persona block, then its own instructions."""
-    return f"{PERSONA}\n{agent.instructions}"
+    """What a routed subagent reads: the one persona block, then its own instructions, with
+    the one wording of what each item is wherever they ask for `{items}`."""
+    return f"{PERSONA}\n{agent.instructions}".replace("{items}", ITEMS)
 
 
 def routed_subagents(context: AgentContext):

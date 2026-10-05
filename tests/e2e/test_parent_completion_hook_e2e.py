@@ -59,7 +59,7 @@ async def test_finished_actions_ask_once_and_the_owners_choice_closes_only_the_g
     advisor, _ = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
-            mutation_turn(("card", {"mode": "complete", "id": last_id})),
+            mutation_turn(("action", {"mode": "complete", "id": last_id})),
             "Finished the Action.",
         ]
     )
@@ -106,7 +106,7 @@ async def test_finished_actions_ask_once_and_the_owners_choice_closes_only_the_g
     advisor, _ = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
-            mutation_turn(("card", {"mode": "complete", "id": goal_id})),
+            mutation_turn(("goal", {"mode": "complete", "id": goal_id})),
             "Proposed closing the Goal.",
         ]
     )
@@ -121,7 +121,7 @@ async def test_finished_actions_ask_once_and_the_owners_choice_closes_only_the_g
     advisor, _ = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
-            mutation_turn(("card", {"mode": "reopen", "id": goal_id})),
+            mutation_turn(("goal", {"mode": "reopen", "id": goal_id})),
             "Proposed reopening the Goal.",
         ]
     )

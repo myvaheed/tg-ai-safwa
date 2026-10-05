@@ -58,8 +58,8 @@ async def _answer(provider, messages: list[dict], tools: tuple) -> None:
 async def test_the_configured_provider_loops_reads_its_kept_turn_and_sees_a_photo():
     settings = Settings()
     provider = OpenAICompatibleProvider(settings.ai_config())
-    # The real card schema goes along: the keywords every provider must accept.
-    tools = (LOOKUP, PROPOSALS.tools["card"].schema())
+    # The real action schema goes along: the keywords every provider must accept.
+    tools = (LOOKUP, PROPOSALS.tools["action"].schema())
     messages: list[dict] = [
         {"role": "system", "content": "You keep the owner's Cards. Call lookup before you answer."},
         {"role": "user", "content": "Do I have a Card about milk?"},

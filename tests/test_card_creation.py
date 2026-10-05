@@ -5,7 +5,7 @@ from pydantic import ValidationError
 from schedule_helpers import create_card, create_check
 
 from safwa.bootstrap.modules import PROPOSALS
-from safwa.features.cards.agent import CardToolInput
+from safwa.features.cards.agent import ActionToolInput
 from safwa.features.cards.model import Card, Priority
 from safwa.features.cards.use_cases import (
     finish_action,
@@ -25,11 +25,11 @@ from tg_agent_shell.proposals.prepare import ChangePreparer
 
 def test_card_move_tool_rejects_a_terminal_stage():
     # move applies through move_card, which does not own completion timestamps,
-    # feedback, Sprint results or repeat successors.  complete does.
-    with pytest.raises(ValidationError, match="use complete mode"):
-        CardToolInput(mode="move", id=1, stage="done")
+    # feedback, Sprint results or repeat successors.  complete does, so no stage is Done.
+    with pytest.raises(ValidationError, match="'backlog', 'sprint' or 'today'"):
+        ActionToolInput(mode="move", id=1, stage="done")
 
-    assert CardToolInput(mode="move", id=1, stage="today").stage == "today"
+    assert ActionToolInput(mode="move", id=1, stage="today").stage == "today"
 
 
 @pytest.mark.parametrize("model", [Card, Tag, Value, SavedRequest, Sprint])
@@ -66,12 +66,12 @@ async def test_no_proposal_may_touch_a_closed_repeat(sessions):
         assert live_check_id is not None
 
     refusals = [
-        ("card", {"mode": "update", "id": card.id, "title": "Run far"}, live_card_id),
-        ("card", {"mode": "move", "id": card.id, "stage": "today"}, live_card_id),
+        ("action", {"mode": "update", "id": card.id, "title": "Run far"}, live_card_id),
+        ("action", {"mode": "move", "id": card.id, "stage": "today"}, live_card_id),
         ("remove", {"mode": "archive", "entity": "card", "id": card.id}, live_card_id),
         ("check", {"mode": "update", "id": check.id, "title": "Posture?"}, live_check_id),
         # Targeting the live Card does not excuse linking the dead Check onto it.
-        ("card", {"mode": "link", "id": live_card_id, "check_ids": [check.id]}, live_check_id),
+        ("action", {"mode": "link", "id": live_card_id, "checks": [check.id]}, live_check_id),
     ]
     for tool, arguments, live_id in refusals:
         change = PROPOSALS.change_from_tool(tool, arguments)
@@ -85,10 +85,10 @@ async def test_no_proposal_may_touch_a_closed_repeat(sessions):
 
     async with sessions() as session:
         change = PROPOSALS.change_from_tool(
-            "card", {"mode": "update", "id": live_card_id, "check_ids": [live_check_id]}
+            "action", {"mode": "update", "id": live_card_id, "checks": [live_check_id]}
         )
         prepared = await ChangePreparer(None, None, PROPOSALS).prepare(  # type: ignore[arg-type]
             session, change
         )
-        assert prepared.values["check_ids"] == [live_check_id]
+        assert prepared.values["checks"] == [live_check_id]
         assert await session.get(Check, live_check_id) is not None

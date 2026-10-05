@@ -4,35 +4,53 @@ import pytest
 from database_key import keyed, keyed_engine
 
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, PROPOSALS
-from safwa.features.cards.agent import CardToolInput
+from safwa.features.cards.agent import ActionToolInput, GoalToolInput
 from safwa.features.checks.agent import CheckToolInput
 from tg_agent_shell.ai.contracts import QueryToolInput, tool_json_schema
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, UnsafeQueryError, validated_read
 
 
 def test_native_mutation_tools_become_typed_change_intents():
-    creation = CardToolInput(
-        mode="create", kind="action", title="Read one page", effort_points=1
-    )
-    assert creation.kind == "action"
-    change = PROPOSALS.change_from_tool("card", {"mode": "update", "id": 42, "priority": "critical"})
+    creation = ActionToolInput(mode="create", title="Read one page", effort_points=1)
+    assert creation.title == "Read one page"
+    change = PROPOSALS.change_from_tool("action", {"mode": "update", "id": 42, "priority": "critical"})
     assert (change.entity, change.action, change.id, change.values) == (
         "card",
         "update",
         42,
-        {"priority": "critical"},
+        {"priority": "critical", "kind": "action"},
     )
     remove = PROPOSALS.change_from_tool("remove", {"mode": "delete", "entity": "card", "id": 42})
     assert (remove.entity, remove.action, remove.id) == ("card", "delete", 42)
     with pytest.raises(ValueError):
-        CardToolInput(mode="create", kind="action")
+        ActionToolInput(mode="create")
     with pytest.raises(ValueError, match="deleted, never archived"):
         PROPOSALS.change_from_tool("remove", {"mode": "archive", "entity": "tag", "id": 42})
 
 
+def test_a_goal_and_an_action_are_two_tools_over_one_card():
+    goal = PROPOSALS.change_from_tool("goal", {"mode": "create", "title": "Be healthy"})
+    assert (goal.entity, goal.values) == ("card", {"title": "Be healthy", "kind": "goal"})
+    subgoal = PROPOSALS.change_from_tool(
+        "goal", {"mode": "create", "title": "Sleep better", "parent": "Be healthy"}
+    )
+    assert subgoal.values["kind"] == "subgoal"
+    # A Goal's Schedule is its Deadline.
+    dated = PROPOSALS.change_from_tool("goal", {"mode": "update", "id": 7, "deadline": "by May"})
+    assert dated.values == {"schedule": "by May", "kind": "goal"}
+    for field_name in ("stage", "effort_points", "tracked_mins", "categories", "blocked_description"):
+        assert field_name not in GoalToolInput.model_fields
+    with pytest.raises(ValueError):
+        GoalToolInput(mode="move", id=7)
+    with pytest.raises(ValueError):
+        ActionToolInput(mode="update", id=7, stage="done")
+    with pytest.raises(ValueError, match="no time spent yet|does not accept: tracked_mins"):
+        ActionToolInput(mode="create", title="Run", tracked_mins=30)
+
+
 def test_card_tool_modes_reject_ambiguous_mutations():
     change = PROPOSALS.change_from_tool(
-        "card",
+        "action",
         {
             "mode": "update",
             "id": 42,
@@ -43,26 +61,26 @@ def test_card_tool_modes_reject_ambiguous_mutations():
     assert change.values == {
         "categories": ["people", "rest"],
         "energy_types": ["physical", "emotional"],
+        "kind": "action",
     }
-    root = PROPOSALS.change_from_tool("card", {"mode": "update", "id": 42, "parent_id": None})
-    assert root.values == {"parent_id": None}
+    root = PROPOSALS.change_from_tool("action", {"mode": "update", "id": 42, "parent": None})
+    assert root.values == {"parent": None, "kind": "action"}
     with pytest.raises(ValueError):
-        CardToolInput(mode="move", id=42, stage="today", categories=["work"])
+        ActionToolInput(mode="move", id=42, stage="today", categories=["work"])
     with pytest.raises(ValueError):
-        CardToolInput(mode="complete", id=42, note="also change this")
+        ActionToolInput(mode="complete", id=42, note="also change this")
     with pytest.raises(ValueError):
-        CardToolInput(mode="link", id=42, tag_id=3, value_id=4)
-    with pytest.raises(ValueError, match="at least one relationship reference"):
-        CardToolInput(mode="link", id=42, tag_ids=[])
+        ActionToolInput(mode="link", id=42, tags=[3], values=[4])
+    with pytest.raises(ValueError, match="exactly one of values, tags or checks"):
+        ActionToolInput(mode="link", id=42, tags=[])
 
 
 def test_tool_inputs_drop_incidental_null_placeholders_from_every_mutation():
     change = PROPOSALS.change_from_tool(
-        "card",
+        "action",
         {
             "mode": "create",
             "id": None,
-            "kind": "action",
             "title": "Do twenty pull-ups",
             "note": None,
             "stage": "backlog",
@@ -72,28 +90,21 @@ def test_tool_inputs_drop_incidental_null_placeholders_from_every_mutation():
             "effort_points": 1,
             "categories": ["growth"],
             "energy_types": ["physical"],
-            "value_id": None,
-            "value_ids": None,
-            "value_query": None,
-            "tag_id": None,
-            "tag_ids": None,
-            "tag_query": None,
-            "check_id": None,
-            "check_ids": None,
-            "check_query": None,
-            "parent_id": None,
-            "parent_query": None,
+            "values": [None],
+            "tags": None,
+            "checks": ["null"],
+            "parent": None,
         },
     )
 
     assert change.values == {
-        "kind": "action",
         "title": "Do twenty pull-ups",
         "stage": "backlog",
         "priority": "medium",
         "effort_points": 1,
         "categories": ["growth"],
         "energy_types": ["physical"],
+        "kind": "action",
     }
 
     check = CheckToolInput.model_validate(
@@ -109,27 +120,17 @@ def test_tool_inputs_drop_incidental_null_placeholders_from_every_mutation():
 
 def test_zero_id_placeholders_are_ignored_but_real_ids_must_be_positive():
     change = PROPOSALS.change_from_tool(
-        "card",
-        {
-            "mode": "create",
-            "id": 0,
-            "kind": "action",
-            "title": "Do twenty pull-ups",
-            "effort_points": 1,
-            "value_id": 0,
-            "value_ids": [],
-            "tag_id": "0",
-            "tag_ids": [0, "0"],
-            "check_id": 0,
-            "check_ids": [],
-        },
+        "action",
+        {"mode": "create", "id": 0, "title": "Do twenty pull-ups", "effort_points": 1},
     )
     assert change.values == {
-        "kind": "action",
         "title": "Do twenty pull-ups",
         "effort_points": 1,
+        "kind": "action",
     }
 
+    with pytest.raises(ValueError):
+        PROPOSALS.change_from_tool("action", {"mode": "link", "id": 42, "values": [0]})
     with pytest.raises(ValueError):
         PROPOSALS.change_from_tool("remove", {"entity": "card", "id": 0})
 
@@ -181,67 +182,61 @@ def test_null_placeholders_are_ignored_across_mutation_tools(
 @pytest.mark.parametrize("placeholder", [None, "", "  ", "null", "None", "NIL", "undefined"])
 def test_optional_reference_placeholders_are_omitted(placeholder):
     change = PROPOSALS.change_from_tool(
-        "card",
+        "action",
         {
             "mode": "create",
-            "kind": "action",
             "title": "Do twenty pull-ups",
             "effort_points": 1,
-            "parent_query": placeholder,
-            "value_query": [placeholder],
+            "parent": placeholder,
+            "values": [placeholder],
         },
     )
-    assert "parent_query" not in change.values
-    assert "value_query" not in change.values
+    assert "parent" not in change.values
+    assert "values" not in change.values
 
 
 def test_collection_arguments_recover_scalars_and_double_encoded_arrays():
     change = PROPOSALS.change_from_tool(
-        "card",
+        "action",
         {
             "mode": "update",
             "id": 42,
             "categories": "growth",
             "energy_types": '["physical", null, "none"]',
-            "value_ids": [3, None, "null"],
+            "values": [3, None, "null", "Health"],
         },
     )
     assert change.values == {
         "categories": ["growth"],
         "energy_types": ["physical"],
-        "value_ids": [3],
+        "values": [3, "Health"],
+        "kind": "action",
     }
 
 
 def test_parent_changes_are_explicit_and_unambiguous():
     remove_parent = PROPOSALS.change_from_tool(
-        "card", {"mode": "update", "id": 42, "title": "Renamed", "parent_id": None}
+        "action", {"mode": "update", "id": 42, "title": "Renamed", "parent": None}
     )
-    assert remove_parent.values == {"title": "Renamed", "parent_id": None}
+    assert remove_parent.values == {"title": "Renamed", "parent": None, "kind": "action"}
 
-    with pytest.raises(ValueError, match="either parent_id or parent_query"):
-        PROPOSALS.change_from_tool(
-            "card",
-            {
-                "mode": "update",
-                "id": 42,
-                "parent_id": 7,
-                "parent_query": "Fitness",
-            },
-        )
+    by_title = PROPOSALS.change_from_tool("action", {"mode": "update", "id": 42, "parent": "Fitness"})
+    assert by_title.values == {"parent": "Fitness", "kind": "action"}
 
+    with pytest.raises(ValueError):
+        PROPOSALS.change_from_tool("action", {"mode": "update", "id": 42, "parent": [7, 8]})
 
 
 @pytest.mark.parametrize("placeholder", [None, "null", "None", "NIL", "undefined"])
 def test_update_parent_null_variants_remove_the_parent(placeholder):
     change = PROPOSALS.change_from_tool(
-        "card", {"mode": "update", "id": 42, "parent_id": placeholder}
+        "action", {"mode": "update", "id": 42, "parent": placeholder}
     )
-    assert change.values == {"parent_id": None}
+    assert change.values == {"parent": None, "kind": "action"}
 
 
 def test_model_facing_tool_schemas_keep_optional_fields_nullable_for_constrained_decoders():
-    schema = tool_json_schema(CardToolInput)
+    schema = tool_json_schema(ActionToolInput)
 
     def contains_null_type(value):
         if isinstance(value, dict):
@@ -252,7 +247,7 @@ def test_model_facing_tool_schemas_keep_optional_fields_nullable_for_constrained
             return any(contains_null_type(item) for item in value)
         return False
 
-    for field_name in ("id", "title", "value_id", "value_ids", "parent_id"):
+    for field_name in ("id", "title", "values", "tags", "checks", "parent"):
         assert contains_null_type(schema["properties"][field_name])
     assert not contains_null_type(schema["properties"]["mode"])
     id_integer = next(
@@ -264,7 +259,7 @@ def test_model_facing_tool_schemas_keep_optional_fields_nullable_for_constrained
     assert id_integer["minimum"] == 1
     assert "exclusiveMinimum" not in id_integer
     assert schema["additionalProperties"] is False
-    assert "parent_id" not in schema.get("required", [])
+    assert "parent" not in schema.get("required", [])
 
 
 def test_query_tool_rejects_null_empty_and_extra_arguments():

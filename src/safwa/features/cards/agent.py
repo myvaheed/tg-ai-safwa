@@ -1,49 +1,121 @@
-"""The Card mutation tool. The workspace mutator owns the turn that calls it."""
+"""The Card mutation tools, `goal` and `action`. The workspace mutator owns the turn that calls them."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, Literal
 
-from pydantic import Field, PositiveInt, model_validator
+from pydantic import BaseModel, Field, PositiveInt, model_validator
 
 from tg_agent_shell.ai.autoapproval import RELATIONSHIP_LINK, SCALAR_UPDATE, AutoApprovalRule
-from tg_agent_shell.ai.contracts import ToolInput
+from tg_agent_shell.ai.contracts import AgentChange, Reference, ToolInput
 from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
 
-from .model import CATEGORY_MEANINGS, ENERGY_MEANINGS, TRACKED_MINS_MAX
+from .model import CATEGORY_MEANINGS, ENERGY_MEANINGS, TRACKED_MINS_MAX, CardKind
+
+LINK_FIELDS = frozenset({"values", "tags", "checks"})
+
+VALUES_DESCRIPTION = "Each an exact Value name or an id."
+TAGS_DESCRIPTION = "Each an exact Tag name or an id."
+CHECKS_DESCRIPTION = (
+    "Each an exact Check title or an id. A Check with its own Schedule cannot be linked. "
+    "A Check on another Card: unlink it there first."
+)
+LINK_MODES = (
+    "link and unlink take `values`, `tags` or `checks`, one per call. "
+    "Deleting is the remove tool."
+)
+REPEAT_INSTANCE = "For a finished repeat ` [🔄2, live #7]`, send it with that instance's id."
 
 
-class CardToolInput(ToolInput):
+def _validate_call(
+    call: GoalToolInput | ActionToolInput, *, label: str, only: dict[str, set[str]]
+) -> None:
+    """What every mode of a Card tool needs, with the fields `only` limits each mode to."""
+    supplied = set(call.model_fields_set) - {"mode", "id"}
+    if call.mode == "create":
+        if call.id is not None:
+            raise ValueError(f"a new {label} must not include an id")
+        if not (call.title or "").strip():
+            raise ValueError(f"a new {label} needs a title")
+        return
+    if call.id is None:
+        raise ValueError(f"{label} mode '{call.mode}' needs an id")
+    if call.mode == "update" and not supplied:
+        raise ValueError(f"an updated {label} needs at least one proposed field")
+    if call.mode in {"link", "unlink"}:
+        linked = supplied & LINK_FIELDS
+        if len(linked) != 1 or supplied - LINK_FIELDS or not getattr(call, linked.pop()):
+            raise ValueError(f"{label} {call.mode} needs exactly one of values, tags or checks")
+        return
+    if call.mode in only and (unsupported := supplied - only[call.mode]):
+        raise ValueError(
+            f"{label} {call.mode} does not accept: " + ", ".join(sorted(unsupported))
+        )
+
+
+class GoalToolInput(ToolInput):
+    content_fields = frozenset({"title", "note", "deadline"})
+    semantic_null_fields = frozenset({"deadline", "parent"})
+
+    mode: Literal["create", "update", "complete", "reopen", "link", "unlink"] = Field(
+        description=(
+            "complete only when the user asks and all its Actions are Done. " + LINK_MODES
+        )
+    )
+    id: PositiveInt | None = None
+    title: str | None = None
+    note: str | None = None
+    priority: Literal["critical", "medium", "low"] | None = None
+    deadline: str | None = Field(
+        default=None,
+        description=(
+            "When it must be done, in the user's words: 'by 20 October'. Never invent a date. "
+            "On update, null removes it."
+        ),
+    )
+    values: Reference | list[Reference] | None = Field(default=None, description=VALUES_DESCRIPTION)
+    tags: Reference | list[Reference] | None = Field(default=None, description=TAGS_DESCRIPTION)
+    checks: Reference | list[Reference] | None = Field(
+        default=None, description=CHECKS_DESCRIPTION
+    )
+    parent: Reference | None = Field(default=None, description="A Goal, by exact title or id.")
+
+    @model_validator(mode="after")
+    def validate_target(self) -> GoalToolInput:
+        _validate_call(self, label="Goal", only={"complete": set(), "reopen": set()})
+        return self
+
+
+class ActionToolInput(ToolInput):
     content_fields = frozenset({"title", "note", "blocked_description", "schedule"})
     semantic_null_fields = frozenset(
-        {"parent_id", "schedule", "tracked_mins", "effort_points", "blocked_description"}
+        {"parent", "schedule", "tracked_mins", "effort_points", "blocked_description"}
     )
 
     mode: Literal["create", "update", "move", "complete", "reopen", "link", "unlink"] = Field(
         description=(
-            "move changes only the stage; update changes every other field. complete is how a "
-            "Card reaches Done, and reopen brings it back. link and unlink attach one "
-            "relationship type. Archiving is the remove tool."
+            "move changes only `stage`. complete finishes it, with `tracked_mins` when the user "
+            "said how long it took; its Goal stays open. reopen brings it back to `stage`, "
+            "Backlog when omitted, and reopens its closed Goal and Subgoal. " + LINK_MODES
         )
     )
     id: PositiveInt | None = None
-    kind: Literal["goal", "subgoal", "action"] | None = None
     title: str | None = None
     note: str | None = None
-    stage: Literal["backlog", "sprint", "today", "done"] | None = None
+    stage: Literal["backlog", "sprint", "today"] | None = None
     priority: Literal["critical", "medium", "low"] | None = None
     schedule: str | None = Field(
         default=None,
         description=(
-            "Action: when it repeats or happens, in the user's words: 'once a week', "
-            "'five times a day', 'Tuesday at 15:00', 'after each completion'. "
-            "Goal or Subgoal: its deadline, e.g. 'by 20 October'. "
+            "When it repeats or happens, in the user's words: 'once a week', "
+            "'three times a day', 'Tuesday at 15:00', 'after each completion'. "
             "Never invent a time. On update, null removes it."
         ),
     )
     blocked_description: str | None = Field(
         default=None,
-        description="What blocks the Action, in the user's words. On update, null unblocks it.",
+        description="What blocks it, in the user's words. On update, null unblocks it.",
     )
     effort_points: Literal[0.5, 1, 2, 3, 5, 8, 13] | None = Field(
         default=None,
@@ -53,7 +125,8 @@ class CardToolInput(ToolInput):
             "0.5 done in passing. 1 the day goes on as it was. 2 a little tired, no rest needed. "
             "3 carry on only after a break. 5 after a full rest, one more serious thing. "
             "8 only light work left today. 13 nothing else today. "
-            "Work that does not fit one day is a Subgoal with Actions under it, never a 13."
+            "Work that does not fit one day is a Subgoal with Actions under it, never a 13. "
+            + REPEAT_INSTANCE
         ),
     )
     tracked_mins: int | None = Field(
@@ -62,7 +135,7 @@ class CardToolInput(ToolInput):
         le=TRACKED_MINS_MAX,
         description=(
             "Minutes the user says the Action took, in total: 1.5 hours is 90. Only what the "
-            "user said, never an estimate. On update, null removes it."
+            "user said, never an estimate. On update, null removes it. " + REPEAT_INSTANCE
         ),
     )
     categories: list[Literal["growth", "people", "work", "chores", "rest"]] | None = Field(
@@ -75,114 +148,56 @@ class CardToolInput(ToolInput):
         description="What the Action costs the user. "
         + " ".join(f"{name}: {meaning}." for name, meaning in ENERGY_MEANINGS.items()),
     )
-    value_id: PositiveInt | None = None
-    value_ids: list[PositiveInt] | None = None
-    value_query: str | list[str] | None = Field(
-        default=None, description="One or more exact Value names; this is not SQL."
+    values: Reference | list[Reference] | None = Field(default=None, description=VALUES_DESCRIPTION)
+    tags: Reference | list[Reference] | None = Field(default=None, description=TAGS_DESCRIPTION)
+    checks: Reference | list[Reference] | None = Field(
+        default=None, description=CHECKS_DESCRIPTION
     )
-    tag_id: PositiveInt | None = None
-    tag_ids: list[PositiveInt] | None = None
-    tag_query: str | list[str] | None = Field(
-        default=None, description="One or more exact Tag names; this is not SQL."
-    )
-    check_id: PositiveInt | None = None
-    check_ids: list[PositiveInt] | None = None
-    check_query: str | list[str] | None = Field(
-        default=None, description="One or more exact Check titles; this is not SQL."
-    )
-    parent_id: PositiveInt | None = Field(
+    parent: Reference | None = Field(
         default=None,
         description=(
-            "Parent Card ID. On create, omit this when there is no parent. On update, send null "
-            "to remove the current parent and make the Card root-level."
-        ),
-    )
-    parent_query: str | None = Field(
-        default=None,
-        description=(
-            "A safe read-only SELECT over ai_cards that returns exactly one id, for example "
-            "SELECT id FROM ai_cards WHERE title = 'My Goal'. An exact Card title is also accepted."
+            "A Goal or a Subgoal, by exact title or id. On update, null makes it root-level."
         ),
     )
 
     @model_validator(mode="after")
-    def validate_target(self) -> CardToolInput:
-        supplied = set(self.model_fields_set) - {"mode", "id"}
-        if self.mode == "create":
-            if self.id is not None:
-                raise ValueError("a new Card must not include an id")
-            if self.kind is None or not (self.title or "").strip():
-                raise ValueError("a new Card needs kind and title")
-            if "tracked_mins" in supplied:
-                raise ValueError("a new Card has no time spent yet; omit tracked_mins")
-            if self.parent_id is not None and self.parent_query is not None:
-                raise ValueError("use either parent_id or parent_query, not both")
-            return self
-        if self.id is None:
-            raise ValueError(f"card mode '{self.mode}' needs an id")
-        editable = {
-            "title",
-            "note",
-            "stage",
-            "priority",
-            "schedule",
-            "blocked_description",
-            "effort_points",
-            "tracked_mins",
-            "categories",
-            "energy_types",
-            "value_id",
-            "value_ids",
-            "value_query",
-            "tag_id",
-            "tag_ids",
-            "tag_query",
-            "check_id",
-            "check_ids",
-            "check_query",
-            "parent_id",
-            "parent_query",
-        }
-        if self.mode == "update":
-            if not supplied:
-                raise ValueError("an updated Card needs at least one proposed field")
-            if unsupported := supplied - editable:
-                raise ValueError(
-                    "Card update does not accept: " + ", ".join(sorted(unsupported))
-                    + ". Card kind is fixed; use mode='create' for a new kind."
-                )
-            if self.stage == "done":
-                raise ValueError("use complete mode to finish a Card")
-            if self.parent_id is not None and self.parent_query is not None:
-                raise ValueError("use either parent_id or parent_query, not both")
-        elif self.mode == "move":
-            if supplied != {"stage"} or self.stage is None:
-                raise ValueError("Card move needs only a stage")
-            if self.stage == "done":
-                raise ValueError("use complete mode to finish a Card")
-        elif self.mode == "complete":
-            if supplied - {"tracked_mins"}:
-                raise ValueError("Card complete accepts only tracked_mins")
-        elif self.mode == "reopen":
-            if supplied - {"stage"}:
-                raise ValueError("Card reopen accepts only an optional stage")
-            if self.stage == "done":
-                raise ValueError("a reopened Card returns to a live stage")
-        elif self.mode in {"link", "unlink"}:
-            groups = [
-                supplied & {"value_id", "value_ids", "value_query"},
-                supplied & {"tag_id", "tag_ids", "tag_query"},
-                supplied & {"check_id", "check_ids", "check_query"},
-            ]
-            selected = [group for group in groups if group]
-            if len(selected) != 1:
-                raise ValueError(f"Card {self.mode} needs exactly one relationship type")
-            allowed = selected[0]
-            if supplied - allowed:
-                raise ValueError(f"Card {self.mode} mixes unrelated fields")
-            if not any(getattr(self, field_name) for field_name in allowed):
-                raise ValueError(f"Card {self.mode} needs at least one relationship reference")
+    def validate_target(self) -> ActionToolInput:
+        if self.mode == "create" and "tracked_mins" in self.model_fields_set:
+            raise ValueError("a new Action has no time spent yet; omit tracked_mins")
+        _validate_call(
+            self,
+            label="Action",
+            only={"move": {"stage"}, "complete": {"tracked_mins"}, "reopen": {"stage"}},
+        )
+        if self.mode == "move" and self.stage is None:
+            raise ValueError("Action move needs a stage")
         return self
+
+
+def _card_change(kind: Callable[[AgentChange], str]) -> Callable[[BaseModel], AgentChange]:
+    """The ordinary conversion, plus the kind of Card the call addresses.
+
+    Preparation refuses a call on a Card of another kind before anything reaches review.
+    """
+    convert = entity_change("card")
+
+    def to_change(call: BaseModel) -> AgentChange:
+        change = convert(call)
+        values = dict(change.values)
+        # A Goal's Schedule is its Deadline.
+        if "deadline" in values:
+            values["schedule"] = values.pop("deadline")
+        values["kind"] = kind(change)
+        return change.model_copy(update={"values": values})
+
+    return to_change
+
+
+def _goal_kind(change: AgentChange) -> str:
+    # A new Goal under a Goal is the Subgoal it becomes.
+    if change.action == "create" and change.values.get("parent") is not None:
+        return CardKind.SUBGOAL.value
+    return CardKind.GOAL.value
 
 
 def _has_explicit_tool_value(value: Any) -> bool:
@@ -200,70 +215,32 @@ def _has_explicit_tool_value(value: Any) -> bool:
     return True
 
 
-def _card_repair(arguments: dict[str, Any]) -> dict[str, Any]:
-    """A compact valid `card(mode="create")` shape, built from what the model already sent."""
-    if arguments.get("mode") != "create":
-        return {}
+def _repair(model: type[ToolInput]) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """A compact valid `mode="create"` shape, built from what the model already sent."""
 
-    expected: dict[str, Any] = {"mode": "create"}
-    core_fields = (
-        "kind",
-        "title",
-        "note",
-        "stage",
-        "priority",
-        "schedule",
-        "blocked_description",
-        "effort_points",
-        "categories",
-        "energy_types",
-    )
-    for field_name in core_fields:
-        if field_name in arguments and _has_explicit_tool_value(arguments[field_name]):
-            expected[field_name] = arguments[field_name]
+    def repair(arguments: dict[str, Any]) -> dict[str, Any]:
+        if arguments.get("mode") != "create":
+            return {}
+        expected: dict[str, Any] = {"mode": "create"}
+        for field_name in model.model_fields:
+            if field_name in {"mode", "id", "tracked_mins"}:
+                continue
+            if field_name in arguments and _has_explicit_tool_value(arguments[field_name]):
+                expected[field_name] = arguments[field_name]
+        return {
+            "expected_arguments": expected,
+            "argument_rules": [
+                "For mode='create', omit id; it is assigned after Save.",
+                "Omit unused fields; never fill an id with placeholder 0 or 1.",
+                "Send only relationships that the user actually requested or that were resolved from data.",
+            ],
+        }
 
-    # Keep intentional, non-placeholder relationship forms. Singular IDs are omitted from the
-    # repair example because constrained decoders commonly invent the minimum allowed integer.
-    for field_name in (
-        "value_ids",
-        "value_query",
-        "tag_ids",
-        "tag_query",
-        "check_ids",
-        "check_query",
-        "parent_id",
-        "parent_query",
-    ):
-        if field_name in arguments and _has_explicit_tool_value(arguments[field_name]):
-            expected[field_name] = arguments[field_name]
-
-    return {
-        "expected_arguments": expected,
-        "argument_rules": [
-            "For mode='create', omit id; it is assigned after Save.",
-            "Omit unused relationship properties; never fill *_id with placeholder 0 or 1.",
-            "Send only relationships that the user actually requested or that were resolved from data.",
-        ],
-    }
+    return repair
 
 
 CARD_AUTOAPPROVALS = {
-    "link": AutoApprovalRule(
-        RELATIONSHIP_LINK,
-        frozenset(
-            {
-                "value_id",
-                "value_ids",
-                "value_query",
-                "tag_id",
-                "tag_ids",
-                "tag_query",
-                "check_id",
-                "check_ids",
-                "check_query",
-            }
-        ),
-    ),
+    "link": AutoApprovalRule(RELATIONSHIP_LINK, LINK_FIELDS),
     "update": AutoApprovalRule(
         SCALAR_UPDATE,
         frozenset(
@@ -285,13 +262,20 @@ CARD_AUTOAPPROVALS = {
 
 # One line each: what this tool owns, because seven of them compete.  Mode semantics live in
 # the schema, field rules in the field descriptions, and policy in the subagent's prompt.
-CARD_TOOL = MutationToolSpec(
-    name="card",
-    input_model=CardToolInput,
+GOAL_TOOL = MutationToolSpec(
+    name="goal",
+    input_model=GoalToolInput,
     description=(
-        "Propose one Card — a Goal, a Subgoal or an Action. Also the only tool that "
-        "attaches a Value, a Tag or a Check to a Card."
+        "Propose one Goal or Subgoal: a result that takes more than one day. "
+        "With a Goal as `parent` it is a Subgoal."
     ),
-    to_change=entity_change("card"),
-    repair=_card_repair,
+    to_change=_card_change(_goal_kind),
+    repair=_repair(GoalToolInput),
+)
+ACTION_TOOL = MutationToolSpec(
+    name="action",
+    input_model=ActionToolInput,
+    description="Propose one Action: work that fits in one day.",
+    to_change=_card_change(lambda _change: CardKind.ACTION.value),
+    repair=_repair(ActionToolInput),
 )

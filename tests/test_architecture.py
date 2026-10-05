@@ -32,7 +32,7 @@ from safwa.bootstrap.modules import (
     SCREENS,
     SYSTEM_PROMPT,
 )
-from safwa.features.advisor.agent import PERSONA
+from safwa.features.advisor.agent import ITEMS, PERSONA
 from safwa.features.schedules.agent import COMPILER_PROMPT, DEADLINE_PROMPT, scheduled_tool
 from safwa.foundation.models import Base
 from scripts.architecture_metrics import (
@@ -52,6 +52,7 @@ from scripts.architecture_metrics import (
 from tg_agent_shell.ai.contracts import (
     CALL_HELPER_TOOL,
     FORWARD_TOOL,
+    NOTHING_TO_DO_TOOL,
     QUERY_TOOL,
     ROUTE_TOOL,
     open_tool,
@@ -255,6 +256,7 @@ def _tool_schemas() -> dict[str, dict]:
         "open": open_tool(SCREENS),
         "route": ROUTE_TOOL,
         "forward": FORWARD_TOOL,
+        "nothing_to_do": NOTHING_TO_DO_TOOL,
         "query_data": QUERY_TOOL,
         "call_helper": CALL_HELPER_TOOL,
         # The schema names no photo, so it is read without a library to read one from.
@@ -272,6 +274,7 @@ def test_rule_i_prompt_prefix_is_byte_stable(request):
     produced = {
         "SYSTEM_PROMPT": _digest(SYSTEM_PROMPT),
         "PERSONA": _digest(PERSONA),
+        "ITEMS": _digest(ITEMS),
         "HEAVY_ANALYZER_PROMPT": _digest(HELPERS["heavy_analyzer"].instructions),
         "SCHEDULE_COMPILER_PROMPT": _digest(COMPILER_PROMPT),
         "DEADLINE_COMPILER_PROMPT": _digest(DEADLINE_PROMPT),

@@ -131,6 +131,13 @@ Feature: Agents — the session, the hand-over, and what comes back
       unless it is declared as one that answers questions, whose words are the work
     And every step after that is free to be the answer, or the work would never finish
 
+  Scenario: AG-NOTHING-056 — A subagent with nothing to do says so in its first step
+    Given a subagent whose first step has to be a tool call (AG-ANSWER-014)
+    When the request is not its own, or what it asks is already so
+    Then its first step can be nothing_to_do with the reason, alone in its response
+    And that ends its session: nothing is proposed, and the reason goes back as the subagent's words
+    And a subagent that answers questions is not offered it
+
   Scenario: AG-TURN-015 — Safwa speaks unasked only when nothing of the owner's is open
     Given the system has something for Safwa to say without being asked, such as a Reminder coming
       due

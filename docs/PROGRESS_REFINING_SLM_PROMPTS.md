@@ -556,9 +556,9 @@ root-level»). Единственный намёк на длительность
 
 ### M2. Тул `card`: 23 поля, 7 modes, 7.4K символов — решено
 
-Ссылку можно задать тремя способами: `value_id`, `value_ids`, `value_query`; так же для Tag
-(`tag_id`, `tag_ids`, `tag_query`) и Check (`check_id`, `check_ids`, `check_query`). Родителя —
-двумя: `parent_id` и `parent_query`, причём во втором поле принимается SQL. Для малой модели три
+Ссылку можно задать тремя способами: `value_id`, `value_ids`, value_query; так же для Tag
+(`tag_id`, `tag_ids`, tag_query) и Check (`check_id`, `check_ids`, check_query). Родителя —
+двумя: `parent_id` и parent_query, причём во втором поле принимается SQL. Для малой модели три
 способа сказать одно и то же — источник ошибок. Кандидат: один список id на тип ссылки и один
 `parent_id`.
 
@@ -775,12 +775,13 @@ CD-FIELD-007: «Blocked» → «a blocked reason», исходы те же.
   отказывает, повторное нажатие её снимает. Тест экрана Card дополнен снятием блокировки той же
   кнопкой.
 
-## Батч 4 — Workspace Mutator: M1–M10 — план
+## Батч 4 — Workspace Mutator: M1–M10 — сделано
 
-Все решения M1–M10 одним батчем, после батча 3.
+Все решения M1–M10 одним батчем, после батча 3. Сделан 2026-10-05 по плану ниже; отличия — в
+«Как сделано».
 
 **Критерий успеха.** У Mutator нет тула `card`, есть `goal` и `action`. Ни в одном туле нет
-полей `*_id`, `*_ids`, `*_query` для ссылок. У `check` modes `passed` и `missed`. Ни в одном
+полей ссылок с окончаниями _id, _ids, _query. У `check` modes `passed` и `missed`. Ни в одном
 промпте нет «propose nothing and say so». Промпт Mutator короче на разделы Cards, Checks и
 Repeats. Новый сценарий AG проходит. Полный набор, Ruff и сканер чистые.
 
@@ -840,8 +841,8 @@ goal и action:
 ### Ссылки «имя или id» (M2)
 
 Shell, `ReferenceSpec`: одно поле на тип — `values`, `tags`, `checks`. Элемент — число (id) или
-строка (точное имя; у Check — title), без учёта регистра; один элемент или список. Поля `*_id`,
-`*_ids`, `*_query` уходят. Отказы — как сейчас: не найдено, неоднозначно (hint: найти через
+строка (точное имя; у Check — title), без учёта регистра; один элемент или список. Поля с
+окончаниями _id, _ids, _query уходят. Отказы — как сейчас: не найдено, неоднозначно (hint: найти через
 `query_data` и повторить с id). `parent` — один элемент: id или точный title среди
 неархивных Cards. SQL в родителе уходит; `normalize_card_query` остаётся для Requests. Подписи
 review (`render.py`) читают новое поле. Подсказка Inbox в Tags: «Use action mode="unlink" with
@@ -990,6 +991,36 @@ Scenario: AG-NOTHING-056 — A subagent with nothing to do says so in its first 
 - `goal` регистрируется через `mutation_tools`, а не новым полем `ProposalContribution`.
 - Строка «Judge every change…» остаётся: на ней держится WS-JUDGE-002.
 
+### Как сделано
+
+- **Вид в изменении.** Оба тула кладут в изменение `kind`: `action` — action; `goal` — subgoal
+  при create с `parent`, иначе goal. У существующей Card подготовка снимает `kind` и сверяет:
+  Action только через `action`, Goal и Subgoal только через `goal`. Отказ wrong_tool идёт
+  первым, до отказа по закрытому повтору. Изменение, собранное в коде без тула, `kind` не несёт
+  и не проверяется.
+- **Родитель.** `parent` — id или точный title; подготовка превращает его в `parent_id`, как
+  раньше. У `goal` null тоже значимый: снятие родителя у Subgoal даёт отказ parent_required,
+  как обещает CD-TREE-003.
+- **Ссылки.** У `ReferenceSpec` одно свойство `field` (values, tags, checks) вместо трёх
+  ключей; `value_id` остаётся именем колонки связи. Тип элемента — `Reference` в контрактах
+  shell: целое — id, строка — имя. Поле принимает один элемент или список.
+- **Нормализатор аргументов.** Правила для полей с окончанием _ids удалены: таких полей больше нет ни в
+  одном туле. `[0]` в ссылках теперь ошибка проверки, а не молча выброшенный элемент.
+- **Сообщения тулов.** Общая проверка modes у `goal` и `action` — одна функция. Create с
+  `tracked_mins` по-прежнему говорит «a new Action has no time spent yet».
+- **nothing_to_do.** Схема — `NOTHING_TO_DO_TOOL` в контрактах shell, ответ — в цикле runtime
+  рядом с `forward`. Пустой `reason` — ошибка с просьбой повторить. Снапшот промптов получил
+  схему тула и отдельный хеш `ITEMS`.
+- **Advisor.** `{items}` стоит перед разделом «Agile structure»; заголовок раздела потерял
+  «Safwa-items», чтобы не повторять заголовок фрагмента.
+- **Тесты.** Удалены два e2e-теста SQL в родителе. Тест «Goal с родителем — отказ» стал e2e
+  CD-TREE-002: Goal с родителем по title — proposal Subgoal. Новые проверки: wrong_tool
+  (CD-STAGE-013, CD-BLOCKED-018, CD-FIELD-007), отказ parent_required (CD-TREE-003), тулы
+  `goal` и `action` (`test_ai_sql.py`), одна связь смесью id и имён (`test_cards.py`), два e2e
+  AG-NOTHING-056.
+- **Размеры.** Промпт Mutator без каталога views и PERSONA: 4986 → 2496 символов с фрагментом.
+  Тул `card` (7.4K) → `goal` 2.2K и `action` 4.3K.
+
 ## Hook-запросы к Advisor
 
 ~12 текстов в `cards/hooks.py`, `planning/hooks.py`, `checks/hooks.py` вида «Ask the user in one
@@ -1121,3 +1152,12 @@ message… If they tell you, route to…». Это тоже промпты: он
   CD-FIELD-007 переформулированы. Снапшоты: схема (`cards`), промпты (Advisor, Mutator, тул
   `card`, каталог views). Полный набор: 1952 passed, 4 skipped; Ruff и сканер архитектуры
   чистые.
+- **2026-10-05.** Батч 3 закоммичен (v9.127). Батч 4 сделан: тул `card` разделён на `goal` и
+  `action`, ссылки и родитель — по имени или id, у `check` modes `passed` и `missed`, тул
+  `nothing_to_do` у сабагентов с обязательным первым ходом, общий фрагмент `{items}` у Advisor и
+  Mutator, новый промпт Mutator, `ACTION_DAILY_EXECUTIONS_MAX` = 5. Сценарии: новый
+  AG-NOTHING-056; CD-TREE-002, CD-TREE-003, CD-FIELD-007 и SCH-LIMIT-015 переформулированы.
+  Снапшот промптов: Advisor, Mutator, Diary, Onboarding (лимит повторов), тулы `goal`,
+  `action`, `check`, `nothing_to_do`, фрагмент `ITEMS`. Полный набор: 1952 passed, 1 failed,
+  4 skipped; упавший тест CD-TIME-039 ждал старый отказ вместо wrong_tool, исправлен и прошёл
+  отдельно. Ruff и сканер архитектуры чистые.

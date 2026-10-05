@@ -33,12 +33,12 @@ pytestmark = pytest.mark.e2e
 
 REQUEST = "Сделай Actions: подтянуться 20 раз и отжаться 30 раз"
 PULL_UPS = (
-    "card",
-    {"mode": "create", "kind": "action", "title": "Подтянуться 20 раз", "effort_points": 1},
+    "action",
+    {"mode": "create", "title": "Подтянуться 20 раз", "effort_points": 1},
 )
 PUSH_UPS = (
-    "card",
-    {"mode": "create", "kind": "action", "title": "Отжаться 30 раз", "effort_points": 1},
+    "action",
+    {"mode": "create", "title": "Отжаться 30 раз", "effort_points": 1},
 )
 def tool_results(messages: list[dict[str, object]]) -> list[dict[str, object]]:
     return [
@@ -121,8 +121,8 @@ async def test_a_check_reads_a_response_once_before_any_call_is_prepared(e2e_har
     assert event.agent_kind == "workspace_mutator"
     assert event.text == PLAN
     assert [(call.tool, call.entity, call.action) for call in event.calls] == [
-        ("card", "card", "create"),
-        ("card", "card", "create"),
+        ("action", "card", "create"),
+        ("action", "card", "create"),
     ]
     assert event.calls[1].values["title"] == "Отжаться 30 раз"
     assert len(e2e_harness.reviews.open_proposals) == 2
@@ -243,7 +243,7 @@ async def test_the_answer_is_read_after_the_last_screen_with_what_became_of_each
     advisor, provider = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
-            mutation_turn(("card", {"mode": "update", "id": card.id, "title": "Приготовить пиццу"})),
+            mutation_turn(("action", {"mode": "update", "id": card.id, "title": "Приготовить пиццу"})),
         ],
         checks=(holding([None], seen),),
     )

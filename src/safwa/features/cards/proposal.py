@@ -7,8 +7,6 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tg_agent_shell.ai.sql import UnsafeQueryError
-from tg_agent_shell.foundation.database import driver
 from tg_agent_shell.foundation.errors import DomainError, StaleStateError
 from tg_agent_shell.proposals.api import (
     ApplyContext,
@@ -28,9 +26,7 @@ from ...foundation.marks import closed_repeat_refusal
 from ..checks.use_cases import pending_checks
 from ..profile.api import effort_tracking_on
 from ..schedules.agent import read_proposed_schedule
-from .api import CardQueryError, normalize_card_query
 from .model import (
-    TERMINAL_STAGES,
     Card,
     CardCategory,
     CardEnergyType,
@@ -61,17 +57,8 @@ from .use_cases import (
 )
 
 PARENT_HINT = (
-    "Find the parent with query_data and retry with its numeric parent_id, or drop the "
+    "Find the parent with query_data and retry with its id as parent, or drop the "
     "parent. If you proposed it earlier in this same turn, wait for that result first."
-)
-
-
-ACTION_ONLY_FIELDS = (
-    "effort_points",
-    "tracked_mins",
-    "categories",
-    "energy_types",
-    "blocked_description",
 )
 
 
@@ -101,61 +88,24 @@ def allows_parent(child_kind: str | None, parent_kind: str | None) -> bool:
 async def _resolve_parent_reference(
     context: PreparationContext, values: dict[str, Any], child_kind: str | None
 ) -> None:
+    """Turn `parent`, an id or an exact title, into the `parent_id` Save writes."""
     session = context.session
-    raw_parent_query = values.pop("parent_query", None)
-    if raw_parent_query is not None:
-        parent_query = str(raw_parent_query).strip()
-        if not parent_query:
-            raise ToolPreparationError(
-                "invalid_arguments",
-                "Parent query must not be empty.",
-                "Provide one exact Card title, one numeric parent_id, or a safe SELECT returning id.",
-            )
-        if parent_query.casefold().startswith(("select", "with")):
-            try:
-                # Only the rows matter here; a parent query must match exactly one Card,
-                # so a capped result is reported as ambiguous rather than silently used.
-                rows = (
-                    await context.query_runner.run(
-                        await normalize_card_query(session, parent_query, context.views)
-                    )
-                ).rows
-            except (CardQueryError, UnsafeQueryError) as error:
-                raise ToolPreparationError(
-                    "unsafe_query",
-                    f"Invalid parent query: {error}",
-                    "Use one read-only SELECT over ai_cards that returns only the id column.",
-                ) from error
-            except (driver.Error, TimeoutError) as error:
-                raise ToolPreparationError(
-                    "invalid_arguments",
-                    f"Parent query failed: {error}",
-                    "Fix the SELECT, or give parent_id or an exact Card title instead.",
-                ) from error
-            if not rows:
-                raise ToolPreparationError(
-                    "reference_not_found",
-                    "The parent query returned no Cards.",
-                    PARENT_HINT,
-                )
-            if len(rows) > 1:
-                raise ToolPreparationError(
-                    "reference_ambiguous",
-                    "The parent query returned more than one Card.",
-                    "Narrow the query to one Card and retry with its numeric ID.",
-                )
-            if set(rows[0]) != {"id"} or not isinstance(rows[0]["id"], int):
-                raise ToolPreparationError(
-                    "invalid_arguments",
-                    "The parent query must return exactly one integer id column.",
-                    "Use SELECT id FROM ai_cards ... and make it match one Card.",
-                )
-            values["parent_id"] = rows[0]["id"]
+    if "parent" in values:
+        parent = values.pop("parent")
+        if parent is None or isinstance(parent, int):
+            values["parent_id"] = parent
         else:
+            title = str(parent).strip()
+            if not title:
+                raise ToolPreparationError(
+                    "invalid_arguments",
+                    "Parent title must not be empty.",
+                    "Provide one exact Card title or its id.",
+                )
             matches = list(
                 await session.scalars(
                     select(Card).where(
-                        Card.title.collate("NOCASE") == parent_query,
+                        Card.title.collate("NOCASE") == title,
                         Card.archived_at.is_(None),
                     )
                 )
@@ -163,19 +113,27 @@ async def _resolve_parent_reference(
             if not matches:
                 raise ToolPreparationError(
                     "reference_not_found",
-                    f"Parent Card '{parent_query}' was not found.",
+                    f"Parent Card '{title}' was not found.",
                     PARENT_HINT,
                 )
             if len(matches) > 1:
                 raise ToolPreparationError(
                     "reference_ambiguous",
-                    f"Parent Card '{parent_query}' matched more than one Card.",
-                    "Use query_data to choose one parent and retry with its numeric ID.",
+                    f"Parent Card '{title}' matched more than one Card.",
+                    "Use query_data to choose one parent and retry with its id.",
                 )
             values["parent_id"] = matches[0].id
 
-    parent_id = values.get("parent_id")
+    if "parent_id" not in values:
+        return
+    parent_id = values["parent_id"]
     if parent_id is None:
+        if child_kind == CardKind.SUBGOAL.value:
+            raise ToolPreparationError(
+                "parent_required",
+                "A Subgoal is always under a Goal.",
+                "Keep its parent, or name another Goal as parent.",
+            )
         return
     parent = await session.get(Card, int(parent_id))
     if parent is None or parent.archived_at is not None:
@@ -192,18 +150,28 @@ async def _resolve_parent_reference(
         )
 
 
-async def _guard_pending_checks(
-    session: AsyncSession, change: Any, values: dict[str, Any]
-) -> None:
+def _refuse_wrong_tool(card: Card, addressed: str | None) -> None:
+    """A call names the kind its tool writes; one on a Card of another kind goes back."""
+    if addressed is None:
+        return
+    is_action = card.kind == CardKind.ACTION.value
+    if is_action == (addressed == CardKind.ACTION.value):
+        return
+    article = "an" if is_action else "a"
+    raise ToolPreparationError(
+        "wrong_tool",
+        f"Card #{card.id} is {article} {card.kind.title()}.",
+        f"Call {'action' if is_action else 'goal'} with this id.",
+    )
+
+
+async def _guard_pending_checks(session: AsyncSession, change: Any) -> None:
     """Refuse to prepare a completion while a Check series on the Card has no answer.
 
     The error is model-visible and retryable, and it carries the titles so the model
     does not have to spend a `query_data` round discovering them.
     """
-    completing = change.action is ChangeAction.COMPLETE or (
-        change.action in {ChangeAction.MOVE, ChangeAction.UPDATE} and values.get("stage") == CardStage.DONE.value
-    )
-    if not completing or change.id is None:
+    if change.action is not ChangeAction.COMPLETE or change.id is None:
         return
     pending = await pending_checks(session, int(change.id))
     if not pending:
@@ -212,24 +180,10 @@ async def _guard_pending_checks(
     raise ToolPreparationError(
         "pending_checks",
         f"Card #{change.id} still has Pending Checks: {listed_checks}.",
-        "Answer each one first: check(mode='complete'|'cancel', id=…) when the user already "
+        "Answer each one first: check(mode='passed'|'missed', id=…) when the user already "
         "said how it went, otherwise cite them as [title](check:<id>) so they answer them "
         "themselves. Then retry only this unfinished completion.",
     )
-
-
-async def _apply_stage_change(session: AsyncSession, card: Card, stage: CardStage) -> None:
-    """Route one approved stage change so terminal stages keep their accounting.
-
-    ``finish_card`` owns completion timestamps, Sprint results and repeat
-    successors; ``move_card`` owns live stages and subtree propagation.  Every approved
-    stage change goes through here so no path can reach Done without the completion
-    bookkeeping.
-    """
-    if stage in TERMINAL_STAGES:
-        await finish_card(session, card.id, actor=ActorType.AI)
-        return
-    await move_card(session, card.id, stage, actor=ActorType.AI)
 
 
 async def _replace_card_sets(
@@ -294,18 +248,20 @@ class CardProposalHandler:
         self, context: PreparationContext, change: Any
     ) -> PreparedChange:
         card, expected_version = await require_target(context, change, Card)
+        values = dict(change.values)
+        if card is not None:
+            _refuse_wrong_tool(card, values.pop("kind", None))
         # Time and effort supplied after completion belong to the finished instance;
         # its successor was already copied, so other edits still target the open repeat.
         accounting_only = (
             change.action is ChangeAction.UPDATE
-            and bool(change.values)
-            and set(change.values) <= {"tracked_mins", "effort_points"}
+            and bool(values)
+            and set(values) <= {"tracked_mins", "effort_points"}
         )
         if card is not None and not accounting_only:
             refusal = await closed_repeat_refusal(context.session, card, change.entity)
             if refusal is not None:
                 raise ToolPreparationError(*refusal)
-        values = dict(change.values)
         if "effort_points" in values and not await effort_tracking_on(context.session):
             values.pop("effort_points")
             if change.action is ChangeAction.UPDATE and not values:
@@ -317,43 +273,12 @@ class CardProposalHandler:
         proposed_kind = (
             values.get("kind") if change.action is ChangeAction.CREATE else getattr(card, "kind", None)
         )
-        if proposed_kind != CardKind.ACTION.value:
-            if change.action is ChangeAction.COMPLETE and card is not None:
-                await require_finished_actions(context.session, card.id)
-            if "tracked_mins" in values and change.action is ChangeAction.COMPLETE:
-                raise DomainError("Only an Action carries time spent")
-            if change.action is ChangeAction.MOVE or "stage" in values:
-                raise ToolPreparationError(
-                    "stage_is_action_only",
-                    "A Goal and a Subgoal have no stage of their own: it shows what the Actions "
-                    "under it are in.",
-                    "Move the Actions in its branch instead. Use complete or reopen for the parent.",
-                )
-            for action_only_field in ACTION_ONLY_FIELDS:
-                values.pop(action_only_field, None)
-            if (
-                change.action is ChangeAction.CREATE
-                and proposed_kind == CardKind.GOAL.value
-                and (values.get("parent_id") is not None or values.get("parent_query") is not None)
-            ):
-                raise ToolPreparationError(
-                    "invalid_parent_kind",
-                    "A Goal is created root-level and cannot take a parent.",
-                    "Drop the parent from this call, or propose a Subgoal or Action instead.",
-                )
-            if proposed_kind == CardKind.SUBGOAL.value:
-                born_rootless = change.action is ChangeAction.CREATE and not (
-                    values.get("parent_id") or values.get("parent_query")
-                )
-                unparented = "parent_id" in values and values["parent_id"] is None
-                if born_rootless or unparented:
-                    raise ToolPreparationError(
-                        "parent_required",
-                        "A Subgoal is always under a Goal.",
-                        "Send parent_id or parent_query naming the Goal.",
-                    )
-            if change.action is ChangeAction.UPDATE and not values:
-                raise DomainError("The Card proposal contains no applicable fields")
+        if (
+            proposed_kind != CardKind.ACTION.value
+            and change.action is ChangeAction.COMPLETE
+            and card is not None
+        ):
+            await require_finished_actions(context.session, card.id)
         await _resolve_parent_reference(context, values, str(proposed_kind))
         if card is not None and card.kind == CardKind.GOAL.value and values.get("parent_id"):
             if await holds_subgoals(context.session, card.id):
@@ -366,7 +291,7 @@ class CardProposalHandler:
             values["kind"] = CardKind.SUBGOAL.value
         for spec in CARD_REFERENCE_SPECS:
             await validate_named_references(context.session, values, spec)
-        await _guard_pending_checks(context.session, change, values)
+        await _guard_pending_checks(context.session, change)
         await read_proposed_schedule(
             context, values, "action" if proposed_kind == CardKind.ACTION.value else "deadline"
         )
@@ -402,7 +327,9 @@ class CardProposalHandler:
         if card is None or card.version != change.expected_version:
             raise StaleStateError("A Card changed; refresh this proposal")
         if change.action is ChangeAction.MOVE:
-            await _apply_stage_change(session, card, CardStage(change.values["stage"]))
+            await move_card(
+                session, card.id, CardStage(change.values["stage"]), actor=ActorType.AI
+            )
         elif change.action is ChangeAction.COMPLETE:
             await finish_card(
                 session,
@@ -428,7 +355,9 @@ class CardProposalHandler:
                     session, card.id, change.values["parent_id"], actor=ActorType.AI
                 )
             if "stage" in change.values:
-                await _apply_stage_change(session, card, CardStage(change.values["stage"]))
+                await move_card(
+                    session, card.id, CardStage(change.values["stage"]), actor=ActorType.AI
+                )
             await _replace_card_sets(session, card, change.values)
         elif change.action is ChangeAction.ARCHIVE:
             await archive_subtree(session, card.id, actor=ActorType.AI)

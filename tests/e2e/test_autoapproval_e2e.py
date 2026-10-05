@@ -65,7 +65,7 @@ async def test_an_exact_allowlisted_edit_is_autoapproved(e2e_harness):
     advisor, provider = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
-            mutation_turn(("card", {"mode": "update", "id": card.id, "title": "Buy oat milk"})),
+            mutation_turn(("action", {"mode": "update", "id": card.id, "title": "Buy oat milk"})),
             review_turn("autoapprove", "The operation and every non-default value are explicit."),
             "Renamed it.",
             "Renamed it.",
@@ -118,8 +118,8 @@ async def test_one_items_changes_are_read_in_one_review_and_saved_whole(e2e_harn
         [
             route_turn("workspace_mutator"),
             mutation_turn(
-                ("card", {"mode": "update", "id": card.id, "title": "Buy oat milk"}),
-                ("card", {"mode": "link", "id": card.id, "tag_id": tag_id}),
+                ("action", {"mode": "update", "id": card.id, "title": "Buy oat milk"}),
+                ("action", {"mode": "link", "id": card.id, "tags": [tag_id]}),
             ),
             review_turn("autoapprove", "Both are exactly what was asked for."),
             "Renamed and tagged.",
@@ -148,8 +148,8 @@ async def test_one_unlisted_change_shows_the_whole_proposal(e2e_harness):
         [
             route_turn("workspace_mutator"),
             mutation_turn(
-                ("card", {"mode": "update", "id": card.id, "title": "Buy oat milk"}),
-                ("card", {"mode": "move", "id": card.id, "stage": "today"}),
+                ("action", {"mode": "update", "id": card.id, "title": "Buy oat milk"}),
+                ("action", {"mode": "move", "id": card.id, "stage": "today"}),
             ),
         ],
         autoapprove=True,
@@ -173,10 +173,9 @@ async def test_creation_is_never_autoapproved(e2e_harness):
             route_turn("workspace_mutator"),
             mutation_turn(
                 (
-                    "card",
+                    "action",
                     {
                         "mode": "create",
-                        "kind": "action",
                         "title": "Buy milk",
                         "effort_points": 1,
                     },
@@ -306,9 +305,9 @@ async def test_multi_step_request_can_be_autoapproved_one_proposal_at_a_time(e2e
     advisor, provider = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
-            mutation_turn(("card", {"mode": "update", "id": card.id, "title": "Enrol"})),
+            mutation_turn(("action", {"mode": "update", "id": card.id, "title": "Enrol"})),
             review_turn("autoapprove", "The rename is one correct requested part."),
-            mutation_turn(("card", {"mode": "link", "id": card.id, "tag_id": tag.id})),
+            mutation_turn(("action", {"mode": "link", "id": card.id, "tags": [tag.id]})),
             review_turn("autoapprove", "The requested Tag is linked to the requested Card."),
             "The rename and the link are ready.",
             "The rename and the link are ready.",
@@ -335,7 +334,7 @@ async def test_non_allowlisted_operation_does_not_call_the_reviewer(e2e_harness)
     advisor, provider = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
-            mutation_turn(("card", {"mode": "move", "id": card.id, "stage": "today"})),
+            mutation_turn(("action", {"mode": "move", "id": card.id, "stage": "today"})),
         ],
         autoapprove=True,
     )
@@ -358,7 +357,7 @@ async def test_autoapproval_that_cannot_decide_leaves_the_screen_standing(e2e_ha
     advisor, provider = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
-            mutation_turn(("card", {"mode": "update", "id": card.id, "title": "Buy oat milk"})),
+            mutation_turn(("action", {"mode": "update", "id": card.id, "title": "Buy oat milk"})),
         ],
         autoapprove=True,
     )
@@ -393,7 +392,7 @@ async def test_the_third_in_a_queue_is_not_read_while_the_second_is_on_screen(e2
             mutation_turn(
                 ("tag", {"mode": "update", "id": tag.id, "name": "Career"}),
                 ("value", {"mode": "update", "id": value.id, "name": "Autonomy"}),
-                ("card", {"mode": "update", "id": card.id, "title": "Buy oat milk"}),
+                ("action", {"mode": "update", "id": card.id, "title": "Buy oat milk"}),
             ),
             review_turn("autoapprove", "The requested Tag name is exact."),
             review_turn("require_review", "The requested Value needs manual review."),

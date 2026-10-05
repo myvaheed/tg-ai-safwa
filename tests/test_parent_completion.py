@@ -54,7 +54,7 @@ async def test_explicit_completion_and_reopen_keep_checks_and_child_state(sessio
         await session.commit()
         with pytest.raises(DomainError, match="open Actions"):
             await finish_card(session, goal.id)
-        change = PROPOSALS.change_from_tool("card", {"mode": "complete", "id": goal.id})
+        change = PROPOSALS.change_from_tool("goal", {"mode": "complete", "id": goal.id})
         with pytest.raises(DomainError, match="open Actions"):
             await ChangePreparer(None, None, PROPOSALS).prepare(session, change)
         assert goal.completed_at is None

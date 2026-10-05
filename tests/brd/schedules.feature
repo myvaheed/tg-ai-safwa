@@ -89,10 +89,10 @@ Feature: One plain-language Schedule for Actions and independent Checks
     Then the owner is asked to say the Schedule in other words
     And nothing is saved
 
-  Scenario: SCH-LIMIT-015 — An Action repeats at most ten times a day
-    Given a Schedule on an Action that plans more than 10 executions a day (ACTION_DAILY_EXECUTIONS_MAX = 10)
+  Scenario: SCH-LIMIT-015 — An Action repeats at most five times a day
+    Given a Schedule on an Action that plans more than 5 executions a day (ACTION_DAILY_EXECUTIONS_MAX = 5)
     Then the Scheduler asks whether to make it a Check instead or choose fewer, rather than saving it
-    And a daily quota of 11, a weekly quota of 71 and an interval under 144 minutes are each asked about
+    And a daily quota of 6, a weekly quota of 36 and an interval under 288 minutes are each asked about
     And a Check with the same Schedule is saved
 
   Scenario: SCH-EDITOR-016 — A Schedule typed into an editor is read before it is saved

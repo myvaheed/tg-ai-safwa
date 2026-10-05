@@ -15,7 +15,7 @@ from schedule_helpers import create_card, create_check
 from sqlalchemy import func, select
 
 from safwa.bootstrap.modules import PROPOSALS, SYSTEM_PROMPT
-from safwa.features.cards.agent import CardToolInput
+from safwa.features.cards.agent import ActionToolInput
 from safwa.features.cards.hierarchy import card_children, card_progress
 from safwa.features.cards.hooks import (
     BLOCKER_HOOK,
@@ -87,7 +87,7 @@ from tg_agent_shell.foundation.changes import Committed, take_changes
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.hooks.contracts import OnCommitted, OnTick, Run
-from tg_agent_shell.proposals.api import ToolPreparationError
+from tg_agent_shell.proposals.api import ApplyContext, ProposalChange, ToolPreparationError
 from tg_agent_shell.proposals.prepare import ChangePreparer
 
 
@@ -105,8 +105,9 @@ async def test_cd_kind_001_a_card_stays_the_kind_it_was_created_as(sessions):
 
         assert (await session.get(Card, subgoal.id)).kind == CardKind.SUBGOAL.value
 
-    with pytest.raises(ValidationError, match="use mode='create' for a new kind"):
-        CardToolInput(mode="update", id=1, kind="action")
+    # Neither Card tool takes a kind to change: the tool a call goes through is the kind.
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        ActionToolInput(mode="update", id=1, kind="goal")
 
 
 async def test_cd_tree_002_a_goal_placed_under_a_goal_becomes_a_subgoal(sessions):
@@ -154,23 +155,26 @@ async def test_cd_tree_002_a_proposal_says_the_goal_becomes_a_subgoal(sessions):
         await create_card(session, kind="subgoal", title="Sleep better", parent_id=work.id)
         await session.commit()
 
-        refused = await _refused_proposal(
-            session, {"mode": "create", "kind": "goal", "title": "Nested", "parent_id": life.id}
+        nested = await ChangePreparer(None, None, PROPOSALS).prepare(  # type: ignore[arg-type]
+            session,
+            PROPOSALS.change_from_tool("goal", {"mode": "create", "title": "Nested", "parent": life.id}),
         )
-        assert refused.code == "invalid_parent_kind"
-        assert "root-level" in str(refused)
+        assert (nested.values["kind"], nested.values["parent_id"]) == (
+            CardKind.SUBGOAL.value,
+            life.id,
+        )
 
         prepared = await ChangePreparer(None, None, PROPOSALS).prepare(  # type: ignore[arg-type]
             session,
             PROPOSALS.change_from_tool(
-                "card", {"mode": "update", "id": health.id, "parent_query": "Life"}
+                "goal", {"mode": "update", "id": health.id, "parent": "Life"}
             ),
         )
         # The change of kind is in the proposal, so the screen and the receipt say it.
         assert prepared.values == {"parent_id": life.id, "kind": CardKind.SUBGOAL.value}
 
         refused = await _refused_proposal(
-            session, {"mode": "update", "id": work.id, "parent_id": life.id}
+            session, "goal", {"mode": "update", "id": work.id, "parent": life.id}
         )
         assert refused.code == "invalid_parent_kind"
         assert "Subgoals under it" in str(refused)
@@ -191,6 +195,11 @@ async def test_cd_tree_003_a_subgoal_belongs_to_a_goal(sessions):
             await create_card(session, kind="subgoal", title="Read more")
         with pytest.raises(DomainError, match="only be placed under a Goal"):
             await set_card_parent(session, sleep.id, None)
+        await session.commit()
+        refused = await _refused_proposal(
+            session, "goal", {"mode": "update", "id": sleep.id, "parent": None}
+        )
+        assert refused.code == "parent_required"
 
 
 async def test_cd_tree_004_an_action_sits_under_a_goal_a_subgoal_or_nothing(sessions):
@@ -274,40 +283,66 @@ async def test_cd_field_007_a_goal_is_saved_without_the_fields_that_are_an_actio
             await update_card_fields(session, goal.id, {"blocked_description": "x"})
 
 
-async def test_cd_field_007_a_proposal_drops_them_and_refuses_a_change_that_was_only_them(sessions):
+async def test_cd_field_007_a_proposal_has_no_field_for_them_and_refuses_them_on_a_goal(sessions):
     """CD-FIELD-007 — tests/brd/cards.feature"""
     async with sessions() as session:
-        created = await ChangePreparer(None, None, PROPOSALS).prepare(  # type: ignore[arg-type]
-            session,
-            PROPOSALS.change_from_tool(
-                "card",
-                {
-                    "mode": "create",
-                    "kind": "goal",
-                    "title": "Release VrWalk",
-                    "effort_points": 5,
-                    "blocked_description": "Waiting for the store",
-                },
-            ),
-        )
-        assert created.values.get("blocked_description") is None
-        assert created.values.get("effort_points") is None
-        assert created.values["title"] == "Release VrWalk"
+        for field_name, value in (
+            ("effort_points", 5),
+            ("blocked_description", "Waiting for the store"),
+            ("categories", ["work"]),
+            ("energy_types", ["cognitive"]),
+            ("tracked_mins", 30),
+        ):
+            with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+                PROPOSALS.change_from_tool(
+                    "goal", {"mode": "create", "title": "Release VrWalk", field_name: value}
+                )
 
         goal = await create_card(session, kind="goal", title="Ship it")
+        subgoal = await create_card(session, kind="subgoal", title="Ship the app", parent_id=goal.id)
         await session.commit()
-        with pytest.raises(DomainError, match="no applicable fields"):
-            await ChangePreparer(None, None, PROPOSALS).prepare(  # type: ignore[arg-type]
-                session,
-                PROPOSALS.change_from_tool(
-                    "card",
-                    {
-                        "mode": "update",
-                        "id": goal.id,
-                        "blocked_description": "Waiting",
-                    },
-                ),
+        for parent in (goal, subgoal):
+            refused = await _refused_proposal(
+                session, "action", {"mode": "update", "id": parent.id, "effort_points": 3}
             )
+            assert (refused.code, refused.hint) == ("wrong_tool", "Call goal with this id.")
+            assert str(refused) == f"Card #{parent.id} is a {parent.kind.title()}."
+
+
+async def test_one_link_names_its_items_by_id_and_by_name_together(sessions):
+    async with sessions() as session:
+        card = await create_card(session, kind="action", title="Walk")
+        sleep = await create_value(session, "Sleep")
+        health = await create_value(session, "Здоровье")
+        calm = await create_value(session, "Calm")
+        await session.commit()
+
+        change = PROPOSALS.change_from_tool(
+            "action",
+            {"mode": "link", "id": card.id, "values": [sleep.id, "здоровье", calm.id]},
+        )
+        prepared = await ChangePreparer(None, None, PROPOSALS).prepare(session, change)  # type: ignore[arg-type]
+        await PROPOSALS.handler("card").apply(
+            ApplyContext(session, frozenset()),
+            ProposalChange(
+                entity="card",
+                action=change.action,
+                entity_id=card.id,
+                expected_version=prepared.expected_version,
+                values=prepared.values,
+            ),
+        )
+        await session.commit()
+        linked = set(
+            await session.scalars(select(CardValue.value_id).where(CardValue.card_id == card.id))
+        )
+        assert linked == {sleep.id, health.id, calm.id}
+
+        # One item it cannot find refuses the whole call, before anything is linked.
+        refused = await _refused_proposal(
+            session, "action", {"mode": "unlink", "id": card.id, "values": [sleep.id, "Nowhere"]}
+        )
+        assert (refused.code, str(refused)) == ("reference_not_found", "Value 'Nowhere' was not found.")
 
 
 async def test_cd_effort_008_an_actions_optional_size_uses_the_one_scale(sessions):
@@ -470,8 +505,8 @@ async def _goal_with_action(session, **overrides):
     return goal, action
 
 
-async def _refused_proposal(session, arguments):
-    change = PROPOSALS.change_from_tool("card", arguments)
+async def _refused_proposal(session, tool, arguments):
+    change = PROPOSALS.change_from_tool(tool, arguments)
     with pytest.raises(ToolPreparationError) as refused:
         await ChangePreparer(None, None, PROPOSALS).prepare(session, change)  # type: ignore[arg-type]
     return refused.value
@@ -494,9 +529,9 @@ async def test_cd_stage_013_only_an_action_has_a_stage(sessions):
             with pytest.raises(DomainError, match="Only an Action has a stage"):
                 await move_card(session, parent.id, CardStage.SPRINT)
             refused = await _refused_proposal(
-                session, {"mode": "move", "id": parent.id, "stage": "sprint"}
+                session, "action", {"mode": "move", "id": parent.id, "stage": "sprint"}
             )
-            assert refused.code == "stage_is_action_only"
+            assert refused.code == "wrong_tool"
 
         # A stage asked for at creation is dropped rather than refused, like effort.
         born = await create_card(session, kind="goal", title="Fitness", stage="today")
@@ -676,12 +711,14 @@ async def test_cd_blocked_018_only_an_action_can_be_blocked(read_views):
                 await update_card_fields(
                     session, parent.id, {"blocked_description": "Waiting"}
                 )
-            change = PROPOSALS.change_from_tool(
-                "card",
-                {"mode": "update", "id": parent.id, "blocked_description": "x"},
+            with pytest.raises(ValidationError):
+                PROPOSALS.change_from_tool(
+                    "goal", {"mode": "update", "id": parent.id, "blocked_description": "x"}
+                )
+            refused = await _refused_proposal(
+                session, "action", {"mode": "update", "id": parent.id, "blocked_description": "x"}
             )
-            with pytest.raises(DomainError, match="no applicable fields"):
-                await ChangePreparer(None, None, PROPOSALS).prepare(session, change)  # type: ignore[arg-type]
+            assert refused.code == "wrong_tool"
 
             # A blocked Action under it does not make it blocked: the Action shows its own.
             stored = await session.get(Card, parent.id)
@@ -1273,7 +1310,7 @@ def test_cd_effort_008_every_rung_says_what_it_costs():
     assert EFFORT_POINTS == frozenset(EFFORT_RUNGS)
     assert (effort_label(0.5), effort_label(13), effort_label(None)) == ("0.5", "13", "—")
     # One wording: the model's field description spells the scale the screens offer.
-    described = CardToolInput.model_fields["effort_points"].description
+    described = ActionToolInput.model_fields["effort_points"].description
     for points in EFFORT_RUNGS:
         assert f"{effort_label(points)} " in described
     # A rung is what it costs, never how long it takes.
@@ -1288,7 +1325,7 @@ def test_cd_axes_045_a_category_says_what_it_gives_an_energy_type_what_it_costs(
     assert list(ENERGY_MEANINGS) == list(EnergyType)
     # One wording: the model's field descriptions spell what the screens offer.
     for field, meanings in (("categories", CATEGORY_MEANINGS), ("energy_types", ENERGY_MEANINGS)):
-        described = CardToolInput.model_fields[field].description
+        described = ActionToolInput.model_fields[field].description
         for kind, meaning in meanings.items():
             assert f"{kind}: {meaning}." in described
 

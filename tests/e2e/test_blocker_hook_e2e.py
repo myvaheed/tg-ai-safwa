@@ -52,7 +52,7 @@ async def test_cd_blocked_034_a_blocker_saved_by_proposal_or_by_hand_is_one_requ
     advisor, _provider = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
-            mutation_turn(("card", {
+            mutation_turn(("action", {
                 "mode": "update", "id": card_id,
                 "blocked_description": "Line is busy",
             })),

@@ -26,7 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..ai.contracts import AgentChange, ToolResultStatus
-from ..foundation.references import ReferenceSpec, resolve_references
+from ..foundation.references import ReferenceSpec, listed, resolve_references
 from .api import ProposalDescription, ProposalRegistry, ProposalScreen
 from .model import (
     AUTO_SAVED_RECEIPT,
@@ -196,16 +196,11 @@ async def named_details(
     ]
 
 
-def reference_details(values: Mapping[str, Any], prefix: str) -> list[str]:
-    result: list[str] = []
-    singular = values.get(f"{prefix}_id")
-    if singular is not None:
-        result.append(f"#{singular}")
-    result.extend(f"#{item}" for item in values.get(f"{prefix}_ids") or [])
-    query = values.get(f"{prefix}_query")
-    if query is not None:
-        result.extend(str(item) for item in (query if isinstance(query, list) else [query]))
-    return result
+def reference_details(values: Mapping[str, Any], spec: ReferenceSpec) -> list[str]:
+    return [
+        f"#{item}" if isinstance(item, int) else str(item)
+        for item in listed(values.get(spec.field))
+    ]
 
 
 async def reference_names(session: AsyncSession, spec: ReferenceSpec, value: Any) -> list[str]:
@@ -314,10 +309,10 @@ def change_label(tool: dict[str, Any]) -> str:
     name = values.get("name") or values.get("title")
     if name:
         label += f" “{result_value(name)}”"
-    if values.get("tag_query"):
-        label += f" → Tag “{result_value(values['tag_query'])}”"
-    elif values.get("value_query"):
-        label += f" → Value “{result_value(values['value_query'])}”"
+    if values.get("tags"):
+        label += f" → Tag “{detail_value(values['tags'])}”"
+    elif values.get("values"):
+        label += f" → Value “{detail_value(values['values'])}”"
     elif values.get("stage"):
         label += f" → {result_value(values['stage']).title()}"
     return label
@@ -366,7 +361,7 @@ def _results_summary(
         lines.append(line)
         if not for_display:
             # The detail lines carry what was resolved rather than what the model sent:
-            # parent_query/tag_query turned into IDs, and old → new values for an edit.
+            # a parent or a Tag named by title turned into IDs, and old → new values for an edit.
             # Trimming them for saved items costs the model information and invites repeats.
             lines.extend(f"  • {detail}" for detail in tool.get("details") or [])
     return "\n".join(lines) if lines and (for_display or len(lines) > 1) else ""

@@ -103,7 +103,7 @@ DIARY_PROMPT = f"""You keep the user's Diary. One day, one entry, in their own v
      is written already. Fold in the saved words: your `pov` replaces them, so what you leave out
      of `pov` is lost. `feeling_score` is the one exception — see below.
    - `diary(mode="delete", date=…)` — the user asked for that day to go.
-   If your sources do not make the day writable, say in one sentence what is missing instead.
+   If your sources do not make the day writable, call nothing_to_do with what is missing.
 
 # Photos
 A photo the user sent reads as `[words](media:N)`, then their caption if they wrote one.

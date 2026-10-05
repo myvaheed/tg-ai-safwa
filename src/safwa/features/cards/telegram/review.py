@@ -57,6 +57,8 @@ CARD_DETAIL_FIELDS = (
     "tracked_mins",
     "categories",
     "energy_types",
+    # What the model named, before preparation resolved it into `parent_id`.
+    "parent",
     "parent_id",
 )
 
@@ -71,7 +73,7 @@ CARD_LABELS = {
 
 # Every Card relationship diffs and renders through its spec, so a new one shows up here
 # without a second table to update.
-_REFERENCE_BY_PLURAL = {spec.plural_key: spec for spec in CARD_REFERENCE_SPECS}
+_REFERENCE_BY_FIELD = {spec.field: spec for spec in CARD_REFERENCE_SPECS}
 
 
 def normalized_card_details(values: dict[str, Any], *, creating: bool) -> dict[str, Any]:
@@ -84,12 +86,9 @@ def normalized_card_details(values: dict[str, Any], *, creating: bool) -> dict[s
         if fields.get("kind") == CardKind.ACTION.value:
             fields.setdefault("categories", [])
             fields.setdefault("energy_types", [])
-    if referenced_values := reference_details(values, "value"):
-        fields["values"] = referenced_values
-    if referenced_tags := reference_details(values, "tag"):
-        fields["tags"] = referenced_tags
-    if referenced_checks := reference_details(values, "check"):
-        fields["checks"] = referenced_checks
+    for spec in CARD_REFERENCE_SPECS:
+        if referenced := reference_details(values, spec):
+            fields[spec.field] = referenced
     return fields
 
 
@@ -175,7 +174,7 @@ async def _card_states(
                 "status": "Archived" if card.archived_at is not None else "Active",
             }
             for spec in CARD_REFERENCE_SPECS:
-                current[spec.plural_key] = sorted(
+                current[spec.field] = sorted(
                     await session.scalars(
                         select(spec.link_column).where(spec.link_model.card_id == card.id)
                     )
@@ -199,13 +198,13 @@ async def _card_states(
             resolved = await resolve_references(session, spec, change.values)
             target_ids = resolved.ids | set(resolved.unknown_ids)
             unresolved_references.extend((spec.label, name) for name in resolved.unresolved)
-            existing = set(before.get(spec.plural_key, []))
+            existing = set(before.get(spec.field, []))
             if change.action is ChangeAction.LINK:
-                proposed[spec.plural_key] = sorted(existing | target_ids)
+                proposed[spec.field] = sorted(existing | target_ids)
             elif change.action is ChangeAction.UNLINK:
-                proposed[spec.plural_key] = sorted(existing - target_ids)
+                proposed[spec.field] = sorted(existing - target_ids)
             else:
-                proposed[spec.plural_key] = sorted(target_ids)
+                proposed[spec.field] = sorted(target_ids)
         states.append(proposed)
     return states, unresolved_references
 
@@ -221,8 +220,8 @@ async def _card_display_state(
     parent = await session.get(Card, state.get("parent_id")) if state.get("parent_id") else None
     display["parent_name"] = parent.title if parent else None
     for spec in CARD_REFERENCE_SPECS:
-        display[spec.plural_key.replace("_ids", "_names")] = await reference_names(
-            session, spec, state.get(spec.plural_key)
+        display[f"{spec.key}_names"] = await reference_names(
+            session, spec, state.get(spec.field)
         )
     if display.get("id") and display.get("kind") in {
         CardKind.GOAL.value,
@@ -238,7 +237,7 @@ async def _card_diff_value(session: AsyncSession, field: str, value: Any) -> str
             return "Root"
         parent = await session.get(Card, value)
         return parent.title if parent else f"Card #{value}"
-    spec = _REFERENCE_BY_PLURAL.get(field)
+    spec = _REFERENCE_BY_FIELD.get(field)
     if spec is not None:
         return ", ".join(await reference_names(session, spec, value)) or "—"
     if field == "categories":
@@ -270,7 +269,7 @@ async def _card_diffs(
         "tracked_mins": "Time spent",
         "categories": "Categories",
         "energy_types": "Energy",
-        **{spec.plural_key: f"{spec.label}s" for spec in CARD_REFERENCE_SPECS},
+        **{spec.field: f"{spec.label}s" for spec in CARD_REFERENCE_SPECS},
         "status": "Status",
     }
     diffs: list[str] = []
@@ -287,12 +286,12 @@ class CardProposalPresenter:
     entity = "card"
 
     def raw_details(self, change: AgentChange) -> list[str]:
-        return detail_lines(
-            normalized_card_details(
-                dict(change.values), creating=change.action is ChangeAction.CREATE
-            ),
-            CARD_LABELS,
-        )
+        values = dict(change.values)
+        creating = change.action is ChangeAction.CREATE
+        if not creating:
+            # The kind a tool call addresses, not a change to it.
+            values.pop("kind", None)
+        return detail_lines(normalized_card_details(values, creating=creating), CARD_LABELS)
 
     async def details(
         self, session: AsyncSession, change: ProposalChange, fallback: AgentChange | None

@@ -288,7 +288,7 @@ async def test_han_offer_005_the_offer_outlives_a_screen(e2e_harness) -> None:
                 tool_calls=(
                     ToolCall(
                         id="c1",
-                        name="card",
+                        name="action",
                         arguments_json=json.dumps(
                             {"mode": "update", "id": card_id, "title": "Бегать"}
                         ),

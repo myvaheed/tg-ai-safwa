@@ -170,7 +170,7 @@ async def test_completion_is_refused_while_checks_are_pending(e2e_harness):
     advisor, provider = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
-            mutation_turn(("card", {"mode": "complete", "id": card_id})),
+            mutation_turn(("action", {"mode": "complete", "id": card_id})),
             "You still have Checks to answer on that Card.",
             "You still have Checks to answer on that Card.",
         ]
@@ -200,8 +200,8 @@ async def test_answering_checks_by_proposal_then_completing(e2e_harness):
         [
             route_turn("workspace_mutator"),
             mutation_turn(
-                ("check", {"mode": "complete", "id": check_ids[0]}),
-                ("check", {"mode": "cancel", "id": check_ids[1]}),
+                ("check", {"mode": "passed", "id": check_ids[0]}),
+                ("check", {"mode": "missed", "id": check_ids[1]}),
             ),
             "Saved your answers.",
             "Saved your answers.",
@@ -235,7 +235,7 @@ async def test_answering_checks_by_proposal_then_completing(e2e_harness):
     advisor, _provider = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
-            mutation_turn(("card", {"mode": "complete", "id": card_id})),
+            mutation_turn(("action", {"mode": "complete", "id": card_id})),
             "Closed.",
             "Closed.",
         ]
@@ -426,7 +426,7 @@ async def test_ai_can_create_and_read_checks(e2e_harness):
     advisor, _provider = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
-            mutation_turn(("card", {"mode": "link", "id": card_id, "check_ids": [created_id]})),
+            mutation_turn(("action", {"mode": "link", "id": card_id, "checks": [created_id]})),
             "Attached it.",
             "Attached it.",
         ]
@@ -458,13 +458,13 @@ async def test_ai_links_a_check_to_a_card_by_title(e2e_harness):
         await session.commit()
         card_id, check_id = card.id, loose.id
 
-    # check_query resolves an exact title, the same way value_query and tag_query do, so
-    # the model can attach a Check it has only seen by name.
+    # A Check is named by its exact title, the way a Value and a Tag are named, so the
+    # model can attach a Check it has only seen by name.
     advisor, _provider = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
             mutation_turn(
-                ("card", {"mode": "link", "id": card_id, "check_query": ["Take the tote bag"]})
+                ("action", {"mode": "link", "id": card_id, "checks": ["Take the tote bag"]})
             ),
             "Linked it.",
             "Linked it.",

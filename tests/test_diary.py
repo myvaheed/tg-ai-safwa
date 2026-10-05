@@ -349,7 +349,11 @@ async def test_di_read_013_the_entry_and_what_was_said_are_read_apart_and_nothin
         ToolCall(id="3", name="read_conversation", arguments_json='{"date":"2026-08-22"}')
     )
 
-    assert offered - set(DIARY_AGENT.mutation_tools) == {"read_day", "read_conversation"}
+    assert offered - set(DIARY_AGENT.mutation_tools) == {
+        "read_day",
+        "read_conversation",
+        "nothing_to_do",
+    }
     assert written == {
         "date": "2026-08-22",
         "saved": {"body": "Уже записано.", "feeling_score": 7},

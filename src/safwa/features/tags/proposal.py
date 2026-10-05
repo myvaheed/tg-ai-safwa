@@ -39,7 +39,7 @@ class TagProposalHandler:
                 raise ToolPreparationError(
                     "protected_tag",
                     str(error),
-                    f'Use card mode="unlink" with the Card id and tag_query="{INBOX_TAG_NAME}" '
+                    f'Use action mode="unlink" with the Card id and tags=["{INBOX_TAG_NAME}"] '
                     "to remove this Tag from a Card.",
                 ) from error
         return PreparedChange(values=dict(change.values), expected_version=expected_version)

@@ -57,7 +57,7 @@ async def two_requests(e2e_harness) -> tuple[list[dict], FakeMessage, int, list[
             read_turn(),
             route_turn("workspace_mutator"),
             mutation_turn(
-                ("card", {"mode": "create", "kind": "action", "title": "Buy milk", "effort_points": 1})
+                ("action", {"mode": "create", "title": "Buy milk", "effort_points": 1})
             ),
         ]
     )

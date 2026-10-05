@@ -35,12 +35,14 @@ MODULE = FeatureModule(
     proposals=(
         ProposalContribution(
             handler=proposal.CardProposalHandler(),
-            tool=agent.CARD_TOOL,
+            tool=agent.ACTION_TOOL,
             autoapprovals=agent.CARD_AUTOAPPROVALS,
             presenter=telegram.CardProposalPresenter(),
             similar=SimilarItems(field="title", open_items=proposal.open_cards),
         ),
     ),
+    # A Goal and a Subgoal are Cards too: the same handler prepares and writes them.
+    mutation_tools=(agent.GOAL_TOOL,),
     views=views.VIEWS,
     screens=(
         ScreenSpec(

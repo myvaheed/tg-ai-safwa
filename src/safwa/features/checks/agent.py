@@ -4,22 +4,24 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import Field, PositiveInt, model_validator
+from pydantic import BaseModel, Field, PositiveInt, model_validator
 
 from tg_agent_shell.ai.autoapproval import SCALAR_UPDATE, AutoApprovalRule
-from tg_agent_shell.ai.contracts import ToolInput
-from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
+from tg_agent_shell.ai.contracts import AgentChange, Reference, ToolInput
+from tg_agent_shell.proposals.api import ChangeAction, MutationToolSpec
+
+# The answers are the Card lifecycle verbs underneath: Passed completes, Missed cancels.
+ANSWER_MODES = {"passed": ChangeAction.COMPLETE, "missed": ChangeAction.CANCEL}
 
 
 class CheckToolInput(ToolInput):
     content_fields = frozenset({"title", "schedule"})
     semantic_null_fields = frozenset({"schedule"})
 
-    mode: Literal["create", "update", "complete", "cancel", "link", "unlink"] = Field(
+    mode: Literal["create", "update", "passed", "missed", "link", "unlink"] = Field(
         description=(
-            "complete answers the Check Passed and cancel answers it Missed; update renames it "
-            "or changes schedule; link and unlink put a Value on this Check or take it off. "
-            "Archiving is the remove tool."
+            "passed and missed answer it, only when the user said how it went. link and "
+            "unlink take `values`. Deleting is the remove tool."
         )
     )
     id: PositiveInt | None = None
@@ -27,14 +29,16 @@ class CheckToolInput(ToolInput):
     schedule: str | None = Field(
         default=None,
         description=(
-            "Independent Check timing in plain words, e.g. five times a day. "
-            "Null clears it on update. A scheduled Check cannot be attached to a Card."
+            "When it is asked on its own, in the user's words: 'every evening'. On update, "
+            "null removes it. A Check with a Schedule stays off Cards."
         ),
     )
-    value_id: PositiveInt | None = None
-    value_ids: list[PositiveInt] | None = None
-    value_query: str | list[str] | None = Field(
-        default=None, description="One or more exact Value names; this is not SQL."
+    values: Reference | list[Reference] | None = Field(
+        default=None,
+        description=(
+            "Values it shows how well the user holds, each an exact Value name or an id. "
+            "They are its own, not its Cards'."
+        ),
     )
 
     @model_validator(mode="after")
@@ -57,15 +61,26 @@ class CheckToolInput(ToolInput):
             if unsupported := supplied - editable:
                 raise ValueError("Check update does not accept: " + ", ".join(sorted(unsupported)))
         elif self.mode in {"link", "unlink"}:
-            if not supplied & {"value_id", "value_ids", "value_query"}:
-                raise ValueError(f"Check {self.mode} needs a Value")
-            if unsupported := supplied - {"value_id", "value_ids", "value_query"}:
+            if not self.values:
+                raise ValueError(f"Check {self.mode} needs values")
+            if unsupported := supplied - {"values"}:
                 raise ValueError(
                     f"Check {self.mode} does not accept: " + ", ".join(sorted(unsupported))
                 )
         elif supplied:
             raise ValueError(f"Check {self.mode} does not accept fields")
         return self
+
+
+def _check_change(call: BaseModel) -> AgentChange:
+    values = call.model_dump(exclude_unset=True)
+    mode = str(values.pop("mode"))
+    return AgentChange(
+        entity="check",
+        action=ANSWER_MODES.get(mode, mode),
+        id=values.pop("id", None),
+        values=values,
+    )
 
 
 CHECK_AUTOAPPROVALS = {
@@ -76,9 +91,8 @@ CHECK_TOOL = MutationToolSpec(
     name="check",
     input_model=CheckToolInput,
     description=(
-        "Propose one Check — a state observation on a Card. Answer one only when the user "
-        "already said how it went; otherwise cite it and let them. Use mode=link or "
-        "mode=unlink to put a Value on this Check or take it off."
+        "Propose one Check: a yes/no observation with no duration. Put it on a Card with "
+        "`checks` of the goal or action tool."
     ),
-    to_change=entity_change("check"),
+    to_change=_check_change,
 )

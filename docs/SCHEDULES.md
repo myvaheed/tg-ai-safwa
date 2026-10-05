@@ -38,8 +38,8 @@ gives no valid reading within its tool calls, the question asks the owner to say
 in other words. An unreachable provider fails the turn like any other model call.
 
 The compiler receives a target. `action` and `check` use one prompt; an Action planning more
-than `ACTION_DAILY_EXECUTIONS_MAX` (10) executions a day — a daily quota above it, a weekly
-quota above 70, an interval under 144 minutes — becomes a question suggesting a Check.
+than `ACTION_DAILY_EXECUTIONS_MAX` (5) executions a day — a daily quota above it, a weekly
+quota above 35, an interval under 288 minutes — becomes a question suggesting a Check.
 `deadline` uses its own prompt and one terminal: a date, and a time only when given.
 Repeating text there is a question.
 

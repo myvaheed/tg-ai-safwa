@@ -66,7 +66,7 @@ async def test_pr_target_001_an_archived_item_is_not_changed_automatically(sessi
         await session.commit()
 
         for tool, arguments in (
-            ("card", {"mode": "update", "id": card.id, "title": "Walk more"}),
+            ("action", {"mode": "update", "id": card.id, "title": "Walk more"}),
             ("check", {"mode": "update", "id": check.id, "title": "Sat straighter?"}),
         ):
             error = await _refused(session, tool, arguments)
@@ -77,14 +77,14 @@ async def test_pr_target_001_an_archived_item_is_not_changed_automatically(sessi
             assert "not changed automatically" in error.hint
             assert "query_data" not in error.hint
         assert f"[title](card:{card.id})" in (
-            await _refused(session, "card", {"mode": "update", "id": card.id, "title": "x"})
+            await _refused(session, "action", {"mode": "update", "id": card.id, "title": "x"})
         ).hint
 
 
 async def test_pr_target_001_an_id_that_matches_nothing_is_a_different_refusal(sessions, reviews):
     """PR-TARGET-001 — tests/brd/tg_agent_shell/proposals.feature"""
     async with sessions() as session:
-        error = await _refused(session, "card", {"mode": "update", "id": 999, "title": "Ghost"})
+        error = await _refused(session, "action", {"mode": "update", "id": 999, "title": "Ghost"})
 
         assert error.code == "target_not_found"
         assert str(error) == "Card #999 does not exist."
@@ -120,7 +120,7 @@ async def test_a_sprint_closing_refuses_a_proposal_whose_review_is_still_open(se
         await session.commit()
 
         proposal = await _proposal_for(
-            session, reviews, "card", {"mode": "update", "id": card.id, "title": "Walk more"}
+            session, reviews, "action", {"mode": "update", "id": card.id, "title": "Walk more"}
         )
         await session.commit()
 
@@ -143,7 +143,7 @@ async def test_process_uptime_does_not_expire_a_proposal_whose_review_is_still_o
             session, kind="action", title="Walk", effort_points=2, stage="today"
         )
         proposal = await _proposal_for(
-            session, reviews, "card", {"mode": "update", "id": card.id, "title": "Walk more"}
+            session, reviews, "action", {"mode": "update", "id": card.id, "title": "Walk more"}
         )
         await session.commit()
 
@@ -206,7 +206,7 @@ async def test_pr_fail_014_a_commit_that_fails_leaves_a_review_the_owner_can_sti
         )
         card_id = card.id
         proposal = await _proposal_for(
-            session, reviews, "card", {"mode": "update", "id": card_id, "title": "Walk more"}
+            session, reviews, "action", {"mode": "update", "id": card_id, "title": "Walk more"}
         )
         await session.commit()
 
@@ -302,7 +302,7 @@ async def test_pr_auto_026_a_refused_automatic_save_never_offers_a_review_that_i
         )
         await session.commit()
         proposal = await _proposal_for(
-            session, reviews, "card", {"mode": "update", "id": card.id, "title": "Walk more"}
+            session, reviews, "action", {"mode": "update", "id": card.id, "title": "Walk more"}
         )
         await session.commit()
         assert await expire_due_sprint(session) is not None
