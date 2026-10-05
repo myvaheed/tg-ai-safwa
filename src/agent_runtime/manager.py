@@ -38,6 +38,7 @@ from .model import (
     RunStatus,
     TurnOutcome,
     route_receipt,
+    tool_message,
 )
 from .ports import ContextSource, Materializer, Observer, SessionStore, ToolRunner
 
@@ -61,11 +62,9 @@ class AgentManager:
         context: ContextSource,
         materializer: Materializer,
         *,
-        routed_kinds: frozenset[str] = frozenset(),
         max_tool_calls: int,
         max_repair_rounds: int,
         child_deadline_seconds: float,
-        receipt_prefixes: tuple[str, ...] = (),
         interrupted_note: str = "",
         observer: Observer | None = None,
         clock: Callable[[], float] = time.monotonic,
@@ -75,11 +74,9 @@ class AgentManager:
         self.tools = tools
         self.context = context
         self.materializer = materializer
-        self.routed_kinds = routed_kinds
         self.max_tool_calls = max_tool_calls
         self.max_repair_rounds = max_repair_rounds
         self.child_deadline_seconds = child_deadline_seconds
-        self.receipt_prefixes = receipt_prefixes
         self.interrupted_note = interrupted_note
         self.observer = observer
         self.clock = clock
@@ -93,14 +90,28 @@ class AgentManager:
             provider=self.provider,
             tools=self.tools,
             route=self._route,
-            routed_kinds=self.routed_kinds,
             max_tool_calls=self.max_tool_calls,
             max_repair_rounds=self.max_repair_rounds,
             observer=self.observer,
         )
 
-    async def _run_to_outcome(self, agent: AgentSession, started: float) -> TurnOutcome:
-        """One stretch of a session: its loop, and whatever the host makes of the result."""
+    async def _continue(
+        self,
+        agent: AgentSession,
+        transcript: list[dict[str, Any]],
+        started: float,
+    ) -> TurnOutcome:
+        """Run a session on from a transcript, under a context prefix rebuilt from live state.
+
+        Every stretch of every session starts here: a new one with nothing said yet, a
+        resumed one with what it left behind and the answers it was waiting for.
+        """
+        messages = await self.context.messages_for(
+            agent.kind, agent.dialogue, agent.prior_receipts
+        )
+        agent.prefix_len = len(messages)
+        messages.extend(transcript)
+        agent.messages = messages
         return await self._complete(agent, await self.run(agent), started)
 
     async def _bounded(
@@ -119,7 +130,7 @@ class AgentManager:
     def _timed_out(self, name: str) -> dict[str, Any]:
         """The receipt for a subagent the clock stopped."""
         logger.warning("SUBAGENT %s timed out after %.0fs", name, self.child_deadline_seconds)
-        return self._receipt(
+        return route_receipt(
             name,
             "",
             [],
@@ -129,23 +140,6 @@ class AgentManager:
     def _restore(self, record: RunRecord) -> tuple[AgentSession, list[dict[str, Any]]]:
         """A stored session, with the transcript it left behind."""
         return AgentSession.restore(record, self.tools.definition(record.kind))
-
-    def _receipt(
-        self,
-        name: str,
-        message: str,
-        summaries: list[str],
-        *,
-        error: str | None = None,
-    ) -> dict[str, Any]:
-        """One receipt, in this host's wording. Every hand-back in the chain uses it."""
-        return route_receipt(
-            name,
-            message,
-            summaries,
-            error=error,
-            receipt_prefixes=self.receipt_prefixes,
-        )
 
     async def _complete(
         self, agent: AgentSession, result: AgentLoopResult, started: float
@@ -269,14 +263,10 @@ class AgentManager:
         started = self.clock()
         record = await self.store.create(kind=kind, source_message_id=source_message_id)
         try:
-            messages = await self.context.messages_for(kind, dialogue)
             agent = AgentSession.start(record.id, self.tools.definition(kind), dialogue=dialogue)
             agent.host_state.update(host_state or {})
             agent.shown_blocks.extend(shown)
-            agent.messages = messages
-            agent.prefix_len = len(messages)
-            result = await self.run(agent)
-            return await self._complete(agent, result, started)
+            return await self._continue(agent, [], started)
         except asyncio.CancelledError:
             await self._cancel(record.id, started)
             raise
@@ -302,16 +292,15 @@ class AgentManager:
         agent.awaiting_route = None
         agent.dialogue = dialogue
         agent.shown_blocks.extend(shown)
-        receipt = self._receipt(
+        receipt = route_receipt(
             str(waiting.get("subagent", "")),
             "",
             [summary] if summary else [],
             error=self.interrupted_note,
         )
+        answered = tool_message(str(waiting.get("call_id", "")), "route", receipt)
         try:
-            await self._replay(agent, transcript, receipt, str(waiting.get("call_id", "")))
-            result = await self.run(agent)
-            return await self._complete(agent, result, started)
+            return await self._continue(agent, [*transcript, answered], started)
         except asyncio.CancelledError:
             await self._cancel(agent.run_id, started)
             raise
@@ -423,22 +412,6 @@ class AgentManager:
         await self.store.close_chain(ref.run_id, state)
         return prior
 
-    async def _continue(
-        self,
-        agent: AgentSession,
-        transcript: list[dict[str, Any]],
-        started: float,
-    ) -> TurnOutcome:
-        """Run a restored session on from the transcript it left behind."""
-        messages = await self.context.messages_for(
-            agent.kind, agent.dialogue, agent.prior_receipts
-        )
-        agent.prefix_len = len(messages)
-        messages.extend(transcript)
-        agent.messages = messages
-        result = await self.run(agent)
-        return await self._complete(agent, result, started)
-
     async def _hand_up(self, agent: AgentSession, outcome: TurnOutcome) -> TurnOutcome | None:
         """Hand a finished session's receipt to whoever routed to it, and run them on.
 
@@ -450,31 +423,8 @@ class AgentManager:
         """
         if agent.parent_run_id is None:
             return outcome
-        receipt = self._receipt(agent.kind, outcome.message, agent.display_result_summaries)
+        receipt = route_receipt(agent.kind, outcome.message, agent.display_result_summaries)
         return await self._deliver_to_parent(agent, receipt)
-
-    async def _replay(
-        self,
-        agent: AgentSession,
-        transcript: list[dict[str, Any]],
-        receipt: dict[str, Any],
-        call_id: str,
-    ) -> None:
-        """Rebuild a waiting session's messages and answer the `route` call it left open."""
-        messages = await self.context.messages_for(
-            agent.kind, agent.dialogue, agent.prior_receipts
-        )
-        agent.prefix_len = len(messages)
-        messages.extend(transcript)
-        messages.append(
-            {
-                "role": "tool",
-                "tool_call_id": call_id,
-                "name": "route",
-                "content": json.dumps(receipt, ensure_ascii=False, default=str),
-            }
-        )
-        agent.messages = messages
 
     # ------------------------------------------------------------- the chain
 
@@ -534,23 +484,19 @@ class AgentManager:
         agent.dialogue = parent.dialogue
         agent.prior_receipts = list(parent.display_result_summaries)
         try:
-            messages = await self.context.messages_for(name, agent.dialogue, agent.prior_receipts)
-            agent.prefix_len = len(messages)
-            messages.extend(transcript)
-            agent.messages = messages
-            outcome = await self._bounded(agent, self._run_to_outcome(agent, started))
+            outcome = await self._bounded(agent, self._continue(agent, transcript, started))
             if outcome.waiting:
                 return outcome, None
             parent.host_state.update(agent.host_state)
             # The materialized outcome, not the raw loop result: a repair round answers again.
-            return outcome, self._receipt(name, outcome.message, agent.display_result_summaries)
+            return outcome, route_receipt(name, outcome.message, agent.display_result_summaries)
         except TimeoutError:
             await self._fail(agent.run_id, started, "timeout")
             return TurnOutcome(message=""), self._timed_out(name)
         except Exception as error:
             logger.exception("Routed subagent %s failed", name)
             await self._fail(agent.run_id, started, error)
-            return TurnOutcome(message=""), self._receipt(
+            return TurnOutcome(message=""), route_receipt(
                 name, "", [], error=failure_reason(error)
             )
 
@@ -579,9 +525,8 @@ class AgentManager:
                 parent.display_result_summaries.extend(
                     str(line) for line in receipt.get("did") or []
                 )
-                await self._replay(parent, transcript, receipt, str(waiting.get("call_id", "")))
-                result = await self.run(parent)
-                outcome = await self._complete(parent, result, started)
+                answered = tool_message(str(waiting.get("call_id", "")), "route", receipt)
+                outcome = await self._continue(parent, [*transcript, answered], started)
             except asyncio.CancelledError:
                 await self._cancel(agent.parent_run_id, started)
                 raise
@@ -593,7 +538,7 @@ class AgentManager:
                 raise
             if outcome.waiting or parent.parent_run_id is None:
                 return outcome
-            receipt = self._receipt(parent.kind, outcome.message, parent.display_result_summaries)
+            receipt = route_receipt(parent.kind, outcome.message, parent.display_result_summaries)
             agent = parent
         return None
 

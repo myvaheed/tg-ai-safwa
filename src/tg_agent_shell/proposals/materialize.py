@@ -60,6 +60,7 @@ from .render import (
     ProposalRenderer,
     compose_display_outcome,
     with_queued_siblings,
+    without_echoed_receipts,
 )
 from .store import ProposalStore
 from .use_cases import open_batch, prepare_change, queue_proposals
@@ -111,23 +112,23 @@ class ProposalMaterializer:
     ) -> TurnOutcome:
         """One session's words, and — for the session the owner reads — its receipts.
 
-        A subagent's words go to whoever routed to it, untouched. The root supplies the
-        model's dialogue answer, which makes it the one place that has to guarantee the
+        A subagent's words go to whoever routed to it, without the receipt lines it echoed:
+        its receipts travel beside them, and the owner reads each once. The root supplies
+        the model's dialogue answer, which makes it the one place that has to guarantee the
         owner is never left with nothing. Words it `forwarded` are a subagent's, sent as
         they are: first and whole, like a block the host wrote, and never the body the
         receipts are taken out of.
         """
+        summaries = agent.display_result_summaries
         if agent.parent_run_id is not None:
-            return as_turn(AIOutcome(AIOutcomeKind.ANSWER, message))
-        composed = (
-            compose_display_outcome(
-                "", agent.display_result_summaries, [*agent.shown_blocks, message]
+            return as_turn(
+                AIOutcome(AIOutcomeKind.ANSWER, without_echoed_receipts(message, summaries))
             )
-            if forwarded
-            else compose_display_outcome(
-                message, agent.display_result_summaries, agent.shown_blocks
-            )
-        )
+        if forwarded:
+            body, shown = "", [*agent.shown_blocks, message]
+        else:
+            body, shown = message, agent.shown_blocks
+        composed = compose_display_outcome(body, summaries, shown)
         if composed and self.mark_answer_source:
             composed += "\n\n" + (f"↪️ {forwarded}" if forwarded else f"✍️ {agent.kind}")
         return as_turn(

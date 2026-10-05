@@ -258,9 +258,10 @@ sequenceDiagram
     A-->>O: one message, citations rendered
 ```
 
-`IMMEDIATE_TOOLS` are `query_data`, `route`, `forward`, `open` and `call_helper` — the tools that
-never become a proposal, and they run inside the turn; the runtime answers `route` and `forward`
-before `ToolAdapters` is reached. `query_data` is published to every session it runs
+`IMMEDIATE_TOOLS` are `query_data`, `open` and `call_helper` — the tools `ToolAdapters` answers
+itself, which never become a proposal and run inside the turn. `route` and `forward` are the
+runtime's own `RUNTIME_TOOLS`: it answers them before any `ToolRunner` is asked, and treats them
+as immediate itself. `query_data` is published to every session it runs
 that has a view to read, the Advisor's and a subagent's alike, so a feature declares only its own
 readers; a subagent that declares no view is not handed it. `open` is the same: the Advisor opens
 every published type, and a subagent only the types in its `AgentSpec.opens`, or is not handed the
@@ -338,6 +339,7 @@ sequenceDiagram
   `SUBAGENT_HISTORY_LAST_MESSAGES = 10` unless it says otherwise.
 - A routed session must open with a tool call — only its first turn, because the loop ends on a turn
   that calls none — unless it is declared `answers_questions`: an answer in words is its work.
+  The runtime reads this as `AgentDefinition.first_call_required`.
 - A subagent's final words come back as the receipt's `text`, with a `next` that names the
   choice. The Advisor **forwards** them, routes again, or answers in its own words. One author
   per message: `forward(name)`, alone in its response, ends the turn and sends that subagent's

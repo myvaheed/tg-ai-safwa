@@ -278,12 +278,12 @@ class _Tools:
         self.ran: list[str] = []
 
     def definition(self, kind: str) -> AgentDefinition:
-        return AgentDefinition(
-            kind=kind, tools=(READ, WRITE) if kind == "writer" else (READ, ROUTE)
-        )
+        if kind == "writer":
+            return AgentDefinition(kind=kind, tools=(READ, WRITE), first_call_required=True)
+        return AgentDefinition(kind=kind, tools=(READ, ROUTE))
 
     def is_immediate(self, agent: AgentSession, name: str) -> bool:
-        return name in {"read", "route"}
+        return name == "read"
 
     async def run(self, agent: AgentSession, call: ToolCall) -> ToolOutcome:
         self.ran.append(call.name)
@@ -353,7 +353,6 @@ def _runtime(
             adapters,
             _Prompt(),
             _Review(),
-            routed_kinds=frozenset({"writer"}),
             max_tool_calls=max_tool_calls,
             max_repair_rounds=2,
             child_deadline_seconds=child_deadline_seconds,

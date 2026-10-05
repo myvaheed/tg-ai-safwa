@@ -133,8 +133,7 @@ class Registry:
                 hooks,
                 owners=frozenset(module.name for module in modules),
                 helpers=frozenset(helpers),
-                # route and forward are answered by agent_runtime before ToolAdapters is reached.
-                tools=IMMEDIATE_TOOLS - {"route", "forward"},
+                tools=IMMEDIATE_TOOLS,
                 policy=hook_policy,
             ),
         )

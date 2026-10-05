@@ -24,6 +24,7 @@ from .model import (
     flatten_content,
     log_preview,
     routed_answers,
+    tool_message,
 )
 from .ports import Observer, ToolRunner
 
@@ -31,8 +32,8 @@ logger = logging.getLogger(__name__)
 
 RouteHandler = Callable[[AgentSession, ToolCall], Awaitable[tuple[dict[str, Any], TurnOutcome | None]]]
 
-# The calls that end a step on their own: a route may suspend the chain, and a forward ends
-# the turn.
+# The runtime's own tools, answered here and never by the `ToolRunner`. Each ends a step on
+# its own: a route may suspend the chain, and a forward ends the turn.
 _NOT_SHARED = {
     "route": {
         "status": "error",
@@ -49,6 +50,7 @@ _NOT_SHARED = {
         "retryable": True,
     },
 }
+RUNTIME_TOOLS = frozenset(_NOT_SHARED)
 
 _STOPPED_WITHOUT_ANSWERING = (
     "You stopped without answering. Write the answer to the owner now, "
@@ -92,31 +94,20 @@ def _forward(
     }
 
 
-def _tool_message(call: ToolCall, result: Any) -> dict[str, Any]:
-    return {
-        "role": "tool",
-        "tool_call_id": call.id,
-        "name": call.name,
-        "content": json.dumps(result, ensure_ascii=False, default=str),
-    }
-
-
 class ToolBudgetExceeded(RuntimeError):
     """The session made more tool calls than one turn is allowed."""
 
 
-async def provider_turn(
-    agent: AgentSession,
-    provider: LlmProvider,
-    *,
-    first_call_required: bool = False,
-) -> CompletionTurn:
+async def provider_turn(agent: AgentSession, provider: LlmProvider) -> CompletionTurn:
+    # Only the first move is forced: the loop ends on a turn that calls no tool, and a
+    # session that must always call one never ends.
+    required = agent.first_call_required and agent.tool_count == 0
     log_provider_request(agent.messages)
     turn = await provider.complete(
         CompletionRequest(
             messages=tuple(agent.messages),
             tools=tuple(agent.tools),
-            tool_choice="required" if first_call_required and agent.tool_count == 0 else None,
+            tool_choice="required" if required else None,
         )
     )
     log_provider_response(turn)
@@ -129,7 +120,6 @@ async def run_loop(
     provider: LlmProvider,
     tools: ToolRunner,
     route: RouteHandler,
-    routed_kinds: frozenset[str],
     max_tool_calls: int,
     max_repair_rounds: int,
     observer: Observer | None = None,
@@ -142,14 +132,9 @@ async def run_loop(
     """
     messages = agent.messages
     while True:
-        # A subagent was routed to for the work, so its first move is the work. Only the
-        # first: the loop ends on a turn that calls no tool, and a session that must always
-        # call one never ends.
         if observer is not None:
             await observer.asking(agent)
-        turn = await provider_turn(
-            agent, provider, first_call_required=agent.kind in routed_kinds
-        )
+        turn = await provider_turn(agent, provider)
         if turn.tool_calls:
             messages.append(turn.as_message())
             # A route can suspend the whole chain, and a suspended response cannot carry
@@ -163,7 +148,7 @@ async def run_loop(
             pending_tools: list[PendingTool] = []
             available = agent.tool_names
             immediate = {
-                call.name: tools.is_immediate(agent, call.name)
+                call.name: call.name in RUNTIME_TOOLS or tools.is_immediate(agent, call.name)
                 for call in turn.tool_calls
                 if call.name in available
             }
@@ -188,7 +173,7 @@ async def run_loop(
                 elif call.name == "forward":
                     name, words, result = _forward(agent, call)
                     if words is not None:
-                        messages.append(_tool_message(call, result))
+                        messages.append(tool_message(call.id, call.name, result))
                         if observer is not None:
                             await observer.step(
                                 agent.run_id,
@@ -206,7 +191,7 @@ async def run_loop(
                     outcome = await tools.run(agent, call)
                     change, result = outcome.change, outcome.result
                 pending_tools.append(PendingTool(call=call, result=result, change=change))
-                messages.append(_tool_message(call, result))
+                messages.append(tool_message(call.id, call.name, result))
             if not_shared is not None:
                 continue
             changes = [tool.change for tool in pending_tools if tool.change is not None]

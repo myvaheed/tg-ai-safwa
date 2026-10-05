@@ -56,7 +56,7 @@ def registry_with(checks: tuple[HookSpec, ...]) -> Registry:
             (*(spec for spec in HOOKS if spec not in model_checks), *checks),
             owners=frozenset(module.name for module in MODULES),
             helpers=frozenset(HELPERS),
-            tools=IMMEDIATE_TOOLS - {"route", "forward"},
+            tools=IMMEDIATE_TOOLS,
             policy=REGISTRY.hooks.policy,
         ),
     )

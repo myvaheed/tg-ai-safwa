@@ -411,27 +411,26 @@ def compose_display_outcome(
     nothing is taken out of it.
     """
     blocks = [block.strip() for block in shown or [] if block.strip()]
-    rest = _receipts_and_body(message, summaries)
+    receipt = "\n".join(_receipt_lines(summaries))
+    body = without_echoed_receipts(message, summaries)
+    rest = "\n\n".join(part for part in (receipt, body) if part)
     return "\n\n".join([*blocks, rest] if rest else blocks)
 
 
-def _receipts_and_body(message: str, summaries: list[str]) -> str:
-    receipt_lines: list[str] = []
-    for summary in summaries:
-        for raw_line in summary.splitlines():
-            line = raw_line.strip()
-            if line and line not in receipt_lines:
-                receipt_lines.append(line)
-
+def without_echoed_receipts(message: str, summaries: list[str]) -> str:
+    """The model's words without the receipt lines it echoed, when there are receipts to
+    print: the interface prints those itself, once."""
     body = message.strip()
-    if not receipt_lines:
+    if not _receipt_lines(summaries):
         return body
-    body_lines = [
+    return "\n".join(
         line for line in body.splitlines() if not line.strip().startswith(RECEIPT_PREFIXES)
-    ]
-    body = "\n".join(body_lines).strip()
-    receipt = "\n".join(receipt_lines)
-    return f"{receipt}\n\n{body}" if body else receipt
+    ).strip()
+
+
+def _receipt_lines(summaries: list[str]) -> list[str]:
+    lines = (line.strip() for summary in summaries for line in summary.splitlines())
+    return list(dict.fromkeys(line for line in lines if line))
 
 
 def with_queued_siblings(result: Any, queued: int) -> Any:

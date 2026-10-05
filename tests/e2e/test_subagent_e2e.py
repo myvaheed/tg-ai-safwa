@@ -143,7 +143,7 @@ async def test_an_autoapproved_board_route_hands_back_its_receipt(e2e_harness):
                 prefix="workspace_mutator",
             ),
             review_turn("The operation and every non-default value are explicit."),
-            "Переименовал чек.",
+            "⚡ Auto-saved — Купить овсяное молоко\nПереименовал чек.",
             "Готово.",
         ],
         autoapprove=True,
@@ -158,6 +158,7 @@ async def test_an_autoapproved_board_route_hands_back_its_receipt(e2e_harness):
         "⚡ Auto-saved — Edit Action “Купить овсяное молоко” "
         "(Title: Купить молоко → Купить овсяное молоко)"
     ]
+    # The receipt line it echoed is the interface's, so its words keep only its own.
     assert receipt["text"] == "Переименовал чек."
     # Five turns are scripted and five are made. An automatic Save resolves a screen that is
     # already suspended, so resuming the workspace session and then the Advisor is the only way

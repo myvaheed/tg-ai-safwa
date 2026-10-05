@@ -67,13 +67,15 @@ class AgentDefinition:
 
     `read_specs` are the runner's own; the runtime uses only their names. `helper_tool` is
     a schema the session may earn part-way through a turn, and it has to be kept so a
-    resumed session does not lose a tool it was already shown.
+    resumed session does not lose a tool it was already shown. `first_call_required` is for
+    a session handed a turn for the work: its first move is a tool call.
     """
 
     kind: str
     tools: tuple[dict[str, Any], ...]
     read_specs: dict[str, Any] = field(default_factory=dict)
     helper_tool: dict[str, Any] | None = None
+    first_call_required: bool = False
 
 
 @dataclass
@@ -133,6 +135,7 @@ class AgentSession:
     # came back would lose a tool it had been shown.
     offered_helpers: tuple[str, ...] = ()
     helper_tool: dict[str, Any] | None = None
+    first_call_required: bool = False
 
     def offer_helper(self, name: str) -> None:
         """Grant one helper to this session, and put the helper tool on its tools once."""
@@ -197,6 +200,7 @@ class AgentSession:
             kind=definition.kind,
             read_specs=dict(definition.read_specs),
             helper_tool=definition.helper_tool,
+            first_call_required=definition.first_call_required,
             parent_run_id=parent_run_id,
             dialogue=list(dialogue or []),
         )
@@ -231,6 +235,7 @@ class AgentSession:
             host_state=dict(state.get("host_state") or {}),
             interaction_token=state.get("interaction_token") or None,
             helper_tool=definition.helper_tool,
+            first_call_required=definition.first_call_required,
         )
         for name in state.get("offered_helpers") or ():
             session.offer_helper(name)
@@ -291,13 +296,22 @@ def flatten_content(content: Any) -> str:
     return str(content or "")
 
 
+def tool_message(call_id: str, name: str, result: Any) -> dict[str, Any]:
+    """The transcript entry that answers one tool call."""
+    return {
+        "role": "tool",
+        "tool_call_id": call_id,
+        "name": name,
+        "content": json.dumps(result, ensure_ascii=False, default=str),
+    }
+
+
 def route_receipt(
     name: str,
     message: str,
     summaries: list[str],
     *,
     error: str | None = None,
-    receipt_prefixes: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """What a finished subagent hands back to whoever routed to it.
 
@@ -305,8 +319,7 @@ def route_receipt(
     accumulated, so there is one shape of receipt in the system.  `text` is the subagent's
     own words with its own citations — real ids the caller can reuse — and never the body
     of what it proposed. The caller sends them as they are with `forward`, or answers in
-    words of its own; `next` says so where the choice is made.  `receipt_prefixes` are the
-    host's receipt openings, so a line the model echoed is not counted twice.
+    words of its own; `next` says so where the choice is made.
     """
     receipt_lines = [line for summary in summaries for line in summary.splitlines() if line.strip()]
     receipt: dict[str, Any] = {
@@ -314,10 +327,6 @@ def route_receipt(
         "outcome": "error" if error else "done",
         "did": list(dict.fromkeys(receipt_lines)),
     }
-    if receipt["did"] and receipt_prefixes:
-        message = "\n".join(
-            line for line in message.splitlines() if not line.strip().startswith(receipt_prefixes)
-        )
     if message.strip():
         receipt["text"] = message.strip()
         receipt["next"] = (
