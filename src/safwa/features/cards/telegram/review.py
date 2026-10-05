@@ -29,6 +29,7 @@ from tg_agent_shell.proposals.render import (
 )
 
 from ...profile.api import effort_tracking_on
+from ...schedules.api import rule_summary, workspace_zone
 from ...tags.model import CardTag
 from ...values.model import CardValue
 from ..hierarchy import card_progress
@@ -217,6 +218,10 @@ async def _card_display_state(
     session: AsyncSession, state: dict[str, Any]
 ) -> dict[str, Any]:
     display = dict(state)
+    if state.get("schedule_rule"):
+        display["schedule_summary"] = rule_summary(
+            state["schedule_rule"], await workspace_zone(session)
+        )
     parent = await session.get(Card, state.get("parent_id")) if state.get("parent_id") else None
     display["parent_name"] = parent.title if parent else None
     for spec in CARD_REFERENCE_SPECS:

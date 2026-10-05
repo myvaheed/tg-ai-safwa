@@ -1044,6 +1044,7 @@ async def test_sch_editor_016_a_typed_schedule_is_read_before_it_is_saved(sessio
 
     await _type_into(message, services, "⏱ Schedule", "often", 71)
     assert "When does often happen?" in message.bot.edits[-1][1]
+    assert message.bot.chat_actions == ["typing"]
     async with sessions() as session:
         assert (await session.get(Card, card_id)).schedule is None
 
@@ -1053,7 +1054,8 @@ async def test_sch_editor_016_a_typed_schedule_is_read_before_it_is_saved(sessio
     assert "0/5 completed for the day from" in message.bot.edits[-1][1]
     async with sessions() as session:
         card = await session.get(Card, card_id)
-        assert card.schedule_record.status == "ready" and card.period_start is not None
+        assert card.schedule_record.rule == {"kind": "quota", "period": "day", "count": 5}
+        assert card.period_start is not None
     assert compiler.calls == [("often", "action"), ("five times a day", "action")]
 
 

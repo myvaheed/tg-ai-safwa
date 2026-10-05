@@ -22,6 +22,7 @@ from tg_agent_shell.proposals.api import (
 
 from ...enums import ActorType
 from ...foundation.marks import closed_repeat_refusal
+from ..schedules.agent import read_proposed_schedule
 from .model import Check, CheckOutcome
 from .references import CHECK_VALUE_REFERENCE
 from .use_cases import (
@@ -51,6 +52,7 @@ class CheckProposalHandler:
                 raise ToolPreparationError(*refusal)
         values = dict(change.values)
         await validate_named_references(context.session, values, CHECK_VALUE_REFERENCE)
+        await read_proposed_schedule(context, values, "check")
         return PreparedChange(values=values, expected_version=expected_version)
 
     async def apply(self, context: ApplyContext, change: ProposalChange) -> list[int]:
@@ -61,6 +63,7 @@ class CheckProposalHandler:
                 session,
                 title=str(values["title"]),
                 schedule=values.get("schedule"),
+                schedule_rule=values.get("schedule_rule"),
                 actor=ActorType.AI,
             )
             return [created.id]
@@ -69,7 +72,9 @@ class CheckProposalHandler:
             raise StaleStateError("A Check changed; refresh this proposal")
         if change.action is ChangeAction.UPDATE:
             scalar_fields = {
-                name: value for name, value in values.items() if name in {"title", "schedule"}
+                name: value
+                for name, value in values.items()
+                if name in {"title", "schedule", "schedule_rule"}
             }
             if scalar_fields:
                 await update_check_fields(

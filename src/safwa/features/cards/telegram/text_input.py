@@ -63,12 +63,14 @@ def _card_text_validator(field: str) -> TextValidator[Any] | None:
     return None
 
 
-async def _prepare_card_draft_text(services: Any, state: Mapping[str, Any], value: str) -> Any:
+async def _prepare_card_draft_text(
+    message: Any, services: Any, state: Mapping[str, Any], value: str
+) -> Any:
     """A Schedule is compiled for the kind being drafted; other fields go in as typed."""
     if state["input_field"] != "schedule":
         return value
     target = "action" if state["kind"] == CardKind.ACTION.value else "deadline"
-    return await compile_typed_schedule(services, target, value)
+    return await compile_typed_schedule(message, services, target, value)
 
 
 async def _apply_card_draft_text(
@@ -103,7 +105,9 @@ def _saved_card_field(state: Mapping[str, Any]) -> str:
     return "blocked_description" if state["flow"] == _BLOCKED_FLOW else str(state["field"])
 
 
-async def _prepare_card_text(services: Any, state: Mapping[str, Any], value: str) -> Any:
+async def _prepare_card_text(
+    message: Any, services: Any, state: Mapping[str, Any], value: str
+) -> Any:
     """A Schedule is compiled before it is written; other fields go in as typed."""
     if _saved_card_field(state) != "schedule":
         return value
@@ -112,7 +116,7 @@ async def _prepare_card_text(services: Any, state: Mapping[str, Any], value: str
         if card is None:
             raise DomainError("Card does not exist or is archived")
         target = schedule_target(card)
-    return await compile_typed_schedule(services, target, value)
+    return await compile_typed_schedule(message, services, target, value)
 
 
 async def _apply_card_text(

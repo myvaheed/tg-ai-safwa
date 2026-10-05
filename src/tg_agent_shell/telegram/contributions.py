@@ -63,6 +63,6 @@ class TextInputFlow:
     apply: Callable[..., Awaitable[None]]
     # (message, services, state, value) -> None. Redraws the screen the editor replaced.
     render: Callable[..., Awaitable[None]]
-    # (services, state, value) -> the value `apply` writes. Runs before the write opens a
+    # (message, services, state, value) -> the value `apply` writes. Runs before the write opens a
     # transaction, so it may wait on a model; a DomainError or ValueError is the refusal.
     prepare: Callable[..., Awaitable[Any]] | None = None

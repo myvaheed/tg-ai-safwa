@@ -12,10 +12,10 @@ from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.ai.sql import DEFAULT_CELL_LIMIT, DEFAULT_CHAR_BUDGET, DEFAULT_ROW_LIMIT
-from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 
+from ...constants import WEEKDAY_NAMES
 from ...foundation.workspace import require_workspace
 from ..cards.model import Card, CardKind
 from ..checks.model import Check
@@ -23,9 +23,7 @@ from ..reminders.api import describe, schedule_from_payload
 from .model import ScheduleDefinition
 from .rules import deadline_moment, first_slot, next_slot, period_end, period_start, windows
 
-SCHEDULE_CHANGED = "schedule.changed"
-SCHEDULE_UNCLEAR = "schedule.unclear"
-SCHEDULE_INSTRUCTION = "Describe the schedule, e.g. once a week, five times a day, or Tuesday at 15:00. Send off to clear it."
+SCHEDULE_INSTRUCTION = "Describe the schedule, e.g. every evening, every Monday, five times a day, or Tuesday at 15:00. Send off to clear it."
 DEADLINE_INSTRUCTION = "Send the deadline, e.g. 20 October, end of next month, or 20.10.2026 18:00. Send off to clear it."
 # The longest date range one get_scheduled call reads.
 SCHEDULED_RANGE_DAYS_MAX = 93
@@ -50,15 +48,14 @@ async def set_schedule(
     session: AsyncSession,
     entity: Card | Check,
     text: str | None,
-    rule: dict[str, Any] | None = None,
+    rule: dict[str, Any] | None,
 ) -> None:
-    """Write a new revision. A rule compiled beforehand makes it ready at once; otherwise
-    the Scheduler compiles it after the commit."""
+    """Write a new revision with the rule its text was read as, or clear the Schedule."""
     text = (text or "").strip() or None
     if text and text.casefold() == "off":
         text = None
     current = entity.schedule_record
-    if entity.schedule == text and (rule is None or (current and current.status == "ready")):
+    if entity.schedule == text and (current.rule if current else None) == (rule if text else None):
         return
     if entity.is_closed_repeat():
         raise DomainError("Edit Schedule on the current instance of this series")
@@ -90,16 +87,12 @@ async def set_schedule(
         type=type_,
         source_text=text,
         submitted_at=now,
-        status="ready" if rule else "pending",
         rule=rule,
     )
     session.add(definition)
     await session.flush()
     entity.schedule_record = definition
-    if rule:
-        await assign_first(session, entity)
-    else:
-        record_change(session, SCHEDULE_CHANGED, definition.id)
+    await assign_first(session, entity)
 
 
 async def close_deleted_schedules(
@@ -158,15 +151,8 @@ async def successor_slot(
 
 
 async def prepare_occurrence(session: AsyncSession, entity: Card | Check) -> None:
-    """Refuse before any fact is written while the Schedule is unsettled; a quota fact
-    belongs to the period it happens in."""
+    """A quota fact belongs to the period it happens in."""
     definition = entity.schedule_record
-    if definition is not None and definition.status != "ready":
-        raise DomainError(
-            f"The Schedule needs an answer first: {definition.question} Or set Schedule to off."
-            if definition.question
-            else "The Schedule is still being set up. Try again in a minute, or set Schedule to off."
-        )
     if definition and definition.rule["kind"] == "quota":
         entity.period_start = period_start(
             utcnow(), definition.rule["period"], await workspace_zone(session)
@@ -175,7 +161,7 @@ async def prepare_occurrence(session: AsyncSession, entity: Card | Check) -> Non
 
 async def assign_first(session: AsyncSession, entity: Card | Check) -> None:
     definition = entity.schedule_record
-    if definition and definition.status == "ready":
+    if definition:
         entity.period_start = first_slot(
             definition.rule, definition.submitted_at, await workspace_zone(session)
         )
@@ -212,10 +198,6 @@ async def schedule_summary(session: AsyncSession, entity: Card | Check) -> str |
     definition = entity.schedule_record
     if definition is None:
         return None
-    if definition.status == "pending":
-        return "Being set up."
-    if definition.status == "needs_clarification":
-        return f"Needs an answer: {definition.question}"
     rule, tz = definition.rule, await workspace_zone(session)
     if rule["kind"] == "quota":
         label = "completed" if isinstance(entity, Card) else "answered"
@@ -230,8 +212,16 @@ async def schedule_summary(session: AsyncSession, entity: Card | Check) -> str |
     overdue = " It is overdue." if open_ and entity.period_start < utcnow() else ""
     return (
         f"{rule_summary(rule, tz)} Appointment: "
-        f"{entity.period_start.astimezone(tz):%a %d.%m %H:%M}.{overdue}"
+        f"{appointment_label(rule, entity.period_start, tz)}.{overdue}"
     )
+
+
+def appointment_label(
+    rule: dict[str, Any], at: datetime, tz: ZoneInfo, day_format: str = "%a %d.%m"
+) -> str:
+    """An appointment's moment, or only its day when it has no clock."""
+    local = at.astimezone(tz)
+    return f"{local:{day_format}}" if rule.get("all_day") else f"{local:{day_format} %H:%M}"
 
 
 def rule_summary(rule: dict[str, Any], tz: ZoneInfo) -> str:
@@ -242,7 +232,13 @@ def rule_summary(rule: dict[str, Any], tz: ZoneInfo) -> str:
         return "Repeats after each completion."
     if rule["kind"] == "quota":
         return f"{rule['count']} per {rule['period']}."
-    return describe(schedule_from_payload(rule["timing"]), tz=tz).capitalize() + "."
+    timing = schedule_from_payload(rule["timing"])
+    if not rule.get("all_day"):
+        return describe(timing, tz=tz).capitalize() + "."
+    if not timing.repeating:
+        return f"On {timing.anchor_at.astimezone(tz):%a %d.%m.%Y}, any time that day."
+    days = "day" if len(timing.weekdays) == len(WEEKDAY_NAMES) else ", ".join(timing.weekdays)
+    return f"Every {days}, any time that day."
 
 
 async def planned_executions(
@@ -261,7 +257,7 @@ async def planned_executions(
         definition = card.schedule_record
         if definition is None:
             counts[card.id] = 1
-        elif definition.status != "ready" or definition.rule["kind"] == "after_completion":
+        elif definition.rule["kind"] == "after_completion":
             counts[card.id] = None
         else:
             floor = start if definition.rule["kind"] == "quota" else max(start, definition.submitted_at)
@@ -326,7 +322,7 @@ def _summary(
         floor, ceiling = max(start, definition.submitted_at), min(end, definition.valid_until or end)
         if floor >= ceiling:
             continue
-        if definition.status != "ready" or definition.rule["kind"] == "after_completion":
+        if definition.rule["kind"] == "after_completion":
             planned = None
         elif planned is not None:
             planned += sum(share for _, _, share in windows(definition.rule, floor, ceiling, tz))
@@ -363,14 +359,17 @@ def _next_event(
         }
     if rule["kind"] == "after_completion":
         return {"after_completion": True}
-    event: dict[str, Any] = {"at": current.period_start.astimezone(tz).isoformat()}
+    local = current.period_start.astimezone(tz)
+    event: dict[str, Any] = (
+        {"date": local.date().isoformat()} if rule.get("all_day") else {"at": local.isoformat()}
+    )
     if current.period_start < now:
         event["overdue"] = True
     return event
 
 
 def _clip(item: dict[str, Any]) -> None:
-    for field in ("title", "schedule", "question"):
+    for field in ("title", "schedule"):
         text = item.get(field)
         if not text:
             continue
@@ -475,7 +474,7 @@ async def get_scheduled(
         open_ = current.completed_at is None if model is Card else current.outcome is None
         active = bool(open_ and definition and definition.valid_until is None)
         next_event = None
-        if active and definition.status == "ready":
+        if active:
             rule, used = definition.rule, 0
             if rule["kind"] == "quota":
                 current_period = max(current.period_start, period_start(now, rule["period"], tz))
@@ -487,7 +486,7 @@ async def get_scheduled(
                     )
                 )
             next_event = _next_event(current, definition, used, now, tz)
-        once = bool(definition and definition.rule and definition.rule.get("timing", {}).get("schedule_kind") == "once")
+        once = bool(definition and definition.rule.get("timing", {}).get("schedule_kind") == "once")
         total: dict[str, Any] = {
             "done": totals.done,
             "remaining": int(active) if once or not active else None,
@@ -499,14 +498,12 @@ async def get_scheduled(
             "series_id": root,
             "title": current.title,
             "schedule": current.schedule,
-            "status": definition.status if active else "ended",
+            "status": "active" if active else "ended",
             "next": next_event,
             "range": range_summary,
             "sprint": _summary(definitions, facts, *sprint_bounds, tz, model is Check) if sprint else None,
             "total": total,
         }
-        if active and definition.question:
-            item["question"] = definition.question
         _clip(item)
         if result["items"] and (
             len(result["items"]) >= DEFAULT_ROW_LIMIT

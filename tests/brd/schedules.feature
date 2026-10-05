@@ -18,17 +18,18 @@ Feature: One plain-language Schedule for Actions and independent Checks
     Then the answer counts as an observation and the next instance is opened
     And the Check cannot be attached to a Card
 
-  Scenario: SCH-COMPILE-004 — A changed source invalidates an in-flight compilation
-    Given a Schedule is being compiled
-    When its text is replaced before compilation finishes
-    Then the old result does not overwrite the new revision
-    And while a Schedule is not compiled, its Action or Check cannot be finished, and the refusal says why and that off clears it
+  Scenario: SCH-COMPILE-004 — A Schedule proposed in words is read before it is saved
+    Given a Schedule proposed in words on an Action or a Check
+    When the proposal is prepared
+    Then the Scheduler reads it before the review screen opens, and the screen shows how it was read
+    And Save writes the Schedule with that reading, so the Action or Check can be finished at once
+    And a changed Schedule starts a new revision, while earlier answers keep the revision they were made under
 
-  Scenario: SCH-CLARIFY-005 — An ambiguous Schedule asks once per revision
-    Given a Schedule whose periodicity is incomplete
-    When the Scheduler requests clarification
-    Then the Advisor is asked once, naming each item as #id «title» with its kind, its Schedule and the question
-    And hourly recovery does not parse the same ambiguous text again
+  Scenario: SCH-CLARIFY-005 — An unclear Schedule is asked about in the same reply
+    Given a Schedule proposed in words that names no timing
+    When the Scheduler asks a question
+    Then no proposal is made, and the question goes back to the subagent to ask the owner
+    And nothing is saved, and no later message asks it again
 
   Scenario: SCH-ZONE-006 — Periods use the workspace calendar
     Given a workspace timezone with daylight saving time
@@ -83,10 +84,10 @@ Feature: One plain-language Schedule for Actions and independent Checks
     Then a copy from Backlog stays in Backlog
     And a copy from Sprint or Today opens in Today when due today, keeps its stage when it repeats after completion, and otherwise opens in Sprint
 
-  Scenario: SCH-RETRY-014 — A compilation that failed is tried again
-    Given the model could not be reached while a Schedule was compiled
-    Then the Schedule stays waiting to be set up, and its Action or Check cannot be finished yet
-    And it is compiled again when Safwa starts and each hour, until it is read or asks a question
+  Scenario: SCH-RETRY-014 — A Schedule the model cannot read asks for other words
+    Given the Scheduler's model gives no valid reading within its tool calls
+    Then the owner is asked to say the Schedule in other words
+    And nothing is saved
 
   Scenario: SCH-LIMIT-015 — An Action repeats at most ten times a day
     Given a Schedule on an Action that plans more than 10 executions a day (ACTION_DAILY_EXECUTIONS_MAX = 10)
@@ -98,5 +99,20 @@ Feature: One plain-language Schedule for Actions and independent Checks
     Given the owner types a Schedule on an Action's, a Check's or a Goal's screen, or into a Card draft
     Then the Scheduler reads it before anything is written, and the screen shows how it was read
     And a question from the Scheduler is shown on the same editor, which keeps waiting, and nothing is saved
+    And Safwa shows that it is typing while the Scheduler reads it
     And off clears the Schedule without asking the model
     And a draft saved after its Schedule was read creates the Card with that Schedule ready
+
+  Scenario: SCH-CLOCK-017 — A clock alone never makes a one-time appointment
+    Given the Schedule "every evening at 20:00"
+    When the model supplies the time without days or a date
+    Then the Scheduler asks the model to add days to repeat it, or a date for one time
+    And a repair with every weekday and 20:00 repeats every day at 20:00
+    And a clock with a date, such as "this Wednesday at 15:00", stays one appointment at that moment
+
+  Scenario: SCH-DAY-018 — A Schedule without a clock is accepted
+    Given a Schedule such as "every evening", "every Monday" or "20 October"
+    Then the Scheduler is told that a part of the day is not a time, and to read "every evening" as once a day
+    And weekdays or a date without a clock become an appointment for that whole day, due by 23:59 (END_OF_DAY)
+    And the screens show its day without a clock, and it is overdue only after that day ends
+    And an all-day appointment set during its day is planned for that day

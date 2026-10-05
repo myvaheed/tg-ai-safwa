@@ -112,8 +112,8 @@ async def create_card(
 ) -> Card:
     """Create one reviewed Card through the same domain boundary used by UI and AI.
 
-    A Goal's or Subgoal's Schedule is its Deadline. `schedule_rule` is the rule a manual
-    editor already compiled; without it the Scheduler compiles after the commit.
+    A Goal's or Subgoal's Schedule is its Deadline. `schedule_rule` is the rule the
+    Scheduler read `schedule` as.
     """
     card_kind = CardKind(kind)
     card_stage = CardStage(stage)
@@ -230,7 +230,7 @@ async def edit_card_schedule(
 
 
 async def _write_schedule(
-    session: AsyncSession, card: Card, text: str | None, rule: dict[str, Any] | None = None
+    session: AsyncSession, card: Card, text: str | None, rule: dict[str, Any] | None
 ) -> None:
     await set_schedule(session, card, text, rule)
     await refresh_schedule_commitment(session, card)
@@ -245,7 +245,9 @@ async def update_card_fields(
     *,
     actor: ActorType = ActorType.USER_UI,
 ) -> Card:
-    """Apply validated editable Card fields through the domain/audit boundary."""
+    """Apply validated editable Card fields through the domain/audit boundary.
+
+    `schedule` comes with `schedule_rule`, the rule the Scheduler read it as."""
     card = await session.get(Card, card_id)
     if card is None or card.archived_at is not None:
         raise DomainError("Card does not exist or is archived")
@@ -254,6 +256,7 @@ async def update_card_fields(
         "note",
         "priority",
         "schedule",
+        "schedule_rule",
         "blocked",
         "blocked_description",
         "effort_points",
@@ -279,7 +282,9 @@ async def update_card_fields(
         if name == "priority":
             value = Priority(value).value
         if name == "schedule":
-            await _write_schedule(session, card, value)
+            await _write_schedule(session, card, value, fields.get("schedule_rule"))
+            continue
+        if name == "schedule_rule":
             continue
         setattr(card, name, value)
     if card.kind == CardKind.ACTION.value:

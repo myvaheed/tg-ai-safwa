@@ -26,6 +26,7 @@ from ...enums import ActorType
 from ...foundation.marks import closed_repeat_refusal
 from ..checks.use_cases import pending_checks
 from ..profile.api import effort_tracking_on
+from ..schedules.agent import read_proposed_schedule
 from .api import CardQueryError, normalize_card_query
 from .model import (
     TERMINAL_STAGES,
@@ -80,6 +81,7 @@ CARD_SCALAR_FIELDS = frozenset(
         "note",
         "priority",
         "schedule",
+        "schedule_rule",
         "blocked",
         "blocked_description",
         "effort_points",
@@ -369,6 +371,9 @@ class CardProposalHandler:
         for spec in CARD_REFERENCE_SPECS:
             await validate_named_references(context.session, values, spec)
         await _guard_pending_checks(context.session, change, values)
+        await read_proposed_schedule(
+            context, values, "action" if proposed_kind == CardKind.ACTION.value else "deadline"
+        )
         return PreparedChange(values=values, expected_version=expected_version)
 
     async def apply(self, context: ApplyContext, change: ProposalChange) -> list[int]:
@@ -383,6 +388,7 @@ class CardProposalHandler:
                 stage=values.get("stage", CardStage.BACKLOG.value),
                 priority=values.get("priority", "medium"),
                 schedule=values.get("schedule"),
+                schedule_rule=values.get("schedule_rule"),
                 blocked=bool(values.get("blocked", False)),
                 blocked_description=values.get("blocked_description", ""),
                 effort_points=values.get("effort_points"),

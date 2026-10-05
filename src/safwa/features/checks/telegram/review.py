@@ -29,6 +29,7 @@ from tg_agent_shell.proposals.render import (
 from tg_agent_shell.telegram import short_citation_title
 
 from ....foundation.marks import title_marks
+from ...schedules.api import rule_summary, workspace_zone
 from ..model import CHECK_OUTCOME_LABELS, Check
 from ..proposal import CHECK_ANSWER_ACTIONS
 from ..references import CHECK_VALUE_REFERENCE
@@ -116,10 +117,17 @@ class CheckProposalPresenter:
                 }
         # One diff for each change, in the order Save applies them.
         diffs: list[str] = []
+        rule = None
         for change in changes:
             current = dict(proposed)
-            payload = {k: v for k, v in change.values.items() if not k.startswith("value_")}
+            payload = {
+                k: v
+                for k, v in change.values.items()
+                if not k.startswith("value_") and k != "schedule_rule"
+            }
             proposed = {**current, **payload}
+            if "schedule" in change.values:
+                rule = change.values.get("schedule_rule")
             if change.action in {ChangeAction.LINK, ChangeAction.UNLINK}:
                 resolved = await resolve_references(
                     session, CHECK_VALUE_REFERENCE, change.values
@@ -141,6 +149,9 @@ class CheckProposalPresenter:
             mode = "Answer"
         else:
             mode = "Edit"
+        reading = (
+            f"\n{html.escape(rule_summary(rule, await workspace_zone(session)))}" if rule else ""
+        )
         return ProposalScreen(
             mode=mode,
             item="Check",
@@ -148,7 +159,7 @@ class CheckProposalPresenter:
                 f"Title: {html.escape(display_diff_value(proposed.get('title')))}\n"
                 f"Status: {html.escape(display_diff_value(proposed.get('status')))}\n"
                 f"Schedule: "
-                f"{html.escape(display_diff_value(proposed.get('schedule')))}\n"
+                f"{html.escape(display_diff_value(proposed.get('schedule')))}{reading}\n"
                 f"Values: {html.escape(display_diff_value(proposed.get('values')))}",
             ),
             diffs=tuple(diffs),

@@ -194,9 +194,11 @@ async def test_cd_effort_008_a_draft_and_a_proposal_save_without_an_estimate(ses
                 await ChangePreparer(None, None, PROPOSALS).prepare(session, clearing)
             await update_card_fields(session, manual.id, {"effort_points": None})
         assert manual.effort_points is None
-        await update_card_fields(session, manual.id, {"schedule": "after completion"})
-        from schedule_helpers import configure
-        await configure(session, manual)
+        await update_card_fields(
+            session,
+            manual.id,
+            {"schedule": "after completion", "schedule_rule": {"kind": "after_completion"}},
+        )
         [next_id] = (await finish_action(session, manual.id)).successor_ids
         assert (await session.get(Card, next_id)).effort_points is None
 

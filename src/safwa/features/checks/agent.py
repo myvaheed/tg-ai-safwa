@@ -69,7 +69,7 @@ class CheckToolInput(ToolInput):
 
 
 CHECK_AUTOAPPROVALS = {
-    "update": AutoApprovalRule(SCALAR_UPDATE, frozenset({"title", "schedule"}))
+    "update": AutoApprovalRule(SCALAR_UPDATE, frozenset({"title", "schedule", "schedule_rule"}))
 }
 
 CHECK_TOOL = MutationToolSpec(

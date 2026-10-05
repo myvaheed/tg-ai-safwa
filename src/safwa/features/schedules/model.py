@@ -1,4 +1,4 @@
-"""One immutable source revision, with its compiled rule or clarification."""
+"""One immutable source revision, with the rule it was read as."""
 
 from __future__ import annotations
 
@@ -20,9 +20,7 @@ class ScheduleDefinition(Base):
     source_text: Mapped[str | None] = mapped_column(Text)
     submitted_at: Mapped[datetime] = mapped_column(UtcDateTime)
     valid_until: Mapped[datetime | None] = mapped_column(UtcDateTime)
-    status: Mapped[str] = mapped_column(String(30), default="pending")
-    rule: Mapped[dict[str, Any] | None] = mapped_column(JSON)
-    question: Mapped[str | None] = mapped_column(Text)
+    rule: Mapped[dict[str, Any]] = mapped_column(JSON)
 
     __table_args__ = (
         Index(

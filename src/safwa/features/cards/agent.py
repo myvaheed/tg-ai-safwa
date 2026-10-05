@@ -274,6 +274,8 @@ CARD_AUTOAPPROVALS = {
                 "note",
                 "priority",
                 "schedule",
+                # What preparation read `schedule` as; it travels with it.
+                "schedule_rule",
                 "blocked",
                 "blocked_description",
                 "effort_points",

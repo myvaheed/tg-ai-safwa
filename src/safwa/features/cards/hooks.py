@@ -37,7 +37,7 @@ from ..profile.api import (
     effort_tracking_on,
     morning_time,
 )
-from ..schedules.api import workspace_zone
+from ..schedules.api import appointment_label, workspace_zone
 from ..tags.model import CardTag, Tag
 from .api import PLANNED_STAGES, SCHEDULE_NOTICE_DAYS, actions_on_stages
 from .hierarchy import branch_actions
@@ -400,7 +400,8 @@ async def schedule_plan_request(
                 when.date() <= end and stage is CardStage.BACKLOG
             ):
                 lines.append(
-                    f"- #{card.id} «{card.title}»: {when:%Y-%m-%d %H:%M}, in {stage.value.capitalize()}"
+                    f"- #{card.id} «{card.title}»: {appointment_label(rule, when, tz, '%Y-%m-%d')}, "
+                    f"in {stage.value.capitalize()}"
                 )
         elif (
             rule["kind"] == "quota"

@@ -31,10 +31,11 @@ async def test_an_independent_check_schedule_is_compiled_in_its_text_editor(sess
         services, {"five times a day": ({"kind": "quota", "period": "day", "count": 5}, None)}
     )
     message = FakeMessage(590, bot_message=True)
-    for index, (text, expected, status) in enumerate(
+    quota = {"kind": "quota", "period": "day", "count": 5}
+    for index, (text, expected, rule) in enumerate(
         [
-            ("five times a day", "five times a day", "ready"),
-            ("sometimes", "five times a day", "ready"),
+            ("five times a day", "five times a day", quota),
+            ("sometimes", "five times a day", quota),
             ("off", None, None),
         ]
     ):
@@ -54,7 +55,7 @@ async def test_an_independent_check_schedule_is_compiled_in_its_text_editor(sess
         async with sessions() as session:
             check = await session.get(Check, check_id)
             assert check.schedule == expected
-            assert (check.schedule_record.status if check.schedule_record else None) == status
+            assert (check.schedule_record.rule if check.schedule_record else None) == rule
         if text == "five times a day":
             assert "0/5 answered for the day from" in message.bot.edits[-1][1]
         if text == "sometimes":

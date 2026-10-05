@@ -107,9 +107,11 @@ async def create_check(
     *,
     title: str,
     schedule: str | None = None,
+    schedule_rule: dict[str, Any] | None = None,
     actor: ActorType = ActorType.USER_UI,
 ) -> Check:
-    """Create one Pending Check, attached to nothing.
+    """Create one Pending Check, attached to nothing. `schedule_rule` is the rule the
+    Scheduler read `schedule` as.
 
     Linking is a Card action: `create_card(check_ids=...)` or `toggle_card_check`. Keeping
     it out of here leaves exactly one write path for the link, so every attach lands in the
@@ -123,7 +125,7 @@ async def create_check(
     check = Check(title=clean_title)
     session.add(check)
     await session.flush()
-    await set_schedule(session, check, schedule)
+    await set_schedule(session, check, schedule, schedule_rule)
     await _record(session, check, CREATE, actor)
     record_change(session, CHECK_CREATED, check.id)
     await bump_workspace(session)
@@ -140,7 +142,7 @@ async def update_check_fields(
     check = await session.get(Check, check_id)
     if check is None or check.archived_at is not None:
         raise DomainError("Check does not exist or is archived")
-    unknown = set(fields) - {"title", "schedule"}
+    unknown = set(fields) - {"title", "schedule", "schedule_rule"}
     if unknown:
         raise DomainError("Unsupported Check fields: " + ", ".join(sorted(unknown)))
     before = snapshot(check)
@@ -150,8 +152,8 @@ async def update_check_fields(
         if name == "title" and not value:
             raise DomainError("Check title cannot be empty")
         if name == "schedule":
-            await _write_schedule(session, check, value)
-        else:
+            await _write_schedule(session, check, value, fields.get("schedule_rule"))
+        elif name != "schedule_rule":
             setattr(check, name, value)
     check.version += 1
     await _record(session, check, UPDATE, actor, before)
@@ -175,7 +177,7 @@ async def edit_check_schedule(
 
 
 async def _write_schedule(
-    session: AsyncSession, check: Check, text: str | None, rule: dict[str, Any] | None = None
+    session: AsyncSession, check: Check, text: str | None, rule: dict[str, Any] | None
 ) -> None:
     if text and await check_card_id(session, check.id) is not None:
         raise DomainError("A Check with its own Schedule must stay independent")

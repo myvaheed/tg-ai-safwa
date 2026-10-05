@@ -5,7 +5,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from advisor_e2e_helpers import create_manual_card, mutation_turn, route_turn
+from advisor_e2e_helpers import create_manual_card, mutation_turn, route_turn, schedule_turn
 from sqlalchemy import func, select
 
 from llm_gateway import CompletionTurn as ProviderTurn
@@ -146,14 +146,16 @@ async def test_ai_card_proposal_reaches_the_sprint_it_was_planned_into(e2e_harne
             },
         )
     )
-    advisor, provider = e2e_harness.advisor([route_turn("workspace_mutator"), response])
+    advisor, provider = e2e_harness.advisor(
+        [route_turn("workspace_mutator"), response, schedule_turn(after_completion=True)]
+    )
     outcome: AIOutcome = await advisor.handle(
         "Please create a new action Push ups 30 times and link it to To be fit goal"
     )
 
     assert outcome.kind is AIOutcomeKind.PROPOSAL
     assert outcome.proposal_id is not None
-    assert len(provider.calls) == 2
+    assert len(provider.calls) == 3
     assert not provider.responses
 
     async with e2e_harness.sessions() as session:
@@ -166,8 +168,7 @@ async def test_ai_card_proposal_reaches_the_sprint_it_was_planned_into(e2e_harne
         assert action.title == "Push ups 30 times"
         assert action.parent_id == goal.id
         assert action.schedule == "after completion"
-        from schedule_helpers import configure
-        await configure(session, action)
+        assert action.schedule_record.rule == {"kind": "after_completion"}
         assert action.effort_points == 2
         assert (
             await session.scalar(

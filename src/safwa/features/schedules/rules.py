@@ -8,6 +8,9 @@ from zoneinfo import ZoneInfo
 
 from ..reminders.api import next_fire, roll_forward, schedule_from_payload
 
+# A Deadline or an appointment without a clock is due by the end of its day.
+END_OF_DAY = time(23, 59)
+
 
 def period_start(at: datetime, period: str, tz: ZoneInfo) -> datetime:
     local = at.astimezone(tz)
@@ -23,8 +26,7 @@ def period_end(start: datetime, period: str, tz: ZoneInfo) -> datetime:
 
 
 def deadline_moment(rule: dict[str, Any], tz: ZoneInfo) -> datetime:
-    """A Deadline without a time is due by the end of its day."""
-    clock = time.fromisoformat(rule["time"]) if rule["time"] else time(23, 59)
+    clock = time.fromisoformat(rule["time"]) if rule["time"] else END_OF_DAY
     return datetime.combine(date.fromisoformat(rule["date"]), clock, tzinfo=tz).astimezone(UTC)
 
 

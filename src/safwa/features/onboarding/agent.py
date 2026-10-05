@@ -51,8 +51,8 @@ MANUAL = f"""# Safwa
 - Categories say what an Action gives: {_CATEGORIES}.
 - Energy says what an Action costs: {_ENERGY}.
 - An Action may carry several Categories and several Energy types. Their selectors show these words on each button.
-- Schedule holds an Action's timing in plain words: once a week, five times a day, Tuesday at 15:00. Quotas need no clock. Calendar weeks start Monday in the workspace timezone.
-- Typed into "⏱ Schedule", it is read at once: the Card shows how it was understood, and a missing detail is asked on the same screen. Proposed in words, it is read after Save, and the Advisor asks once for a missing detail. Until it is read, the Action cannot be finished.
+- Schedule holds an Action's timing in plain words: every evening, every Monday, five times a day, Tuesday at 15:00. No clock is needed: a day without one is due by its end. Calendar weeks start Monday in the workspace timezone.
+- A Schedule is read before it is saved. Typed into "⏱ Schedule", the Card shows how it was understood, and a missing detail is asked on the same screen. Proposed in words, the review screen shows how it was understood, and the Advisor asks for a missing detail in the same reply.
 - An Action repeats at most {ACTION_DAILY_EXECUTIONS_MAX} times a day; more often is a Check.
 - A Goal or a Subgoal has "⏰ Deadline" instead: one date, with a time if it matters. It never repeats and blocks nothing. A Card with a Deadline comes first in lists, the sooner one first.
 - Clear Schedule with "off" on the current instance to stop repetition. Deleting it also stops the plan. Past instances still count; the final Action can be reopened.
@@ -138,7 +138,7 @@ MANUAL = f"""# Safwa
 # Automatic reactions
 - Safwa speaks first on its own: about a blocked Action, an Action finished without its time or effort estimate, a day holding too much, Goals with no Action, scheduled Actions the plan does not hold, energy and rest in the Sprint, an Action stuck in Today, a Check Missed again and again, the Diary, the day's summary, a Sprint's end, a Success criterion out of reach, a read too heavy for the Advisor, what stands in Today and the Sprint when the user writes after 14 days or more away, and these onboarding tips.
 - Open "⚙️ Profile" → "🔔 Hooks" to list the reactions by title and state. Choose one to read its description and switch it off or on on its own screen.
-- Hooks: "Schedule clarification", "Helper offer", "Blocker follow-up", "Time tracking reminder", "Effort Points reminder", "Goal completion follow-up", "Today overload", "Goals without Actions", "Schedule outside the plan", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Diary nudge", "Daily summary", "Sprint end warning", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
+- Hooks: "Helper offer", "Blocker follow-up", "Time tracking reminder", "Effort Points reminder", "Goal completion follow-up", "Today overload", "Goals without Actions", "Schedule outside the plan", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Diary nudge", "Daily summary", "Sprint end warning", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
 - "Time tracking reminder" is in Hooks only while Time tracking is on, and asks nothing while it is off.
 - "Today overload" and "Effort Points reminder" are in Hooks only while Effort Points are on, and ask nothing while they are off.
 

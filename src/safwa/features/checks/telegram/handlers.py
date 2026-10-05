@@ -98,9 +98,9 @@ async def _on_edit_schedule(context: CallbackContext) -> None:
 
 
 async def _prepare_schedule(
-    services: Services, state: Mapping[str, Any], value: str
+    message: Message, services: Services, state: Mapping[str, Any], value: str
 ) -> dict[str, Any]:
-    return await compile_typed_schedule(services, "check", value)
+    return await compile_typed_schedule(message, services, "check", value)
 
 
 async def _apply_schedule(

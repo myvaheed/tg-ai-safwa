@@ -24,34 +24,29 @@ from safwa.features.checks.use_cases import (
     resolve_check,
     update_check_fields,
 )
-from safwa.features.schedules.agent import ACTION_LIMIT_QUESTION, ScheduleCompiler, scheduled_tool
+from safwa.features.schedules.agent import (
+    ACTION_LIMIT_QUESTION,
+    COMPILER_PROMPT,
+    UNREADABLE_QUESTION,
+    ScheduleCompiler,
+    scheduled_tool,
+)
 from safwa.features.schedules.api import (
     ACTION_DAILY_EXECUTIONS_MAX,
-    assign_first,
     get_scheduled,
     set_schedule,
 )
-from safwa.features.schedules.hooks import compile_revision, recover
-from safwa.features.schedules.model import ScheduleDefinition
 from safwa.features.schedules.rules import next_slot, period_start
 from tg_agent_shell.ai.sql import DEFAULT_CHAR_BUDGET
 from tg_agent_shell.foundation.errors import DomainError
-
-
-async def ready(session, entity, rule):
-    entity.schedule_record.status = "ready"
-    entity.schedule_record.rule = rule
-    await assign_first(session, entity)
-    await session.flush()
 
 
 async def test_daily_quota_opens_one_instance_and_counts_finished_facts(sessions):
     """SCH-QUOTA-001 — tests/brd/schedules.feature"""
     async with sessions() as session:
         first = await create_card(
-            session, kind="action", title="Water", schedule="five times a day"
+            session, kind="action", title="Water", schedule="five times a day", schedule_rule={"kind": "quota", "period": "day", "count": 5}
         )
-        await ready(session, first, {"kind": "quota", "period": "day", "count": 5})
         start = first.period_start
         current = first
         for _ in range(5):
@@ -68,8 +63,7 @@ async def test_daily_quota_opens_one_instance_and_counts_finished_facts(sessions
 async def test_a_partly_covered_week_plans_its_share_of_the_quota(sessions):
     """SCH-WINDOW-002 — tests/brd/schedules.feature"""
     async with sessions() as session:
-        check = await create_check(session, title="Stretch?", schedule="three times a week")
-        await ready(session, check, {"kind": "quota", "period": "week", "count": 3})
+        check = await create_check(session, title="Stretch?", schedule="three times a week", schedule_rule={"kind": "quota", "period": "week", "count": 3})
         today = check.schedule_record.submitted_at.astimezone(ZoneInfo("Europe/Istanbul")).date()
         monday = today + timedelta(days=7 - today.weekday())
         tuesday, wednesday, sunday = (monday + timedelta(days=n) for n in (1, 2, 6))
@@ -83,8 +77,7 @@ async def test_a_partly_covered_week_plans_its_share_of_the_quota(sessions):
 async def test_missed_is_an_answer_and_scheduled_checks_stay_independent(sessions):
     """SCH-CHECK-003 — tests/brd/schedules.feature"""
     async with sessions() as session:
-        check = await create_check(session, title="Straight posture?", schedule="twice a day")
-        await ready(session, check, {"kind": "quota", "period": "day", "count": 2})
+        check = await create_check(session, title="Straight posture?", schedule="twice a day", schedule_rule={"kind": "quota", "period": "day", "count": 2})
         action = await create_card(session, kind="action", title="Walk")
         with pytest.raises(DomainError, match="independent"):
             await toggle_card_check(session, action.id, check.id)
@@ -105,56 +98,6 @@ async def test_missed_is_an_answer_and_scheduled_checks_stay_independent(session
             await update_check_fields(session, plain.id, {"schedule": "daily"})
 
 
-async def test_compiler_drops_stale_results(sessions):
-    """SCH-COMPILE-004 — tests/brd/schedules.feature"""
-    async with sessions() as session:
-        card = await create_card(session, kind="action", title="Run", schedule="daily")
-        id, card_id = card.schedule_id, card.id
-        await session.commit()
-
-    async def compile(text, submitted_at, tz, target):
-        async with sessions() as session:
-            card = await session.get(Card, card_id)
-            await set_schedule(session, card, "weekly")
-            await session.commit()
-        return {"kind": "quota", "period": "day", "count": 1}, None
-
-    context = SimpleNamespace(
-        sessions=sessions,
-        resources=SimpleNamespace(schedule_compiler=SimpleNamespace(compile=compile)),
-    )
-    await compile_revision(id, context)
-    async with sessions() as session:
-        card = await session.get(Card, card_id)
-        assert card.schedule_record.status == "pending"
-        old = await session.get(ScheduleDefinition, id)
-        assert old.rule is None and old.valid_until is not None
-
-
-async def test_ambiguous_revision_is_asked_once_and_not_reparsed_hourly(sessions):
-    """SCH-CLARIFY-005 — tests/brd/schedules.feature"""
-    calls = []
-
-    async def compile(text, submitted_at, tz, target):
-        calls.append(text)
-        return None, "How many times per week?"
-
-    context = SimpleNamespace(
-        sessions=sessions,
-        resources=SimpleNamespace(schedule_compiler=SimpleNamespace(compile=compile)),
-    )
-    async with sessions() as session:
-        check = await create_check(session, title="Exercise?", schedule="often")
-        id = check.schedule_id
-        await session.commit()
-    await compile_revision(id, context)
-    await recover(None, context)
-    assert calls == ["often"]
-    async with sessions() as session:
-        definition = await session.get(ScheduleDefinition, id)
-        assert definition.status == "needs_clarification"
-
-
 def test_local_calendar_week_and_dst_do_not_use_utc_days():
     """SCH-ZONE-006 — tests/brd/schedules.feature"""
     at = datetime(2026, 3, 29, 23, 30, tzinfo=UTC)
@@ -163,22 +106,10 @@ def test_local_calendar_week_and_dst_do_not_use_utc_days():
     )
 
 
-async def test_pending_schedule_refuses_completion_before_writing_the_fact(sessions):
-    """SCH-COMPILE-004 — tests/brd/schedules.feature"""
-    async with sessions() as session:
-        card = await create_card(session, kind="action", title="Run", schedule="often")
-        with pytest.raises(DomainError, match="still being set up"):
-            await finish_action(session, card.id)
-        assert card.effective_stage == "backlog" and card.completed_at is None
-        await set_schedule(session, card, None)
-        assert (await finish_action(session, card.id)).successor_ids == []
-
-
 async def test_late_quota_answer_belongs_to_today_without_carrying_yesterdays_quota(sessions):
     """SCH-QUOTA-001 — tests/brd/schedules.feature"""
     async with sessions() as session:
-        check = await create_check(session, title="Stretch?", schedule="twice a day")
-        await ready(session, check, {"kind": "quota", "period": "day", "count": 2})
+        check = await create_check(session, title="Stretch?", schedule="twice a day", schedule_rule={"kind": "quota", "period": "day", "count": 2})
         today = check.period_start
         check.period_start = today - timedelta(days=1)
         _, successor = await resolve_check(session, check.id, "passed")
@@ -191,13 +122,13 @@ async def test_late_quota_answer_belongs_to_today_without_carrying_yesterdays_qu
 async def test_rule_changes_preserve_old_facts_and_revision_boundaries(sessions):
     """SCH-COMPILE-004 — tests/brd/schedules.feature"""
     async with sessions() as session:
-        first = await create_card(session, kind="action", title="Water", schedule="twice a day")
-        await ready(session, first, {"kind": "quota", "period": "day", "count": 2})
+        first = await create_card(session, kind="action", title="Water", schedule="twice a day", schedule_rule={"kind": "quota", "period": "day", "count": 2})
         old_revision, old_period = first.schedule_id, first.period_start
         result = await finish_action(session, first.id)
         current = await session.get(Card, result.successor_ids[0])
-        await set_schedule(session, current, "three times a day")
-        await ready(session, current, {"kind": "quota", "period": "day", "count": 3})
+        await set_schedule(
+            session, current, "three times a day", {"kind": "quota", "period": "day", "count": 3}
+        )
         day = old_period.astimezone(ZoneInfo("Europe/Istanbul")).date()
         report = await get_scheduled(session, day, day, "card")
         assert len(report["items"]) == 1
@@ -216,9 +147,8 @@ async def test_weekly_quota_chooses_sprint_and_outside_dates_choose_backlog(sess
 
     async with sessions() as session:
         card = await create_card(
-            session, kind="action", title="Exercise", stage="sprint", schedule="once a week"
+            session, kind="action", title="Exercise", stage="sprint", schedule="once a week", schedule_rule={"kind": "quota", "period": "week", "count": 1}
         )
-        await ready(session, card, {"kind": "quota", "period": "week", "count": 1})
         await start_sprint(session, success_criteria="Exercise")
         assert await scheduled_stage(session, card, card.period_start, "sprint") == "sprint"
         assert (
@@ -233,9 +163,8 @@ async def test_in_planning_a_planned_copy_due_today_opens_in_today(sessions):
 
     async with sessions() as session:
         card = await create_card(
-            session, kind="action", title="Water", stage="today", schedule="twice a day"
+            session, kind="action", title="Water", stage="today", schedule="twice a day", schedule_rule={"kind": "quota", "period": "day", "count": 2}
         )
-        await ready(session, card, {"kind": "quota", "period": "day", "count": 2})
         tomorrow = card.period_start + timedelta(days=1)
         assert await scheduled_stage(session, card, card.period_start, "sprint") == "today"
         assert await scheduled_stage(session, card, tomorrow, "today") == "sprint"
@@ -252,16 +181,16 @@ async def test_read_tool_excludes_appointments_outside_the_range_and_writes_noth
     from safwa.foundation.workspace import require_workspace
 
     async with sessions() as session:
-        card = await create_card(
-            session, kind="action", title="Passport", schedule="31.12.2099 10:00"
-        )
         timing = resolve(
-            day="31.12.2099",
-            clock="10:00",
-            now=card.schedule_record.submitted_at,
-            tz=ZoneInfo("Europe/Istanbul"),
+            day="31.12.2099", clock="10:00", now=datetime.now(UTC), tz=ZoneInfo("Europe/Istanbul")
         )
-        await ready(session, card, {"kind": "fixed", "timing": schedule_payload(timing)})
+        card = await create_card(
+            session,
+            kind="action",
+            title="Passport",
+            schedule="31.12.2099 10:00",
+            schedule_rule={"kind": "fixed", "timing": schedule_payload(timing)},
+        )
         day = card.schedule_record.submitted_at.astimezone(ZoneInfo("Europe/Istanbul")).date()
         revision = (await require_workspace(session)).revision
         await session.commit()
@@ -279,37 +208,6 @@ async def test_read_tool_excludes_appointments_outside_the_range_and_writes_noth
         assert (await require_workspace(session)).revision == revision
 
 
-async def test_a_failed_compilation_stays_pending_and_recovery_retries_it(sessions):
-    """SCH-RETRY-014 — tests/brd/schedules.feature"""
-    calls = []
-
-    async def compile(text, submitted_at, tz, target):
-        calls.append((submitted_at, target))
-        if len(calls) == 1:
-            raise TimeoutError("provider unavailable")
-        return {"kind": "quota", "period": "week", "count": 1}, None
-
-    context = SimpleNamespace(
-        sessions=sessions,
-        resources=SimpleNamespace(schedule_compiler=SimpleNamespace(compile=compile)),
-    )
-    async with sessions() as session:
-        card = await create_card(session, kind="action", title="Review", schedule="once a week")
-        definition_id, card_id = card.schedule_id, card.id
-        await session.commit()
-    await compile_revision(definition_id, context)
-    async with sessions() as session:
-        assert (await session.get(ScheduleDefinition, definition_id)).status == "pending"
-        with pytest.raises(DomainError, match="still being set up"):
-            await finish_action(session, card_id)
-    await recover(None, context)
-    await recover(None, context)
-    assert len(calls) == 2 and calls[0] == calls[1] and calls[0][1] == "action"
-    async with sessions() as session:
-        card = await session.get(Card, card_id)
-        assert card.schedule_record.status == "ready"
-
-
 async def test_an_answered_one_time_check_keeps_its_schedule_and_fact(sessions):
     """SCH-COMPILE-004 — tests/brd/schedules.feature"""
     from schedule_helpers import create_check as scheduled_check
@@ -320,7 +218,7 @@ async def test_an_answered_one_time_check_keeps_its_schedule_and_fact(sessions):
         _, successor = await resolve_check(session, check.id, "missed")
         assert successor is None
         with pytest.raises(DomainError, match="Pending"):
-            await set_schedule(session, check, "weekly")
+            await set_schedule(session, check, "weekly", {"kind": "quota", "period": "week", "count": 1})
         assert (check.schedule_id, check.period_start, check.outcome) == (
             revision,
             period,
@@ -331,8 +229,7 @@ async def test_an_answered_one_time_check_keeps_its_schedule_and_fact(sessions):
 async def test_completing_a_future_quota_instance_counts_in_the_actual_day(sessions):
     """SCH-QUOTA-001 — tests/brd/schedules.feature"""
     async with sessions() as session:
-        check = await create_check(session, title="Exercise?", schedule="once a day")
-        await ready(session, check, {"kind": "quota", "period": "day", "count": 1})
+        check = await create_check(session, title="Exercise?", schedule="once a day", schedule_rule={"kind": "quota", "period": "day", "count": 1})
         today = check.period_start
         _, tomorrow = await resolve_check(session, check.id, "passed")
         assert tomorrow.period_start > today
@@ -355,21 +252,25 @@ async def test_appointments_are_counted_only_while_the_revision_is_active(sessio
     submitted = datetime(2026, 10, 3, 10, tzinfo=UTC)
     monkeypatch.setattr("safwa.features.schedules.api.utcnow", lambda: submitted)
     async with sessions() as session:
-        check = await create_check(session, title="Exercise?", schedule="daily at 09:00")
         timing = resolve(
             days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
             clock="09:00",
             now=submitted,
             tz=ZoneInfo("Europe/Istanbul"),
         )
-        await ready(session, check, {"kind": "fixed", "timing": schedule_payload(timing)})
+        check = await create_check(
+            session,
+            title="Exercise?",
+            schedule="daily at 09:00",
+            schedule_rule={"kind": "fixed", "timing": schedule_payload(timing)},
+        )
         day = submitted.date()
         report = await get_scheduled(session, day, day + timedelta(days=1), "check")
         assert report["items"][0]["range"]["planned"] == 1
         monkeypatch.setattr(
             "safwa.features.schedules.api.utcnow", lambda: submitted + timedelta(hours=1)
         )
-        await set_schedule(session, check, None)
+        await set_schedule(session, check, None, None)
         report = await get_scheduled(session, day, day + timedelta(days=1), "check")
         assert report["items"] == []
 
@@ -378,12 +279,12 @@ async def test_appointments_are_counted_only_while_the_revision_is_active(sessio
 async def test_deleting_last_open_instance_ends_the_plan_but_keeps_history(sessions, entity_type):
     """SCH-DELETE-007 — tests/brd/schedules.feature"""
     async with sessions() as session:
+        rule = {"kind": "quota", "period": "day", "count": 1}
         first = await (
-            create_card(session, kind="action", title="Run", schedule="daily")
+            create_card(session, kind="action", title="Run", schedule="daily", schedule_rule=rule)
             if entity_type == "card"
-            else create_check(session, title="Posture?", schedule="daily")
+            else create_check(session, title="Posture?", schedule="daily", schedule_rule=rule)
         )
-        await ready(session, first, {"kind": "quota", "period": "day", "count": 1})
         day = first.period_start.astimezone(ZoneInfo("Europe/Istanbul")).date()
         if entity_type == "card":
             current_id = (await finish_action(session, first.id)).successor_ids[0]
@@ -406,14 +307,18 @@ async def test_deleting_last_open_instance_ends_the_plan_but_keeps_history(sessi
 @pytest.mark.parametrize("last_schedule", [None, "31.12.2099 10:00"])
 async def test_ended_tail_can_reopen_without_reopening_its_past_instances(sessions, last_schedule):
     """SCH-END-008 — tests/brd/schedules.feature"""
-    from schedule_helpers import configure
+    from schedule_helpers import rule_for
 
     async with sessions() as session:
-        first = await create_card(session, kind="action", title="Run", schedule="after completion")
-        await ready(session, first, {"kind": "after_completion"})
+        first = await create_card(
+            session,
+            kind="action",
+            title="Run",
+            schedule="after completion",
+            schedule_rule={"kind": "after_completion"},
+        )
         current = await session.get(Card, (await finish_action(session, first.id)).successor_ids[0])
-        await set_schedule(session, current, last_schedule)
-        await configure(session, current)
+        await set_schedule(session, current, last_schedule, await rule_for(session, last_schedule))
         assert not (await finish_action(session, current.id)).successor_ids
         await move_card(session, current.id, CardStage.BACKLOG)
         with pytest.raises(DomainError, match="cannot be reopened"):
@@ -462,24 +367,12 @@ async def test_compiler_repairs_clock_arguments_without_asking_the_owner(session
             ],
         )
 
-    async with sessions() as session:
-        check = await create_check(session, title="Workout?", schedule="every Monday at 09:00")
-        id, check_id = check.schedule_id, check.id
-        await session.commit()
-    await compile_revision(
-        id,
-        SimpleNamespace(
-            sessions=sessions,
-            resources=SimpleNamespace(
-                schedule_compiler=ScheduleCompiler(SimpleNamespace(complete=complete))
-            ),
-        ),
+    rule, question = await ScheduleCompiler(SimpleNamespace(complete=complete)).compile(
+        "every Monday at 09:00", datetime.now(UTC), ZoneInfo("Europe/Istanbul"), "check"
     )
     assert len(calls) == 2
     assert json.loads(calls[1].messages[-1]["content"])["retryable"] is True
-    async with sessions() as session:
-        check = await session.get(type(check), check_id)
-        assert check.schedule_record.status == "ready" and check.schedule_record.question is None
+    assert question is None and rule["timing"]["weekdays"] == ["Mon"]
 
 
 @pytest.mark.parametrize(
@@ -510,8 +403,7 @@ async def test_one_compact_item_per_series_with_range_sprint_and_lifetime_counts
     monkeypatch.setattr("safwa.features.schedules.api.utcnow", lambda: submitted)
     monkeypatch.setattr("safwa.features.checks.use_cases.utcnow", lambda: submitted)
     async with sessions() as session:
-        check = await create_check(session, title="Posture?", schedule="twice a day")
-        await ready(session, check, {"kind": "quota", "period": "day", "count": 2})
+        check = await create_check(session, title="Posture?", schedule="twice a day", schedule_rule={"kind": "quota", "period": "day", "count": 2})
         _, current = await resolve_check(session, check.id, "passed")
         today = datetime(2026, 10, 3, 6, tzinfo=UTC)
         monkeypatch.setattr("safwa.features.schedules.api.utcnow", lambda: today)
@@ -534,8 +426,7 @@ async def test_result_is_bounded_and_continuation_loses_no_series(sessions):
     """SCH-SUMMARY-012 — tests/brd/schedules.feature"""
     async with sessions() as session:
         for i in range(35):
-            check = await create_check(session, title=f"Routine {i}?", schedule="once a day")
-            await ready(session, check, {"kind": "quota", "period": "day", "count": 1})
+            check = await create_check(session, title=f"Routine {i}?", schedule="once a day", schedule_rule={"kind": "quota", "period": "day", "count": 1})
         day = check.period_start.astimezone(ZoneInfo("Europe/Istanbul")).date()
         first = await get_scheduled(session, day, day + timedelta(days=92), "check")
         assert len(json.dumps(first, ensure_ascii=False)) <= DEFAULT_CHAR_BUDGET
@@ -554,9 +445,12 @@ async def test_result_is_bounded_and_continuation_loses_no_series(sessions):
 async def test_long_escaped_text_cannot_overflow_the_first_summary_item(sessions):
     """SCH-SUMMARY-012 — tests/brd/schedules.feature"""
     async with sessions() as session:
-        check = await create_check(session, title='"' * 3000, schedule='"' * 3000)
-        check.schedule_record.status = "needs_clarification"
-        check.schedule_record.question = '"' * 3000
+        check = await create_check(
+            session,
+            title='"' * 3000,
+            schedule='"' * 3000,
+            schedule_rule={"kind": "after_completion"},
+        )
         day = check.schedule_record.submitted_at.astimezone(ZoneInfo("Europe/Istanbul")).date()
         report = await get_scheduled(session, day, day, "check")
         assert len(json.dumps(report, ensure_ascii=False)) <= DEFAULT_CHAR_BUDGET
@@ -569,15 +463,15 @@ async def test_one_time_plan_reports_its_appointment_and_finite_remainder(sessio
     """SCH-SUMMARY-012 — tests/brd/schedules.feature"""
     from datetime import date
 
-    from schedule_helpers import configure
+    from schedule_helpers import create_card as scheduled_card
+    from schedule_helpers import create_check as scheduled_check
 
     async with sessions() as session:
         entity = await (
-            create_card(session, kind="action", title="Audit", schedule="31.12.2099 10:00")
+            scheduled_card(session, kind="action", title="Audit", schedule="31.12.2099 10:00")
             if entity_type == "card"
-            else create_check(session, title="Audit passed?", schedule="31.12.2099 10:00")
+            else scheduled_check(session, title="Audit passed?", schedule="31.12.2099 10:00")
         )
-        await configure(session, entity)
         day = date(2099, 12, 31)
         before = (await get_scheduled(session, day, day, entity_type))["items"][0]
         assert before["next"] == {"at": "2099-12-31T10:00:00+03:00"}
@@ -598,12 +492,20 @@ async def test_undated_repetition_reports_actual_progress_without_inventing_a_pl
 ):
     """SCH-SUMMARY-012 — tests/brd/schedules.feature"""
     async with sessions() as session:
+        rule = {"kind": "after_completion"}
         entity = await (
-            create_card(session, kind="action", title="Practice", schedule="after completion")
+            create_card(
+                session,
+                kind="action",
+                title="Practice",
+                schedule="after completion",
+                schedule_rule=rule,
+            )
             if entity_type == "card"
-            else create_check(session, title="Practised?", schedule="after completion")
+            else create_check(
+                session, title="Practised?", schedule="after completion", schedule_rule=rule
+            )
         )
-        await ready(session, entity, {"kind": "after_completion"})
         day = entity.schedule_record.submitted_at.astimezone(ZoneInfo("Europe/Istanbul")).date()
         if entity_type == "card":
             await finish_action(session, entity.id)
@@ -664,12 +566,9 @@ async def test_a_goal_deadline_is_one_date_that_plans_and_blocks_nothing(session
     assert (rule, question) == ({"kind": "deadline", "date": "2099-10-20", "time": None}, None)
     assert "Read one Deadline" in requests[0].messages[0]["content"]
     async with sessions() as session:
-        goal = await create_card(session, kind="goal", title="Ship v2", schedule="by 20 October 2099")
-        unread = await create_card(session, kind="goal", title="Learn Spanish", schedule="soon")
-        # A Deadline the Scheduler has not read yet blocks nothing either.
-        assert unread.schedule_record.status == "pending"
-        await finish_card(session, unread.id)
-        await ready(session, goal, rule)
+        goal = await create_card(
+            session, kind="goal", title="Ship v2", schedule="by 20 October 2099", schedule_rule=rule
+        )
         assert goal.deadline_at == datetime(2099, 10, 20, 23, 59, tzinfo=tz)
         assert goal.scheduled_at is None
         later = await create_card(session, kind="goal", title="Later")
@@ -678,3 +577,159 @@ async def test_a_goal_deadline_is_one_date_that_plans_and_blocks_nothing(session
         assert (await get_scheduled(session, day, day, "card"))["items"] == []
         await finish_card(session, goal.id)
         assert goal.completed_at is not None
+
+
+@pytest.mark.parametrize("entity", ["card", "check"])
+async def test_a_proposed_schedule_is_read_before_its_proposal_is_saved(sessions, entity):
+    """SCH-COMPILE-004 — tests/brd/schedules.feature"""
+    from safwa.bootstrap.modules import PROPOSALS
+    from safwa.features.cards.telegram.review import CardProposalPresenter
+    from safwa.features.checks.telegram.review import CheckProposalPresenter
+    from tg_agent_shell.proposals.api import ApplyContext, ProposalChange
+    from tg_agent_shell.proposals.prepare import ChangePreparer
+
+    provider, requests = _answering("set_schedule_config", {"period": "day", "count": 1})
+    arguments = (
+        {"mode": "create", "kind": "action", "title": "Walk", "schedule": "every evening"}
+        if entity == "card"
+        else {"mode": "create", "title": "Walked?", "schedule": "every evening"}
+    )
+    async with sessions() as session:
+        change = PROPOSALS.change_from_tool(entity, arguments)
+        prepared = await ChangePreparer(provider, None, PROPOSALS).prepare(session, change)
+        assert len(requests) == 1
+        assert prepared.values["schedule_rule"] == {"kind": "quota", "period": "day", "count": 1}
+        proposal = ProposalChange(entity=entity, action=change.action, values=prepared.values)
+        presenter = CardProposalPresenter() if entity == "card" else CheckProposalPresenter()
+        screen = await presenter.screen(session, [proposal])
+        assert "every evening" in screen.blocks[0] and "1 per day." in screen.blocks[0]
+        [created] = await PROPOSALS.handler(entity).apply(ApplyContext(session, frozenset()), proposal)
+        if entity == "card":
+            assert (await finish_action(session, created)).successor_ids
+        else:
+            assert (await resolve_check(session, created, "passed"))[1] is not None
+
+
+async def test_an_unclear_proposed_schedule_is_asked_in_the_same_reply(sessions):
+    """SCH-CLARIFY-005 — tests/brd/schedules.feature"""
+    from sqlalchemy import func, select
+
+    from safwa.bootstrap.modules import HOOKS, PROPOSALS
+    from tg_agent_shell.proposals.api import ToolPreparationError
+    from tg_agent_shell.proposals.prepare import ChangePreparer
+
+    provider, _ = _answering("not_clear_enough", {"reason": "When does it happen?"})
+    change = PROPOSALS.change_from_tool(
+        "card", {"mode": "create", "kind": "action", "title": "Walk", "schedule": "sometimes"}
+    )
+    async with sessions() as session:
+        with pytest.raises(ToolPreparationError) as refusal:
+            await ChangePreparer(provider, None, PROPOSALS).prepare(session, change)
+        result = refusal.value.as_tool_result()
+        assert (result["code"], result["error"]) == ("schedule_unclear", "When does it happen?")
+        assert result["hint"].startswith("Ask the user this exact question")
+        assert await session.scalar(select(func.count(Card.id))) == 0
+    assert not [hook.name for hook in HOOKS if hook.owner == "schedules"]
+
+
+async def test_a_schedule_the_model_cannot_read_asks_for_other_words(sessions):
+    """SCH-RETRY-014 — tests/brd/schedules.feature"""
+    from sqlalchemy import func, select
+
+    from safwa.bootstrap.modules import PROPOSALS
+    from safwa.features.checks.model import Check
+    from tg_agent_shell.proposals.api import ToolPreparationError
+    from tg_agent_shell.proposals.prepare import ChangePreparer
+
+    async def complete(request):
+        return CompletionTurn(content="Probably in the evening.", tool_calls=[])
+
+    provider = SimpleNamespace(complete=complete)
+    change = PROPOSALS.change_from_tool(
+        "check", {"mode": "create", "title": "Walked?", "schedule": "whenever it fits"}
+    )
+    async with sessions() as session:
+        with pytest.raises(ToolPreparationError) as refusal:
+            await ChangePreparer(provider, None, PROPOSALS).prepare(session, change)
+        assert str(refusal.value) == UNREADABLE_QUESTION.format(label="Schedule")
+        assert await session.scalar(select(func.count(Check.id))) == 0
+
+
+async def test_a_clock_alone_never_makes_a_one_time_appointment():
+    """SCH-CLOCK-017 — tests/brd/schedules.feature"""
+    from safwa.features.schedules.api import rule_summary
+
+    every_day = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    calls = []
+
+    async def complete(request):
+        calls.append(request)
+        arguments = {"time": "20:00"} if len(calls) == 1 else {"days": every_day, "time": "20:00"}
+        return CompletionTurn(
+            content="",
+            tool_calls=[
+                ToolCall(
+                    id=str(len(calls)),
+                    name="set_schedule_config",
+                    arguments_json=json.dumps(arguments),
+                )
+            ],
+        )
+
+    tz = ZoneInfo("Europe/Istanbul")
+    rule, question = await ScheduleCompiler(SimpleNamespace(complete=complete)).compile(
+        "every evening at 20:00", datetime.now(UTC), tz, "action"
+    )
+    repair = json.loads(calls[1].messages[-1]["content"])
+    assert repair["retryable"] is True and "A time alone" in json.dumps(repair)
+    assert question is None and rule["timing"]["schedule_kind"] == "daily"
+    assert rule_summary(rule, tz) == "Every day at 20:00."
+    monday = datetime(2026, 10, 5, 10, tzinfo=tz).astimezone(UTC)
+    provider, _ = _answering("set_schedule_config", {"date": "07.10.2026", "time": "15:00"})
+    once, question = await ScheduleCompiler(provider).compile(
+        "this Wednesday at 15:00", monday, tz, "action"
+    )
+    assert question is None and once["timing"]["schedule_kind"] == "once"
+    assert rule_summary(once, tz) == "Once, at 2026-10-07 15:00."
+
+
+async def test_a_schedule_without_a_clock_is_an_appointment_for_its_whole_day(
+    sessions, monkeypatch
+):
+    """SCH-DAY-018 — tests/brd/schedules.feature"""
+    from datetime import date
+
+    from safwa.features.schedules.api import appointment_label, rule_summary, schedule_summary
+    from safwa.features.schedules.rules import END_OF_DAY
+
+    assert "'every day', 'daily', 'every evening', 'every morning': period=day, count=1." in COMPILER_PROMPT
+    assert "Morning, evening and night are not a time: leave time out." in COMPILER_PROMPT
+    tz = ZoneInfo("Europe/Istanbul")
+    monday = date(2026, 10, 5)
+    noon = datetime(2026, 10, 5, 12, tzinfo=tz).astimezone(UTC)
+    provider, _ = _answering("set_schedule_config", {"days": ["Mon"]})
+    rule, question = await ScheduleCompiler(provider).compile("every Monday", noon, tz, "action")
+    assert question is None and rule["all_day"] is True
+    assert rule_summary(rule, tz) == "Every Mon, any time that day."
+    provider, _ = _answering("set_schedule_config", {"date": "05.10.2026"})
+    once, question = await ScheduleCompiler(provider).compile("today", noon, tz, "action")
+    assert question is None and rule_summary(once, tz) == "On Mon 05.10.2026, any time that day."
+
+    monkeypatch.setattr("safwa.features.schedules.api.utcnow", lambda: noon)
+    async with sessions() as session:
+        card = await create_card(
+            session, kind="action", title="Laundry", schedule="every Monday", schedule_rule=rule
+        )
+        assert card.scheduled_at == datetime.combine(monday, END_OF_DAY, tzinfo=tz)
+        assert await schedule_summary(session, card) == (
+            "Every Mon, any time that day. Appointment: Mon 05.10."
+        )
+        assert appointment_label(rule, card.scheduled_at, tz, "%d.%m") == "05.10"
+        item = (await get_scheduled(session, monday, monday, "card"))["items"][0]
+        assert item["range"]["planned"] == 1 and item["next"] == {"date": "2026-10-05"}
+        monkeypatch.setattr(
+            "safwa.features.schedules.api.utcnow", lambda: noon + timedelta(hours=11)
+        )
+        assert "overdue" not in await schedule_summary(session, card)
+        monkeypatch.setattr("safwa.features.schedules.api.utcnow", lambda: noon + timedelta(days=1))
+        assert (await schedule_summary(session, card)).endswith("It is overdue.")

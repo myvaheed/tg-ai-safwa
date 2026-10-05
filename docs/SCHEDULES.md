@@ -11,35 +11,30 @@ text. Relative dates use the source submission time, including after a retry.
 
 ## Where the text is read
 
-A revision is `pending`, `ready` or `needs_clarification`. Clearing the text ends the current
+Every revision carries the rule its text was read as. Clearing the text ends the current
 revision and leaves the entity with none.
 
 ```mermaid
 flowchart TD
-    A[Owner types Schedule in an editor] --> B[TextInputFlow.prepare: compile]
+    A[Owner types Schedule in an editor] --> B[TextInputFlow.prepare: typing, compile]
+    F[Subagent proposes a Card or Check with Schedule] --> G[Proposal preparation: compile]
     B --> C{Enough detail?}
+    G --> J{Enough detail?}
     C -->|No| D[Editor shows the question and keeps waiting]
-    C -->|Yes| E[Save ready revision, redraw the screen with how it was read]
-    F[Saved proposal with Schedule] --> G[Commit pending revision]
-    G --> H[Scheduler Run after commit]
-    I[Startup and hourly recovery] --> H
-    H --> J{Enough detail?}
-    J -->|Yes| K[Rule saved: ready]
-    J -->|No| L[needs_clarification: Advisor asks once]
-    L --> F
-    H -->|Model unreachable| M[Stays pending]
-    M --> I
+    C -->|Yes| E[Save the revision with its rule, redraw the screen with how it was read]
+    J -->|No| L[schedule_unclear tool error: the subagent asks the owner in the same reply]
+    J -->|Yes| K[Review screen shows how it was read; Save writes the revision with its rule]
 ```
 
-A typed Schedule is compiled before anything is written, outside the transaction, so a
-question never leaves a half-set Schedule and the screen shows the result at once. A
-proposal only carries the text: the workspace mutator, a small model, never has to settle
-the timing before the Card exists, and the Scheduler reads it after the commit. An in-flight
-result is discarded when its revision was superseded. A `needs_clarification` revision is not
-reparsed hourly; a `pending` one is retried at startup and each hour until it is read.
-Finishing an Action or answering a Check is refused, before any fact is written, while its
-Schedule is not `ready`; the refusal carries the Scheduler's question or says the Schedule is
-still being set up, and names `off` as the way out.
+The text is compiled before anything is written, outside the transaction, so a question never
+leaves a half-set Schedule. A typed Schedule shows Safwa typing while the model reads it, and
+the screen shows the result at once. A proposed Schedule is read during proposal preparation,
+inside the turn, the way a Reminder's timing is: `read_proposed_schedule` puts the rule in the
+proposal as `schedule_rule`, the review screen says how it was read, and Save writes exactly
+that. A question becomes the retryable `schedule_unclear` tool result, which tells the subagent
+to ask the owner and call again with the answer; nothing is proposed meanwhile. When the model
+gives no valid reading within its tool calls, the question asks the owner to say the Schedule
+in other words. An unreachable provider fails the turn like any other model call.
 
 The compiler receives a target. `action` and `check` use one prompt; an Action planning more
 than `ACTION_DAILY_EXECUTIONS_MAX` (10) executions a day — a daily quota above it, a weekly
@@ -47,10 +42,20 @@ quota above 70, an interval under 144 minutes — becomes a question suggesting 
 `deadline` uses its own prompt and one terminal: a date, and a time only when given.
 Repeating text there is a question.
 
+The Schedule prompt asks only when the text names no timing at all; otherwise it takes the
+closest form. A part of the day is not a clock: "every evening" is once a day. A clock alone
+is refused back to the model: it has to come with weekdays to repeat, a date for one time, or
+an interval, so "every evening at 20:00" can never become a one-time appointment.
+
 ## Rules
 
 The forms are calendar quotas (N per day/week), appointments (once, selected weekdays and
-clock, or a clock interval), repetition after completion, and a Deadline. Days and
+clock, or a clock interval), repetition after completion, and a Deadline. Weekdays or a date
+without a clock are an all-day appointment: the rule's timing uses `END_OF_DAY` (23:59), the
+moment a Deadline without a time uses too, and `"all_day": true` tells the screens to show
+the day without a clock. Being due at the end of its day is what puts it in Today, counts it
+in that day's plan even when it is set during the day, and makes it overdue only once the day
+ends, with no other code knowing about it. Days and
 Monday-based weeks use the workspace timezone. A quota does not invent a clock. Unused quota
 does not carry forward. Every quota answer belongs to the current calendar period, including
 extra answers; a late appointment answer remains attached to its appointment. One instance
@@ -96,8 +101,8 @@ Passed and Missed both count as observations. An unanswered Check is not implici
 
 The EP estimate on an Action is the cost of one execution. `planned_executions` counts, for a
 list of Actions at once, the executions left from today — or a later window start — through
-the window's last day. An Action without a Schedule is 1; unknown setup and after-completion
-repetition are `None`; every other Action on the plan is at least 1, including when its
+the window's last day. An Action without a Schedule is 1; after-completion repetition is
+`None`; every other Action on the plan is at least 1, including when its
 appointment falls outside the window. A running Sprint's window is today to its planned last
 day, so an Action joining mid-Sprint counts only the days left. Planning uses the Profile's
 Sprint length from today.
@@ -141,9 +146,10 @@ aggregating its source revisions. There is no list of individual occurrences. Th
 carries the timezone, query time and active Sprint dates; `sprint` is null when none is active.
 
 An item identifies the latest instance (`id`) and stable series (`series_id`), with its title,
-Schedule and setup status. `next` is a local timestamp for an appointment, an inclusive date
-window and remaining quota for day/week repetition, or `after_completion: true` for undated
-repetition. Ended or unconfigured plans have `next: null`.
+Schedule and `status`, `active` or `ended`. `next` is a local timestamp (`at`) for an
+appointment, its local `date` for an all-day appointment, an inclusive date window and
+remaining quota for day/week repetition, or `after_completion: true` for undated repetition.
+Ended plans have `next: null`.
 
 `range` and `sprint` each contain `planned`, `done` and `remaining`. `planned` uses the same
 prorated windows as the load; an appointment's fact counts on its date and any other fact when
@@ -156,7 +162,7 @@ For example, one Check answered Missed today, with a daily quota of five and no 
 ```json
 {
   "id": 12, "series_id": 11, "title": "Posture?", "schedule": "five times a day",
-  "status": "ready",
+  "status": "active",
   "next": {"start_date": "2026-10-03", "end_date": "2026-10-03", "remaining": 4},
   "range": {"planned": 5, "done": 1, "remaining": 4, "passed": 0, "missed": 1},
   "sprint": null,
@@ -167,7 +173,7 @@ For example, one Check answered Missed today, with a daily quota of five and no 
 Range/Sprint `remaining` means plan shortfall, not carried-over work. `next.remaining` is the
 quota still available in its next window. A rule change starts a new quota for that revision,
 while earlier facts and quotas keep their meaning in the summary. After-completion repetition
-and unfinished setup have unknown `planned` and `remaining`.
+has unknown `planned` and `remaining`.
 
 The reply uses the shared read limits of 12,000 characters and 50 items (`DEFAULT_CHAR_BUDGET`,
 `DEFAULT_ROW_LIMIT`). If more series remain, it returns `next_after_id` with a notice to call
@@ -188,8 +194,10 @@ advances past the consumed appointment.
 
 ## Where it lives
 
-The `schedules` package owns the revisions, the period arithmetic in `rules.py`, the Scheduler
-hooks, the compiler and the Advisor read tool. Cards and Checks ask its `api.py` to change a
-source or calculate an occurrence; their editors compile typed text through its `telegram.py`.
-Bootstrap binds the compiler to the provider in `SafwaFeatures`, which hooks reach as
-`resources` and Telegram adapters as `services.features`.
+The `schedules` package owns the revisions, the period arithmetic in `rules.py`, the compiler
+and the Advisor read tool. It has no hooks. Cards and Checks ask its `api.py` to change a source
+or calculate an occurrence; their proposal handlers read a proposed text through
+`read_proposed_schedule` in its `agent.py`, and their editors compile typed text through its
+`telegram.py`. Bootstrap binds the editors' compiler to the provider in `SafwaFeatures`, which
+Telegram adapters reach as `services.features`; preparation builds one on the proposal's
+provider.

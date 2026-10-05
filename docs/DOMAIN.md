@@ -32,8 +32,8 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
 - **Schedule** is plain-language timing on an Action or independent Check, and the
   **Deadline** of a Goal or Subgoal: one date, never repeating, never gating Done and never
   planned. Its compiled revisions live in `schedules`; instances retain their revision and
-  assigned period. A typed Schedule is compiled before it is saved; a proposed one after the
-  commit. An Action repeats at most `ACTION_DAILY_EXECUTIONS_MAX` times a day. Deterministic
+  assigned period. A Schedule is compiled before it is saved, typed or proposed, and a day
+  without a clock is due by its end. An Action repeats at most `ACTION_DAILY_EXECUTIONS_MAX` times a day. Deterministic
   code handles quotas, progress and successor placement. See [SCHEDULES.md](SCHEDULES.md).
 - Planned Actions count the executions left from today through the window's last day, a
   partly covered week by its share of the quota, and an Action on the plan at least once;

@@ -291,10 +291,10 @@ Feature: Planning — the Sprint, and the mode without one
     And Home and AI context show the remaining daily executions
     And retro keeps 5 planned executions that morning and 1 actual completion
 
-  Scenario: PL-REPEAT-034 — Unknown timing is explicit and compilation refreshes the forecast
-    Given a selected Action has unfinished setup or undated after-completion repetition
+  Scenario: PL-REPEAT-034 — Unknown timing is explicit and a Schedule change refreshes the forecast
+    Given a selected Action repeats after each completion, with no date
     Then planned totals are marked as lower bounds, without completion percentages or planned shares
-    When its Schedule is compiled or edited
+    When its Schedule is set or edited
     Then only the open copy's quantity is refreshed, with completed results and unit EP snapshots unchanged
-    And compiling a Card in Today rechecks its load through the existing Today hook
+    And a Schedule set on a Card in Today rechecks its load through the existing Today hook
     And clearing Schedule restores the ordinary one-execution quantity

@@ -21,6 +21,7 @@ from ..cards.model import Card, CardKind, CardStage, Priority, effort_label
 from ..planning.api import plan_load, today_actions
 from ..planning.model import Sprint
 from ..profile.model import UserProfile
+from ..schedules.api import appointment_label
 from ..tags.model import Tag
 from ..values.model import CardValue, Value
 
@@ -152,7 +153,7 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
         )
         + (f" effort={effort_label(card.effort_points)}" if profile and profile.effort_tracking else "")
         + (
-            f" schedule_at={card.scheduled_at.astimezone(timezone):%d.%m %H:%M}"
+            f" schedule_at={appointment_label(card.schedule_record.rule, card.scheduled_at, timezone, '%d.%m')}"
             if card.scheduled_at
             else ""
         )

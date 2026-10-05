@@ -25,7 +25,7 @@ from tg_agent_shell.telegram import (
 
 from ...planning.api import plan_load, today_actions
 from ...profile.api import effort_tracking_on
-from ...schedules.api import workspace_zone
+from ...schedules.api import appointment_label, workspace_zone
 from ..api import actions_on_stages, list_order
 from ..hierarchy import card_children
 from ..model import Card, CardStage, effort_label
@@ -61,7 +61,8 @@ async def card_list_rows(
             effort = card.effort_points * quantity if card.effort_points is not None and quantity is not None else None
             metadata.append(f"{effort_label(effort)} EP")
         if card.scheduled_at is not None:
-            metadata.append(f"⏱ {card.scheduled_at.astimezone(tz):%d.%m %H:%M}")
+            label = appointment_label(card.schedule_record.rule, card.scheduled_at, tz, "%d.%m")
+            metadata.append(f"⏱ {label}")
         if card.deadline_at is not None:
             metadata.append(f"⏰ {card.deadline_at.astimezone(tz):%d.%m}")
         elif card.schedule:

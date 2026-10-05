@@ -1557,9 +1557,9 @@ async def test_a_new_card_receipt_names_every_field_that_was_chosen(e2e_harness)
     )
 
 
-async def test_cd_hardtime_033_a_schedule_is_compiled_after_its_source_is_saved(e2e_harness):
+async def test_cd_hardtime_033_a_schedule_is_read_before_its_proposal_is_saved(e2e_harness):
     """CD-HARDTIME-033 — tests/brd/cards.feature"""
-    # The setup mini-session runs during materialization, after the agent loop has
+    # The Scheduler reads the text during materialization, after the agent loop has
     # already finished, so its answer is the last response in the queue.
     advisor, _provider = e2e_harness.advisor(
         [
@@ -1595,19 +1595,12 @@ async def test_cd_hardtime_033_a_schedule_is_compiled_after_its_source_is_saved(
     assert outcome.kind is AIOutcomeKind.PROPOSAL
     change = e2e_harness.reviews.proposal(outcome.proposal_id).changes[0]
     assert change.values["schedule"] == "every Monday and Wednesday at nine"
+    assert change.values["schedule_rule"]["timing"]["weekdays"] == ["Mon", "Wed"]
     async with e2e_harness.sessions() as session:
         description = await advisor.describe_proposal(session, outcome.proposal_id)
         affected = await approve_proposal(session, e2e_harness.reviews, PROPOSALS, outcome.proposal_id)
         await session.commit()
     assert "Schedule every Monday and Wednesday at nine" in description.summary
-    from safwa.features.schedules.agent import ScheduleCompiler
-    from safwa.features.schedules.hooks import compile_revision
-    async with e2e_harness.sessions() as session:
-        card = await session.get(Card, affected[0])
-        assert card.schedule_record.status == "pending"
-        revision = card.schedule_id
-    await compile_revision(revision, SimpleNamespace(sessions=e2e_harness.sessions,
-        resources=SimpleNamespace(schedule_compiler=ScheduleCompiler(_provider))))
     async with e2e_harness.sessions() as session:
         card = await session.get(Card, affected[0])
         assert card.schedule_record.rule["timing"]["weekdays"] == ["Mon", "Wed"]

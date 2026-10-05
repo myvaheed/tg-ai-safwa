@@ -36,7 +36,6 @@ from safwa.features.retro.analysis import SprintColumn, overview_text, shares_te
 from safwa.features.retro.records import aggregate, sprint_record
 from safwa.features.retro.telegram import retro_text
 from safwa.features.schedules.api import assign_first, remaining_occurrences
-from safwa.features.schedules.hooks import compile_revision
 from tg_agent_shell.cues.initiatives import bind_committed
 from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.foundation.clock import utcnow
@@ -51,10 +50,8 @@ async def scheduled_card(session, *, count=1, stage="sprint", effort_points=5):
         stage=stage,
         effort_points=effort_points,
         schedule=f"{count} times a day",
+        schedule_rule={"kind": "quota", "period": "day", "count": count},
     )
-    card.schedule_record.rule = {"kind": "quota", "period": "day", "count": count}
-    card.schedule_record.status = "ready"
-    await assign_first(session, card)
     await refresh_schedule_commitment(session, card)
     return card
 
@@ -208,17 +205,15 @@ async def test_added_series_counts_future_executions_once(sessions, effort):
 async def test_unknown_schedule_is_persisted_and_excludes_exact_ratios(sessions, effort_on):
     """PL-REPEAT-034 — tests/brd/planning.feature"""
     async with sessions() as session:
-        card = await create_card(
+        await create_card(
             session,
             kind="action",
             title="Train",
             stage="sprint",
             effort_points=5,
             schedule="repeat",
+            schedule_rule={"kind": "after_completion"},
         )
-        card.schedule_record.status = "ready"
-        card.schedule_record.rule = {"kind": "after_completion"}
-        await assign_first(session, card)
         sprint = await start_sprint(session, success_criteria="Train", length_days=3)
         sprint_id = sprint.id
         await session.commit()
@@ -247,28 +242,30 @@ async def test_unknown_schedule_is_persisted_and_excludes_exact_ratios(sessions,
         )
 
 
-async def test_compilation_refreshes_open_reservation_and_today_hook(sessions, effort_on):
+async def test_a_schedule_set_refreshes_open_reservation_and_today_hook(sessions, effort_on):
     """PL-REPEAT-034 — tests/brd/planning.feature"""
     async with sessions() as session:
         card = await create_card(
-            session, kind="action", title="Train", stage="today", effort_points=5, schedule="daily"
+            session, kind="action", title="Train", stage="today", effort_points=5
         )
         sprint = await start_sprint(session, success_criteria="Train", length_days=3)
-        id, card_id, sprint_id = card.schedule_id, card.id, sprint.id
+        card_id, sprint_id = card.id, sprint.id
         await session.commit()
 
-    async def compile(*args):
-        return {"kind": "quota", "period": "day", "count": 4}, None
-
-    context = SimpleNamespace(
-        sessions=sessions,
-        resources=SimpleNamespace(schedule_compiler=SimpleNamespace(compile=compile)),
-    )
     sink = bind_committed(
         sessions, HookRegistry.of((TODAY_OVERLOAD_HOOK,), owners=frozenset({"cards"}))
     )
     try:
-        await compile_revision(id, context)
+        async with sessions() as session:
+            await update_card_fields(
+                session,
+                card_id,
+                {
+                    "schedule": "four times a day",
+                    "schedule_rule": {"kind": "quota", "period": "day", "count": 4},
+                },
+            )
+            await session.commit()
         await sink.drain()
     finally:
         await sink.close()
@@ -332,12 +329,14 @@ async def test_schedule_change_refreshes_only_open_work(sessions):
         successor = await session.get(
             Card, (await finish_action(session, card.id)).successor_ids[0]
         )
-        await update_card_fields(session, successor.id, {"schedule": "two times a day"})
-        assert (await sprint_counts(session, sprint.id))["unknown_schedules"] == 1
-        successor.schedule_record.status = "ready"
-        successor.schedule_record.rule = {"kind": "quota", "period": "day", "count": 2}
-        await assign_first(session, successor)
-        await refresh_schedule_commitment(session, successor)
+        await update_card_fields(
+            session,
+            successor.id,
+            {
+                "schedule": "two times a day",
+                "schedule_rule": {"kind": "quota", "period": "day", "count": 2},
+            },
+        )
         assert await sprint_metrics(session, sprint.id) == {
             "committed": 35,
             "added": 0,

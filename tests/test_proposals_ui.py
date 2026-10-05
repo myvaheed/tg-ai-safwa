@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from schedule_helpers import create_card, create_check
+from schedule_helpers import create_card, create_check, rule_for
 from sqlalchemy import select
 from ui_harness import (
     FakeMessage,
@@ -349,6 +349,7 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
                     values={
                     "priority": "critical",
                     "schedule": nine,
+                    "schedule_rule": await rule_for(session, nine),
                     "blocked": True,
                     "blocked_description": "Waiting for access",
                     "effort_points": 5,
@@ -365,11 +366,12 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
         proposal_id = proposal.id
         card_id = card.id
 
-    # The review screen says the schedule in words, and what fixes it.
+    # The review screen says the schedule in words, and how the Scheduler read it.
     message = FakeMessage(63, bot_message=True)
     await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
     text, _markup = message.edits[-1]
     assert "Schedule: — → daily 09:00" in text
+    assert "Every day at 09:00." in text
 
     async with sessions() as session:
         affected = await approve_proposal(session, store, PROPOSALS, proposal_id)
@@ -379,7 +381,7 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
     async with sessions() as session:
         card = await session.get(Card, card_id)
         assert card.schedule == "daily 09:00"
-        assert card.schedule_record.status == "pending"
+        assert card.schedule_record.rule["timing"]["schedule_kind"] == "daily"
         assert (
             card.priority,
             card.schedule,

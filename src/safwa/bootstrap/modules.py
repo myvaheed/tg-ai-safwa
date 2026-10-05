@@ -73,11 +73,6 @@ from ..features.reminders.module import REMINDER_FIRE_HOOK, REMINDER_START_HOOK
 from ..features.retro.module import MODULE as RETRO
 from ..features.saved_requests.module import MODULE as SAVED_REQUESTS
 from ..features.schedules.module import MODULE as SCHEDULES
-from ..features.schedules.module import (
-    SCHEDULE_CLARIFICATION_HOOK,
-    SCHEDULE_RECOVERY_HOOK,
-    SCHEDULER_HOOK,
-)
 from ..features.summary.module import MODULE as SUMMARY
 from ..features.summary.module import SUMMARY_HOOK
 from ..features.tags.module import MODULE as TAGS
@@ -153,9 +148,6 @@ HOOKS = (
     RETURN_HOOK,
     REMINDER_START_HOOK,
     REMINDER_FIRE_HOOK,
-    SCHEDULER_HOOK,
-    SCHEDULE_RECOVERY_HOOK,
-    SCHEDULE_CLARIFICATION_HOOK,
     HOME_HOOK,
     MEMORY_RETRO_HOOK,
     *((PLAN_HOOK,) if featuretoggles.PLAN_REQUIRED else ()),
