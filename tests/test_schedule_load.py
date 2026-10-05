@@ -117,7 +117,7 @@ async def test_successor_keeps_reserved_scope_and_frozen_unit_effort(sessions, e
         )
         assert successor.effort_points == 8 and successor.tracked_mins is None
         await update_card_fields(
-            session, successor.id, {"blocked": True, "blocked_description": "Rest"}
+            session, successor.id, {"blocked_description": "Rest"}
         )
         assert await sprint_metrics(session, sprint.id) == {
             "committed": 15,

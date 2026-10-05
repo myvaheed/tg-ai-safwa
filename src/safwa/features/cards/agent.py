@@ -15,7 +15,9 @@ from .model import CATEGORY_MEANINGS, ENERGY_MEANINGS, TRACKED_MINS_MAX
 
 class CardToolInput(ToolInput):
     content_fields = frozenset({"title", "note", "blocked_description", "schedule"})
-    semantic_null_fields = frozenset({"parent_id", "schedule", "tracked_mins", "effort_points"})
+    semantic_null_fields = frozenset(
+        {"parent_id", "schedule", "tracked_mins", "effort_points", "blocked_description"}
+    )
 
     mode: Literal["create", "update", "move", "complete", "reopen", "link", "unlink"] = Field(
         description=(
@@ -39,8 +41,10 @@ class CardToolInput(ToolInput):
             "Never invent a time. On update, null removes it."
         ),
     )
-    blocked: bool | None = None
-    blocked_description: str | None = None
+    blocked_description: str | None = Field(
+        default=None,
+        description="What blocks the Action, in the user's words. On update, null unblocks it.",
+    )
     effort_points: Literal[0.5, 1, 2, 3, 5, 8, 13] | None = Field(
         default=None,
         description=(
@@ -111,8 +115,6 @@ class CardToolInput(ToolInput):
                 raise ValueError("a new Card needs kind and title")
             if "tracked_mins" in supplied:
                 raise ValueError("a new Card has no time spent yet; omit tracked_mins")
-            if self.blocked and not (self.blocked_description or "").strip():
-                raise ValueError("a blocked Card needs blocked_description")
             if self.parent_id is not None and self.parent_query is not None:
                 raise ValueError("use either parent_id or parent_query, not both")
             return self
@@ -124,7 +126,6 @@ class CardToolInput(ToolInput):
             "stage",
             "priority",
             "schedule",
-            "blocked",
             "blocked_description",
             "effort_points",
             "tracked_mins",
@@ -152,8 +153,6 @@ class CardToolInput(ToolInput):
                 )
             if self.stage == "done":
                 raise ValueError("use complete mode to finish a Card")
-            if self.blocked and not (self.blocked_description or "").strip():
-                raise ValueError("a blocked Card needs blocked_description")
             if self.parent_id is not None and self.parent_query is not None:
                 raise ValueError("use either parent_id or parent_query, not both")
         elif self.mode == "move":
@@ -214,7 +213,6 @@ def _card_repair(arguments: dict[str, Any]) -> dict[str, Any]:
         "stage",
         "priority",
         "schedule",
-        "blocked",
         "blocked_description",
         "effort_points",
         "categories",
@@ -276,7 +274,6 @@ CARD_AUTOAPPROVALS = {
                 "schedule",
                 # What preparation read `schedule` as; it travels with it.
                 "schedule_rule",
-                "blocked",
                 "blocked_description",
                 "effort_points",
                 "tracked_mins",

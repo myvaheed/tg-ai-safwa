@@ -124,16 +124,13 @@ async def _apply_card_text(
 ) -> None:
     del services
     card_id = int(state["card_id"])
-    if state["flow"] == _BLOCKED_FLOW:
-        await update_card_fields(
-            session, card_id, {"blocked": True, "blocked_description": value}
-        )
-    elif state["field"] == "tracked_mins":
-        await update_card_fields(session, card_id, {"tracked_mins": value})
-    elif state["field"] == "schedule":
+    field = _saved_card_field(state)
+    if field in {"blocked_description", "tracked_mins"}:
+        await update_card_fields(session, card_id, {field: value})
+    elif field == "schedule":
         await edit_card_schedule(session, card_id, value["text"], value["rule"])
     else:
-        await edit_card_text(session, card_id, str(state["field"]), value)
+        await edit_card_text(session, card_id, field, value)
 
 
 async def _render_card(

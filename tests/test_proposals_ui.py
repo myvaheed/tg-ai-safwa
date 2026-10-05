@@ -350,7 +350,6 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
                     "priority": "critical",
                     "schedule": nine,
                     "schedule_rule": await rule_for(session, nine),
-                    "blocked": True,
                     "blocked_description": "Waiting for access",
                     "effort_points": 5,
                     "parent_id": parent.id,

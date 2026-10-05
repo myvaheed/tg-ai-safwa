@@ -40,7 +40,7 @@ AI_CARDS = SqlView(
                  || CASE WHEN c.archived_at IS NULL THEN '' ELSE '{ARCHIVE_MARKER}' END AS title,
                c.note, c.kind, c.effective_stage AS stage, c.priority,
                c.schedule,
-               CASE WHEN c.blocked THEN c.blocked_description END AS blocked_description,
+               NULLIF(c.blocked_description, '') AS blocked_description,
                CASE WHEN (SELECT effort_tracking FROM user_profile WHERE id=1)
                     THEN c.effort_points END AS effort_points,
                c.tracked_mins, c.parent_id,
@@ -68,7 +68,6 @@ AI_CARDS = SqlView(
   - `energy_types` physical | cognitive | emotional | spiritual
   - `schedule` is the original timing text, not computed dates or counts; on a goal or a subgoal it is the deadline
   - `blocked_description` NULL = unblocked; non-NULL = blocked; filter with `IS NOT NULL`
-  - on a blocked goal or subgoal, `blocked_description` is an empty string; read reasons from its actions
   - `categories`, `energy_types`, `direct_values` and `direct_tags` are comma-joined names, so match one with `LIKE '%Health%'`
   - `series_id` is the whole repeat series of one card; a card that never repeated is its own series
   - the checks on a card are `ai_checks WHERE card_id = <id>`""",

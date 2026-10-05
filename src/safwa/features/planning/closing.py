@@ -186,7 +186,7 @@ async def sprint_closing(
     ]
     blocked = 0
     if open_ids:
-        blocked_ids = set(await session.scalars(select(Card.id).where(Card.id.in_(open_ids), Card.blocked.is_(True))))
+        blocked_ids = set(await session.scalars(select(Card.id).where(Card.id.in_(open_ids), Card.blocked_description != "")))
         blocked = sum(item.quantity for item in commitments if item.card_id in blocked_ids)
     held = [item for item in commitments if item.removed_at is None]
     key = [item for item in held if item.key_action]

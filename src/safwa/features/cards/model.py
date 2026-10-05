@@ -11,7 +11,6 @@ from datetime import date, datetime
 from enum import StrEnum
 
 from sqlalchemy import (
-    Boolean,
     Date,
     Float,
     ForeignKey,
@@ -145,7 +144,8 @@ class Card(Base, TimestampMixin):
     schedule_record: Mapped["ScheduleDefinition | None"] = relationship(  # noqa: F821, UP037
         "ScheduleDefinition", lazy="joined"
     )
-    blocked: Mapped[bool] = mapped_column(Boolean, default=False)
+    # What blocks an Action, in the owner's words; empty when nothing does. A Goal and a
+    # Subgoal keep it empty: only an Action is ever blocked.
     blocked_description: Mapped[str] = mapped_column(Text, default="")
     effort_points: Mapped[float | None] = mapped_column(Float)
     # The minutes the owner says an Action took; on a Goal and a Subgoal, the sum below it.
@@ -175,6 +175,10 @@ class Card(Base, TimestampMixin):
     __table_args__ = (
         Index("ix_cards_live_sort", "effective_stage", "period_start", "priority", "created_at"),
     )
+
+    @property
+    def blocked(self) -> bool:
+        return bool(self.blocked_description)
 
     @property
     def scheduled_at(self) -> datetime | None:

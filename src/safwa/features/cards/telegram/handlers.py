@@ -186,31 +186,26 @@ async def _on_set_field(context: CallbackContext) -> None:
 
 
 async def _on_toggle_field(context: CallbackContext) -> None:
-    field = context.payload["field"]
-    blocked_prompt: tuple[int, str, dict[str, Any]] | None = None
+    """🚧 Blocked: a blocked Action is unblocked, and any other is asked its reason first,
+    because the reason is what blocks it."""
+    blocked_prompt: tuple[int, dict[str, Any]] | None = None
     async with context.sessions() as session:
         card = await session.get(Card, context.payload["id"])
         if card is None:
             raise DomainError("Card does not exist")
-        if field == "blocked" and not card.blocked:
-            # Blocking always needs a reason, so ask for it before writing anything.
-            back_state = await card_editor_back_state(session, context.owner_id)
-            blocked_prompt = (card.id, str(card.blocked_description or ""), back_state)
-        else:
-            await update_card_fields(
-                session,
-                card.id,
-                {field: not bool(getattr(card, field))},
-            )
+        if card.blocked:
+            await update_card_fields(session, card.id, {"blocked_description": ""})
             await session.commit()
+        else:
+            blocked_prompt = (card.id, await card_editor_back_state(session, context.owner_id))
     if blocked_prompt is not None:
-        card_id, current, back_state = blocked_prompt
+        card_id, back_state = blocked_prompt
         await render_text_input(
             context.message,
             context.services,
             screen=TextInputScreen(
                 title="Mark Card as blocked",
-                current_value=current,
+                current_value="",
                 instruction="Describe what is blocking it.",
                 back_action="card_view",
                 back_payload={"id": card_id, "back": back_state, "full": True},

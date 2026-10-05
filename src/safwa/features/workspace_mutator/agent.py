@@ -37,7 +37,7 @@ propose against them.
 # Cards
 - `goal` is created root-level. Give an existing Goal a Goal `parent_id` and it becomes a `subgoal`.
 - `subgoal` is always under a Goal. `action` is root or under a Goal or Subgoal and has no children.
-- Only an Action carries a live stage, effort, time and blocked. A Goal and a Subgoal derive these from their children.
+- Only an Action carries a stage, effort, time and blocked. A Goal and a Subgoal show the stage, effort and time of the Cards under them.
 - An Action's `schedule` is when it repeats or happens. A Goal's or Subgoal's `schedule` is its deadline.
 - Complete a Goal or Subgoal only when the user asks and all its Actions are Done. Finishing Actions never closes a parent.
 - Reopen a Goal or Subgoal with `reopen`, omitting stage. An open Action automatically reopens its closed parents.

@@ -68,7 +68,6 @@ def test_tool_inputs_drop_incidental_null_placeholders_from_every_mutation():
             "stage": "backlog",
             "priority": "medium",
             "schedule": None,
-            "blocked": False,
             "blocked_description": None,
             "effort_points": 1,
             "categories": ["growth"],
@@ -92,7 +91,6 @@ def test_tool_inputs_drop_incidental_null_placeholders_from_every_mutation():
         "title": "Do twenty pull-ups",
         "stage": "backlog",
         "priority": "medium",
-        "blocked": False,
         "effort_points": 1,
         "categories": ["growth"],
         "energy_types": ["physical"],
@@ -395,8 +393,8 @@ def _runner_over_cards(tmp_path, count: int, note: str = "", **caps):
         for index in range(count):
             connection.exec_driver_sql(
                 "INSERT INTO cards(id,kind,title,note,manual_stage,effective_stage,priority,"
-                "blocked,blocked_description,version,created_at,"
-                "updated_at) VALUES (?,'action',?,?,'backlog','backlog','medium',0,'',1,"
+                "blocked_description,version,created_at,"
+                "updated_at) VALUES (?,'action',?,?,'backlog','backlog','medium','',1,"
                 "CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
                 (index + 1, f"Card {index:03d}", note),
             )

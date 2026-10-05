@@ -111,7 +111,7 @@ async def test_ob_tip_003_the_tip_is_its_own_block_and_the_blocker_is_still_aske
     async with e2e_harness.sessions() as session:
         card = await create_card(
             session, kind="action", title="Call the bank", effort_points=1,
-            blocked=True, blocked_description="Line is busy",
+            blocked_description="Line is busy",
         )
         await session.commit()
     blocker = await REGISTRY.hooks.prepare(e2e_harness.sessions, BLOCKER_HOOK.name, [card.id])

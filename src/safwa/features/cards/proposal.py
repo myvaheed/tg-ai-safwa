@@ -71,7 +71,6 @@ ACTION_ONLY_FIELDS = (
     "tracked_mins",
     "categories",
     "energy_types",
-    "blocked",
     "blocked_description",
 )
 
@@ -83,7 +82,6 @@ CARD_SCALAR_FIELDS = frozenset(
         "priority",
         "schedule",
         "schedule_rule",
-        "blocked",
         "blocked_description",
         "effort_points",
         "tracked_mins",
@@ -387,8 +385,7 @@ class CardProposalHandler:
                 priority=values.get("priority", "medium"),
                 schedule=values.get("schedule"),
                 schedule_rule=values.get("schedule_rule"),
-                blocked=bool(values.get("blocked", False)),
-                blocked_description=values.get("blocked_description", ""),
+                blocked_description=values.get("blocked_description") or "",
                 effort_points=values.get("effort_points"),
                 parent_id=(
                     int(values["parent_id"]) if values.get("parent_id") is not None else None

@@ -80,7 +80,6 @@ async def test_card_note_input_updates_same_creation_message(sessions) -> None:
                     "stage": "backlog",
                     "priority": "medium",
                     "schedule": None,
-                    "blocked": False,
                     "blocked_description": "",
                     "effort_points": 2,
                     "categories": [],
@@ -261,7 +260,6 @@ async def test_moving_a_blocked_card_shows_its_warning_on_the_card_screen(sessio
             title="Waiting",
             stage="today",
             effort_points=2,
-            blocked=True,
             blocked_description="Need account access",
         )
         await session.commit()
@@ -457,6 +455,68 @@ async def test_card_text_and_blocked_reason_stay_on_one_validated_editor(session
         assert (card.blocked, card.blocked_description) == (True, "Waiting for API access")
     assert "Waiting for API access" in message.bot.edits[-1][1]
 
+    # The same control unblocks, and the reason goes with it.
+    unblock_button = next(
+        button
+        for row in message.bot.edits[-1][2].inline_keyboard
+        for button in row
+        if button.text == "🚧 Blocked"
+    )
+    await callback_token_handler(
+        FakeCallback(unblock_button.callback_data.split(":", 1)[1], message), services
+    )
+    async with sessions() as session:
+        card = await session.get(Card, card_id)
+        assert (card.blocked, card.blocked_description) == (False, "")
+
+
+async def test_cd_blocked_010_a_draft_is_blocked_by_its_reason(sessions) -> None:
+    """CD-BLOCKED-010 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        session.add(
+            UiSession(
+                owner_id=42,
+                kind="card_create",
+                state={"kind": "action", "title": "Call the bank"},
+                expires_at=datetime.now(UTC).replace(year=2030),
+            )
+        )
+        await session.commit()
+
+    services = services_for(sessions)
+    message = FakeMessage(60, bot_message=True)
+    await render_card_creation(message, services)
+
+    def blocked_button(markup):
+        return next(
+            button for row in markup.inline_keyboard for button in row if button.text == "🚧 Blocked"
+        )
+
+    # The reason is asked for first, and a blank one is refused.
+    await callback_token_handler(
+        FakeCallback(blocked_button(message.edits[-1][1]).callback_data.split(":", 1)[1], message),
+        services,
+    )
+    assert "Blocked Description" in message.bot.edits[-1][1]
+    await ordinary_text(FakeMessage(61, text=" ", bot_message=False, bot=message.bot), services)
+    assert "Blocked description cannot be empty" in message.bot.edits[-1][1]
+
+    await ordinary_text(
+        FakeMessage(62, text="Line is busy", bot_message=False, bot=message.bot), services
+    )
+    assert "Blocked description: Line is busy" in message.bot.edits[-1][1]
+
+    # Pressed again, it takes the reason away.
+    await callback_token_handler(
+        FakeCallback(
+            blocked_button(message.bot.edits[-1][2]).callback_data.split(":", 1)[1], message
+        ),
+        services,
+    )
+    async with sessions() as session:
+        draft = await session.scalar(select(UiSession).where(UiSession.kind == "card_create"))
+        assert draft.state["blocked_description"] == ""
+
 
 async def test_cd_tree_005_no_screen_can_change_a_cards_parent(sessions) -> None:
     """CD-TREE-005 — tests/brd/cards.feature"""
@@ -519,7 +579,7 @@ async def test_cd_field_007_a_goal_draft_is_not_offered_an_actions_controls(sess
         editor = UiSession(
             owner_id=42,
             kind="card_create",
-            state={"kind": "action", "title": "Run", "effort_points": 2, "blocked": False},
+            state={"kind": "action", "title": "Run", "effort_points": 2, "blocked_description": ""},
             expires_at=datetime.now(UTC).replace(year=2030),
         )
         session.add(editor)
@@ -531,7 +591,7 @@ async def test_cd_field_007_a_goal_draft_is_not_offered_an_actions_controls(sess
 
     async with sessions() as session:
         stored = await session.get(UiSession, editor.id)
-        stored.state = {**stored.state, "kind": "goal", "blocked": True}
+        stored.state = {**stored.state, "kind": "goal", "blocked_description": "Waiting"}
         await session.commit()
 
     goal_message = FakeMessage(54, bot_message=True)
@@ -543,7 +603,7 @@ async def test_cd_field_007_a_goal_draft_is_not_offered_an_actions_controls(sess
 
     async with goal_sessions() as session:
         stored = await session.get(UiSession, editor.id)
-        assert stored.state["blocked"] is False
+        assert stored.state["blocked_description"] == ""
 
 
 async def test_cd_effort_008_save_accepts_no_estimate_and_refuses_an_invalid_one(sessions) -> None:
@@ -750,32 +810,34 @@ async def test_no_screen_offers_a_goal_or_a_subgoal_a_stage_control(sessions) ->
     assert "📍 Stage" not in button_texts(goal_message.edits[-1][1])
 
 
-async def test_a_goal_screen_names_each_blocked_action_and_quotes_its_reason(sessions) -> None:
-    """CD-BLOCKED-019 — tests/brd/cards.feature"""
+async def test_cd_blocked_018_a_goal_screen_never_reads_as_blocked(sessions) -> None:
+    """CD-BLOCKED-018 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
-        await create_card(
+        action = await create_card(
             session,
             kind="action",
             title="Buy a pillow",
             effort_points=2,
             parent_id=goal.id,
-            blocked=True,
             blocked_description="Shop is shut",
         )
         await session.commit()
-        goal_id = goal.id
+        goal_id, action_id = goal.id, action.id
 
     services = services_for(sessions)
     message = FakeMessage(330, bot_message=True)
     await render_card(message, services, goal_id, full=True)
 
     text = message.edits[-1][0]
-    assert "Blocked: Yes" in text
-    assert "Blocked by Buy a pillow: Shop is shut" in text
-    # A Goal has no reason of its own, so nothing asks for one.
-    assert "Blocked description" not in text
+    assert "Blocked" not in text
+    assert "Shop is shut" not in text
     assert "🚧 Blocked" not in button_texts(message.edits[-1][1])
+
+    # The Action under it shows its own warning.
+    action_message = FakeMessage(331, bot_message=True)
+    await render_card(action_message, services, action_id, full=True)
+    assert "Blocked description: Shop is shut" in action_message.edits[-1][0]
 
 
 async def test_cd_archive_027_an_archived_card_reads_as_archived(sessions) -> None:
@@ -939,7 +1001,6 @@ async def test_cd_view_031_a_card_opens_compact_with_full_editing_one_button_awa
             title="Run",
             effort_points=2,
             parent_id=goal.id,
-            blocked=True,
             blocked_description="Rain",
         )
         await session.commit()

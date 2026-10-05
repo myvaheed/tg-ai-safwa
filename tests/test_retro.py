@@ -82,7 +82,7 @@ async def test_rt_stats_003_the_retro_adds_the_sprint_up_from_its_record(session
         await move_card(session, dropped.id, CardStage.BACKLOG)
         await finish_action(session, shipped.id)
         await update_card_fields(
-            session, stuck.id, {"blocked": True, "blocked_description": "Waiting"}
+            session, stuck.id, {"blocked_description": "Waiting"}
         )
         # A repeating Check on a Value, answered three times while the Sprint ran; one on
         # no Value, answered too.
@@ -117,7 +117,7 @@ async def test_rt_stats_003_the_retro_adds_the_sprint_up_from_its_record(session
     # Written down as the Sprint ended: what happens to its Actions and Checks afterwards
     # changes nothing on the screen.
     async with sessions() as session:
-        await update_card_fields(session, stuck.id, {"blocked": False})
+        await update_card_fields(session, stuck.id, {"blocked_description": ""})
         await delete_subtree(session, joined.id)
         await toggle_check_value(session, live.id, health.id)
         await session.commit()

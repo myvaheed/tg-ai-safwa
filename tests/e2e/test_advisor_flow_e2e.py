@@ -50,7 +50,6 @@ async def test_placeholder_heavy_card_tool_payload_stays_a_root_action(e2e_harne
                 "stage": "backlog",
                 "priority": "medium",
                 "schedule": None,
-                "blocked": False,
                 "blocked_description": "",
                 "effort_points": 1,
                 "categories": ["growth"],

@@ -145,26 +145,13 @@ def card_overview_text(
         if state.get("schedule_summary"):
             lines.append(html.escape(state["schedule_summary"]))
     if not compact:
-        lines.extend(
-            [
-                f"Priority: {html.escape(str(state.get('priority') or 'medium').title())}",
-                f"Blocked: {'Yes' if state.get('blocked') else 'No'}",
-            ]
-        )
-    if state.get("blocked") and not compact:
-        # A Goal and a Subgoal read as blocked for the Actions under them, and each of those
-        # gave its own reason, so the screen quotes them instead of inventing one.
-        blocking = state.get("blocking_actions") or []
-        if blocking:
-            lines.extend(
-                f"Blocked by {html.escape(str(title))}: {html.escape(str(reason))}"
-                for title, reason in blocking
-            )
-        else:
-            lines.append(
-                "Blocked description: "
-                + html.escape(str(state.get("blocked_description") or "Required"))
-            )
+        lines.append(f"Priority: {html.escape(str(state.get('priority') or 'medium').title())}")
+    # Only an Action is ever blocked, and its reason is what blocks it.
+    if kind == CardKind.ACTION.value and not compact:
+        reason = str(state.get("blocked_description") or "")
+        lines.append(f"Blocked: {'Yes' if reason else 'No'}")
+        if reason:
+            lines.append(f"Blocked description: {html.escape(reason)}")
     if kind == CardKind.ACTION.value:
         if effort_tracking:
             lines.append(f"Effort: {effort_label(state.get('effort_points'))}")

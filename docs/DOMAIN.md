@@ -44,18 +44,19 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
 - A Goal and a Subgoal show what their **direct children** add up to. Each child already carries its
   own derived values, so the recursion reaches the Actions, and a child that never started still
   counts: a Subgoal with nothing in it is in Backlog and holds its Goal there.
-- `propagate_ancestors` is the one walk that writes it, into the plain `effective_stage`, `blocked`,
+- `propagate_ancestors` is the one walk that writes it, into the plain `effective_stage`,
   `effort_points`, `tracked_mins` and `archived_at` columns, so Safwa reads one column that means
   the same thing on every row. Every path that changes an Action ends there.
 - An open parent with no live child shows Backlog. Done requires explicit completion after
   all its Actions are finished; completing a parent never completes another Card. Finishing
   the last Action queues an Advisor question about closing each open parent or adding an Action.
-  A new or reopened Action reopens closed ancestors and resets their Checks. A parent has no
-  `blocked_description` of its own. Summing `effort_points` or `tracked_mins` over every row counts
-  each Action again inside every ancestor — a real total says `WHERE kind = 'action'`.
-- `ai_cards` exposes blocking through `blocked_description` alone: NULL means unblocked;
-  a blocked Action carries its reason, and a blocked Goal or Subgoal carries an empty string.
-  Filter blocked Cards with `blocked_description IS NOT NULL`.
+  A new or reopened Action reopens closed ancestors and resets their Checks. Summing
+  `effort_points` or `tracked_mins` over every row counts each Action again inside every
+  ancestor — a real total says `WHERE kind = 'action'`.
+- Only an Action is blocked, and it is blocked exactly while its `blocked_description` holds a
+  reason; `Card.blocked` reads that. A Goal and a Subgoal are never blocked and derive nothing
+  from blocked Actions under them. `ai_cards` shows an empty reason as NULL, so blocked Actions
+  are `blocked_description IS NOT NULL`.
 - `manual_stage` is what the user set on an Action, or explicit Done on a parent; `effective_stage` is what
   dashboards and queries read.
 - Effort is optional for Actions and restricted to `EFFORT_POINTS` when supplied; the `Literal` in

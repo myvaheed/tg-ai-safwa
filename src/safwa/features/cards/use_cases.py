@@ -72,12 +72,11 @@ from .model import (
     effort_label,
 )
 
-# The fields an Action alone carries. On a Goal and a Subgoal three of them are derived, so
+# The fields an Action alone carries. On a Goal and a Subgoal two of them are derived, so
 # nothing outside `propagate_ancestors` may write one.
 ACTION_ONLY_FIELDS = (
     "effort_points",
     "tracked_mins",
-    "blocked",
     "blocked_description",
 )
 
@@ -100,7 +99,6 @@ async def create_card(
     priority: Priority | str = Priority.MEDIUM,
     schedule: str | None = None,
     schedule_rule: dict[str, Any] | None = None,
-    blocked: bool = False,
     blocked_description: str = "",
     effort_points: float | None = None,
     parent_id: int | None = None,
@@ -114,7 +112,7 @@ async def create_card(
     """Create one reviewed Card through the same domain boundary used by UI and AI.
 
     A Goal's or Subgoal's Schedule is its Deadline. `schedule_rule` is the rule the
-    Scheduler read `schedule` as.
+    Scheduler read `schedule` as. An Action with a `blocked_description` is blocked.
     """
     card_kind = CardKind(kind)
     card_stage = CardStage(stage)
@@ -132,18 +130,10 @@ async def create_card(
         # branch is in, so anything asked for here is dropped rather than refused.
         card_stage = CardStage.BACKLOG
         effort_points = None
-        blocked = False
         clean_description = ""
         category_values.clear()
         energy_values.clear()
-    validate_action_fields(
-        card_kind,
-        effort_points,
-        category_values,
-        energy_values,
-        blocked=blocked,
-    )
-    validate_blocked_fields(blocked, clean_description)
+    validate_action_fields(card_kind, effort_points, category_values, energy_values)
     await validate_parent(session, card_kind, parent_id)
 
     if (loose := await unlinkable_value_id(session, value_ids or set())) is not None:
@@ -167,8 +157,7 @@ async def create_card(
         manual_stage=card_stage.value,
         effective_stage=card_stage.value,
         priority=card_priority.value,
-        blocked=blocked,
-        blocked_description=clean_description if blocked else "",
+        blocked_description=clean_description,
         effort_points=effort_points,
     )
     session.add(card)
@@ -196,8 +185,8 @@ async def create_card(
 
 
 async def edit_card_text(session: AsyncSession, card_id: int, field: str, value: str) -> Card:
-    if field not in {"title", "note", "blocked_description"}:
-        raise DomainError("Only a Card title, Note or blocked description can be edited as text")
+    if field not in {"title", "note"}:
+        raise DomainError("Only a Card title or Note can be edited as text")
     card = await session.get(Card, card_id)
     if card is None or card.archived_at is not None:
         raise DomainError("Card does not exist or is archived")
@@ -206,9 +195,6 @@ async def edit_card_text(session: AsyncSession, card_id: int, field: str, value:
         raise DomainError("Card title cannot be empty")
     before = snapshot(card)
     setattr(card, field, normalized)
-    if not card.blocked:
-        card.blocked_description = ""
-    validate_blocked_fields(card.blocked, card.blocked_description)
     card.version += 1
     await record_card_event(session, card, f"edit_{field}", ActorType.USER_UI, before)
     await follow_remind(session, card)
@@ -250,7 +236,8 @@ async def update_card_fields(
 ) -> Card:
     """Apply validated editable Card fields through the domain/audit boundary.
 
-    `schedule` comes with `schedule_rule`, the rule the Scheduler read it as."""
+    `schedule` comes with `schedule_rule`, the rule the Scheduler read it as. A
+    `blocked_description` blocks an Action, and an empty one unblocks it."""
     card = await session.get(Card, card_id)
     if card is None or card.archived_at is not None:
         raise DomainError("Card does not exist or is archived")
@@ -260,7 +247,6 @@ async def update_card_fields(
         "priority",
         "schedule",
         "schedule_rule",
-        "blocked",
         "blocked_description",
         "effort_points",
         "tracked_mins",
@@ -269,17 +255,17 @@ async def update_card_fields(
     if unknown:
         raise DomainError("Unsupported Card fields: " + ", ".join(sorted(unknown)))
     if card.kind != CardKind.ACTION.value:
-        # `blocked`, `effort_points` and `tracked_mins` on a parent are derived values this
-        # walk writes; a caller that set one by hand would be overwritten at the next Action
-        # change.
+        # `effort_points` and `tracked_mins` on a parent are derived values this walk
+        # writes, and a parent is never blocked; a caller that set one by hand would be
+        # overwritten at the next Action change.
         for name in ACTION_ONLY_FIELDS:
             fields.pop(name, None)
         if not fields:
             raise DomainError("Goal and Subgoal cards cannot have Action-only fields")
     before = snapshot(card)
     for name, value in fields.items():
-        if name in {"title", "note"}:
-            value = str(value).strip()
+        if name in {"title", "note", "blocked_description"}:
+            value = str(value or "").strip()
         if name == "title" and not value:
             raise DomainError("Card title cannot be empty")
         if name == "priority":
@@ -291,15 +277,12 @@ async def update_card_fields(
             continue
         setattr(card, name, value)
     if card.kind == CardKind.ACTION.value:
-        validate_action_fields(card.kind, card.effort_points, blocked=card.blocked)
+        validate_action_fields(card.kind, card.effort_points)
         validate_tracked_mins(card.tracked_mins)
-        if not card.blocked:
-            card.blocked_description = ""
-        validate_blocked_fields(card.blocked, card.blocked_description)
     card.version += 1
     await record_card_event(session, card, UPDATE, actor, before)
     await follow_remind(session, card, actor=actor)
-    if card.blocked and not before["blocked"]:
+    if card.blocked and not before["blocked_description"]:
         record_change(session, CARD_BLOCKED, card.id)
     await propagate_ancestors(session, card.parent_id)
     await bump_workspace(session)
@@ -522,8 +505,6 @@ def validate_action_fields(
     effort_points: float | None,
     categories: set[str] | None = None,
     energy_types: set[str] | None = None,
-    *,
-    blocked: bool = False,
 ) -> None:
     kind = CardKind(kind)
     if kind is CardKind.ACTION:
@@ -533,7 +514,7 @@ def validate_action_fields(
                 + ", ".join(effort_label(rung) for rung in sorted(EFFORT_POINTS))
             )
         return
-    if effort_points is not None or categories or energy_types or blocked:
+    if effort_points is not None or categories or energy_types:
         raise DomainError("Goal and Subgoal cards cannot have Action-only fields")
 
 
@@ -545,11 +526,6 @@ def validate_tracked_mins(minutes: int | None) -> None:
         raise DomainError("The time an Action took is a whole number of minutes")
     if not 1 <= minutes <= TRACKED_MINS_MAX:
         raise DomainError(f"The time an Action took is 1 to {TRACKED_MINS_MAX} minutes")
-
-
-def validate_blocked_fields(blocked: bool, description: str | None) -> None:
-    if blocked and not (description or "").strip():
-        raise DomainError("A blocked Card needs a blocked description")
 
 
 # The changes a hook may follow up on: a Card was created, an Action became blocked, entered
@@ -660,7 +636,6 @@ async def _copy_repeat_successor(
         schedule=card.schedule,
         schedule_record=card.schedule_record,
         period_start=slot,
-        blocked=card.blocked,
         blocked_description=card.blocked_description,
         effort_points=card.effort_points,
         repeat_series_id=series_id,

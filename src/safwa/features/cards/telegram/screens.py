@@ -27,7 +27,7 @@ from ...profile.api import effort_tracking_on, time_tracking_on
 from ...schedules.api import schedule_summary
 from ...tags.model import CardTag, Tag
 from ...values.model import CardValue, Value
-from ..hierarchy import blocking_actions, card_progress
+from ..hierarchy import card_progress
 from ..model import Card, CardCategory, CardEnergyType, CardKind, CardStage
 from .presentation import card_overview_text, card_title_marks
 
@@ -350,10 +350,6 @@ async def render_card(
         progress: dict[str, Any] = {}
         if card.kind != CardKind.ACTION.value:
             progress = dict(await card_progress(session, card.id))
-            progress["blocking_actions"] = [
-                (action.title, action.blocked_description)
-                for action in await blocking_actions(session, card.id)
-            ]
         workspace = await session.get(Workspace, 1)
         tz = ZoneInfo(workspace.timezone if workspace else "UTC")
         card_marks = await card_title_marks(session, card)
@@ -375,7 +371,6 @@ async def render_card(
                 "priority": card.priority,
                 "schedule": card.schedule,
                 "schedule_summary": summary,
-                "blocked": card.blocked,
                 "blocked_description": card.blocked_description,
                 "effort_points": card.effort_points,
                 "tracked_mins": card.tracked_mins,

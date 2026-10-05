@@ -161,7 +161,7 @@ async def blocker_request(session: AsyncSession, items: Sequence[int]) -> str | 
             select(Card)
             .where(
                 Card.id.in_([int(item) for item in items]),
-                Card.blocked.is_(True),
+                Card.blocked_description != "",
                 Card.archived_at.is_(None),
                 Card.effective_stage.not_in([stage.value for stage in TERMINAL_STAGES]),
             )

@@ -52,7 +52,6 @@ CARD_DETAIL_FIELDS = (
     "stage",
     "priority",
     "schedule",
-    "blocked",
     "blocked_description",
     "effort_points",
     "tracked_mins",
@@ -82,7 +81,6 @@ def normalized_card_details(values: dict[str, Any], *, creating: bool) -> dict[s
         fields.setdefault("note", "")
         fields.setdefault("priority", "medium")
         fields.setdefault("schedule", None)
-        fields.setdefault("blocked", False)
         if fields.get("kind") == CardKind.ACTION.value:
             fields.setdefault("categories", [])
             fields.setdefault("energy_types", [])
@@ -110,7 +108,6 @@ async def _card_detail_snapshot(session: AsyncSession, card: Card) -> dict[str, 
         "stage": card.effective_stage,
         "priority": card.priority,
         "schedule": card.schedule,
-        "blocked": card.blocked,
         "blocked_description": card.blocked_description,
         "effort_points": card.effort_points,
         "tracked_mins": card.tracked_mins,
@@ -158,7 +155,6 @@ async def _card_states(
                 "stage": card.effective_stage,
                 "priority": card.priority,
                 "schedule": card.schedule,
-                "blocked": card.blocked,
                 "blocked_description": card.blocked_description,
                 "effort_points": card.effort_points,
                 "tracked_mins": card.tracked_mins,
@@ -269,7 +265,6 @@ async def _card_diffs(
         "schedule": "Schedule"
         if (proposed.get("kind") or current.get("kind")) == CardKind.ACTION.value
         else "Deadline",
-        "blocked": "Blocked",
         "blocked_description": "Blocked Description",
         "effort_points": "Effort",
         "tracked_mins": "Time spent",
@@ -387,7 +382,7 @@ class CardProposalPresenter:
             if values.get("schedule"):
                 label = "Schedule" if kind == CardKind.ACTION.value else "Deadline"
                 parts.append(f"{label} {values['schedule']}")
-            if values.get("blocked"):
+            if values.get("blocked_description"):
                 parts.append("Blocked")
             parts.extend(await reference_groups(session, values, CARD_REFERENCE_SPECS))
         elif action in {ChangeAction.MOVE, ChangeAction.REOPEN} and values.get("stage"):

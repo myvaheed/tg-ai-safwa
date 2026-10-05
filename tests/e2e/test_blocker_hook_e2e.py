@@ -54,7 +54,7 @@ async def test_cd_blocked_034_a_blocker_saved_by_proposal_or_by_hand_is_one_requ
             route_turn("workspace_mutator"),
             mutation_turn(("card", {
                 "mode": "update", "id": card_id,
-                "blocked": True, "blocked_description": "Line is busy",
+                "blocked_description": "Line is busy",
             })),
             "Marked as blocked.",
         ]
@@ -76,12 +76,12 @@ async def test_cd_blocked_034_a_blocker_saved_by_proposal_or_by_hand_is_one_requ
     async with e2e_harness.sessions() as session:
         second = await create_card(
             session, kind="action", title="Sign the lease", effort_points=1,
-            blocked=True, blocked_description="Landlord away",
+            blocked_description="Landlord away",
         )
         await session.commit()
         second_id = second.id
     async with e2e_harness.sessions() as session:
-        await update_card_fields(session, card_id, {"blocked": False})
+        await update_card_fields(session, card_id, {"blocked_description": ""})
         await session.commit()
     await sink.drain()
     assert await _pending(e2e_harness) == [

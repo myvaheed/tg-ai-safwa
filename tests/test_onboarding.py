@@ -407,7 +407,7 @@ async def test_ob_tip_003_a_tip_and_a_blocker_are_one_request_both_asked(session
     async with sessions() as session:
         card = await create_card(
             session, kind="action", title="Call the bank", effort_points=1,
-            blocked=True, blocked_description="Line is busy",
+            blocked_description="Line is busy",
         )
         await add_hook_cue(session, hook=BLOCKER_HOOK.name, items=[card.id])
         await add_hook_cue(session, hook=ONBOARDING_HOOK.name, items=[["card.created", card.id]])
@@ -458,7 +458,7 @@ async def test_ob_tip_009_a_tip_alone_passes_after_a_minute_and_beside_a_blocker
         async with sessions() as session:
             card = await create_card(
                 session, kind="action", title="Call the bank", effort_points=1,
-                blocked=True, blocked_description="Line is busy",
+                blocked_description="Line is busy",
             )
             for hook in hooks:
                 items = [card.id] if hook is BLOCKER_HOOK else [["card.created", card.id]]

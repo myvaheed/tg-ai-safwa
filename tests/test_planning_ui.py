@@ -50,15 +50,15 @@ async def test_pl_screen_028_sprint_selectors_redraw_only_the_chosen_list(sessio
         await finish_action(session, old.id)
         await create_card(
             session, kind="action", title="Blocked Backlog", effort_points=1,
-            blocked=True, blocked_description="Not selected",
+            blocked_description="Not selected",
         )
         remaining = await create_card(
             session, kind="action", title="Review <draft>", stage="sprint", effort_points=3,
-            blocked=True, blocked_description="Waiting for <approval>",
+            blocked_description="Waiting for <approval>",
         )
         await create_card(
             session, kind="action", title="Today work", stage="today", effort_points=2,
-            blocked=True, blocked_description="Waiting for feedback",
+            blocked_description="Waiting for feedback",
         )
         done = await create_card(
             session, kind="action", title="Current result", stage="sprint", effort_points=1,
@@ -132,7 +132,7 @@ async def test_pl_screen_029_sprint_paging_keeps_the_list_and_switching_resets_i
         for index in range(PAGE_SIZE + 1):
             await create_card(
                 session, kind="action", title=f"Blocked step {index}", stage="sprint",
-                effort_points=1, blocked=True, blocked_description="Waiting",
+                effort_points=1, blocked_description="Waiting",
             )
         await start_sprint(session, success_criteria="Ship v2")
         await session.commit()

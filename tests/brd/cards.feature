@@ -58,7 +58,7 @@ Feature: Cards
 
   Scenario: CD-FIELD-007 — Effort, categories, energy and Blocked belong to an Action alone
     Given a Goal is being written, by hand or as a proposal
-    When effort, a category, an energy type, or Blocked is set on it
+    When effort, a category, an energy type, or a blocked reason is set on it
     Then the Goal is saved without them, rather than refused
     And the screens never offer those controls for a Goal or a Subgoal
     And the same holds for a Subgoal, and for a change to one that already exists
@@ -93,9 +93,10 @@ Feature: Cards
     And a title that was saved with spaces around it is stored without them
 
   Scenario: CD-BLOCKED-010 — A blocked Action has to say why, and unblocking takes the reason with it
-    Given an Action is marked blocked
-    When it is saved with no reason written
+    Given an Action is being marked blocked on its screen
+    When no reason is written
     Then it is refused, and the refusal says a blocked Action needs a reason
+    And an Action is blocked exactly while it has a reason: a proposal with an empty reason unblocks it
     When the same Action is later unblocked
     Then the reason goes with it, and the Action no longer shows a warning
 
@@ -158,21 +159,14 @@ Feature: Cards
     When anything tries to reopen it
     Then it is refused
 
-  Scenario: CD-BLOCKED-018 — Only an Action can be marked blocked
+  Scenario: CD-BLOCKED-018 — Only an Action can be blocked
     Given a Goal, a Subgoal and an Action
     When the Action is marked blocked, with a reason
     Then it is blocked, and the reason is the words that were given
     When anything tries to mark the Goal or the Subgoal blocked
     Then it is refused before anything is written, in a proposal and on a screen alike
     And no screen offers a Goal or a Subgoal a Blocked control
-
-  Scenario: CD-BLOCKED-019 — A Goal shows the blocked Actions under it
-    Given a Goal with a blocked Action somewhere underneath it
-    Then the Goal reads as blocked, on its screen and to Safwa alike
-    And its screen names each blocked Action and quotes the reason that Action gave
-    And the Goal itself has no reason of its own
-    When the Action is unblocked, finished, archived or deleted
-    Then the Goal stops reading as blocked
+    And a Goal or a Subgoal never reads as blocked, whatever is under it: each blocked Action shows its own warning
 
   Scenario: CD-BLOCKED-020 — Being blocked does not stop anything
     Given a blocked Action in Today

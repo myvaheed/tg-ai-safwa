@@ -519,7 +519,7 @@ PLAN_FEATURES.md целиком.
 Обсуждение после Advisor. Промпт — `MUTATOR_PROMPT`, мутационные тулы — `card`, `check`, `value`,
 `tag`, `request`, `reminder`, `remove`.
 
-### M1. Нет правила выбора типа — открыто
+### M1. Нет правила выбора типа — решено
 
 Различие Goal / Action / Value / Check описано только по структуре («goal is created
 root-level»). Единственный намёк на длительность спрятан в описании поля `effort_points`:
@@ -547,7 +547,14 @@ root-level»). Единственный намёк на длительность
 3. Просьба явная, но тип неясен («добавь бег»): Mutator выбирает тип по правилам, а ошибку ловит
    review screen, или переспрашивает? Рекомендую: выбирает по правилам.
 
-### M2. Тул `card`: 23 поля, 7 modes, 7.4K символов — открыто
+**Решено владельцем 2026-10-05.** Определения — как в черновике.
+
+1. Граница — частота: больше 5 раз в день — Check, не Action. `ACTION_DAILY_EXECUTIONS_MAX`
+   становится 5 вместо 10; SCH-LIMIT-015 меняется по слову владельца.
+2. «Напомни завтра в 9 позвонить маме» — Reminder.
+3. Тип неясен — Mutator выбирает сам, по правилам.
+
+### M2. Тул `card`: 23 поля, 7 modes, 7.4K символов — решено
 
 Ссылку можно задать тремя способами: `value_id`, `value_ids`, `value_query`; так же для Tag
 (`tag_id`, `tag_ids`, `tag_query`) и Check (`check_id`, `check_ids`, `check_query`). Родителя —
@@ -555,48 +562,433 @@ root-level»). Единственный намёк на длительность
 способа сказать одно и то же — источник ошибок. Кандидат: один список id на тип ссылки и один
 `parent_id`.
 
-### M3. У большинства полей `card` нет description — открыто
+**Обсуждение 2026-10-05.** Владелец: лучше по имени, чем по id, — универсальнее; так же для
+родителя. Убрать `done` из `stage` — решено (M5). `blocked`: v9.108 упростил только view
+`ai_cards` (`blocked_description` NULL — не заблокирована), тул и колонка Card остались вдвоём;
+в туле оставить одно `blocked_description`. Описания полей — только где смысл не виден из имени
+(M3). Открыто: ссылки «имя или id» в одном поле; `schedule` и Deadline — одно поле
+schedule_or_deadline или два.
+
+**Решено владельцем 2026-10-05.** Тул `card` делится на два: `goal` (Goal и Subgoal) и
+`action`. Views не делятся: `ai_cards` остаётся одним.
+
+- `goal`: `mode` (create, update, complete, reopen, link, unlink), `id`, `title`, `note`,
+  `priority`, `deadline`, `values`, `tags`, `checks`, `parent`. Поля вида нет: без `parent` —
+  Goal, с `parent` — Subgoal.
+- `action`: те же `mode` и `move`; `id`, `title`, `note`, `stage` (backlog, sprint, today — без
+  `done`), `priority`, `schedule`, `blocked_description` (текст блокирует, null снимает),
+  `effort_points`, `tracked_mins`, `categories`, `energy_types`, `values`, `tags`, `checks`,
+  `parent`.
+- Ссылки и родитель — одно поле на тип, каждый элемент — имя или id. SQL в поле родителя уходит.
+  Тул `check` получает то же поле `values`.
+- Описание типа из M1 — в описании каждого тула.
+- Проверки по виду Card в подготовке proposal, до которых из тулов больше не дойти, удаляются.
+- **Blocked — решено владельцем:** у Goal и Subgoal понятия blocked нет вовсе. Blocked бывает
+  только у Action и выводится из `blocked_description`: текст — заблокирована, пусто — нет.
+  Колонка `blocked` у Card удаляется (снапшот схемы, таблица `cards`); обход предков больше не
+  считает blocked родителя; экран Goal не перечисляет заблокированные Actions под ней — каждая
+  Action показывает свой ⛔ сама. Сценарии: CD-BLOCKED-019 выводится из обращения;
+  CD-BLOCKED-018 и CD-FIELD-007 переформулируются; строка `ai_cards` о пустом описании у
+  родителя уходит. Тул, экран и use cases принимают только `blocked_description`. Отдельный
+  батч перед батчем Mutator.
+
+### M3. У большинства полей `card` нет description — решено
 
 Без описания: `id`, `kind`, `title`, `note`, `stage`, `priority`, `blocked`,
 `blocked_description`, все поля ссылок с id. Модель угадывает смысл по имени.
 
-### M4. `check`: mode `cancel` означает Missed — открыто
+**Решено владельцем 2026-10-05:** описание пишется только там, где смысл не виден из имени.
+Для очевидных полей оно — шум.
+
+### M4. `check`: mode `cancel` означает Missed — решено
 
 `complete` — Passed, `cancel` — Missed. Имя `cancel` вводит в заблуждение: малая модель прочтёт
 его как «отменить» или «удалить». Кандидат: modes `passed` и `missed`.
 
-### M5. Два пути в Done — открыто
+**Решено владельцем 2026-10-05:** modes `passed` и `missed`.
+
+### M5. Два пути в Done — решено
 
 Card становится Done через `mode="complete"`, а также через `move` или `update` со
 `stage="done"`: подготовка proposal трактует их одинаково. Два пути — лишняя развилка. Кандидат:
 убрать `done` из enum поля `stage`, Done только через `complete`.
 
-### M6. Метафоры — открыто
+**Решено владельцем 2026-10-05:** `done` из `stage` убирается.
+
+### M6. Метафоры — решено
 
 «That ladder is how much they have committed, so never climb it for them.» Кандидат: «New Cards
 go to `backlog`. Use `sprint` or `today` only when the user says so.»
 
-### M7. Шаги «How a turn goes» спорят — открыто
+**Решено владельцем 2026-10-05:** принято.
+
+### M7. Шаги «How a turn goes» спорят — решено
 
 Шаг 2: «write your plan as text». Шаг 4: «Write one short sentence naming what you proposed, and
 nothing else». Текст рядом с вызовами тулов пользователю не идёт (см. A7), поэтому шаг 2 —
 только место для рассуждения модели. Нужно одно правило.
 
-### M8. Дубли — открыто
+**Уточнено 2026-10-05.** Шаги говорят о двух разных ответах, но промпт этого не называет. Шаг 2 —
+текст в том же ответе, что мутации; его требует хук `proposals.plan` (`PLAN_HOOK`): ответ с
+мутациями без текста возвращается модели. Шаг 4 — ответ после review, он идёт Advisor. Малая
+модель читает «write your plan» и «one sentence, nothing else» как правила одного ответа.
+Предложено: назвать каждый ответ — «with the mutation tools: one line naming what you will
+change»; «after the review: one short sentence naming what you proposed». Так же, как уже
+сказано в промптах Sprint и Profile.
+
+**Решено владельцем 2026-10-05:** принято.
+
+### M8. Дубли — решено
 
 Описание домена в Mutator повторяет Advisor (Cards, Checks, Inbox, Repeats), плюс своя копия
 каталога views. Каждая копия расходится со временем, а малой модели две формулировки одного
 правила мешают.
 
-### M9. Reminder против Action со Schedule против Check со Schedule — открыто
+**Предложено 2026-10-05.** Правила видов Card (Goal без родителя, Subgoal под Goal, что бывает
+только у Action, Deadline против Schedule) после разделения `card` переезжают в описания тулов
+`goal` и `action` — из промпта Mutator уходят. Определения M1 (Goal, Action, Value, Check) и
+метки повторов (` [🔄2, live #7]`, ` [📦]`) — один общий фрагмент, как каталог views: Advisor и
+Mutator получают одну формулировку. В Mutator остаётся только то, чего нет ни в схемах, ни во
+фрагменте: Backlog по умолчанию (M6), Effort Points вкл/выкл, Inbox, Reminders, порядок хода.
+
+**Решено владельцем 2026-10-05:** принято.
+
+### M9. Reminder против Action со Schedule против Check со Schedule — закрыто
 
 Три способа «чтобы что-то случилось в нужное время» без правила выбора. Связано с M1, вопрос 2.
 
-### M10. Отказ стоит лишнего чтения — открыто
+Закрыто решением M1: «напомни» — Reminder; больше 5 раз в день — Check; остальное — Action.
+
+### M10. Отказ стоит лишнего чтения — решено
 
 Первый ход Mutator обязан быть вызовом тула (AG-ANSWER-014). Строки «не моё» в промпте — Sprint,
 после Батча 1 ещё время Profile — значат, что модель сначала вызовет какой-нибудь тул чтения и
 только потом ответит словами. Для малой модели есть риск, что вынужденным тулом станет мутация.
+
+**Идея владельца 2026-10-05:** тул nothing_to_do(reason). Первый ход остаётся обязательным
+(`tool_choice="required"`), но у модели появляется честный вариант: «не моё» или «уже так».
+Вызов завершает сессию, `reason` возвращается Advisor как ответ сабагента. Строки «propose
+nothing and say so» в промптах становятся «call nothing_to_do». Тул — в shell, рядом с `route`
+и `forward`: его получает каждый сабагент, чей первый ход обязателен. Нужен новый сценарий AG.
+
+## Батч 3 — Blocked только у Action — сделано
+
+Решение M2 (Blocked). Идёт перед батчем Mutator: тул `card` в нём теряет одно поле, а батч 4
+его делит. Сделан 2026-10-05 по плану ниже; отличия — в «Как сделано».
+
+**Что.** Колонка `blocked` у Card уходит. Action заблокирована, пока у неё есть
+`blocked_description`; пустое описание — не заблокирована. У Goal и Subgoal blocked нет:
+обход предков его не считает, экран Goal не перечисляет заблокированные Actions под ней.
+
+**Критерий успеха.** В снапшоте схемы у `cards` нет `blocked`; в `hierarchy.py` нет blocked;
+CD-BLOCKED-010, CD-BLOCKED-018, CD-BLOCKED-020, CD-BLOCKED-034, CD-FIELD-007, список Blocked на
+экране Sprint и счёт blocked в retro проходят на новом признаке. CD-BLOCKED-019 выведен.
+
+**Модель.** `Card.blocked` становится свойством: есть ли описание. Два SQL-фильтра читают
+описание напрямую: хук Blocker follow-up (`hooks.py`) и итог Sprint (`closing.py`).
+
+**Операции** (`cards/use_cases.py`).
+
+- `create_card` и `update_card_fields` принимают только `blocked_description`: текст блокирует,
+  пустой снимает. У Goal и Subgoal поле отбрасывается, как effort (CD-FIELD-007).
+- `CARD_BLOCKED` пишется, когда описание было пустым и стало непустым. Сейчас — когда blocked
+  стал true; для хука это то же событие (CD-BLOCKED-034).
+- Проверка «заблокирована без причины» и аргумент `blocked` у `validate_action_fields`
+  удаляются: такого состояния больше нет.
+- Повтор Action копирует описание, как сейчас.
+
+**Иерархия.** `derived_from_children` и `propagate_ancestors` без blocked; функция перечня
+Actions, «из-за которых» родитель заблокирован, удаляется; строка, обнулявшая описание
+родителя, тоже.
+
+**View `ai_cards`.** Колонка `blocked_description` — описание или NULL, если оно пустое.
+Строка каталога «on a blocked goal or subgoal, `blocked_description` is an empty string; read
+reasons from its actions» уходит.
+
+**Тул `card`** (до батча 4). Поле `blocked` уходит. Описание `blocked_description`: «What blocks
+the Action, in the user's words. On update, null unblocks it.» Null и пустая строка снимают.
+Проверки «a blocked Card needs blocked_description» уходят; автоаппрув update и подсказка
+repair — без `blocked`.
+
+**Экраны.**
+
+- Card: «🚧 Blocked» у незаблокированной Action спрашивает причину, как сейчас; у
+  заблокированной — снимает причину. «📝 Blocked reason» правит её, как сейчас.
+- Создание Card: тот же приём. «🚧 Blocked» сразу открывает ввод причины, повторное нажатие её
+  снимает. Флаг `blocked` в черновике и строка «Required» уходят.
+- Goal и Subgoal: блок с перечнем заблокированных Actions уходит.
+- Review: строка «Blocked» уходит, остаётся строка с причиной.
+
+**Промпты.**
+
+- Advisor: «A Goal and a Subgoal show what the Cards under them add up to.» → «A Goal and a
+  Subgoal show the stage, effort and time of the Cards under them.»
+- Mutator: «Only an Action carries a live stage, effort, time and blocked. A Goal and a Subgoal
+  derive these from their children.» → «Only an Action carries a stage, effort, time and blocked.
+  A Goal and a Subgoal show the stage, effort and time of the Cards under them.» Батч 4 этот
+  раздел всё равно переписывает.
+
+**Сценарии.** CD-BLOCKED-019 выводится из обращения (решение владельца). Переформулировки:
+
+```gherkin
+Scenario: CD-BLOCKED-010 — A blocked Action has to say why, and unblocking takes the reason with it
+  Given an Action is being marked blocked on its screen
+  When no reason is written
+  Then it is refused, and the refusal says a blocked Action needs a reason
+  And an Action is blocked exactly while it has a reason: a proposal with an empty reason unblocks it
+  When the same Action is later unblocked
+  Then the reason goes with it, and the Action no longer shows a warning
+
+Scenario: CD-BLOCKED-018 — Only an Action can be blocked
+  Given a Goal, a Subgoal and an Action
+  When the Action is marked blocked, with a reason
+  Then it is blocked, and the reason is the words that were given
+  When anything tries to mark the Goal or the Subgoal blocked
+  Then it is refused before anything is written, in a proposal and on a screen alike
+  And no screen offers a Goal or a Subgoal a Blocked control
+  And a Goal or a Subgoal never reads as blocked, whatever is under it: each blocked Action shows its own warning
+```
+
+CD-FIELD-007: «Blocked» → «a blocked reason», исходы те же.
+
+**Тесты.** Около 90 мест в 16 файлах ставят или читают `blocked`: переводятся на описание.
+Тесты CD-BLOCKED-019 удаляются. Снапшоты: схема (`cards`), промпты (Advisor, Mutator, тул
+`card`, каталог views).
+
+**Доки.** DOMAIN.md: blocked в обходе предков и пустая строка у Goal.
+
+**Допущение.** Экран Goal не перечисляет заблокированные Actions: каждая Action показывает
+свой ⛔ сама.
+
+### Как сделано
+
+- **Модель и операции** — как в плане. Отличие: `edit_card_text` больше не правит причину.
+  Причину с экрана пишет `update_card_fields`, поэтому блокировка с экрана тоже даёт
+  `CARD_BLOCKED`.
+- **Экраны.** Экран Card: строки «Blocked» и «Blocked description» — только у Action; у Goal их
+  нет. В черновике «🚧 Blocked» ведёт на ввод причины, а при заданной причине — на новый
+  callback `card_create_unblock`; прежний переключатель черновика удалён.
+- **Review.** Квитанция создания пишет «Blocked», когда в proposal есть причина.
+- **Тесты.** Проверки CD-BLOCKED-019, что ещё имеют смысл, перешли в тесты CD-BLOCKED-018:
+  Goal и Subgoal не читаются как blocked ни в базе, ни в `ai_cards`, ни на экране; Action
+  показывает своё. Новый UI-тест CD-BLOCKED-010: черновик спрашивает причину, пустую
+  отказывает, повторное нажатие её снимает. Тест экрана Card дополнен снятием блокировки той же
+  кнопкой.
+
+## Батч 4 — Workspace Mutator: M1–M10 — план
+
+Все решения M1–M10 одним батчем, после батча 3.
+
+**Критерий успеха.** У Mutator нет тула `card`, есть `goal` и `action`. Ни в одном туле нет
+полей `*_id`, `*_ids`, `*_query` для ссылок. У `check` modes `passed` и `missed`. Ни в одном
+промпте нет «propose nothing and say so». Промпт Mutator короче на разделы Cards, Checks и
+Repeats. Новый сценарий AG проходит. Полный набор, Ruff и сканер чистые.
+
+### Тулы `goal` и `action` (M2, M3, M5)
+
+Оба пишут изменения сущности `card`: один обработчик `CardProposalHandler`, один экран review,
+views без изменений.
+
+- `goal`: mode create, update, complete, reopen, link, unlink; поля `id`, `title`, `note`,
+  `priority`, `deadline`, `values`, `tags`, `checks`, `parent`.
+- `action`: те же modes и move; поля `id`, `title`, `note`, `stage` (backlog, sprint, today),
+  `priority`, `schedule`, `blocked_description`, `effort_points`, `tracked_mins`, `categories`,
+  `energy_types`, `values`, `tags`, `checks`, `parent`.
+
+Описания — только где смысл не виден из имени:
+
+```text
+goal: Propose one Goal or Subgoal: a result that takes more than one day. With a Goal as `parent` it is a Subgoal.
+  mode: complete only when the user asks and all its Actions are Done. link and unlink take `values`, `tags` or `checks`, one per call. Deleting is the remove tool.
+  deadline: When it must be done, in the user's words: 'by 20 October'. Never invent a date. On update, null removes it.
+  parent: A Goal, by exact title or id.
+
+action: Propose one Action: work that fits in one day.
+  mode: move changes only `stage`. complete finishes it, with `tracked_mins` when the user said how long it took; its Goal stays open. reopen brings it back to `stage`, Backlog when omitted, and reopens its closed Goal and Subgoal. link and unlink take `values`, `tags` or `checks`, one per call. Deleting is the remove tool.
+  schedule: When it repeats or happens, in the user's words: 'once a week', 'three times a day', 'Tuesday at 15:00', 'after each completion'. Never invent a time. On update, null removes it.
+  blocked_description: What blocks it, in the user's words. On update, null unblocks it.
+  effort_points, tracked_mins: как сейчас, плюс: For a finished repeat ` [🔄2, live #7]`, send it with that instance's id.
+  categories, energy_types: как сейчас.
+  parent: A Goal or a Subgoal, by exact title or id. On update, null makes it root-level.
+
+goal и action:
+  values: Each an exact Value name or an id.
+  tags: Each an exact Tag name or an id.
+  checks: Each an exact Check title or an id. A Check with its own Schedule cannot be linked. A Check on another Card: unlink it there first.
+```
+
+**Как вызов становится изменением.**
+
+- `goal` с mode create: с `parent` — Subgoal, без — Goal. `deadline` пишется в Schedule карточки:
+  у Goal Schedule и есть Deadline, как сейчас.
+- Каждый вызов несёт вид, к которому обращается тул. Подготовка отказывает вызову на Card
+  другого вида до review: статус wrong_tool, «Card #5 is an Action.», hint «Call action with
+  this id.»
+- Регистрация: `action` — тул `ProposalContribution` Cards, `goal` — в `mutation_tools` модуля
+  Cards. Комментарий поля в `FeatureModule` расширяется: второй тул той же сущности.
+
+**Что удаляется из подготовки proposal.** До этих веток из тулов больше не дойти:
+
+- отказ «A Goal is created root-level» — Goal с родителем теперь Subgoal;
+- отказ для нового Subgoal без родителя; снятие родителя у Subgoal по-прежнему отказ;
+- отказ stage_is_action_only, отбрасывание полей Action у Goal, «Only an Action carries time spent»:
+  у `goal` таких полей нет, а `action` на Goal — wrong_tool;
+- пути в Done через `stage`: проверка Pending Checks остаётся только у complete, смена stage
+  идёт прямо в `move_card`;
+- SQL в родителе (см. ниже).
+
+### Ссылки «имя или id» (M2)
+
+Shell, `ReferenceSpec`: одно поле на тип — `values`, `tags`, `checks`. Элемент — число (id) или
+строка (точное имя; у Check — title), без учёта регистра; один элемент или список. Поля `*_id`,
+`*_ids`, `*_query` уходят. Отказы — как сейчас: не найдено, неоднозначно (hint: найти через
+`query_data` и повторить с id). `parent` — один элемент: id или точный title среди
+неархивных Cards. SQL в родителе уходит; `normalize_card_query` остаётся для Requests. Подписи
+review (`render.py`) читают новое поле. Подсказка Inbox в Tags: «Use action mode="unlink" with
+the Card id and tags=["Inbox"]».
+
+### `check` (M2, M4)
+
+- Modes `passed` и `missed` вместо complete и cancel. Тул переводит их в те же изменения.
+- `values` вместо трёх полей. Create, как сейчас, — без Values.
+- Описания:
+
+```text
+check: Propose one Check: a yes/no observation with no duration. Put it on a Card with `checks` of the goal or action tool.
+  mode: passed and missed answer it, only when the user said how it went. link and unlink take `values`. Deleting is the remove tool.
+  schedule: When it is asked on its own, in the user's words: 'every evening'. On update, null removes it. A Check with a Schedule stays off Cards.
+  values: Values it shows how well the user holds, each an exact Value name or an id. They are its own, not its Cards'.
+```
+
+- Hint о Pending Checks: «check(mode='passed'|'missed', id=…)».
+
+### nothing_to_do (M10)
+
+- Shell: схема тула рядом с `route` и `forward`; runtime отвечает на него сам, как на
+  `forward`: только один вызов в ответе, вызов завершает сессию, `reason` — ответ сессии.
+  `route_receipt`: outcome done, `did` пуст, `text` — reason.
+- Получает каждый сабагент, чей первый ход обязателен: Mutator, Diary, bookkeeper из примера
+  wallet. Сабагент, который отвечает на вопросы, его не получает.
+- Описание: «End the request without changes. Call it alone: the request is not yours, or
+  nothing needs to change.» Поле `reason`: «Why, in one short sentence in the user's language.»
+- Diary: «If your sources do not make the day writable, say in one sentence what is missing
+  instead.» → «If your sources do not make the day writable, call nothing_to_do with what is
+  missing.» Wallet: «say which one is missing and propose nothing» → «call nothing_to_do with
+  which one is missing».
+
+### Общий фрагмент (M1, M8)
+
+Один текст для Advisor и Mutator. Подставляется в `{items}` при сборке, как `{views}`:
+в `SYSTEM_PROMPT` и в `routed_prompt`. Живёт рядом с `PERSONA`. Число — из
+`ACTION_DAILY_EXECUTIONS_MAX`.
+
+```text
+# Safwa items
+- Goal: a result that takes more than one day. It may have a Deadline.
+- Subgoal: a Goal under a Goal.
+- Action: work that fits in one day. It may repeat on a Schedule, at most 5 times a day.
+- Goals, Subgoals and Actions are Cards.
+- Check: a yes/no observation with no duration, on one Card or on none. Anything more than 5 times a day is a Check.
+- Value: a direction with no deadline. It is never Done.
+- Tag: a free label for finding things.
+- Request: a saved Card query the user reruns.
+- Reminder: a message at a set time, not work.
+- A title ending in ` [🔄2, live #7]` is a finished repeat; #7 is the open one.
+- ` [🔄2]` with no id: the series has ended. ` [📦]`: archived.
+```
+
+**Advisor.** Фрагмент встаёт на место первой строки «Agile structure» (виды Card) и строки
+«💎 Values … 💬 Requests». Раздел Checks: определение уходит во фрагмент, остаются примеры,
+правило о Card complete и цитата. Строки о метках после `{views}` → «For a finished repeat,
+cite and read the open one, unless the user asks about that past instance.» и «An archived
+item still counts, and it cannot be changed automatically.»
+
+### Промпт Mutator (M6, M7, M8, M10)
+
+Имена тулов — в обратных кавычках, как в нынешнем промпте:
+
+```text
+You keep the user's workspace: their Cards, Checks, Values, Tags, Requests and Reminders.
+
+{items}
+
+# How a turn goes
+1. Read what you need with `query_data`. Never in the same response as a mutation tool.
+2. With the mutation tools, in the same response: one line of text naming what you will change.
+3. After the review: one short sentence naming what you proposed. The interface prints the Saved/Discarded/Failed receipt itself.
+Nothing to change, or the request is not yours: call nothing_to_do with the reason.
+
+# Proposing
+- Propose only what was asked. When the choice is the user's, cite the item instead of guessing it.
+- New Cards go to `backlog`. Use `sprint` or `today` only when the user says so.
+- Effort Points on in the workspace state: give every new Action `effort_points`.
+- Effort Points off: never send `effort_points`.
+- Judge every change against the Sprint's Success criteria and the active Values in your context.
+- Fill in what you are sure of; omit the rest. Never invent an id such as 0 or 1.
+- All calls for one item go together, one call per mode: every field in one update.
+- Starting or finishing a Sprint and its Success criteria are not yours.
+
+# Inbox
+An Action can hold a note, captured idea or draft. Use Tag "Inbox" to capture these without extra detail.
+
+# Reminders
+- Pass the user's own words through in `when`. Never invent a date or an hour.
+- The Morning, Diary and daily summary times are Profile fields, not Reminders.
+
+# Read the data
+(как сейчас, с `{views}`)
+```
+
+Уходит: «What the workspace is for» с лестницей; Cards и Checks — в описания тулов и во
+фрагмент; Repeats — во фрагмент, в результаты тулов (подсказка открытого экземпляра уже там) и в
+описания `effort_points` и `tracked_mins`; строки об удалении и архиве — в описании `remove`.
+
+**Решено владельцем 2026-10-05:** строки о закрытом экземпляре в промпте нет. Вызов на него
+стоит лишнего хода — отказ с подсказкой, — зато промпт меньше.
+
+### Лимит повторов (M1)
+
+`ACTION_DAILY_EXECUTIONS_MAX` = 5. SCH-LIMIT-015 по слову владельца: «five times a day»; 6 в
+день, 36 в неделю и интервал меньше 288 минут спрашиваются. Строка руководства onboarding
+берёт константу. Пример в Schedule Action: «three times a day» вместо «five times a day».
+
+### Сценарии
+
+- CD-TREE-002 по решению M2: «When a Goal is proposed with a parent / Then it is refused…» →
+  «Then it is created as a Subgoal under that parent». Остальное без изменений.
+- CD-TREE-003: «And a Subgoal written with no parent is refused the same way, and so is taking
+  its parent away» → «And taking a Subgoal's parent away is refused the same way».
+- CD-FIELD-007: Goal пишется тулом `goal`, у которого нет этих полей; вызов `action` на Goal
+  отказывается до review. Ручной черновик, переключённый с Action на Goal, отбрасывает их, как
+  сейчас.
+- SCH-LIMIT-015 — выше.
+- Новый:
+
+```gherkin
+Scenario: AG-NOTHING-056 — A subagent with nothing to do says so in its first step
+  Given a subagent whose first step has to be a tool call (AG-ANSWER-014)
+  When the request is not its own, or what it asks is already so
+  Then its first step can be nothing_to_do with the reason, alone in its response
+  And that ends its session: nothing is proposed, and the reason goes back as the subagent's words
+  And a subagent that answers questions is not offered it
+```
+
+### Тесты, снапшоты, доки
+
+- Около 200 вызовов `card` в 38 файлах тестов переходят на `goal` и `action`; ссылки — на новые
+  поля; родитель — по title или id. Тесты SQL в родителе удаляются: родителя по title и id
+  покрывают CD-TREE-003, CD-TREE-004 и CD-TREE-006.
+- Новые проверки: wrong_tool; `goal` с родителем — Subgoal; ссылки смесью имён и id;
+  `passed` и `missed`; AG-NOTHING-056 (ответ маршрута, один вызов в ответе, нет у сабагента с
+  вопросами).
+- Снапшот промптов: Advisor, Mutator, Diary, тулы `goal`, `action`, `check`. Схема без изменений.
+- Доки: AGENT_ARCH.md (тулы runtime), DOMAIN.md (поле тула `card`).
+
+**Допущения.**
+
+- Вид проверяется по тому, что тул кладёт в изменение; у изменения нет имени тула.
+- `goal` регистрируется через `mutation_tools`, а не новым полем `ProposalContribution`.
+- Строка «Judge every change…» остаётся: на ней держится WS-JUDGE-002.
 
 ## Hook-запросы к Advisor
 
@@ -720,3 +1112,12 @@ message… If they tell you, route to…». Это тоже промпты: он
   архитектуры чистые.
 - **2026-10-05.** Батч 2 закоммичен (v9.126) и влит в main вместе с v9.124. Сценарий Батча 1
   стал AG-OPEN-055: номер 054 в main уже занял AG-HOOK-054.
+- **2026-10-05.** Workspace Mutator: владелец решил M1–M8 и M10, M9 закрыт решением M1. Blocked
+  остаётся только у Action. Записаны планы: «Батч 3 — Blocked только у Action» и «Батч 4 —
+  Workspace Mutator: M1–M10». Батч 3 идёт первым. Владелец: строки о закрытом экземпляре в
+  промпте Mutator нет — лишний ход дешевле длинного промпта.
+- **2026-10-05.** Батч 3 сделан: колонки `blocked` у Card нет, Action заблокирована, пока есть
+  причина; у Goal и Subgoal blocked нет. CD-BLOCKED-019 выведен; CD-BLOCKED-010, CD-BLOCKED-018 и
+  CD-FIELD-007 переформулированы. Снапшоты: схема (`cards`), промпты (Advisor, Mutator, тул
+  `card`, каталог views). Полный набор: 1952 passed, 4 skipped; Ruff и сканер архитектуры
+  чистые.

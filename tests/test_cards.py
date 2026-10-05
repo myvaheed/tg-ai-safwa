@@ -16,7 +16,7 @@ from sqlalchemy import func, select
 
 from safwa.bootstrap.modules import PROPOSALS, SYSTEM_PROMPT
 from safwa.features.cards.agent import CardToolInput
-from safwa.features.cards.hierarchy import blocking_actions, card_children, card_progress
+from safwa.features.cards.hierarchy import card_children, card_progress
 from safwa.features.cards.hooks import (
     BLOCKER_HOOK,
     EMPTY_PARENT_GRACE_DAYS,
@@ -253,7 +253,6 @@ async def test_cd_field_007_a_goal_is_saved_without_the_fields_that_are_an_actio
             schedule="after completion",
             categories={"work"},
             energy_types={"cognitive"},
-            blocked=True,
             blocked_description="Waiting for the store",
         )
         await session.flush()
@@ -272,7 +271,7 @@ async def test_cd_field_007_a_goal_is_saved_without_the_fields_that_are_an_actio
 
         # The domain door is the backstop: what the other doors drop, this one refuses.
         with pytest.raises(DomainError, match="Action-only fields"):
-            await update_card_fields(session, goal.id, {"blocked": True, "blocked_description": "x"})
+            await update_card_fields(session, goal.id, {"blocked_description": "x"})
 
 
 async def test_cd_field_007_a_proposal_drops_them_and_refuses_a_change_that_was_only_them(sessions):
@@ -287,12 +286,11 @@ async def test_cd_field_007_a_proposal_drops_them_and_refuses_a_change_that_was_
                     "kind": "goal",
                     "title": "Release VrWalk",
                     "effort_points": 5,
-                    "blocked": True,
                     "blocked_description": "Waiting for the store",
                 },
             ),
         )
-        assert created.values.get("blocked") is None
+        assert created.values.get("blocked_description") is None
         assert created.values.get("effort_points") is None
         assert created.values["title"] == "Release VrWalk"
 
@@ -306,7 +304,6 @@ async def test_cd_field_007_a_proposal_drops_them_and_refuses_a_change_that_was_
                     {
                         "mode": "update",
                         "id": goal.id,
-                        "blocked": True,
                         "blocked_description": "Waiting",
                     },
                 ),
@@ -351,15 +348,15 @@ async def test_cd_blocked_010_a_blocked_action_says_why_and_unblocking_clears_it
     """CD-BLOCKED-010 — tests/brd/cards.feature"""
     sessions, runner = read_views
     async with sessions() as session:
-        with pytest.raises(DomainError, match="blocked description"):
-            await create_card(session, kind="action", title="Waiting", effort_points=1, blocked=True)
+        # The reason is what blocks it: a blank one is no block at all.
+        blank = await create_card(session, kind="action", title="Open", blocked_description="  ")
+        assert (blank.blocked, blank.blocked_description) == (False, "")
 
         card = await create_card(
             session,
             kind="action",
             title="Waiting",
             effort_points=1,
-            blocked=True,
             blocked_description="Need account access",
         )
         await session.commit()
@@ -367,12 +364,17 @@ async def test_cd_blocked_010_a_blocked_action_says_why_and_unblocking_clears_it
         assert "blocked" not in row
         assert row["blocked_description"] == "Need account access"
 
-        await update_card_fields(session, card.id, {"blocked": False})
+        # A proposal's null reason, like an empty one, unblocks.
+        await update_card_fields(session, card.id, {"blocked_description": None})
         await session.commit()
 
         assert card.blocked is False
         assert card.blocked_description == ""
-        rows = (await runner.run("SELECT id FROM ai_cards WHERE blocked_description IS NULL")).rows
+        rows = (
+            await runner.run(
+                f"SELECT id FROM ai_cards WHERE id = {card.id} AND blocked_description IS NULL"
+            )
+        ).rows
         assert rows == [{"id": card.id}]
 
 
@@ -652,8 +654,9 @@ async def test_cd_stage_017_reopening_an_action_undoes_what_closing_it_did(sessi
             await move_card(session, repeating.id, CardStage.TODAY)
 
 
-async def test_cd_blocked_018_only_an_action_can_be_marked_blocked(sessions):
+async def test_cd_blocked_018_only_an_action_can_be_blocked(read_views):
     """CD-BLOCKED-018 — tests/brd/cards.feature"""
+    sessions, runner = read_views
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
         subgoal = await create_card(session, kind="subgoal", title="Sleep better", parent_id=goal.id)
@@ -663,7 +666,7 @@ async def test_cd_blocked_018_only_an_action_can_be_marked_blocked(sessions):
         await session.commit()
 
         await update_card_fields(
-            session, action.id, {"blocked": True, "blocked_description": "Shop is shut"}
+            session, action.id, {"blocked_description": "Shop is shut"}
         )
         await session.commit()
         assert (await session.get(Card, action.id)).blocked_description == "Shop is shut"
@@ -671,66 +674,22 @@ async def test_cd_blocked_018_only_an_action_can_be_marked_blocked(sessions):
         for parent in (goal, subgoal):
             with pytest.raises(DomainError, match="Action-only fields"):
                 await update_card_fields(
-                    session, parent.id, {"blocked": True, "blocked_description": "Waiting"}
+                    session, parent.id, {"blocked_description": "Waiting"}
                 )
             change = PROPOSALS.change_from_tool(
                 "card",
-                {"mode": "update", "id": parent.id, "blocked": True, "blocked_description": "x"},
+                {"mode": "update", "id": parent.id, "blocked_description": "x"},
             )
             with pytest.raises(DomainError, match="no applicable fields"):
                 await ChangePreparer(None, None, PROPOSALS).prepare(session, change)  # type: ignore[arg-type]
 
-
-async def test_cd_blocked_019_a_goal_shows_the_blocked_actions_under_it(read_views):
-    """CD-BLOCKED-019 — tests/brd/cards.feature"""
-    sessions, runner = read_views
-    async with sessions() as session:
-        goal = await create_card(session, kind="goal", title="Health")
-        subgoal = await create_card(session, kind="subgoal", title="Sleep better", parent_id=goal.id)
-        action = await create_card(
-            session,
-            kind="action",
-            title="Buy a pillow",
-            effort_points=2,
-            parent_id=subgoal.id,
-            blocked=True,
-            blocked_description="Shop is shut",
-        )
-        await session.commit()
-
-        for parent in (goal, subgoal):
+            # A blocked Action under it does not make it blocked: the Action shows its own.
             stored = await session.get(Card, parent.id)
-            assert stored.blocked is True
-            # A Goal has no reason of its own; the screen quotes the Actions instead.
-            assert stored.blocked_description == ""
-        named = await blocking_actions(session, goal.id)
-        assert [(item.title, item.blocked_description) for item in named] == [
-            ("Buy a pillow", "Shop is shut")
-        ]
+            assert (stored.blocked, stored.blocked_description) == (False, "")
         rows = (await runner.run(
             "SELECT id, blocked_description FROM ai_cards WHERE blocked_description IS NOT NULL"
         )).rows
-        assert {row["id"]: row["blocked_description"] for row in rows} == {
-            goal.id: "", subgoal.id: "", action.id: "Shop is shut",
-        }
-
-        await update_card_fields(session, action.id, {"blocked": False})
-        await session.commit()
-        assert (await session.get(Card, goal.id)).blocked is False
-        assert (await runner.run(
-            "SELECT id FROM ai_cards WHERE blocked_description IS NOT NULL"
-        )).rows == []
-
-        await update_card_fields(
-            session, action.id, {"blocked": True, "blocked_description": "Shop is shut"}
-        )
-        await finish_action(session, action.id)
-        await session.commit()
-        # A finished Action is not something the branch is waiting on.
-        assert (await session.get(Card, goal.id)).blocked is False
-        assert (await runner.run(
-            "SELECT id FROM ai_cards WHERE blocked_description IS NOT NULL"
-        )).rows == [{"id": action.id}]
+        assert rows == [{"id": action.id, "blocked_description": "Shop is shut"}]
 
 
 async def test_cd_hardtime_033_schedule_supplies_the_next_appointment(sessions):
@@ -759,7 +718,6 @@ async def test_cd_blocked_020_being_blocked_does_not_stop_anything(sessions):
             title="Buy a pillow",
             effort_points=2,
             stage="today",
-            blocked=True,
             blocked_description="Shop is shut",
         )
         await session.commit()
@@ -1211,7 +1169,7 @@ async def test_committed_card_relationships_are_validated_propagated_and_audited
         await update_card_fields(
             session,
             action.id,
-            {"blocked": True, "blocked_description": "Waiting for access"},
+            {"blocked_description": "Waiting for access"},
         )
         assert action.blocked is True
         assert action.blocked_description == "Waiting for access"
@@ -1399,11 +1357,11 @@ async def test_cd_blocked_034_becoming_blocked_is_the_change_a_hook_follows_up(s
     async with sessions() as session:
         born = await create_card(
             session, kind="action", title="Call the bank", effort_points=1,
-            blocked=True, blocked_description="Line is busy",
+            blocked_description="Line is busy",
         )
         marked = await create_card(session, kind="action", title="Sign the lease", effort_points=1)
         await update_card_fields(
-            session, marked.id, {"blocked": True, "blocked_description": "Landlord away"}
+            session, marked.id, {"blocked_description": "Landlord away"}
         )
         assert changes_of(session, CARD_BLOCKED) == [
             Committed(CARD_BLOCKED, born.id), Committed(CARD_BLOCKED, marked.id),
@@ -1411,9 +1369,9 @@ async def test_cd_blocked_034_becoming_blocked_is_the_change_a_hook_follows_up(s
         # Staying blocked is not becoming blocked, and a Goal never blocks itself.
         await update_card_fields(session, marked.id, {"title": "Sign the new lease"})
         await update_card_fields(session, marked.id, {"blocked_description": "Landlord abroad"})
-        await update_card_fields(session, marked.id, {"blocked": False})
+        await update_card_fields(session, marked.id, {"blocked_description": ""})
         await update_card_fields(
-            session, marked.id, {"blocked": True, "blocked_description": "Again"}
+            session, marked.id, {"blocked_description": "Again"}
         )
         assert changes_of(session, CARD_BLOCKED) == [Committed(CARD_BLOCKED, marked.id)]
         await session.commit()
@@ -1428,7 +1386,7 @@ async def test_cd_blocked_034_the_request_names_what_is_still_blocked_and_open(s
         blocked = [
             await create_card(
                 session, kind="action", title=title, effort_points=1,
-                blocked=True, blocked_description=reason,
+                blocked_description=reason,
             )
             for title, reason in (
                 ("Call the bank", "Line is busy"), ("Sign the lease", "Landlord away"),
@@ -1438,7 +1396,7 @@ async def test_cd_blocked_034_the_request_names_what_is_still_blocked_and_open(s
         ]
         await session.commit()
         ids = [card.id for card in blocked]
-        await update_card_fields(session, ids[1], {"blocked": False})
+        await update_card_fields(session, ids[1], {"blocked_description": ""})
         await finish_action(session, ids[2])
         await finish_action(session, ids[3])
         await archive_subtree(session, ids[3])

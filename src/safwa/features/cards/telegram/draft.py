@@ -15,7 +15,7 @@ from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.telegram.model import UiSession
 
 from ..model import CardKind, CardStage, Priority
-from ..use_cases import validate_action_fields, validate_blocked_fields
+from ..use_cases import validate_action_fields
 
 
 def new_card_creation_state() -> dict[str, Any]:
@@ -27,7 +27,6 @@ def new_card_creation_state() -> dict[str, Any]:
         "priority": Priority.MEDIUM.value,
         "schedule": None,
         "schedule_rule": None,
-        "blocked": False,
         "blocked_description": "",
         "effort_points": None,
         "categories": [],
@@ -53,7 +52,7 @@ def sanitize_card_creation_state(state: dict[str, Any]) -> dict[str, Any]:
         clean.update(
             stage=CardStage.BACKLOG.value,
             effort_points=None,
-            blocked=False,
+            blocked_description="",
             categories=[],
             energy_types=[],
         )
@@ -61,8 +60,6 @@ def sanitize_card_creation_state(state: dict[str, Any]) -> dict[str, Any]:
     # A Schedule read for the other kind: an Action's repeat is no Deadline, nor the reverse.
     if rule and (rule["kind"] == "deadline") != (clean["kind"] != CardKind.ACTION.value):
         clean.update(schedule=None, schedule_rule=None)
-    if not clean["blocked"]:
-        clean["blocked_description"] = ""
     for field in ("categories", "energy_types", "value_ids", "tag_ids"):
         clean[field] = list(dict.fromkeys(clean.get(field) or []))
     return clean
@@ -77,22 +74,15 @@ def card_creation_errors(state: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     if not str(state.get("title", "")).strip():
         errors.append("Add a title")
-    for check in (
-        lambda: validate_action_fields(
+    try:
+        validate_action_fields(
             state["kind"],
             state.get("effort_points"),
             set(state.get("categories") or []),
             set(state.get("energy_types") or []),
-            blocked=bool(state.get("blocked")),
-        ),
-        lambda: validate_blocked_fields(
-            bool(state.get("blocked")), state.get("blocked_description")
-        ),
-    ):
-        try:
-            check()
-        except DomainError as error:
-            errors.append(str(error))
+        )
+    except DomainError as error:
+        errors.append(str(error))
     return errors
 
 

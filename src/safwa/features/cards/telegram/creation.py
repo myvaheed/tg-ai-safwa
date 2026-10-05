@@ -66,14 +66,19 @@ async def card_creation_markup(
         fields.insert(2, ("📍 Stage", "card_create_choose_stage", {}))
         fields.extend(
             [
-                ("🚧 Blocked", "card_create_toggle", {"field": "blocked"}),
+                # The reason is what blocks it: asked for first, and cleared to unblock.
+                (
+                    "🚧 Blocked",
+                    "card_create_unblock" if state.get("blocked_description") else "card_create_edit_text",
+                    {"field": "blocked_description"},
+                ),
                 ("🏷 Categories", "card_create_choose_categories", {}),
                 ("⚡ Energy", "card_create_choose_energy", {}),
             ]
         )
         if await effort_tracking_on(session):
             fields.append(("🔢 Effort", "card_create_choose_effort", {}))
-        if state.get("blocked"):
+        if state.get("blocked_description"):
             fields.append(
                 (
                     "📝 Blocked reason",
@@ -227,12 +232,11 @@ async def _on_edit_text(context: CallbackContext) -> None:
     )
 
 
-async def _on_toggle(context: CallbackContext) -> None:
+async def _on_unblock(context: CallbackContext) -> None:
     async with context.sessions() as session:
         draft = await require_card_draft(session, context.owner_id)
         state = dict(draft.state or {})
-        field = context.payload["field"]
-        state[field] = not bool(state.get(field))
+        state["blocked_description"] = ""
         draft.state = sanitize_card_creation_state(state)
         await session.commit()
     await render_card_creation(context.message, context.services)
@@ -288,7 +292,6 @@ async def _on_save(context: CallbackContext) -> None:
             priority=state["priority"],
             schedule=state["schedule"],
             schedule_rule=state["schedule_rule"],
-            blocked=state["blocked"],
             blocked_description=state["blocked_description"],
             effort_points=state["effort_points"],
             categories=set(state["categories"]),
@@ -317,7 +320,7 @@ async def _on_discard(context: CallbackContext) -> None:
 CARD_DRAFT_ACTIONS: dict[str, CallbackHandler] = {
     "card_create_view": _on_view,
     "card_create_edit_text": _on_edit_text,
-    "card_create_toggle": _on_toggle,
+    "card_create_unblock": _on_unblock,
     "card_create_set": _on_set,
     "card_create_save": _on_save,
     "card_create_discard": _on_discard,
