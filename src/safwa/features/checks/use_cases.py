@@ -58,14 +58,7 @@ async def card_checks(session: AsyncSession, card_id: int) -> list[Check]:
 
 async def pending_checks(session: AsyncSession, card_id: int) -> list[Check]:
     """Pending is derived, never stored: a Check that has no outcome yet."""
-    return list(
-        await session.scalars(
-            select(Check)
-            .join(CardCheck, CardCheck.check_id == Check.id)
-            .where(CardCheck.card_id == card_id, Check.outcome.is_(None))
-            .order_by(Check.id)
-        )
-    )
+    return [check for check in await card_checks(session, card_id) if check.outcome is None]
 
 
 async def check_card_id(session: AsyncSession, check_id: int) -> int | None:
@@ -147,15 +140,16 @@ async def update_check_fields(
     if unknown:
         raise DomainError("Unsupported Check fields: " + ", ".join(sorted(unknown)))
     before = snapshot(check)
-    for name, value in fields.items():
-        if name == "title":
-            value = str(value).strip()
-        if name == "title" and not value:
+    if "title" in fields:
+        title = str(fields["title"]).strip()
+        if not title:
             raise DomainError("Check title cannot be empty")
-        if name == "schedule":
-            await _write_schedule(session, check, value, fields.get("schedule_rule"))
-        elif name != "schedule_rule":
-            setattr(check, name, value)
+        check.title = title
+    if "schedule" in fields:
+        text = fields["schedule"]
+        if text and await check_card_id(session, check.id) is not None:
+            raise DomainError("A Check with its own Schedule must stay independent")
+        await set_schedule(session, check, text, fields.get("schedule_rule"))
     check.version += 1
     await _record(session, check, UPDATE, actor, before)
     await follow_remind(session, check, actor=actor)
@@ -163,46 +157,18 @@ async def update_check_fields(
     return check
 
 
-async def edit_check_schedule(
-    session: AsyncSession, check_id: int, text: str | None, rule: dict[str, Any] | None
-) -> Check:
-    """Write a Schedule the owner typed, with the rule the editor compiled for it."""
-    check = await session.get(Check, check_id)
-    if check is None or check.archived_at is not None:
-        raise DomainError("Check does not exist or is archived")
-    before = snapshot(check)
-    await _write_schedule(session, check, text, rule)
-    check.version += 1
-    await _record(session, check, UPDATE, ActorType.USER_UI, before)
-    await follow_remind(session, check)
-    await bump_workspace(session)
-    return check
-
-
-async def _write_schedule(
-    session: AsyncSession, check: Check, text: str | None, rule: dict[str, Any] | None
-) -> None:
-    if text and await check_card_id(session, check.id) is not None:
-        raise DomainError("A Check with its own Schedule must stay independent")
-    await set_schedule(session, check, text, rule)
-
-
 async def archive_check(
-    session: AsyncSession,
-    check_id: int,
-    archive: bool = True,
-    *,
-    actor: ActorType = ActorType.USER_UI,
+    session: AsyncSession, check_id: int, *, actor: ActorType = ActorType.USER_UI
 ) -> Check:
     check = await session.get(Check, check_id)
     if check is None:
         raise DomainError("Check does not exist")
-    if archive and check.outcome is None:
+    if check.outcome is None:
         raise DomainError("Only an answered Check can be archived")
     before = snapshot(check)
-    check.archived_at = utcnow() if archive else None
+    check.archived_at = utcnow()
     check.version += 1
-    await _record(session, check, "archive" if archive else "restore", actor, before)
+    await _record(session, check, "archive", actor, before)
     await bump_workspace(session)
     return check
 
@@ -280,7 +246,7 @@ async def _spawn_check_successor(
     return successor
 
 
-async def apply_check_outcome(
+async def _answer(
     session: AsyncSession,
     check: Check,
     outcome: CheckOutcome | str,
@@ -333,30 +299,9 @@ async def resolve_check(
     check = await session.get(Check, check_id)
     if check is None or check.archived_at is not None:
         raise DomainError("Check does not exist or is archived")
-    successor = await apply_check_outcome(session, check, outcome, actor, spawn=True)
+    successor = await _answer(session, check, outcome, actor, spawn=True)
     await bump_workspace(session)
     return check, successor
-
-
-def check_resolutions(
-    pending: list[Check],
-    outcomes: dict[int, CheckOutcome | str] | None,
-) -> dict[int, CheckOutcome]:
-    """Every Pending linked Check needs an answer, and nothing else is taken."""
-    supplied = {int(key): CheckOutcome(value) for key, value in (outcomes or {}).items()}
-    unknown = set(supplied) - {check.id for check in pending}
-    if unknown:
-        raise DomainError(
-            "These Checks are not Pending on this Card: "
-            + ", ".join(f"#{check_id}" for check_id in sorted(unknown))
-        )
-    missing = [check for check in pending if check.id not in supplied]
-    if missing:
-        raise DomainError(
-            "Resolve these Pending Checks before finishing the Card: "
-            + ", ".join(f"#{check.id} {check.title}" for check in missing)
-        )
-    return supplied
 
 
 async def clone_checks_for_successor(session: AsyncSession, card_id: int, successor_id: int) -> None:
@@ -415,25 +360,33 @@ async def archive_settled_checks(session: AsyncSession, cutoff: datetime) -> lis
 async def require_check_answers(
     session: AsyncSession,
     card_id: int,
-    outcomes: dict[int, Any] | None,
-) -> dict[int, Any]:
-    """The answers this completion needs, refused before anything is written.
+    outcomes: dict[int, CheckOutcome | str] | None,
+) -> list[tuple[Check, CheckOutcome]]:
+    """Each Pending Check on this Card with its answer, refused before anything is written.
 
-    Every Pending linked Check has to be answered before this Card is Done.
+    Every Pending linked Check needs an answer, and nothing else is taken.
     """
     pending = await pending_checks(session, card_id)
-    return check_resolutions(pending, outcomes)
+    supplied = {int(key): CheckOutcome(value) for key, value in (outcomes or {}).items()}
+    unknown = set(supplied) - {check.id for check in pending}
+    if unknown:
+        raise DomainError(
+            "These Checks are not Pending on this Card: "
+            + ", ".join(f"#{check_id}" for check_id in sorted(unknown))
+        )
+    missing = [check for check in pending if check.id not in supplied]
+    if missing:
+        raise DomainError(
+            "Resolve these Pending Checks before finishing the Card: "
+            + ", ".join(f"#{check.id} {check.title}" for check in missing)
+        )
+    return [(check, supplied[check.id]) for check in pending]
 
 
 async def settle_checks(
-    session: AsyncSession,
-    card_id: int,
-    resolutions: dict[int, Any],
-    *,
-    actor: ActorType,
+    session: AsyncSession, answers: list[tuple[Check, CheckOutcome]], *, actor: ActorType
 ) -> None:
-    """Write the answers a closing Card gave, then let go of what is still Pending."""
-    by_id = {check.id: check for check in await pending_checks(session, card_id)}
-    for check_id, outcome in sorted(resolutions.items()):
+    """Write the answers a closing Card gave."""
+    for check, outcome in answers:
         # The Card closing is what carries the series on, so no successor opens here.
-        await apply_check_outcome(session, by_id[check_id], outcome, actor, spawn=False)
+        await _answer(session, check, outcome, actor, spawn=False)

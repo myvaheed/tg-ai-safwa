@@ -87,7 +87,7 @@ MANUAL = f"""# Safwa
 - A Check with its own Schedule stays independent. Its next copy opens when answered. Checks on an Action follow that Action's cycle.
 - A Card is Done only when each Check on it has an answer; "✅ Done" asks for them.
 - In words: create, rename, put on a Card, answer, delete.
-- With buttons: "☑️ Checks" on its Card; on the Check, ✅ for Passed and ❌ for Missed, "⏱ Schedule", "💎 Values", "🗑 Delete".
+- With buttons: "☑️ Checks" on its Card, counting answered of all; on the Check, "✅ Yes" answers Passed and "❌ No" answers Missed, "⏱ Schedule", "💎 Values", "🗑 Delete".
 - Not with buttons: creating a Check, or putting it on a Card. Ask the Advisor.
 
 # Values and Tags

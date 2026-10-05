@@ -19,8 +19,11 @@ class CheckOutcome(StrEnum):
     MISSED = "missed"
 
 
+# The status of a Check with no outcome; `ai_checks` derives the same word in SQL.
+PENDING = "pending"
+
 CHECK_OUTCOME_LABELS = {
-    "pending": "Pending",
+    PENDING: "Pending",
     CheckOutcome.PASSED.value: "Passed",
     CheckOutcome.MISSED.value: "Missed",
 }
@@ -56,9 +59,9 @@ class Check(Base, TimestampMixin):
     version: Mapped[int] = mapped_column(Integer, default=1)
 
     @property
-    def scheduled_at(self) -> datetime | None:
-        rule = self.schedule_record.rule if self.schedule_record else None
-        return self.period_start if rule and rule["kind"] == "fixed" else None
+    def status(self) -> str:
+        """Its answer, or Pending while it has none."""
+        return self.outcome or PENDING
 
     def is_closed_repeat(self) -> bool:
         """A repeat instance that already ended, so its series continues on a newer row."""

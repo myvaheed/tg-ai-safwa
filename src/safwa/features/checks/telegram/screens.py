@@ -26,36 +26,33 @@ from ....foundation.marks import live_repeat_instance_id, title_marks
 from ...cards.api import card_labels, card_title
 from ...schedules.api import schedule_summary
 from ...values.model import Value
-from ..model import CHECK_OUTCOME_LABELS, Check, CheckOutcome
+from ..model import CHECK_OUTCOME_LABELS, PENDING, Check, CheckOutcome
 from ..use_cases import card_checks, check_card_id, check_value_ids
 
 # How many Checks one Card's screen lists before it only counts the rest.
 CHECK_LIST_LIMIT = 25
 
 CHECK_STATUS_EMOJIS = {
-    "pending": "⬜",
+    PENDING: "⬜",
     CheckOutcome.PASSED.value: "✅",
     CheckOutcome.MISSED.value: "❌",
 }
-# One button per answer; Pending is derived and cannot be set.
-SETTABLE_OUTCOMES = (
-    CheckOutcome.PASSED.value,
-    CheckOutcome.MISSED.value,
-)
+# A Check is a question, so its buttons reply to it; the answer stored is Passed or Missed.
+ANSWER_BUTTON_LABELS = {
+    CheckOutcome.PASSED.value: "Yes",
+    CheckOutcome.MISSED.value: "No",
+}
 
 
-def check_status(check: Check) -> str:
-    return check.outcome or "pending"
+def check_line(title: str, status: str) -> str:
+    """One Check in a list: its status mark, its title and its status."""
+    return f"{CHECK_STATUS_EMOJIS[status]} {html.escape(title)} — {CHECK_OUTCOME_LABELS[status]}"
 
 
-def check_status_label(check: Check) -> str:
-    status = check_status(check)
-    return f"{CHECK_STATUS_EMOJIS[status]} {CHECK_OUTCOME_LABELS[status]}"
-
-
-def outcome_button_label(outcome: str, title: str, *, current: str | None) -> str:
+def answer_button_label(outcome: str, *, current: str | None, prefix: str = "") -> str:
+    """One answer button; the chosen answer is marked. `prefix` tells rows apart."""
     marker = "• " if outcome == current else ""
-    return f"{marker}{CHECK_STATUS_EMOJIS[outcome]} {title}"[:60]
+    return f"{prefix}{marker}{CHECK_STATUS_EMOJIS[outcome]} {ANSWER_BUTTON_LABELS[outcome]}"
 
 
 async def deliver(
@@ -112,7 +109,7 @@ async def render_checks(
                     await token_button(
                         session,
                         services.owner_id,
-                        f"{CHECK_STATUS_EMOJIS[check_status(check)]} {titles[-1]}"[:60],
+                        f"{CHECK_STATUS_EMOJIS[check.status]} {titles[-1]}"[:60],
                         "check_view",
                         {"id": check.id, "card_id": card_id, "back": back},
                     )
@@ -132,9 +129,7 @@ async def render_checks(
         lines.append("No Checks yet.")
     else:
         lines.extend(
-            f"{CHECK_STATUS_EMOJIS[check_status(check)]} {html.escape(title)}"
-            f" — {CHECK_OUTCOME_LABELS[check_status(check)]}"
-            for check, title in zip(shown, titles, strict=True)
+            check_line(title, check.status) for check, title in zip(shown, titles, strict=True)
         )
     if len(checks) > len(shown):
         lines.append(f"Showing the first {CHECK_LIST_LIMIT} of {len(checks)} Checks.")
@@ -175,7 +170,6 @@ async def render_check(
         linked_card_ids = [linked_card_id] if linked_card_id is not None else []
         linked_value_ids = await check_value_ids(session, check.id)
         payload = {"id": check.id, "card_id": card_id, "back": back}
-        current = check_status(check)
         rows: list[list[InlineKeyboardButton]] = []
         if not archived:
             if linked_card_id is None and check.outcome is None:
@@ -191,11 +185,11 @@ async def render_check(
                     await token_button(
                         session,
                         services.owner_id,
-                        outcome_button_label(outcome, CHECK_OUTCOME_LABELS[outcome], current=current),
+                        answer_button_label(outcome, current=check.status),
                         "check_set_status",
-                        {**payload, "outcome": outcome},
+                        {**payload, "outcome": outcome.value},
                     )
-                    for outcome in SETTABLE_OUTCOMES
+                    for outcome in CheckOutcome
                 ]
             )
         summary = await schedule_summary(session, check)
@@ -264,9 +258,9 @@ async def render_check(
     body = "\n".join(
         [
             f"<b>Check</b>: {html.escape(check.title + check_marks)}",
-            f"Status: {check_status_label(check)}",
+            f"Status: {CHECK_STATUS_EMOJIS[check.status]} {CHECK_OUTCOME_LABELS[check.status]}",
             f"Schedule: {html.escape(check.schedule or '—')}",
-            f"Cards: {html.escape(', '.join(card_titles)) or '—'}",
+            f"Card: {html.escape(', '.join(card_titles)) or '—'}",
             f"Values: {html.escape(', '.join(value_names)) or '—'}",
         ]
     )

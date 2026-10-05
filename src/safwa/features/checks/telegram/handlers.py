@@ -16,6 +16,7 @@ from tg_agent_shell.telegram import (
     CallbackHandler,
     Services,
     TextInputScreen,
+    go_back,
     go_back_action,
     render_text_input,
     send_registered,
@@ -26,7 +27,7 @@ from tg_agent_shell.telegram.contributions import TextInputFlow
 from ...schedules.api import SCHEDULE_INSTRUCTION
 from ...schedules.telegram import compile_typed_schedule, render_schedule
 from ..model import Check, CheckOutcome
-from ..use_cases import delete_check, edit_check_schedule, resolve_check, toggle_check_value
+from ..use_cases import delete_check, resolve_check, toggle_check_value, update_check_fields
 from .screens import render_check, render_check_values, render_checks
 
 
@@ -121,7 +122,9 @@ async def _prepare_schedule(
 async def _apply_schedule(
     session: AsyncSession, services: Services, state: Mapping[str, Any], value: dict[str, Any]
 ) -> None:
-    await edit_check_schedule(session, int(state["id"]), value["text"], value["rule"])
+    await update_check_fields(
+        session, int(state["id"]), {"schedule": value["text"], "schedule_rule": value["rule"]}
+    )
 
 
 async def _render_schedule(
@@ -179,22 +182,20 @@ async def _on_delete_confirm(context: CallbackContext) -> None:
     async with context.sessions() as session:
         await delete_check(session, int(context.payload["id"]))
         await session.commit()
-    # Back to whatever list the Check was opened from: the Check itself is gone.
-    await _on_list(context)
+    # Back to the list it was opened from, or to wherever a Check on no list came from.
+    if _card_id(context) is None:
+        await go_back(context, _back(context))
+    else:
+        await _on_list(context)
 
 
 async def _on_set_status(context: CallbackContext) -> None:
-    notice = None
     async with context.sessions() as session:
-        check = await session.get(Check, int(context.payload["id"]))
-        if check is None:
-            raise DomainError("Check does not exist")
         _answered, successor = await resolve_check(
-            session, check.id, CheckOutcome(str(context.payload["outcome"]))
+            session, int(context.payload["id"]), CheckOutcome(str(context.payload["outcome"]))
         )
         await session.commit()
-        if successor is not None:
-            notice = "A new Pending Check was created for the next round."
+    notice = "A new Pending Check was created for the next round." if successor else None
     await render_check(
         context.message,
         context.services,

@@ -371,15 +371,14 @@ async def test_qa_check_gate_blocks_done_until_every_check_is_answered(live_tele
         check_screen = await qa.wait_for_existing_bot_message(
             checks.id,
             lambda message: check_title in message.raw_text
-            and has_button(message, "Repeat")
-            and has_button(message, "Passed")
+            and has_button(message, "✅ Yes")
             and not has_button(message, "Title"),
         )
         await click_button(check_screen, "Back")
         listed = await qa.wait_for_existing_bot_message(
             check_screen.id,
             lambda message: has_button(message, check_title)
-            and not has_button(message, "Passed"),
+            and not has_button(message, "✅ Yes"),
         )
         await click_button(listed, "Back")
         card = await qa.wait_for_existing_bot_message(
@@ -404,7 +403,7 @@ async def test_qa_check_gate_blocks_done_until_every_check_is_answered(live_tele
         )
         assert card_row[0] == "backlog"
 
-        await click_button(gate, f"✅ {check_title}")
+        await click_button(gate, "✅ Yes")
         answered = await qa.wait_for_existing_bot_message(
             gate.id,
             lambda message: "Passed" in message.raw_text and has_button(message, "Save"),

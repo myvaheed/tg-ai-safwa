@@ -6,6 +6,7 @@ from schedule_helpers import create_card, create_check, with_compiler
 from ui_harness import FakeCallback, FakeMessage, button_texts, services_for
 
 from safwa.features.cards.model import Card
+from safwa.features.cards.telegram import render_check_resolution
 from safwa.features.cards.use_cases import toggle_card_check
 from safwa.features.checks.model import Check, CheckOutcome
 from safwa.features.checks.telegram import render_check
@@ -80,7 +81,7 @@ async def test_ch_archive_016_an_archived_check_keeps_its_answer(sessions) -> No
 
     assert "[📦]" in text
     assert "Status: ✅" in text
-    assert not [label for label in labels if "Passed" in label or "Missed" in label]
+    assert not [label for label in labels if label in {"✅ Yes", "❌ No", "• ✅ Yes"}]
     assert not [label for label in labels if "Repeat" in label or "Values" in label]
     # The one thing it still offers is the way to the open instance of its series.
     assert [label for label in labels if label.startswith("🔄 Current:")]
@@ -126,3 +127,81 @@ async def test_ch_delete_014_the_owner_deletes_a_check_from_its_screen(sessions)
         # Its Card stays, and so does the Value it pointed at.
         assert await session.get(Card, card_id) is not None
         assert await session.get(Value, value_id) is not None
+
+
+def _button(message: FakeMessage, text: str):
+    return next(
+        button
+        for row in message.edits[-1][1].inline_keyboard
+        for button in row
+        if button.text == text
+    )
+
+
+async def test_ch_gate_007_answer_buttons_read_yes_and_no(sessions) -> None:
+    """CH-GATE-007 — tests/brd/checks.feature"""
+    async with sessions() as session:
+        card = await create_card(
+            session, kind="action", title="Go to the market", effort_points=2, stage="today"
+        )
+        milk = await create_check(session, title="Milk")
+        bread = await create_check(session, title="Bread")
+        await toggle_card_check(session, card.id, milk.id)
+        await session.commit()
+        card_id, milk_id, bread_id = card.id, milk.id, bread.id
+
+    services = services_for(sessions)
+    message = FakeMessage(800, bot_message=True)
+    await render_check(message, services, milk_id, card_id=card_id)
+    assert {"✅ Yes", "❌ No"} <= set(button_texts(message.edits[-1][1]))
+
+    # One Check needs no number; the buttons carry the answer, never the title.
+    back = {"action": "card_view", "id": card_id}
+    await render_check_resolution(message, services, card_id, back=back)
+    labels = button_texts(message.edits[-1][1])
+    assert {"✅ Yes", "❌ No"} <= set(labels)
+    assert not [label for label in labels if "Milk" in label]
+
+    async with sessions() as session:
+        await toggle_card_check(session, card_id, bread_id)
+        await session.commit()
+    await render_check_resolution(message, services, card_id, back=back)
+    text, labels = message.edits[-1][0], button_texts(message.edits[-1][1])
+    assert "1. ⬜ Milk — Pending" in text and "2. ⬜ Bread — Pending" in text
+    assert {"1. ✅ Yes", "1. ❌ No", "2. ✅ Yes", "2. ❌ No"} <= set(labels)
+
+    await callback_token_handler(
+        FakeCallback(_button(message, "2. ❌ No").callback_data.split(":", 1)[1], message),
+        services,
+    )
+    text, labels = message.edits[-1][0], button_texts(message.edits[-1][1])
+    assert "2. ❌ Bread — Missed" in text
+    assert "2. • ❌ No" in labels
+
+
+async def test_ch_delete_014_a_check_on_no_card_is_deleted_from_its_screen(sessions) -> None:
+    """CH-DELETE-014 — tests/brd/checks.feature"""
+    async with sessions() as session:
+        check = await create_check(session, title="Posture straight?")
+        await session.commit()
+        check_id = check.id
+
+    services = services_for(sessions)
+    message = FakeMessage(900, bot_message=True)
+    # Opened from a citation: no Card, and nowhere particular to go back to.
+    await render_check(message, services, check_id)
+    await callback_token_handler(
+        FakeCallback(_button(message, "🗑 Delete").callback_data.split(":", 1)[1], message),
+        services,
+    )
+    await callback_token_handler(
+        FakeCallback(
+            _button(message, "Permanently delete Check").callback_data.split(":", 1)[1], message
+        ),
+        services,
+    )
+
+    async with sessions() as session:
+        assert await session.get(Check, check_id) is None
+    # Back leads home, as it would from the Check itself.
+    assert message.edits[-1][0].startswith("<b>Safwa</b>")
