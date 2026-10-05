@@ -19,6 +19,7 @@ from tg_agent_shell.proposals.api import (
     ToolPreparationError,
     named_ids,
     require_target,
+    set_named_links,
     validate_named_references,
 )
 
@@ -277,10 +278,7 @@ async def _apply_card_links(
     for spec in CARD_REFERENCE_SPECS:
         if not spec.mentioned_in(values):
             continue
-        for entity_id in sorted(await named_ids(session, values, spec)):
-            exists = await session.get(spec.link_model, spec.link_key(card.id, entity_id))
-            if linked != (exists is not None):
-                await spec.toggle(session, card.id, entity_id, actor=ActorType.AI)
+        await set_named_links(session, spec, card.id, values, linked=linked, actor=ActorType.AI)
         return
     raise DomainError("A Card link proposal needs one relationship type")
 
