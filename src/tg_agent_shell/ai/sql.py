@@ -463,10 +463,9 @@ async def read_query(runner: ReadOnlyQueryRunner, call: ToolCall) -> QueryRead:
                     "code": "unsafe_query" if isinstance(error, UnsafeQueryError) else "query_failed",
                     "error": str(error),
                     "hint": (
-                        "Fix only this SELECT and call query_data again. One read-only "
-                        "SELECT or WITH … SELECT over the ai_* views, no other statement. "
-                        "This failure changed nothing: every step of the request already "
-                        "resolved above still stands, so do not restart the request."
+                        "Fix only this SELECT and call query_data again: one read-only "
+                        "SELECT or WITH … SELECT over the ai_* views. The earlier steps of "
+                        "the request still stand: do not start it again."
                     ),
                     "retryable": True,
                 }

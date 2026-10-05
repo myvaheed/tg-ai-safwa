@@ -46,7 +46,7 @@ async def test_ps_ai_019_two_fields_set_in_words_are_one_screen_and_one_change_e
             mutation_turn(
                 (
                     "profile",
-                    {"mode": "update", "home_after_minutes": 45, "morning_time": "08:00"},
+                    {"home_after_minutes": 45, "morning_time": "08:00"},
                 )
             ),
         ],
@@ -81,7 +81,7 @@ async def test_ps_ai_019_two_fields_set_in_words_are_one_screen_and_one_change_e
     advisor, provider = e2e_harness.advisor(
         [
             route_turn("profile"),
-            mutation_turn(("profile", {"mode": "update", "home_after_minutes": 2})),
+            mutation_turn(("profile", {"home_after_minutes": 2})),
             "Home after is 5 to 1440 minutes.",
             "How many minutes then?",
         ],

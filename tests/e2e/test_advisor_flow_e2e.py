@@ -559,7 +559,7 @@ async def test_resumed_request_replays_its_own_intermediate_steps(e2e_harness):
     # Step 2: the failed read is still visible, with a bounded instruction.
     assert last[4]["tool_calls"][0]["function"]["name"] == "query_data"
     assert '"code": "unsafe_query"' in str(last[5]["content"])
-    assert "do not restart the request" in str(last[5]["content"])
+    assert "do not start it again" in str(last[5]["content"])
     # Step 3: the steps speak for themselves, so no progress digest is restated on top.
     assert all("[Current request progress" not in str(message.get("content")) for message in last)
     assert "Create Card “Подтянуться 20 раз”" in str(last[7]["content"])

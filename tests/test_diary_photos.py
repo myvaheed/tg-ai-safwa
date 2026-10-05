@@ -87,8 +87,8 @@ def test_di_photo_017_a_photo_is_put_on_a_day_by_its_number() -> None:
     photo_only = DiaryToolInput.model_validate(
         {"mode": "update", "date": DAY.isoformat(), "add_media": [3]}
     )
-    assert photo_only.pov is None
-    with pytest.raises(ValueError, match="pov, add_media, remove_media or rename_media"):
+    assert photo_only.body is None
+    with pytest.raises(ValueError, match="body, add_media, remove_media or rename_media"):
         DiaryToolInput.model_validate({"mode": "update", "date": DAY.isoformat()})
     with pytest.raises(ValueError, match="only mode and date"):
         DiaryToolInput.model_validate(
@@ -135,7 +135,7 @@ async def test_di_photo_019_a_day_holds_photos_with_no_words_written_on_it(sessi
         assert (await diary_entry_for(session, DAY)).body is None
 
     words = await prepared(
-        sessions, {"mode": "update", "date": DAY.isoformat(), "pov": "Гуляли в парке."}
+        sessions, {"mode": "update", "date": DAY.isoformat(), "body": "Гуляли в парке."}
     )
     assert words.action is ChangeAction.UPDATE
     await saved(sessions, words)
@@ -321,7 +321,7 @@ def day_read(day: str) -> SessionRead:
 
 async def test_di_read_023_new_words_come_only_after_the_day_was_read() -> None:
     """DI-READ-023 — tests/brd/diary.feature"""
-    words = diary_call(date="2026-09-26", pov="День в парке.")
+    words = diary_call(date="2026-09-26", body="День в парке.")
 
     assert await unread_days(before(words)) == (DAY_NOT_READ.format(day="2026-09-26"),)
     assert await unread_days(before(words, reads=(day_read("2026-09-26"),))) == ()

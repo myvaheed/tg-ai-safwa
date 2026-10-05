@@ -33,7 +33,11 @@ from safwa.bootstrap.modules import (
     SYSTEM_PROMPT,
 )
 from safwa.features.advisor.agent import ITEMS, PERSONA
-from safwa.features.schedules.agent import COMPILER_PROMPT, DEADLINE_PROMPT, scheduled_tool
+from safwa.features.schedules.agent import (
+    DEADLINE_PARSER_PROMPT,
+    SCHEDULE_PARSER_PROMPT,
+    scheduled_tool,
+)
 from safwa.foundation.models import Base
 from scripts.architecture_metrics import (
     BUSINESS_FILES,
@@ -276,8 +280,8 @@ def test_rule_i_prompt_prefix_is_byte_stable(request):
         "PERSONA": _digest(PERSONA),
         "ITEMS": _digest(ITEMS),
         "HEAVY_ANALYZER_PROMPT": _digest(HELPERS["heavy_analyzer"].instructions),
-        "SCHEDULE_COMPILER_PROMPT": _digest(COMPILER_PROMPT),
-        "DEADLINE_COMPILER_PROMPT": _digest(DEADLINE_PROMPT),
+        "SCHEDULE_PARSER_PROMPT": _digest(SCHEDULE_PARSER_PROMPT),
+        "DEADLINE_PARSER_PROMPT": _digest(DEADLINE_PARSER_PROMPT),
     }
     # The instructions as assembled, not as written: `{views}` is filled in at import
     # time, so the raw constant is not what any subagent reads.

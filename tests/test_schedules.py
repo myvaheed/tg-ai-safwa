@@ -26,7 +26,7 @@ from safwa.features.checks.use_cases import (
 )
 from safwa.features.schedules.agent import (
     ACTION_LIMIT_QUESTION,
-    COMPILER_PROMPT,
+    SCHEDULE_PARSER_PROMPT,
     UNREADABLE_QUESTION,
     ScheduleCompiler,
     scheduled_tool,
@@ -701,8 +701,8 @@ async def test_a_schedule_without_a_clock_is_an_appointment_for_its_whole_day(
     from safwa.features.schedules.api import appointment_label, rule_summary, schedule_summary
     from safwa.features.schedules.rules import END_OF_DAY
 
-    assert "'every day', 'daily', 'every evening', 'every morning': period=day, count=1." in COMPILER_PROMPT
-    assert "Morning, evening and night are not a time: leave time out." in COMPILER_PROMPT
+    assert "'every day', 'daily', 'every evening', 'every morning': period=day, count=1." in SCHEDULE_PARSER_PROMPT
+    assert "Morning, evening and night are not a time: leave time out." in SCHEDULE_PARSER_PROMPT
     tz = ZoneInfo("Europe/Istanbul")
     monday = date(2026, 10, 5)
     noon = datetime(2026, 10, 5, 12, tzinfo=tz).astimezone(UTC)

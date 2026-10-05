@@ -193,7 +193,7 @@ async def test_a_routed_subagent_proposes_for_itself(e2e_harness):
                     {
                         "mode": "update",
                         "date": TODAY,
-                        "pov": "Закрыл рынок, хоть и поздно.",
+                        "body": "Закрыл рынок, хоть и поздно.",
                         "remark": "One thing finished is still a finished day.",
                         "feeling_score": 6,
                     },
@@ -227,7 +227,7 @@ async def test_a_routed_subagent_proposes_for_itself(e2e_harness):
         for tool_call in message.get("tool_calls") or []
         if tool_call["function"]["name"] == "diary"
     ]
-    assert written[0]["pov"] == "Закрыл рынок, хоть и поздно."
+    assert written[0]["body"] == "Закрыл рынок, хоть и поздно."
 
 
 async def test_an_unknown_route_target_is_repaired_in_the_next_response(e2e_harness):
@@ -537,7 +537,7 @@ async def test_two_domains_in_one_request_are_both_finished(e2e_harness):
             turn(("route", {"name": "diary"})),
             turn(("read_day", {}), prefix="diary"),
             turn(
-                ("diary", {"mode": "update", "date": TODAY, "pov": "Готовил пиццу."}),
+                ("diary", {"mode": "update", "date": TODAY, "body": "Готовил пиццу."}),
                 prefix="diary",
             ),
         ]
@@ -624,7 +624,7 @@ async def test_the_second_subagent_reads_what_the_first_one_saved(e2e_harness):
             "Переименовал.",
             turn(("route", {"name": "diary"})),
             turn(("read_day", {"date": TODAY}), prefix="read"),
-            turn(("diary", {"mode": "update", "date": TODAY, "pov": "Готовил пиццу."})),
+            turn(("diary", {"mode": "update", "date": TODAY, "body": "Готовил пиццу."})),
         ]
     )
 
@@ -647,7 +647,7 @@ async def test_the_second_subagent_reads_what_the_first_one_saved(e2e_harness):
 DIARY_DRAFT = {
     "mode": "update",
     "date": TODAY,
-    "pov": "Закрыл рынок, хоть и поздно.",
+    "body": "Закрыл рынок, хоть и поздно.",
     "remark": "One thing finished is still a finished day.",
     "feeling_score": 6,
 }
@@ -722,7 +722,7 @@ async def test_a_correction_reaches_the_session_that_wrote_the_refused_proposal(
         e2e_harness,
         then=[
             turn(("route", {"name": "diary"}), prefix="again"),
-            turn(("diary", {**DIARY_DRAFT, "pov": "Закрыл рынок."}), prefix="fix"),
+            turn(("diary", {**DIARY_DRAFT, "body": "Закрыл рынок."}), prefix="fix"),
         ],
     )
     async with e2e_harness.sessions() as session:
@@ -739,7 +739,7 @@ async def test_a_correction_reaches_the_session_that_wrote_the_refused_proposal(
     assert [(run.id, run.kind) for run in runs] == [(1, "advisor"), (diary_run_id, "diary")]
     # It resumed holding the draft it had already written.
     drafted = [
-        json.loads(call["function"]["arguments"])["pov"]
+        json.loads(call["function"]["arguments"])["body"]
         for message in provider.calls[4]
         for call in message.get("tool_calls") or []
         if call["function"]["name"] == "diary"
@@ -753,7 +753,7 @@ async def test_the_interrupted_session_reads_that_the_owner_wrote_instead(e2e_ha
         e2e_harness,
         then=[
             turn(("route", {"name": "diary"}), prefix="again"),
-            turn(("diary", {**DIARY_DRAFT, "pov": "Закрыл рынок."}), prefix="fix"),
+            turn(("diary", {**DIARY_DRAFT, "body": "Закрыл рынок."}), prefix="fix"),
         ],
     )
 
@@ -798,7 +798,7 @@ async def test_saving_finishes_the_subagent_and_the_next_route_starts_fresh(e2e_
             "Записал день.",
             turn(("route", {"name": "diary"}), prefix="again"),
             turn(("read_day", {"date": TODAY}), prefix="reread"),
-            turn(("diary", {**DIARY_DRAFT, "pov": "И ещё одно."}), prefix="second"),
+            turn(("diary", {**DIARY_DRAFT, "body": "И ещё одно."}), prefix="second"),
         ],
         subagents=(diary_subagent(e2e_harness),),
     )

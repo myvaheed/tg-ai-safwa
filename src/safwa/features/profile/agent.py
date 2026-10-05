@@ -9,7 +9,7 @@ every step.
 
 from __future__ import annotations
 
-from typing import ClassVar, Literal
+from typing import ClassVar
 
 from pydantic import Field, model_validator
 
@@ -21,18 +21,14 @@ from ...foundation.workspace import require_workspace
 from .api import hook_switched_on
 from .model import ProfileField, UserProfile
 
-PROFILE_PROMPT = """You keep the user's Profile: what they tell Safwa outright. You change its fields and answer what they hold.
+PROFILE_PROMPT = """You keep the user's Profile. You change its fields and answer what they hold.
 
 # What you know
 The last message lists every Profile field as it is now, by the name the `profile` tool gives it, then the timezone and each automatic reaction with its switch.
 Answer a question about the Profile from that message.
 
 # The `profile` tool
-- One call, with every field the user asked to change, and `mode` "update".
-- A time is HH:MM, like 08:00.
-- `home_after_minutes` is a whole number.
-- `time_tracking` is true or false.
-- `effort_tracking` is true or false; it switches Effort Points.
+- One call with every field the user asked to change.
 - A text field is replaced whole. To add to it, write the text it holds now, then the new words.
 - Write one short line naming what you propose, in the same response. The review screen shows the rest.
 
@@ -93,7 +89,6 @@ class ProfileToolInput(ToolInput):
         {"about_me", "advisor_instructions", "diary_instructions"}
     )
 
-    mode: Literal["update"]
     about_me: str | None = Field(default=None, description="What Safwa should know about the user.")
     advisor_instructions: str | None = Field(
         default=None, description="Standing instructions for Safwa."
@@ -123,15 +118,15 @@ class ProfileToolInput(ToolInput):
 
     @model_validator(mode="after")
     def names_a_field(self) -> ProfileToolInput:
-        if not self.model_fields_set - {"mode"}:
+        if not self.model_fields_set:
             raise ValueError("a Profile change needs at least one field")
         return self
 
 
 def _profile_change(call: ProfileToolInput) -> AgentChange:
-    values = call.model_dump(exclude_unset=True)
-    values.pop("mode", None)
-    return AgentChange(entity="profile", action=ChangeAction.UPDATE, values=values)
+    return AgentChange(
+        entity="profile", action=ChangeAction.UPDATE, values=call.model_dump(exclude_unset=True)
+    )
 
 
 PROFILE_TOOL = MutationToolSpec(

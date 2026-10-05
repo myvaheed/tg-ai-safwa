@@ -40,13 +40,12 @@ END_CHECK = "end"
 EXPIRY_CHECK = "expiry"
 
 SPRINT_ENDS_TOMORROW = (
-    "Sprint {number} ends tomorrow, {end_date}. Check what is still open in Sprint and Today, "
-    "and help the user finalize the status of each of those Actions."
+    "Sprint {number} ends tomorrow, {end_date}. Read what is still open in Sprint and Today. "
+    "Ask the user in one message what to do with each. Change nothing until they answer."
 )
 SPRINT_ENDS_TODAY = (
     "Sprint {number} ends today, {end_date}. Tell the user to close it from the 🏃 Sprint "
-    "screen; if they do not, Safwa closes it automatically at midnight and whatever is still "
-    "open keeps its stage."
+    "screen. If they do not, it closes at midnight, and its open Actions keep their stage."
 )
 
 KEY_WARNING_REQUEST = (

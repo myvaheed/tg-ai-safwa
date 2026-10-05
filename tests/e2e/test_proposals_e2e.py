@@ -1216,7 +1216,7 @@ async def test_failed_call_result_states_that_its_siblings_are_still_queued(e2e_
 
     # The prompt no longer explains sibling semantics every turn; the failing call says it.
     assert failed["result"]["status"] == "error"
-    assert "were not cancelled" in failed["result"]["next"]
+    assert "Retry only this call." in failed["result"]["next"]
     assert f"{len(queued)} other call(s)" in failed["result"]["next"]
 
 

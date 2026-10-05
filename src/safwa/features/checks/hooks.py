@@ -23,9 +23,8 @@ MISSED_RUN = 3
 
 MISSED_RUN_REQUEST = (
     "Missed several times in a row:\n{checks}\n"
-    "Raise it with the user in one message, naming each: ask what gets in the way, and "
-    "whether the Check, its Card or the approach should change. Decide nothing for them; "
-    "do not create or change anything without their answer."
+    "Ask the user in one message, naming each, what gets in the way and whether to change "
+    "the Check, its Card or the approach. Change nothing until they answer."
 )
 
 

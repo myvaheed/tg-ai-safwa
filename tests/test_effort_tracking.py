@@ -106,7 +106,7 @@ async def test_ps_ep_021_the_switch_keeps_estimates_and_capacity(sessions):
     assert "Effort:" not in text and "🔢 Effort" not in button_texts(markup)
     assert "⌛ Time spent" in button_texts(markup)
     async with sessions() as session:
-        change = PROPOSALS.change_from_tool("profile", {"mode": "update", "effort_tracking": True})
+        change = PROPOSALS.change_from_tool("profile", {"effort_tracking": True})
         prepared = await ChangePreparer(None, None, PROPOSALS).prepare(session, change)
         proposal = ProposalChange(entity="profile", action=change.action, values=prepared.values)
         screen = await ProfileProposalPresenter().screen(session, [proposal])

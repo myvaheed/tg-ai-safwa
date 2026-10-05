@@ -354,7 +354,7 @@ class ToolAdapters:
                 "status": ToolResultStatus.ERROR.value,
                 "code": "helper_not_offered",
                 "error": f"The helper {payload.name!r} has not been offered in this session.",
-                "hint": "Use the tools currently available to answer the owner.",
+                "hint": "Answer the user with the tools you have.",
                 "retryable": True,
             }
         await self.trail.step(
@@ -376,7 +376,7 @@ class ToolAdapters:
                 "helper": payload.name,
                 "status": ToolResultStatus.ERROR.value,
                 "error": failure_reason(error),
-                "hint": "Answer the owner with what you already have.",
+                "hint": "Answer the user with what you already have.",
             }
 
     def _agent_of(self, agent: AgentSession) -> Literal["root", "subagent"]:
@@ -588,8 +588,8 @@ class ToolAdapters:
                 "code": "invalid_arguments",
                 "error": error_text,
                 "hint": (
-                    "Retry only this unfinished tool call using expected_arguments and the "
-                    "argument_rules below; do not repeat successful calls."
+                    "Retry only this call, with expected_arguments and argument_rules. "
+                    "Do not repeat the calls that succeeded."
                 ),
                 "retryable": True,
             }
@@ -617,5 +617,5 @@ class ToolAdapters:
             "entity": change.entity,
             "action": change.action,
             "id": change.id,
-            "next": "Wait for the user's review or approval; do not say it is complete.",
+            "next": "The user reviews it now. Do not call it saved.",
         }

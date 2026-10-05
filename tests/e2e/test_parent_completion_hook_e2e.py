@@ -97,7 +97,7 @@ async def test_finished_actions_ask_once_and_the_owners_choice_closes_only_the_g
     assert f"#{goal_id} «Learn Spanish»" in said[0]
     assert f"#{subgoal_id} «Read a book»" in said[0]
     assert "close each too or create a new Action" in said[0]
-    assert "without their answer" in said[0]
+    assert "Change nothing until they answer" in said[0]
     assert await pending(sessions) == []
     assert not await tick(
         sessions, gate=gate, speak=speak, delivered=runtime.delivered, prepare=runtime.prepare

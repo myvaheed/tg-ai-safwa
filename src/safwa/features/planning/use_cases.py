@@ -213,7 +213,7 @@ async def sprint_summary(session: AsyncSession, sprint: Sprint) -> str:
     shown = open_titles[:SUMMARY_OPEN_TITLES]
     if len(open_titles) > len(shown):
         shown.append(f"and {len(open_titles) - len(shown)} more")
-    ended = "the owner closed it" if sprint.finish_reason != "expired" else "its end date passed"
+    ended = "the user closed it" if sprint.finish_reason != "expired" else "its end date passed"
     effort_tracking = await effort_tracking_on(session)
     return "\n".join(
         [
@@ -237,7 +237,7 @@ async def sprint_summary(session: AsyncSession, sprint: Sprint) -> str:
             *(["Schedule quantities are unknown for some Actions; these totals are lower bounds."]
               if counts["unknown_schedules"] else []),
             "Still open: " + (", ".join(shown) if shown else "nothing"),
-            "Tell the owner how the Sprint went in a few sentences. Use only the numbers "
+            "Tell the user how the Sprint went in a few sentences. Use only the numbers "
             "above. Ask what to do with what is still open, and about the next Sprint. "
             f"End your message with the link [Sprint retro](retro:{sprint.id}).",
         ]

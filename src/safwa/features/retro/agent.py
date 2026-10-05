@@ -45,7 +45,6 @@ from .records import (
     ended_span,
     ended_sprints,
     retro_link,
-    sprint_on,
     sprint_records,
     sprints_by_number,
 )
@@ -59,7 +58,7 @@ RETRO_PROMPT = f"""You answer questions about the Sprints that ended, from the r
 
 # Finding a Sprint
 - The last message lists the newest Sprints that ended: each one's retro link, its number and the days it ran.
-- A Sprint named by a date: call `get_retro_number` with the date as YYYY-MM-DD.
+- A Sprint named by a date: give that date as both `start_date` and `end_date`.
 - A number is written like 26.09-01. Pass it exactly so.
 - A running Sprint has no retro yet. Say so.
 
@@ -109,29 +108,13 @@ _CHOICE = {
     },
 }
 
-GET_RETRO_NUMBER_TOOL: dict[str, Any] = {
-    "type": "function",
-    "function": {
-        "name": "get_retro_number",
-        "description": "The ended Sprint that was running on one date: its number and id.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "date": {"type": "string", "description": "The local date as YYYY-MM-DD."}
-            },
-            "required": ["date"],
-        },
-    },
-}
-
 GET_RETRO_DATA_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
         "name": "get_retro_data",
         "description": (
-            "What each chosen ended Sprint added up to, by its number. Choose by numbers, by "
-            f"start_date and end_date, or neither for all. At most {RETRO_DATA_MAX} Sprints "
-            "a call."
+            "What each chosen ended Sprint added up to, by its number. At most "
+            f"{RETRO_DATA_MAX} Sprints a call."
         ),
         "parameters": {"type": "object", "properties": _CHOICE, "required": []},
     },
@@ -141,10 +124,7 @@ SHOW_CHARTS_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
         "name": "show_charts",
-        "description": (
-            "Send the charts of the chosen ended Sprints to the chat, or one chart. Choose by "
-            "numbers, by start_date and end_date, or neither for all."
-        ),
+        "description": "Send the charts of the chosen ended Sprints to the chat, or one chart.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -172,7 +152,7 @@ GET_AGGREGATE_TOOL: dict[str, Any] = {
         "name": "get_aggregate",
         "description": (
             "The sum or the mean of every number the chosen ended Sprints' records carry, "
-            "as one object. Choose by numbers, by start_date and end_date, or neither for all."
+            "as one object."
         ),
         "parameters": {
             "type": "object",
@@ -292,15 +272,6 @@ async def _chosen(session: AsyncSession, arguments: dict[str, Any]) -> dict[str,
 def _retro_read_tools(context: AgentContext) -> tuple[ReadToolSpec, ...]:
     sessions = context.sessions
 
-    async def get_retro_number(call: ToolCall) -> dict[str, Any]:
-        raw = str(_arguments(call).get("date") or "").strip()
-        try:
-            day = date.fromisoformat(raw)
-        except ValueError:
-            return _error(f"{raw!r} is not a date.", 'Retry with {"date": "YYYY-MM-DD"}.')
-        async with sessions() as session:
-            return await sprint_on(session, day, await _today(session))
-
     async def get_retro_data(call: ToolCall) -> dict[str, Any]:
         async with sessions() as session:
             try:
@@ -331,7 +302,6 @@ def _retro_read_tools(context: AgentContext) -> tuple[ReadToolSpec, ...]:
                 return instead.result
 
     reads = (
-        ReadToolSpec(GET_RETRO_NUMBER_TOOL, get_retro_number),
         ReadToolSpec(GET_RETRO_DATA_TOOL, get_retro_data),
         ReadToolSpec(GET_AGGREGATE_TOOL, get_aggregate),
     )

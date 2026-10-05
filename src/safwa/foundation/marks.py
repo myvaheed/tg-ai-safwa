@@ -49,7 +49,7 @@ async def live_instance_hint(session: AsyncSession, entity: RepeatSeries) -> str
     """Where to retry a call that reached a closed instance."""
     live_id = await live_repeat_instance_id(session, entity)
     if live_id is None:
-        return "The series has ended. Tell the owner instead of proposing again."
+        return "The series has ended. Tell the user instead of proposing again."
     return f"Retry this call with #{live_id}, the open one in its series."
 
 

@@ -1483,7 +1483,7 @@ async def test_cd_empty_035_the_request_names_the_parents_old_enough_and_still_w
         for title in ("Fix the bike", "Started last evening", "Old idea"):
             assert title not in request
         assert "plan its Actions now, or create one Action" in request
-        assert "Do not create anything without their answer" in request
+        assert "Change nothing until they answer" in request
 
         # An Action under the Subgoal is the Goal's too; with none left, nothing is asked.
         await create_card(
@@ -1554,7 +1554,7 @@ async def test_cd_today_036_the_request_sums_the_day_as_it_is_about_to_be_said(s
         ):
             assert line in request
         assert "Done already" not in request
-        assert "Do not move anything without their answer" in request
+        assert "Change nothing until they answer" in request
 
         # Finished on another day, it is not this day's; moved back, the day is under.
         done.completed_at = utcnow() - timedelta(days=2)
@@ -1596,7 +1596,7 @@ async def test_cd_rest_037_the_request_names_the_sprints_rest_while_the_day_hold
         assert request is not None
         assert f"- #{nap.id} «Nap»" in request and f"- #{walk.id} «Walk»" in request
         assert "Work" not in request and "Someday rest" not in request
-        assert "Do not move anything without their answer" in request
+        assert "Change nothing until they answer" in request
 
         # A Rest Action in Today by then: the day has its rest.
         await move_card(session, nap.id, CardStage.TODAY)
@@ -1702,7 +1702,7 @@ async def test_cd_stale_038_the_request_names_the_actions_on_a_third_morning_in_
         for absent in ("Fourth", "Broken", "Gone", "First"):
             assert absent not in request
         assert "too big, blocked or not wanted" in request
-        assert "Do not change anything without their answer" in request
+        assert "Change nothing until they answer" in request
 
         # Left Today by then, each is left out; with none left, nothing is asked.
         await move_card(session, third.id, CardStage.SPRINT)

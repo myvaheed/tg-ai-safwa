@@ -89,9 +89,9 @@ async def test_rt_ask_013_totals_and_averages_come_from_the_code(e2e_harness):
 
     assert outcome.kind is AIOutcomeKind.ANSWER
     assert outcome.message == words
-    # It reads no view: its own three reads, and `open` over retros alone.
+    # It reads no view: its own two reads, and `open` over retros alone.
     offered = [tool["function"]["name"] for tool in provider.options[1]["tools"]]
-    assert offered == ["open", "get_retro_number", "get_retro_data", "get_aggregate"]
+    assert offered == ["open", "get_retro_data", "get_aggregate"]
     # The newest ended Sprints come after the conversation, each with its retro link.
     block = str(provider.calls[1][-1]["content"])
     for sprint in ended:
@@ -122,7 +122,11 @@ async def test_rt_open_015_a_retro_named_by_a_date_or_a_number_is_put_on_screen(
     async with e2e_harness.sessions() as session:
         first_day = RetroStatistics.from_record((await session.get(Sprint, sprint.id)).retro).first_day
     by_date = [
-        read_turn("get_retro_number", {"date": first_day.isoformat()}, "find"),
+        read_turn(
+            "get_retro_data",
+            {"start_date": first_day.isoformat(), "end_date": first_day.isoformat()},
+            "find",
+        ),
         read_turn("open", {"item_type": "retro", "id": sprint.id}, "open"),
     ]
     by_number = [read_turn("open", {"item_type": "retro", "id": sprint.id}, "open")]

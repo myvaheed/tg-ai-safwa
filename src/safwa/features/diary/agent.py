@@ -43,7 +43,7 @@ class DiaryToolInput(ToolInput):
         description="update writes that day, replacing what is saved; delete removes it."
     )
     date: str = Field(description="The day this settles, as YYYY-MM-DD.")
-    pov: str | None = Field(
+    body: str | None = Field(
         default=None,
         description=(
             "With update: that whole day in the user's voice. It replaces the saved words. "
@@ -83,9 +83,9 @@ class DiaryToolInput(ToolInput):
     @model_validator(mode="after")
     def entry_needs_its_text(self) -> DiaryToolInput:
         media = self.add_media or self.remove_media or self.rename_media
-        if self.mode == "update" and not ((self.pov or "").strip() or media):
-            raise ValueError("An update carries pov, add_media, remove_media or rename_media")
-        if self.mode == "delete" and (self.pov or self.feeling_score is not None or media):
+        if self.mode == "update" and not ((self.body or "").strip() or media):
+            raise ValueError("An update carries body, add_media, remove_media or rename_media")
+        if self.mode == "delete" and (self.body or self.feeling_score is not None or media):
             raise ValueError("A deletion carries only mode and date")
         return self
 
@@ -99,23 +99,22 @@ DIARY_PROMPT = f"""You keep the user's Diary. One day, one entry, in their own v
 4. In the response with the `diary` tool, write your plan as text: what you will write or
    remove.
 5. The `diary` tool, in that same response:
-   - `diary(mode="update", date=…, pov=…, remark=…, feeling_score=…)` — whether or not that day
-     is written already. Fold in the saved words: your `pov` replaces them, so what you leave out
-     of `pov` is lost. `feeling_score` is the one exception — see below.
+   - `diary(mode="update", date=…, body=…, remark=…, feeling_score=…)` — whether or not that day
+     is written already. Fold the saved words into `body`: it replaces them whole.
    - `diary(mode="delete", date=…)` — the user asked for that day to go.
    If your sources do not make the day writable, call nothing_to_do with what is missing.
 
 # Photos
 A photo the user sent reads as `[words](media:N)`, then their caption if they wrote one.
 - A photo with no caption: `diary(mode="update", date=…, add_media=[N])` and nothing more. No
-  `pov`, no `remark`: a photo is not words of the user's, and the saved words stay.
-- A caption that says something about the day: put the photo on it and write `pov` too.
+  `body`, no `remark`.
+- A caption that says something about the day: put the photo on it and write `body` too.
 - Take one off the day: `remove_media=[N]`.
 - The user corrects what a photo shows: `rename_media=[{{"media_id": N, "meta": "…"}}]`, at most
   {DESCRIPTION_MAX_WORDS} words, as the user names it. Never take the photo off for that.
 
-# pov
-`pov` is the day itself, and only the user speaks in it: first person, their words, their language.
+# body
+`body` is the day itself, and only the user speaks in it: first person, their words, their language.
 Never "you". No advice, no praise, no task list. Name people and items as the user names them, and
 write nothing your sources do not show.
 `remark` is your one line to the user about that day — noticing, not praising.

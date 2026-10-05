@@ -1,5 +1,5 @@
-"""The sprint subagent: it starts and finishes the Sprint, sets the next one's Success
-criteria, length and capacity, and answers what the Sprint is as it stands.
+"""The sprint subagent: it starts and finishes the Sprint, and sets the next one's Success
+criteria, length and capacity. What is not its own it hands back with `nothing_to_do`.
 
 Every change it makes is a proposal that Save applies through the same operations the
 Sprint screen's buttons call. What the Sprint is right now is not in its prompt: it is the
@@ -34,35 +34,22 @@ from .api import (
 )
 from .model import Sprint
 
-SPRINT_PROMPT = """You run the user's Sprint: you start it, finish it, and set the next Sprint's Success criteria, length and capacity. You also answer questions about the Sprint.
-
-# What you know
-The last message lists the Sprint as it stands now: the mode, its days, its Actions, and its effort and capacity while Effort Points are on. In Planning it lists the next Sprint's length.
-Answer a question about the Sprint from that message: its dates, its length, which day it is, how many days are left.
-Read the Actions with `query_data` only when the question is about them.
-Planned Action counts and EP already include scheduled executions. Use these totals directly; an open Card is not necessarily one execution.
+SPRINT_PROMPT = """You run the user's Sprint: you start it, finish it, and set the next Sprint's Success criteria, length and capacity.
+The last message lists the Sprint as it stands now.
 
 # The `sprint` tool
 - `mode="update"`: set the next Sprint's `success_criteria`, `length_days` or `capacity_effort_points`, one or more. Only in Planning.
 - `length_days` is a whole number of days. `capacity_effort_points` is a number of effort points, only while Effort Points are on; null turns it off.
-- `mode="create"`: start the next Sprint today. It runs for the next Sprint's length. Add any of those fields to set them in the same Save.
+- `mode="create"`: start the next Sprint today. Add any of those fields to set them in the same Save.
 - `mode="complete"`: finish the running Sprint. Its open Actions keep their stage.
 - Write the Success criteria in the user's own words.
-- Write one short line naming what you propose, in the same response. The review screen shows the rest.
+- Write one short line naming what you propose, in the same response.
 
-# What you cannot do
-- Change the running Sprint's Success criteria, length or capacity: they were fixed when it started. Say so, and propose nothing.
-- Change a Sprint's dates, pause it, extend it, or bring a finished one back. Say there is no way to.
-- Move Actions into the Sprint or Today: say the Advisor does that with the workspace.
-
-# Answering
-Your answer goes to the user as you wrote it. Keep it short.
-
-# Read the data
-`query_data` runs one read-only `SELECT` over these views only.
-Every value listed under a view is the lowercase code stored in that column.
-
-{views}"""
+# Not yours
+Call nothing_to_do with one sentence why when the request is:
+- a change to the running Sprint: its Success criteria, length, capacity or dates; pausing or extending it;
+- bringing a finished Sprint back;
+- moving Actions."""
 
 
 async def sprint_now(context: AgentContext) -> str:
@@ -146,9 +133,7 @@ SPRINT_AGENT = AgentSpec(
     ),
     instructions=SPRINT_PROMPT,
     mutation_tools=("sprint",),
-    views=("ai_current_sprint", "ai_current_sprint_metrics", "ai_cards"),
     current=sprint_now,
-    answers_questions=True,
 )
 
 

@@ -27,7 +27,7 @@ Feature: Profile
   Scenario: PS-DIARY-006 — The Diary time and prompt are what Safwa's own Diary nudge follows
     Given a Diary time (DIARY_TIME_DEFAULT = "22:00") and a Diary prompt in the Profile
     When the Diary time passes and the chat is free
-    Then the Advisor is asked once to call the diary subagent for today and propose what it reports, with the Diary prompt after it when there is one
+    Then the Advisor is asked once to route today to the diary subagent, with the Diary prompt after it when there is one
     And the time is read at every look and the prompt when the request is about to be said, so a change to either counts without a restart, by AG-HOOK-039
     And no Reminder stands behind it: the owner's own Reminders are untouched by either
 

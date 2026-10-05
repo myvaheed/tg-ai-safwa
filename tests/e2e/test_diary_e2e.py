@@ -33,8 +33,8 @@ def turn(*calls: tuple[str, dict[str, object]]) -> ProviderTurn:
     )
 
 
-def write(date_value: str, pov: str, **extra: object) -> ProviderTurn:
-    return turn(("diary", {"mode": "update", "date": date_value, "pov": pov, **extra}))
+def write(date_value: str, body: str, **extra: object) -> ProviderTurn:
+    return turn(("diary", {"mode": "update", "date": date_value, "body": body, **extra}))
 
 
 def read(date_value: str) -> ProviderTurn:

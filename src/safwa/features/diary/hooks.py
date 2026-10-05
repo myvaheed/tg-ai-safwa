@@ -19,11 +19,11 @@ from tg_agent_shell.hooks.contracts import (
 
 from ..profile.api import diary_instructions, diary_time
 
-DIARY_REQUEST = "End of day. Call the diary subagent for today, then propose what it reports."
+DIARY_REQUEST = 'End of day. Call route("diary") for today.'
 
 DAY_NOT_READ = (
     'Read {day} first with read_day(date="{day}"). Then send diary again, with the words '
-    "already saved for that day folded into pov."
+    "already saved for that day folded into body."
 )
 
 
@@ -52,7 +52,7 @@ async def unread_days(event: BeforeProposals) -> tuple[str, ...]:
     """Each day the response writes new words for that this session never read (DI-READ-023).
 
     A day is read when `read_day` answered for it; a call that failed read nothing. Photos
-    alone leave the words as they are, so only a call carrying `pov` is checked.
+    alone leave the words as they are, so only a call carrying `body` is checked.
     """
     read: set[str] = set()
     for item in event.reads:
@@ -67,7 +67,7 @@ async def unread_days(event: BeforeProposals) -> tuple[str, ...]:
     written = dict.fromkeys(
         str(call.values.get("date"))
         for call in event.calls
-        if call.tool == "diary" and call.values.get("pov")
+        if call.tool == "diary" and call.values.get("body")
     )
     return tuple(DAY_NOT_READ.format(day=day) for day in written if day not in read)
 

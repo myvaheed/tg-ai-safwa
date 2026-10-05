@@ -32,11 +32,11 @@ MOTIVATION_DIARY_ENTRIES = 2
 MOTIVATION_MAX_CHARS = 200
 
 MOTIVATION_PROMPT = (
-    "Write a few words that move the owner to live by one Value today.\n"
+    "Write a few words that move the user to live by one Value today.\n"
     "Tie the Value to one real thing from About me, the Goals, the finished Actions or "
     "the Diary.\n"
     f"One or two sentences, at most {MOTIVATION_MAX_CHARS} characters.\n"
-    'Speak to the owner as "you".\n'
+    'Speak to the user as "you".\n'
     "Write in the language of the Diary and About me.\n"
     "Call motivate with the text."
 )

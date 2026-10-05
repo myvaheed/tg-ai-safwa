@@ -82,29 +82,28 @@ ENERGY_KINDS = {
 TODAY_STALE_DAYS = 3
 
 SCHEDULE_PLAN_REQUEST = (
-    "Scheduled Actions the plan does not hold:\n{cards}\n"
+    "Scheduled Actions due soon, and where each stands:\n{cards}\n"
     "Ask the user in one message whether to take the ones due today or tomorrow into Today, "
-    "and the others into the Sprint. Do not move anything without their answer."
+    "and the others into the Sprint. Change nothing until they answer."
 )
 
 TODAY_OVERLOAD_REQUEST = (
     "Today holds {total} EP, over the {capacity} EP a day is meant to hold; {done} EP of "
     "it is finished already. Still open in Today:\n{cards}\n"
     "Ask the user in one message which of these to move back to Sprint, and say which you "
-    "would move first. Do not move anything without their answer."
+    "would move first. Change nothing until they answer."
 )
 
 EMPTY_PARENTS_REQUEST = (
-    "Without any Action under them:\n{cards}\n"
+    "Goals and Subgoals with no Action under them:\n{cards}\n"
     "Ask the user in one message, naming each: plan its Actions now, or create one Action "
-    "«Plan the actions for <title>» to come back to it later. Wait for their choice. "
-    "Do not create anything without their answer."
+    "«Plan the actions for <title>» to come back to it later. Change nothing until they answer."
 )
 
 BLOCKER_REQUEST = (
-    "Blocked since we last spoke:\n{cards}\n"
-    "Ask the user whether to set a Reminder to come back to each; if they want one, agree "
-    "when and propose it. Do not create anything without their answer."
+    "Blocked Actions:\n{cards}\n"
+    "Ask the user in one message whether to set a Reminder to come back to each. If they "
+    "want one and say when, route to workspace_mutator. Change nothing until they answer."
 )
 
 TIME_TRACKING_REQUEST = (
@@ -124,21 +123,21 @@ EFFORT_TRACKING_REQUEST = (
 
 ENERGY_BALANCE_REQUEST = (
     "The Sprint has no open Action for these, and the Backlog has:\n{kinds}\n"
-    "Ask the user in one message whether to take one of each into the Sprint, so its energy "
-    "is spread. Do not move anything without their answer."
+    "Ask the user in one message whether to take one of each into the Sprint. "
+    "Change nothing until they answer."
 )
 
 REST_TODAY_REQUEST = (
     "Today holds no rest, and the Sprint does:\n{cards}\n"
-    "Ask the user in one message whether to take one into Today, so the rest is planned "
-    "instead of forced. Do not move anything without their answer."
+    "Ask the user in one message whether to take one into Today. "
+    "Change nothing until they answer."
 )
 
 TODAY_STALE_REQUEST = (
-    "In Today morning after morning, still open:\n{cards}\n"
+    "Open in Today several mornings in a row:\n{cards}\n"
     "Ask the user in one message, naming each with its mornings, whether it is too big, "
     "blocked or not wanted, and what to do with it: split it, do it first today, or move "
-    "it back to Sprint. Do not change anything without their answer."
+    "it back to Sprint. Change nothing until they answer."
 )
 
 
@@ -208,8 +207,7 @@ async def parent_completion_request(session: AsyncSession, items: Sequence[int])
     return (
         "All Actions under these Goals and Subgoals are Done:\n" + "\n".join(lines) + "\n"
         "Ask the user in one message whether to close each too or create a new Action under it. "
-        "Wait for their choice. Do not close or create anything without their answer. "
-        "If they choose, route to workspace_mutator."
+        "Change nothing until they answer."
     )
 
 

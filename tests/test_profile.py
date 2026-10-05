@@ -255,7 +255,7 @@ async def test_ps_ai_019_every_field_is_set_in_words_through_the_screens_check(
 ):
     """PS-AI-019 — tests/brd/profile.feature"""
     handler = ProfileProposalHandler()
-    change = PROPOSALS.change_from_tool("profile", {"mode": "update", name: sent})
+    change = PROPOSALS.change_from_tool("profile", {name: sent})
     async with sessions() as session:
         revision = (await session.get(Workspace, 1)).revision
         prepared = await handler.prepare(SimpleNamespace(session=session), change)
@@ -279,7 +279,7 @@ async def test_ps_ai_019_a_value_the_screen_refuses_is_refused_before_any_screen
     sessions, name, sent
 ):
     """PS-AI-019 — tests/brd/profile.feature"""
-    change = PROPOSALS.change_from_tool("profile", {"mode": "update", name: sent})
+    change = PROPOSALS.change_from_tool("profile", {name: sent})
     async with sessions() as session:
         with pytest.raises(ToolPreparationError, match=name):
             await ProfileProposalHandler().prepare(SimpleNamespace(session=session), change)

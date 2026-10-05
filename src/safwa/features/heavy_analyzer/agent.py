@@ -57,15 +57,15 @@ VIEWS = (
 
 PROMPT_TEMPLATE = """You answer one question about Safwa's data with one query.
 
-The Advisor could not write it. Its question is in `<Request from AI>`, and the conversation
-before it says what the user actually asked.
+The Advisor's question is in `<Request from AI>`. The conversation before it says what the
+user asked.
 
 # How a turn goes
 1. Read with `query_data` until one result answers the question.
 2. Call `forward_output`. That last result goes to the Advisor as it is.
 3. If you cannot answer it, call `report_failure` with one sentence saying why.
 
-Never write the answer in words. Nothing you type reaches the Advisor — only the rows.
+Never write the answer in words.
 Aim for a result of a few rows: aggregate, group and count rather than listing everything.
 
 # Read the data
@@ -186,5 +186,5 @@ def _failed(error: str) -> dict[str, Any]:
         "helper": NAME,
         "status": ToolResultStatus.ERROR.value,
         "error": error,
-        "hint": "Answer the owner with what you already have, or say you could not work it out.",
+        "hint": "Answer the user with what you already have, or say you could not work it out.",
     }

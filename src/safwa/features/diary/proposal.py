@@ -70,7 +70,7 @@ class DiaryProposalHandler:
         on_day = dict(await day_media(context.session, saved.id)) if saved is not None else {}
         media = await self._resolve_media(context, on_day, entry_date, values)
         left = len(on_day) - len(media.get("remove_media", ())) + len(media.get("add_media", ()))
-        if saved is not None and saved.body is None and values.get("pov") is None and not left:
+        if saved is not None and saved.body is None and values.get("body") is None and not left:
             # Save removes a day left with neither words nor photos, so the review asks for
             # exactly that.
             change.action = ChangeAction.DELETE
@@ -86,7 +86,7 @@ class DiaryProposalHandler:
         change.values = {
             "entry_date": entry_date.isoformat(),
             # None leaves the words already saved for that day.
-            "body": values.get("pov"),
+            "body": values.get("body"),
             "feeling_score": score,
             "remark": str(values.get("remark") or ""),
             **media,

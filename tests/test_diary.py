@@ -94,16 +94,16 @@ def test_di_write_008_write_and_delete_inputs_are_distinct() -> None:
     with pytest.raises(ValueError):
         DiaryToolInput.model_validate({"mode": "update", "date": "2026-08-15"})
     with pytest.raises(ValueError):
-        DiaryToolInput.model_validate({"mode": "delete", "date": "2026-08-15", "pov": "День."})
+        DiaryToolInput.model_validate({"mode": "delete", "date": "2026-08-15", "body": "День."})
     with pytest.raises(ValueError):
-        DiaryToolInput.model_validate({"mode": "update", "date": "15.08.2026", "pov": "День."})
-    assert DiaryToolInput.model_validate({"mode": "delete", "date": "2026-08-15"}).pov is None
+        DiaryToolInput.model_validate({"mode": "update", "date": "15.08.2026", "body": "День."})
+    assert DiaryToolInput.model_validate({"mode": "delete", "date": "2026-08-15"}).body is None
 
 
 def test_di_mood_004_score_is_optional_and_bounded() -> None:
     """DI-MOOD-004 — tests/brd/diary.feature"""
     written = DiaryToolInput.model_validate(
-        {"mode": "update", "date": "2026-08-15", "pov": "День.", "feeling_score": 0}
+        {"mode": "update", "date": "2026-08-15", "body": "День.", "feeling_score": 0}
     )
     assert written.feeling_score == 0
     for out_of_scale in (-1, 11):
@@ -112,7 +112,7 @@ def test_di_mood_004_score_is_optional_and_bounded() -> None:
                 {
                     "mode": "update",
                     "date": "2026-08-15",
-                    "pov": "День.",
+                    "body": "День.",
                     "feeling_score": out_of_scale,
                 }
             )
@@ -136,7 +136,7 @@ def test_di_write_008_update_action_is_resolved_from_live_day() -> None:
     """DI-WRITE-008 — tests/brd/diary.feature"""
     change = PROPOSALS.change_from_tool(
         "diary",
-        {"mode": "update", "date": "2026-08-15", "pov": "День.", "remark": "Held."},
+        {"mode": "update", "date": "2026-08-15", "body": "День.", "remark": "Held."},
     )
     assert (change.entity, change.action, change.id) == ("diary", "update", None)
     assert "mode" not in change.values
@@ -147,7 +147,7 @@ async def test_di_day_001_missing_day_is_created(sessions) -> None:
     today = date.today()
     change, result = await prepared(
         sessions,
-        {"mode": "update", "date": today.isoformat(), "pov": "Первый день.", "feeling_score": 8},
+        {"mode": "update", "date": today.isoformat(), "body": "Первый день.", "feeling_score": 8},
     )
     assert (change.action, change.id) == ("create", None)
     assert result.values == {
@@ -166,7 +166,7 @@ async def test_di_day_002_existing_day_is_replaced(sessions) -> None:
         await session.commit()
 
     change, result = await prepared(
-        sessions, {"mode": "update", "date": today.isoformat(), "pov": "Переписал."}
+        sessions, {"mode": "update", "date": today.isoformat(), "body": "Переписал."}
     )
     assert (change.action, change.id) == ("update", entry.id)
     assert result.expected_version == entry.version

@@ -16,7 +16,6 @@ from typing import Any, Literal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...foundation.workspace import require_workspace
 from ..planning.closing import RetroStatistics
 from ..planning.model import Sprint
 from ..profile.api import effort_tracking_on
@@ -232,33 +231,3 @@ def _number(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
     return value
-
-
-async def sprint_on(session: AsyncSession, day: date, today: date) -> dict[str, Any]:
-    """The ended Sprint whose days hold this one, or why there is none.
-
-    A Sprint's days run from the day it started to the day it ended or its planned end,
-    whichever came first, as its record counts them (RT-STATS-003).
-    """
-    found = await ended_between(session, day, day)
-    if found:
-        sprint = found[0]
-        statistics = RetroStatistics.from_record(sprint.retro)
-        return {
-            "number": sprint.number,
-            "id": sprint.id,
-            "link": retro_link(sprint),
-            "ran": f"{statistics.first_day.isoformat()} – {statistics.last_day.isoformat()}",
-        }
-    workspace = await require_workspace(session)
-    running = (
-        await session.get(Sprint, workspace.active_sprint_id)
-        if workspace.active_sprint_id
-        else None
-    )
-    if running is not None and running.planned_start_date <= day <= today:
-        return {
-            "error": f"On {day.isoformat()} Sprint {running.number} was running, and it still "
-            "is: its retro is written when it ends."
-        }
-    return {"error": f"No Sprint was running on {day.isoformat()}."}

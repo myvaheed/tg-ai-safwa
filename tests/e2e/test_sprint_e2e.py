@@ -184,11 +184,29 @@ async def test_pl_mode_002_refusals_are_the_buttons_own_and_nothing_is_proposed(
     async with e2e_harness.sessions() as session:
         assert (await session.scalar(select(Sprint))).success_criteria == "Ship v2"
 
-    # Dates, a pause, an extension or a Sprint brought back are nowhere in the tool.
+    # Dates, a pause, an extension or a Sprint brought back are nowhere in the tool: the
+    # subagent hands the request back with the reason, and the user reads it.
     assert set(SprintToolInput.model_fields) == {
         "mode", "success_criteria", "length_days", "capacity_effort_points"
     }
-    assert "there is no way to" in SPRINT_PROMPT
+    assert "bringing a finished Sprint back" in SPRINT_PROMPT
+    reason = "There is no way to change a running Sprint's dates."
+    advisor, provider = e2e_harness.advisor(
+        [
+            route_turn("sprint"),
+            mutation_turn(("nothing_to_do", {"reason": reason})),
+            forward_turn("sprint"),
+        ],
+        subagents=(e2e_harness.subagent("sprint"),),
+    )
+
+    outcome = await advisor.handle("Move the Sprint's end to next Friday")
+
+    offered = [tool["function"]["name"] for tool in provider.options[1]["tools"]]
+    assert offered == ["sprint", "nothing_to_do"]
+    assert outcome.kind is AIOutcomeKind.ANSWER
+    assert outcome.message.startswith(reason)
+    assert not e2e_harness.reviews.open_batches
 
 
 async def test_pl_mode_002_a_sprint_finished_in_words_ends_as_the_button_ends_it(e2e_harness):

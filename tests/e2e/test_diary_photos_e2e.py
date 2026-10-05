@@ -107,7 +107,7 @@ async def test_di_photo_018_words_sent_with_a_photo_reach_the_days_words(e2e_har
                     {
                         "mode": "update",
                         "date": TODAY,
-                        "pov": "Отличный день: гуляли с Лейлой в парке.",
+                        "body": "Отличный день: гуляли с Лейлой в парке.",
                         "feeling_score": 8,
                         "add_media": [park],
                     },
@@ -198,7 +198,7 @@ async def test_di_photo_024_the_owner_corrects_what_a_photo_on_a_day_is_called(e
 
 async def test_di_read_023_words_for_an_unread_day_go_back_to_the_diary(e2e_harness):
     """DI-READ-023 — tests/brd/diary.feature"""
-    words = {"mode": "update", "date": TODAY, "pov": "Долгий день на рынке."}
+    words = {"mode": "update", "date": TODAY, "body": "Долгий день на рынке."}
     advisor, provider = e2e_harness.advisor(
         [
             turn(("route", {"name": "diary"})),

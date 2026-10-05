@@ -431,7 +431,7 @@ async def test_pl_end_015_an_ended_sprint_is_handed_to_safwa(sessions, effort_on
 
     assert words is not None
     assert f"Sprint {sprint.number} is over" in words
-    assert "the owner closed it" in words
+    assert "the user closed it" in words
     assert "Success criteria: Ship v2" in words
     assert "committed 8, added 0, removed 0, done 5" in words
     assert "1 finished, 1 still open" in words
@@ -766,7 +766,7 @@ async def test_pl_hardtime_021_the_request_names_the_schedules_the_plan_does_not
             "Stretch", "Tomorrow's walk",
         ):
             assert absent not in request
-        assert "Do not move anything without their answer" in request
+        assert "Change nothing until they answer" in request
 
         # Taken into the plan before it is said, each is left out; with none left, nothing.
         for card in (dentist, call, water):
@@ -814,7 +814,7 @@ async def test_pl_energy_022_the_request_names_each_kind_the_sprint_lacks_and_th
             assert line in request
         for absent in ("Hike", "Cognitive", "Emotional", "Read a paper", "Walked"):
             assert absent not in request
-        assert "Do not move anything without their answer" in request
+        assert "Change nothing until they answer" in request
 
         # Gained by the time it is said, a kind is left out; with nothing missing, nothing.
         await move_card(session, climb.id, CardStage.SPRINT)

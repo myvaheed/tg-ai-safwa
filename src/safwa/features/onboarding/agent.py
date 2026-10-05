@@ -16,9 +16,8 @@ from ...constants import INBOX_TAG_NAME
 from ..cards.model import CATEGORY_MEANINGS, EFFORT_RUNGS, ENERGY_MEANINGS, effort_label
 from ..schedules.api import ACTION_DAILY_EXECUTIONS_MAX
 
-# Enough of the conversation to see its own earlier tips; what is older than the Summary is
-# gone from the conversation anyway.
-ONBOARDING_HISTORY_MESSAGES = 100
+# Enough of the conversation to see its own recent tips.
+ONBOARDING_HISTORY_MESSAGES = 30
 
 _EFFORT_SCALE = "\n".join(
     f"- {effort_label(points)} EP: {meaning}." for points, meaning in EFFORT_RUNGS.items()

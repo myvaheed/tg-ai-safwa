@@ -439,8 +439,8 @@ def with_queued_siblings(result: Any, queued: int) -> Any:
     return {
         **result,
         "next": (
-            f"{queued} other call(s) from this request were prepared and are queued for review; "
-            "they were not cancelled. Wait for their results, then retry only this call."
+            f"{queued} other call(s) from this request are queued for review. "
+            "Retry only this call."
         ),
     }
 

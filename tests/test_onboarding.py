@@ -431,7 +431,7 @@ async def test_ob_tip_003_a_tip_and_a_blocker_are_one_request_both_asked(session
 
     (text,) = said
     assert "«Call the bank»: Line is busy" in text
-    assert text.index("Blocked since") < text.index("Onboarding. The user just:")
+    assert text.index("Blocked Actions:") < text.index("Onboarding. The user just:")
     assert 'Call route("onboarding")' in text
 
 

@@ -286,24 +286,26 @@ async def test_rt_ask_014_a_date_finds_the_sprint_whose_days_it_falls_in(
         history=None,  # type: ignore[arg-type]
         sessions=sessions,
     )
-    [find] = [tool for tool in RETRO_AGENT.read_tools(context) if tool.name == "get_retro_number"]
+    [read] = [tool for tool in RETRO_AGENT.read_tools(context) if tool.name == "get_retro_data"]
 
     async def on(day: str) -> dict:
-        return await find.run(
-            ToolCall(id="find", name="get_retro_number", arguments_json=json.dumps({"date": day}))
-        )
+        """One date, given as both ends of the dates, as the prompt tells the model."""
+        arguments = json.dumps({"start_date": day, "end_date": day})
+        return await read.run(ToolCall(id="find", name="get_retro_data", arguments_json=arguments))
 
     found = await on("2025-09-10")
-    assert (found["number"], found["id"]) == (sprint.number, sprint.id)
-    assert found["ran"] == "2025-09-01 – 2025-09-12"
-    assert await on("2025-09-13") == {"error": "No Sprint was running on 2025-09-13."}
+    assert list(found) == [sprint.number]
+    assert found[sprint.number]["id"] == sprint.id
+    assert found[sprint.number]["ran"] == "2025-09-01 – 2025-09-12"
+    after = await on("2025-09-13")
+    assert after["sprint_count"] == 0
+    assert after["note"].startswith("No Sprint that ended has a day from 2025-09-13 to 2025-09-13.")
 
-    # A Sprint that runs today has no retro yet, and says so.
+    # A Sprint that runs today has no retro yet: no ended Sprint holds the day.
     async with sessions() as session:
         running = await start_sprint(session, success_criteria="Ship v3")
         await session.commit()
-    today = await on(running.planned_start_date.isoformat())
-    assert running.number in today["error"] and "retro is written when it ends" in today["error"]
+    assert (await on(running.planned_start_date.isoformat()))["sprint_count"] == 0
 
 
 async def _ended_on(session, monkeypatch, first: date, ended: date) -> Sprint:
