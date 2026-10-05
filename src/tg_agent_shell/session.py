@@ -43,7 +43,7 @@ from .proposals.materialize import (
     OWNER_REQUEST,
     ProposalMaterializer,
 )
-from .proposals.model import RECEIPT_PREFIXES, BatchDecision
+from .proposals.model import BatchDecision
 from .proposals.prepare import ChangePreparer
 from .proposals.reducer import EXPIRED, INTERRUPTED
 from .proposals.render import (
@@ -149,15 +149,9 @@ class RootSession:
             self.adapters,
             self.context,
             self.materializer,
-            # A subagent that answers questions may be handed the turn for an answer, so its
-            # first step need not be a tool call.
-            routed_kinds=frozenset(
-                name for name, routed in self.subagents.items() if not routed.answers_questions
-            ),
             max_tool_calls=MAX_TOOL_CALLS,
             max_repair_rounds=MAX_REPAIR_ROUNDS,
             child_deadline_seconds=SUBAGENT_DEADLINE_SECONDS,
-            receipt_prefixes=RECEIPT_PREFIXES,
             interrupted_note=REFUSED_AND_WROTE,
             observer=self.trail,
         )

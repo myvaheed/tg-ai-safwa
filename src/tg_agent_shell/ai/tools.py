@@ -26,6 +26,7 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agent_runtime import (
+    RUNTIME_TOOLS,
     AgentDefinition,
     AgentSession,
     Observer,
@@ -84,10 +85,10 @@ class WatcherFailed(RuntimeError):
     """
 
 
-# The tools the adapters answer themselves, and the ones that run during the turn instead
-# of becoming a proposal the owner approves. A session's own read tools are immediate too,
-# but they are its own: a subagent that named one of these would never be heard.
-IMMEDIATE_TOOLS = frozenset({"query_data", "route", "forward", "open", "call_helper"})
+# The tools the adapters answer themselves, which run during the turn instead of becoming a
+# proposal the owner approves. A session's own read tools are immediate too, but they are
+# its own: a subagent that named one of these would never be heard.
+IMMEDIATE_TOOLS = frozenset({"query_data", "open", "call_helper"})
 
 
 def query_read_tool(query_runner: ReadOnlyQueryRunner) -> ReadToolSpec:
@@ -195,7 +196,7 @@ class ToolAdapters:
         # nothing to route to, so neither `route` nor `forward` is offered. The root's own
         # reads are the application's, beside the two every root session has.
         self.root_reads = {spec.name: spec for spec in read_tools}
-        if taken := sorted(IMMEDIATE_TOOLS & set(self.root_reads)):
+        if taken := sorted((IMMEDIATE_TOOLS | RUNTIME_TOOLS) & set(self.root_reads)):
             raise RuntimeError(f"A root read tool takes the name of a shell tool: {taken}")
         reads = (QUERY_TOOL, open_tool(screens), *(spec.schema for spec in read_tools))
         self.root_tools = (*reads, ROUTE_TOOL, FORWARD_TOOL) if self.subagents else reads
@@ -206,7 +207,8 @@ class ToolAdapters:
     def definition(self, kind: str) -> AgentDefinition:
         """What a session of this kind may call. The root session reads and routes; a
         subagent gets its own reads, `open` over the item types it declared, and the
-        mutation tools of the features it owns.
+        mutation tools of the features it owns. A subagent is routed to for the work, so its
+        first move is a tool call, unless it also answers questions.
 
         `query_data` is the one read door rather than any feature's read tool, so it is
         published here to every session that has a view to read: a subagent scoped to none
@@ -233,6 +235,7 @@ class ToolAdapters:
                 *(self.proposals.tools[name].schema() for name in routed.mutation_tools),
             ),
             read_specs={spec.name: spec for spec in routed.read_tools},
+            first_call_required=not routed.answers_questions,
         )
 
     def is_immediate(self, agent: AgentSession, name: str) -> bool:

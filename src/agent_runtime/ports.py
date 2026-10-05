@@ -94,7 +94,10 @@ class ToolRunner(Protocol):
     def definition(self, kind: str) -> AgentDefinition: ...
 
     def is_immediate(self, agent: AgentSession, name: str) -> bool:
-        """Whether this call runs inside the turn rather than waiting on a person."""
+        """Whether this call runs inside the turn rather than waiting on a person.
+
+        Never asked about `RUNTIME_TOOLS`: the runtime answers those itself.
+        """
 
     async def run(self, agent: AgentSession, call: ToolCall) -> ToolOutcome: ...
 

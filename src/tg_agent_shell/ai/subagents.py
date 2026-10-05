@@ -1,8 +1,9 @@
-"""Routed subagents: the Advisor hands its turn over, and they finish it themselves.
+"""Routed subagents: the Advisor hands them the work, and they hand it back done.
 
 A routed subagent is a session of the same shape as the Advisor's — its own prompt, its own
-tools, its own transcript — reading the same conversation.  What it writes is the chat
-message, and what it proposes is the review screen, with nothing relayed in between.
+tools, its own transcript — reading the same conversation.  What it proposes is the review
+screen; what it writes goes back to the Advisor, which forwards it to the owner as it is or
+answers in its own words.
 """
 
 from __future__ import annotations
