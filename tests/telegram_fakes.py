@@ -42,6 +42,8 @@ class QueueTestBot:
         self.forgot_file_ids = False
         # Every change of the buttons alone, by message.
         self.keyboards: list[tuple[int, InlineKeyboardMarkup | None]] = []
+        # Every message redrawn through the Bot API, with the buttons it was given.
+        self.edited: list[tuple[int, InlineKeyboardMarkup | None]] = []
 
     async def download(self, file_id, destination):
         self.downloads.append(file_id)
@@ -55,8 +57,9 @@ class QueueTestBot:
     async def edit_message_text(
         self, text, *, chat_id, message_id, reply_markup=None, parse_mode=None
     ) -> None:
-        del chat_id, message_id, reply_markup, parse_mode
+        del chat_id, parse_mode
         self.edits.append(text)
+        self.edited.append((message_id, reply_markup))
         self.drawn.append(text)
 
     async def delete_message(self, chat_id, message_id) -> None:

@@ -79,12 +79,14 @@ async def run_mini_session(
     read_tools: tuple[ReadToolSpec, ...] = (),
     max_tool_calls: int | None,
     max_repairs: int = MINI_SESSION_REPAIR_ROUNDS,
+    reasoning_effort: str | None = None,
 ) -> MiniSessionResult:
     """Run until one terminal tool validates, or give up and say why.
 
     Anything that is not a terminal call — prose, an unknown tool, arguments that fail
     validation — is fed back as a retryable tool result, the same shape the main loop uses,
     so the model repairs the call instead of the caller guessing what it meant.
+    `reasoning_effort` overrides the provider's own for every request of the session.
     """
     by_name = {terminal.name: terminal for terminal in terminals}
     readers = {spec.name: spec for spec in read_tools}
@@ -99,7 +101,11 @@ async def run_mini_session(
     repairs = 0
     while True:
         turn = await provider.complete(
-            CompletionRequest(messages=tuple(messages), tools=tuple(tools))
+            CompletionRequest(
+                messages=tuple(messages),
+                tools=tuple(tools),
+                reasoning_effort=reasoning_effort,
+            )
         )
         if not turn.tool_calls:
             repairs += 1

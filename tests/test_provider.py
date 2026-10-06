@@ -432,8 +432,12 @@ async def test_a_persistently_empty_response_reports_the_provider_reason():
 
 
 @respx.mock
-async def test_a_choice_without_content_reports_its_finish_reason():
-    respx.post(COMPLETIONS).mock(side_effect=[_contentless_response("length")] * 2)
+async def test_a_turn_cut_off_at_the_output_limit_is_reported_and_not_asked_again():
+    # A reasoning model that spent the whole output limit on its reasoning, as LM Studio
+    # returns it: the same request runs out of the same limit again.
+    route = respx.post(COMPLETIONS).mock(
+        side_effect=[_contentless_response("length"), _response()]
+    )
 
     provider = OpenAICompatibleProvider(_config())
     try:
@@ -441,6 +445,8 @@ async def test_a_choice_without_content_reports_its_finish_reason():
             await provider.complete(_request())
     finally:
         await provider.aclose()
+
+    assert len(route.calls) == 1
 
 
 @respx.mock

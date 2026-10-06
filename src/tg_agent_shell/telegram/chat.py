@@ -386,11 +386,11 @@ def owner_anchor(bot: Bot, owner_id: int) -> Message:
     ).as_(bot)
 
 
-async def clear_draw_home(message: Message, services: Services, text: str) -> None:
+async def clear_draw_home(message: Message, services: Services, text: str) -> Message:
     """Draw Home silently and clear only through the last message to the Advisor.
 
     Newer messages stay, and the previous Home goes separately. What was said stays
-    kept, and the conversation starts over after this message.
+    kept, and the conversation starts over after this message, which is returned.
     """
     chat_id = message.chat.id
     async with services.sessions() as session:
@@ -401,7 +401,7 @@ async def clear_draw_home(message: Message, services: Services, text: str) -> No
             )
         ) or 0
     homes = await services.chat.notes.outgoing(chat_id, kinds={MessageKind.HOME.value})
-    await services.chat.send(
+    home = await services.chat.send(
         message,
         text,
         kind=MessageKind.HOME.value,
@@ -418,11 +418,13 @@ async def clear_draw_home(message: Message, services: Services, text: str) -> No
     for home in homes:
         if home.message_id > last:
             await services.chat.remove_screen(message, home.message_id)
-    if await services.chat.notes.outgoing(chat_id, kinds=_SCREEN_KINDS):
-        return
-    async with services.sessions() as session:
-        await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
-        await session.commit()
+    if not await services.chat.notes.outgoing(chat_id, kinds=_SCREEN_KINDS):
+        async with services.sessions() as session:
+            await session.execute(
+                delete(UiSession).where(UiSession.owner_id == services.owner_id)
+            )
+            await session.commit()
+    return home
 
 
 async def discard_stale_messages(bot: Bot, services: Services, chat_id: int) -> None:

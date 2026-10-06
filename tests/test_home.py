@@ -3,11 +3,13 @@ conversation starts after it."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+from telegram_fakes import spawn_timer
 from ui_harness import history_source, services_for
 
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
@@ -15,10 +17,12 @@ from safwa.features.cards.model import Card
 from safwa.features.cards.use_cases import create_card, delete_subtree, finish_action
 from safwa.features.diary.model import DiaryEntry
 from safwa.features.diary.use_cases import create_diary_entry
+from safwa.features.home import motivation
 from safwa.features.home.dashboard import HOME_ACTIONS_SHOWN, HOME_LOG_SHOWN, dashboard_text
 from safwa.features.home.motivation import (
     MOTIVATION_DIARY_ENTRIES,
     MOTIVATION_DONE_ACTIONS,
+    MOTIVATION_FRESH_MINUTES,
     MOTIVATION_MAX_CHARS,
     Motivator,
 )
@@ -129,19 +133,30 @@ async def test_without_today_the_dashboard_takes_the_sprint_then_the_backlog(ses
 
 
 class Words:
-    """The model: words for each Value by name, or no call at all for one it cannot do."""
+    """The model: words for each numbered Value it knows by name, or no call at all when it
+    knows none. `hold` keeps every call open until the test lets it go."""
 
-    def __init__(self, said: dict[str, str]) -> None:
+    def __init__(self, said: dict[str, str], *, hold: bool = False) -> None:
         self.said = said
         self.requests: list[CompletionRequest] = []
+        self.hold = hold
+        self.reached = asyncio.Event()
+        self.go = asyncio.Event()
 
     async def complete(self, request: CompletionRequest) -> CompletionTurn:
         self.requests.append(request)
-        context = request.messages[1]["content"]
-        name = context.rsplit("Value: ", 1)[1].split(" — ")[0]
-        if name not in self.said:
+        if self.hold:
+            self.reached.set()
+            await self.go.wait()
+        listed = request.messages[1]["content"].split("Values, numbered:\n")[1].splitlines()
+        words = [
+            {"value": int(number), "text": self.said[name]}
+            for number, rest in (line.split(". ", 1) for line in listed)
+            if (name := rest.split(" — ")[0]) in self.said
+        ]
+        if not words:
             return CompletionTurn(content="I would rather not.")
-        arguments = json.dumps({"text": self.said[name]})
+        arguments = json.dumps({"words": words})
         return CompletionTurn(content=None, tool_calls=(ToolCall("c1", "motivate", arguments),))
 
 
@@ -167,14 +182,13 @@ async def test_each_value_in_focus_carries_the_words_written_for_it(sessions) ->
         await session.commit()
     model = Words({"Health": "A run today keeps it going."})
 
-    words = await Motivator(model).write(sessions)
+    words = await Motivator(model, spawn=spawn_timer).write(sessions)
 
     assert words == {health.id: "A run today keeps it going."}
-    context = next(
-        request.messages[1]["content"]
-        for request in model.requests
-        if "Value: Health" in request.messages[1]["content"]
-    )
+    # Every Value in one request, with reasoning off.
+    [request] = model.requests
+    assert request.reasoning_effort == "none"
+    context = request.messages[1]["content"]
     assert "I run in the mornings." in context
     assert "- Run a marathon" in context
     finished = [line for line in context.splitlines() if line.startswith("- 2026-")]
@@ -184,7 +198,7 @@ async def test_each_value_in_focus_carries_the_words_written_for_it(sessions) ->
     diary = context.split("Diary, newest first:\n")[1].split("\n\n")[0].splitlines()
     assert len(diary) == MOTIVATION_DIARY_ENTRIES
     assert diary == ["2026-09-04: Slept well", "2026-09-02: A good run"]
-    assert context.endswith("Value: Health — Body first")
+    assert context.endswith("Values, numbered:\n1. Family\n2. Health — Body first")
 
     lines = _block(await _text(sessions, words), "Values in focus")
     assert lines[1].startswith(f'<a href="{_link("value", family.id)}">')
@@ -192,6 +206,72 @@ async def test_each_value_in_focus_carries_the_words_written_for_it(sessions) ->
     assert _link("value", health.id) in lines[2]
     assert lines[2].endswith(" — A run today keeps it going.")
     assert _link("value", tidy.id) not in "\n".join(lines)
+
+
+async def _health(sessions) -> int:
+    async with sessions() as session:
+        health = await create_value(session, "Health", active=True)
+        await session.commit()
+        return health.id
+
+
+async def test_words_are_shown_again_for_10_minutes_without_a_request(
+    sessions, monkeypatch
+) -> None:
+    """HM-VALUES-007 — tests/brd/home.feature"""
+    assert MOTIVATION_FRESH_MINUTES == 10
+    health = await _health(sessions)
+    model = Words({"Health": "Keep going."})
+    motivator = Motivator(model, spawn=spawn_timer)
+    assert motivator.fresh() is None
+
+    assert await motivator.write(sessions) == {health: "Keep going."}
+    later = datetime.now(UTC) + timedelta(minutes=MOTIVATION_FRESH_MINUTES) - timedelta(seconds=5)
+    monkeypatch.setattr(motivation, "utcnow", lambda: later)
+    assert motivator.fresh() == {health: "Keep going."}
+    assert await motivator.write(sessions) == {health: "Keep going."}
+    assert len(model.requests) == 1
+
+    model.said = {"Health": "Once more."}
+    later += timedelta(seconds=10)
+    assert motivator.fresh() is None
+    assert await motivator.write(sessions) == {health: "Once more."}
+    assert len(model.requests) == 2
+
+
+async def test_a_dashboard_waits_for_the_request_that_runs(sessions) -> None:
+    """HM-VALUES-007 — tests/brd/home.feature"""
+    health = await _health(sessions)
+    model = Words({"Health": "Keep going."}, hold=True)
+    motivator = Motivator(model, spawn=spawn_timer)
+
+    first = asyncio.create_task(motivator.write(sessions))
+    await asyncio.wait_for(model.reached.wait(), timeout=5)
+    second = asyncio.create_task(motivator.write(sessions))
+    await asyncio.sleep(0)
+    # The dashboard that asked first is gone: the request goes on for the other.
+    first.cancel()
+    model.go.set()
+
+    assert await asyncio.wait_for(second, timeout=5) == {health: "Keep going."}
+    assert first.cancelled()
+    assert len(model.requests) == 1
+    assert motivator.fresh() == {health: "Keep going."}
+
+
+async def test_no_words_are_kept_when_none_were_written(sessions) -> None:
+    """HM-VALUES-007 — tests/brd/home.feature"""
+    health = await _health(sessions)
+    model = Words({})
+    motivator = Motivator(model, spawn=spawn_timer)
+
+    assert await motivator.write(sessions) == {}
+    assert motivator.fresh() is None
+    asked = len(model.requests)
+
+    model.said = {"Health": "Keep going."}
+    assert await motivator.write(sessions) == {health: "Keep going."}
+    assert len(model.requests) == asked + 1
 
 
 async def test_the_dashboard_shows_the_time_of_the_day_while_time_tracking_is_on(

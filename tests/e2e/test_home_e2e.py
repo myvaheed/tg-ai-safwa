@@ -16,7 +16,9 @@ from telegram_fakes import QueueTestMessage, spawn_timer
 
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
 from safwa.bootstrap.modules import FEATURE_COMMANDS, SCREENS
+from safwa.features.home import telegram as home_telegram
 from safwa.features.home.api import menu_markup
+from safwa.features.home.dashboard import dashboard_text
 from safwa.features.home.hooks import HOME_HOOK, HOME_LOOK_EVERY
 from safwa.features.home.motivation import Motivator
 from safwa.features.home.telegram import command_clear, render_home
@@ -55,24 +57,39 @@ class Model:
         if self.hold:
             self.reached.set()
             await self.go.wait()
-        call = ToolCall("c1", "motivate", json.dumps({"text": WORDS}))
+        call = ToolCall(
+            "c1", "motivate", json.dumps({"words": [{"value": 1, "text": WORDS}]})
+        )
         return CompletionTurn(content=None, tool_calls=(call,))
 
 
 def _services(harness, model: Model, *, busy: bool = False) -> SimpleNamespace:
     reviews = SimpleNamespace(busy=True) if busy else ProposalStore()
+    spawned: list[asyncio.Task[None]] = []
+
+    def spawn(work, name: str) -> asyncio.Task[None]:
+        task = spawn_timer(work, name)
+        spawned.append(task)
+        return task
+
     return SimpleNamespace(
         sessions=harness.sessions,
         owner_id=42,
         turn=TurnManager(),
-        chat=ChatHost(TelegramNotes(harness.sessions), spawn=spawn_timer),
+        chat=ChatHost(TelegramNotes(harness.sessions), spawn=spawn),
+        spawned=spawned,
         root=SimpleNamespace(reviews=reviews),
         screens=SCREENS,
         commands=FEATURE_COMMANDS,
         bot_username="safwa_ai_bot",
-        features=SimpleNamespace(motivator=Motivator(model)),
+        features=SimpleNamespace(motivator=Motivator(model, spawn=spawn_timer)),
         owner_acted_at=utcnow() - timedelta(minutes=HOME_AFTER_MINUTES_DEFAULT + 1),
     )
+
+
+async def _settled(services: SimpleNamespace) -> None:
+    """Every task the chat started, done."""
+    await asyncio.wait_for(asyncio.gather(*services.spawned), timeout=5)
 
 
 class Looks:
@@ -268,46 +285,94 @@ async def test_the_dashboard_stays_until_the_next_clear(e2e_harness, monkeypatch
     assert _labels(anchor.markups[-1]) == MENU
 
 
-async def test_start_opens_home_with_its_menu_and_writes_no_words(e2e_harness) -> None:
+async def test_start_opens_home_at_once_and_puts_the_words_in_when_they_come(
+    e2e_harness,
+) -> None:
     """HM-START-011 — tests/brd/home.feature"""
     await _a_chat(e2e_harness)
-    model = Model()
+    model = Model(hold=True)
     services = _services(e2e_harness, model)
     owner = QueueTestMessage(message_id=170, text="/start", is_bot=False, answer_as_new=True)
 
+    # Home is drawn while the words are still being written.
     await render_home(owner, services)
+    await asyncio.wait_for(model.reached.wait(), timeout=5)
 
     [home] = owner.sent
     assert home.text.startswith("<b>🏠 ")
     assert "<b>💎 Values in focus</b>" in home.text and WORDS not in home.text
-    assert model.calls == 0
     assert _labels(owner.markups[-1]) == MENU
     assert owner.bot.deleted == [] and owner.bot.silent == []
     kinds = await _kinds(e2e_harness)
     assert kinds[home.message_id] == MessageKind.DASHBOARD.value
     assert kinds[1100] == MessageKind.DIALOGUE_USER.value
 
+    model.go.set()
+    await _settled(services)
+    [(edited, markup)] = owner.bot.edited
+    assert edited == home.message_id and _labels(markup) == MENU
+    assert WORDS in owner.bot.edits[-1]
+    note = await TelegramNotes(e2e_harness.sessions).note(CHAT_ID, home.message_id)
+    assert note.kind == MessageKind.DASHBOARD.value and WORDS in note.text
+
+    # A Home drawn soon after carries the words at once, and asks for none.
+    services.owner_acted_at = utcnow()
+    again = QueueTestMessage(
+        message_id=180, text="/start", is_bot=False, answer_as_new=True, parent=owner
+    )
+    await render_home(again, services)
+    assert WORDS in owner.sent[-1].text
+    assert model.calls == 1 and len(services.spawned) == 1
+
     # ↩️ Menu on a screen redraws that screen as Home in place.
     screen = QueueTestMessage(message_id=1099, is_bot=True, parent=owner)
     await navigation(_Press("home", screen), services)
     assert owner.rendered[-1].startswith("<b>🏠 ") and _labels(owner.markups[-1]) == MENU
-    assert len(owner.sent) == 1
+    assert len(owner.sent) == 2
     assert (await _kinds(e2e_harness))[1099] == MessageKind.DASHBOARD.value
 
 
-async def test_clear_clears_the_chat_at_once(e2e_harness) -> None:
+async def test_starts_in_a_row_make_one_request_and_only_the_last_home_gets_the_words(
+    e2e_harness,
+) -> None:
+    """HM-START-011 — tests/brd/home.feature"""
+    await _a_chat(e2e_harness)
+    model = Model(hold=True)
+    services = _services(e2e_harness, model)
+    first = QueueTestMessage(message_id=170, text="/start", is_bot=False, answer_as_new=True)
+    await render_home(first, services)
+    await asyncio.wait_for(model.reached.wait(), timeout=5)
+
+    # What the middleware does when the next /start arrives.
+    services.owner_acted_at = utcnow()
+    second = QueueTestMessage(
+        message_id=180, text="/start", is_bot=False, answer_as_new=True, parent=first
+    )
+    await render_home(second, services)
+    model.go.set()
+    await _settled(services)
+
+    assert model.calls == 1
+    _, last = first.sent
+    assert [message_id for message_id, _ in first.bot.edited] == [last.message_id]
+    assert WORDS in first.bot.edits[-1]
+
+
+async def test_clear_clears_the_chat_at_once_and_puts_the_words_in_after(e2e_harness) -> None:
     """HM-CLEAR-012 — tests/brd/home.feature"""
     await _a_chat(e2e_harness)
-    services = _services(e2e_harness, Model())
+    model = Model(hold=True)
+    services = _services(e2e_harness, model)
     # The /clear itself: no quiet time has passed.
     services.owner_acted_at = utcnow()
     owner = QueueTestMessage(message_id=150, text="/clear", is_bot=False, answer_as_new=True)
 
     await command_clear(owner, services)
+    await asyncio.wait_for(model.reached.wait(), timeout=5)
 
     [dashboard] = owner.sent
     assert owner.bot.silent == [dashboard.text]
-    assert WORDS in dashboard.text and _labels(owner.markups[-1]) == ["☰ Menu"]
+    assert WORDS not in dashboard.text and _labels(owner.markups[-1]) == ["☰ Menu"]
     assert owner.bot.deleted == [1099, 1100]
     assert await _kinds(e2e_harness) == {
         1000: MessageKind.DIALOGUE_USER.value,
@@ -316,20 +381,78 @@ async def test_clear_clears_the_chat_at_once(e2e_harness) -> None:
         dashboard.message_id: MessageKind.HOME.value,
     }
 
+    model.go.set()
+    await _settled(services)
+    [(edited, markup)] = owner.bot.edited
+    assert edited == dashboard.message_id and _labels(markup) == ["☰ Menu"]
+    assert WORDS in owner.bot.edits[-1]
+    assert (await _kinds(e2e_harness))[dashboard.message_id] == MessageKind.HOME.value
 
-async def test_the_owner_acting_stops_a_clear_they_asked_for(e2e_harness) -> None:
-    """HM-CLEAR-012 — tests/brd/home.feature"""
+
+async def test_words_that_come_after_the_owner_acted_wait_for_the_next_home(
+    e2e_harness,
+) -> None:
+    """HM-START-011 — tests/brd/home.feature"""
     await _a_chat(e2e_harness)
     model = Model(hold=True)
     services = _services(e2e_harness, model)
     owner = QueueTestMessage(message_id=150, text="/clear", is_bot=False, answer_as_new=True)
-
-    clearing = asyncio.create_task(command_clear(owner, services))
+    await command_clear(owner, services)
     await asyncio.wait_for(model.reached.wait(), timeout=5)
-    # What the middleware does when the owner's message or press arrives.
-    services.turn.cancel()
+
+    # The owner presses ☰ Menu before the words come.
+    services.owner_acted_at = utcnow()
     model.go.set()
+    await _settled(services)
+    assert owner.bot.edited == []
+
+    start = QueueTestMessage(
+        message_id=190, text="/start", is_bot=False, answer_as_new=True, parent=owner
+    )
+    await render_home(start, services)
+    assert WORDS in owner.sent[-1].text and model.calls == 1
+
+
+async def test_words_leave_alone_a_message_that_no_longer_shows_that_home(e2e_harness) -> None:
+    """HM-START-011 — tests/brd/home.feature"""
+    await _a_chat(e2e_harness)
+    model = Model(hold=True)
+    services = _services(e2e_harness, model)
+    owner = QueueTestMessage(message_id=170, text="/start", is_bot=False, answer_as_new=True)
+    await render_home(owner, services)
+    await asyncio.wait_for(model.reached.wait(), timeout=5)
+
+    # The bot took the message out without the owner doing anything.
+    [home] = owner.sent
+    await TelegramNotes(e2e_harness.sessions).forget(CHAT_ID, home.message_id)
+    model.go.set()
+    await _settled(services)
+
+    assert owner.bot.edited == [] and len(owner.sent) == 1
+
+
+async def test_the_owner_acting_stops_a_clear_they_asked_for(e2e_harness, monkeypatch) -> None:
+    """HM-CLEAR-012 — tests/brd/home.feature"""
+    await _a_chat(e2e_harness)
+    model = Model()
+    services = _services(e2e_harness, model)
+    owner = QueueTestMessage(message_id=150, text="/clear", is_bot=False, answer_as_new=True)
+    reached, go = asyncio.Event(), asyncio.Event()
+
+    async def drawing(session, words, **kwargs):
+        reached.set()
+        await go.wait()
+        return await dashboard_text(session, words, **kwargs)
+
+    monkeypatch.setattr(home_telegram, "dashboard_text", drawing)
+    clearing = asyncio.create_task(command_clear(owner, services))
+    await asyncio.wait_for(reached.wait(), timeout=5)
+    # What the middleware does when the owner's message or press arrives.
+    services.owner_acted_at = utcnow()
+    services.turn.cancel()
+    go.set()
     await asyncio.wait_for(clearing, timeout=5)
 
     assert owner.sent == [] and owner.bot.deleted == []
+    assert services.spawned == [] and model.calls == 0
     assert services.turn.active is False and services.turn.background is False

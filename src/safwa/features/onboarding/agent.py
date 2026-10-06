@@ -159,7 +159,7 @@ MANUAL = f"""# Safwa
 
 # Home dashboard
 - When the user does nothing in the chat for the Profile's "🏠 Home after" minutes, 30 at first, or sends /clear, Safwa clears messages through the last message the user sent to the Advisor, inclusive. Messages after it stay, including the Advisor's reply and Reminders. The previous Home dashboard is removed. A new Home dashboard arrives without a sound: the next Actions under their Goals, the Values in focus with a few words each, the time tracked today while Time tracking is on, and the last 10 changes.
-- It is drawn again after midnight. Each item on it is a link. Its one button "☰ Menu" unfolds the menu under it; a screen opened from there arrives below it. /start shows the same dashboard with the menu, without the words under the Values.
+- It is drawn again after midnight. Each item on it is a link. Its one button "☰ Menu" unfolds the menu under it; a screen opened from there arrives below it. /start and /clear show the dashboard at once. The words under the Values are kept for 10 minutes; without them, they appear on the dashboard a moment later.
 - After a clear the conversation starts over. The Diary still reads the whole day."""
 
 ONBOARDING_PROMPT = f"""You explain Safwa to the user from the manual below. You read no data.

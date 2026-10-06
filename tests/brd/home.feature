@@ -28,7 +28,7 @@ Feature: Home
   Scenario: HM-QUIET-003 — A quiet chat is cleared through the last message to the Advisor
     Given the owner has not written, spoken, sent a photo or pressed a button for 30 minutes (HOME_AFTER_MINUTES_DEFAULT = 30)
     And the chat is free: no answer is being written and no review is waiting
-    Then the Home dashboard is drawn, and messages through the last message the owner sent to the Advisor are cleared (TG-HOME-023)
+    Then the Home dashboard is drawn once its words are written (HM-VALUES-007), and messages through the last message the owner sent to the Advisor are cleared (TG-HOME-023)
     And messages after it stay, including the Advisor's reply and a Reminder Safwa sent while the owner was quiet
     And those messages stay through later clears until the owner sends another message to the Advisor
     When a review is waiting
@@ -70,9 +70,13 @@ Feature: Home
   Scenario: HM-VALUES-007 — Each Value in focus carries a few words written for it
     Given Values in focus
     Then each is on the dashboard as a link that opens it, with one or two sentences under it (MOTIVATION_MAX_CHARS = 200)
-    And the words are written as the dashboard is drawn, from that Value, About me, the titles of the open Goals, the 10 Actions finished last (MOTIVATION_DONE_ACTIONS = 10) and the 2 last Diary entries with words (MOTIVATION_DIARY_ENTRIES = 2), however long ago
-    When the words for a Value could not be written
+    And the words for every Value are written in one request with reasoning off, from those Values, About me, the titles of the open Goals, the 10 Actions finished last (MOTIVATION_DONE_ACTIONS = 10) and the 2 last Diary entries with words (MOTIVATION_DIARY_ENTRIES = 2), however long ago
+    And a dashboard drawn within 10 minutes of the words being written shows them again without a request (MOTIVATION_FRESH_MINUTES = 10)
+    And a dashboard that needs words while a request runs waits for that request and makes none of its own
+    And the request runs to its end when the dashboard that asked for it is gone
+    When the words for a Value were not written
     Then it shows its name alone
+    And when no words were written at all, none are kept, and the next dashboard makes a request
     And a Value not in focus is not on the dashboard
 
   Scenario: HM-TIME-008 — With Time tracking on, the dashboard shows the time of the day
@@ -93,19 +97,26 @@ Feature: Home
     Then the conversation Safwa reads begins after the dashboard (TG-HOME-023)
     And the Diary still reads everything said that day, before the clear as much as after it (DI-READ-016)
 
-  Scenario: HM-START-011 — /start opens Home: the dashboard with its menu unfolded
+  Scenario: HM-START-011 — /start opens Home at once: the dashboard with its menu unfolded
     When the owner sends /start, or presses ↩️ Menu on a screen
-    Then Home arrives as a screen: the dashboard of HM-ACTIONS-006 to HM-LOG-009 with every menu
-      button under it (HM-MENU-001)
+    Then Home arrives at once as a screen: the dashboard of HM-ACTIONS-006 to HM-LOG-009 with
+      every menu button under it (HM-MENU-001)
     And ↩️ Menu redraws its screen as Home in place
-    And each Value in focus shows its name alone, and no words are written for it
+    And each Value in focus carries the words written within the last 10 minutes (HM-VALUES-007)
+    When no such words are kept
+    Then each Value shows its name alone while the words are written
+    And when they come, Home is redrawn in place with them, and its buttons stay as they were
+    When the owner acts before the words come, or the message no longer shows that Home
+    Then the message stays as it is, and the words are kept for the next dashboard
+    When the owner sends /start again while the words are written
+    Then one request is made, and only the last Home is redrawn with its words
     And nothing is cleared, and the conversation Safwa reads goes on
     And the dashboard with ☰ Menu alone is drawn only by a clear (HM-QUIET-003, HM-CLEAR-012)
 
   Scenario: HM-CLEAR-012 — /clear clears the chat at once, as a quiet chat is cleared
     When the owner sends /clear
-    Then the chat is cleared and the dashboard drawn as by HM-QUIET-003, without waiting for the
-      quiet time
-    And each Value in focus carries its words (HM-VALUES-007)
+    Then the chat is cleared and the dashboard drawn as by HM-QUIET-003 at once, without waiting
+      for the quiet time or for the words
+    And its words come as on /start (HM-START-011), under its one ☰ Menu
     When the owner acts while the dashboard is being drawn
     Then the clearing stops, and what they did is taken up

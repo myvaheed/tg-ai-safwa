@@ -198,7 +198,8 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
     timers: set[asyncio.Task[None]] = set()
 
     def spawn(work: Coroutine[None, None, None], name: str) -> asyncio.Task[None]:
-        """A Toast timer, held so that shutdown ends it rather than leaving it running."""
+        """A task that outlives what started it — a Toast timer, Home's words — held so
+        that shutdown ends it rather than leaving it running."""
         timer = asyncio.create_task(work, name=name)
         timers.add(timer)
         timer.add_done_callback(timers.discard)
@@ -286,7 +287,7 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
             memory_reviewer=PatternReviewer(provider),
             key_actions=KeyActions(provider),
             analyst=SprintAnalyst(provider),
-            motivator=Motivator(provider),
+            motivator=Motivator(provider, spawn=spawn),
             run_background=turn.run_background,
         ),
         views=ALLOWED_VIEWS,

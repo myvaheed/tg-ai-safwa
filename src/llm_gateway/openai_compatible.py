@@ -120,6 +120,9 @@ class OpenAICompatibleProvider:
             turn, detail = _read_turn(response)
             if turn is not None:
                 return turn
+            # A turn cut off at the output limit is cut off again when asked again.
+            if response.choices and response.choices[0].finish_reason == "length":
+                break
             if attempt < config.empty_response_attempts:
                 logger.warning("LLM provider returned an empty response (%s); retrying", detail)
         raise RuntimeError(f"LLM provider returned an empty response: {detail}")

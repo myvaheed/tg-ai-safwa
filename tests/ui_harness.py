@@ -183,6 +183,13 @@ class StubAdvisor:
         return None
 
 
+class KeptWords:
+    """Home's words, as if written a moment ago: no screen test asks a model for them."""
+
+    def fresh(self) -> dict[int, str]:
+        return {}
+
+
 def services_for(sessions, *, root=None, reviews=None, transcriber=None):
     from tg_agent_shell.hooks.registry import HookRegistry
 
@@ -198,7 +205,7 @@ def services_for(sessions, *, root=None, reviews=None, transcriber=None):
         text_inputs=FEATURE_TEXT_INPUTS,
         views=ALLOWED_VIEWS,
         hooks=HookRegistry.of(),
-        features=None,
+        features=SimpleNamespace(motivator=KeptWords()),
         bot_username="safwa_ai_bot",
         root=root
         if root is not None

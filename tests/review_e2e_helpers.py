@@ -9,6 +9,7 @@ from telegram_fakes import (
     QueueTestMessage,
     spawn_timer,
 )
+from ui_harness import KeptWords
 
 from safwa.bootstrap.modules import (
     FEATURE_CALLBACK_ACTIONS,
@@ -72,4 +73,5 @@ def review_services(e2e_harness, advisor) -> SimpleNamespace:
         callback_actions=FEATURE_CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
         commands=FEATURE_COMMANDS,
+        features=SimpleNamespace(motivator=KeptWords()),
     )

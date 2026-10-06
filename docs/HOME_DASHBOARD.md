@@ -62,8 +62,9 @@ answer does.
 [telegram.py](../src/safwa/features/home/telegram.py) draws it. `render_home` is the screen of
 `nav:home`, so `/start`, `↩️ Menu` and `go_back` with nowhere to go all reach it. It draws the
 dashboard with `menu_markup` under it, as a `MessageKind.DASHBOARD` screen that the next
-navigation replaces. It writes no words under the Values: they cost a model call per Value, and
-the menu has to open at once.
+navigation replaces. It opens at once, with the words under the Values only when fresh ones are
+kept; otherwise the words are asked for while it is shown and put in when they come (see
+[The words under a Value](#the-words-under-a-value)).
 
 A cleared chat's dashboard carries `home_markup`, one `☰ Menu` that is `nav:home` too. The
 shell's `navigation` sees the press is on a `MessageKind.HOME` message and hands it to
@@ -74,9 +75,10 @@ the screens as any navigation does, folds Home back to `☰ Menu`, and hands the
 
 ## When the chat is cleared
 
-`/clear` (`command_clear`) clears at once: it writes the words, renders the dashboard and calls
-`clear_draw_home`, all under the background lease, so the owner acting stops it as it stops the
-clear on a tick. It does not wait for the quiet time or check that anything is owed.
+`/clear` (`command_clear`) clears at once: it renders the dashboard and calls `clear_draw_home`
+under the background lease, so the owner acting stops it as it stops the clear on a tick. It
+does not wait for the quiet time, for the words, or check that anything is owed; its words come
+as they do on `/start`.
 
 `home.dashboard` ([hooks.py](../src/safwa/features/home/hooks.py)) is a `Run` on
 `OnTick(every=HOME_LOOK_EVERY)`, 30 seconds: the hook tick poll hands it the owner's chat as
@@ -91,7 +93,8 @@ that look saw it (`ChatState`), and it clears when all three hold:
 3. **The chat is free** (`chat_is_free`, the gate Cues use too): no turn, no review waiting, no
    session claimed. A review waiting holds the clear until it is answered or expires.
 
-It writes the Values' words first and publishes the dashboard as Markdown of kind `home`.
+It gets the Values' words first, kept or written, and publishes the dashboard as Markdown of
+kind `home`.
 `speak_on_schedule` drops it if the owner acted since that look, renders it the way an answer
 is rendered, and takes the background lease for the sending alone, so the owner acting stops it
 there too. `clear_draw_home` sends it as a new, silent message of `MessageKind.HOME`, and
@@ -119,9 +122,29 @@ reads it.
 
 ## The words under a Value
 
-[motivation.py](../src/safwa/features/home/motivation.py): one `run_mini_session` per Value in
-focus, gathered at once, ending in `motivate(text)` of at most `MOTIVATION_MAX_CHARS = 200`. The
-context is About me, the open Goal titles, the `MOTIVATION_DONE_ACTIONS = 10` Actions finished
-last and the `MOTIVATION_DIARY_ENTRIES = 2` Diary days written last with words, however old —
-then the Value, last, so every session after the first reads the same prefix. A session that
-fails is logged and its Value shows its name alone. The words are kept nowhere but the dashboard.
+[motivation.py](../src/safwa/features/home/motivation.py): one `run_mini_session` for every Value
+in focus, ending in `motivate(words)`, a list of a Value's number and its text of at most
+`MOTIVATION_MAX_CHARS = 200`. The context is About me, the open Goal titles, the
+`MOTIVATION_DONE_ACTIONS = 10` Actions finished last and the `MOTIVATION_DIARY_ENTRIES = 2` Diary
+days written last with words, however old — then the Values, numbered. A number that names no
+Value is dropped, and a Value with no words shows its name alone; a session that fails is logged
+and every Value does.
+
+The session asks with `reasoning_effort="none"`. A few sentences need no reasoning, and a local
+reasoning model left to it can spend the whole `max_tokens` there and return an empty answer
+cut off with `finish_reason="length"`. The provider does not ask again after such a cut: the
+same request runs out of the same limit (`OpenAICompatibleProvider.complete`).
+
+`Motivator` keeps the last words in memory for `MOTIVATION_FRESH_MINUTES = 10`, and only words:
+a session that wrote none leaves nothing, so the next dashboard asks again. `fresh()` hands the
+kept words to a screen that must open at once; `write()` returns them, or joins the session
+already running, or starts one. The session is a task of its own, so a caller that stops waiting
+— a `/start` replaced by another, an owner acting — does not stop it. The kept words are not
+dropped when the Values change: a Value put in focus within those minutes shows its name alone.
+
+`/start`, `↩️ Menu` and `/clear` draw at once with `fresh()`. Without fresh words,
+`_put_words_in` waits for `write()` in a task the chat spawns, then redraws the message with the
+same buttons, under the background lease. It does not when the owner acted after drawing — the
+check comes before the lease, so a Home left behind never holds it from a newer one, and the
+owner acting cancels the lease after it — or when the message's note no longer holds the text
+drawn. The quiet clear waits for `write()` and draws once, as before.

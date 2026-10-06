@@ -49,9 +49,9 @@ TELEGRAM_DELETE_WINDOW = timedelta(hours=48)
 # it is from then on, or None to take it out of the chat.
 Freeze = Callable[[Note], Awaitable[tuple[str, str] | None]]
 
-# How a Toast's or a passing message's timer is started.  The package never starts one
-# itself: a timer it started would outlive the host's shutdown, because nothing outside would
-# know it exists.
+# How a task of the chat's own is started: a Toast's or a passing message's timer, or an
+# application's work on a message it drew.  The package never starts one itself: a task it
+# started would outlive the host's shutdown, because nothing outside would know it exists.
 Spawn = Callable[[Coroutine[None, None, None], str], "asyncio.Task[None]"]
 
 
