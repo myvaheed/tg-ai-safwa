@@ -355,7 +355,9 @@ FORWARD_TOOL: dict[str, Any] = {
 
 
 class NothingToDoInput(ToolInput):
-    reason: str = Field(description="Why, in one short sentence in the user's language.")
+    reason: str = Field(
+        description="Why, in one short sentence in the user's language. Cite each item it is about."
+    )
 
 
 NOTHING_TO_DO_TOOL: dict[str, Any] = {

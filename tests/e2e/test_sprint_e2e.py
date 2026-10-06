@@ -168,7 +168,7 @@ async def test_pl_mode_002_refusals_are_the_buttons_own_and_nothing_is_proposed(
             route_turn("sprint"),
             mutation_turn(("sprint", {"mode": "update", "success_criteria": "Ship v3"})),
             "They were fixed when the Sprint started.",
-            forward_turn("sprint"),
+            "They were fixed when the Sprint started. Write them for the next Sprint?",
         ],
         subagents=(e2e_harness.subagent("sprint"),),
     )
@@ -195,7 +195,7 @@ async def test_pl_mode_002_refusals_are_the_buttons_own_and_nothing_is_proposed(
         [
             route_turn("sprint"),
             mutation_turn(("nothing_to_do", {"reason": reason})),
-            forward_turn("sprint"),
+            f"{reason} Finish it and start the next one?",
         ],
         subagents=(e2e_harness.subagent("sprint"),),
     )
@@ -280,7 +280,7 @@ async def test_pl_length_035_the_next_sprints_length_and_capacity_are_set_in_wor
             route_turn("sprint"),
             mutation_turn(("sprint", {"mode": "update", "length_days": 61})),
             "A Sprint runs 2 to 60 days.",
-            forward_turn("sprint"),
+            "A Sprint runs 2 to 60 days. Make it 60?",
         ],
         subagents=(e2e_harness.subagent("sprint"),),
     )
@@ -301,7 +301,7 @@ async def test_pl_capacity_036_with_effort_points_off_a_capacity_in_words_is_ref
             route_turn("sprint"),
             mutation_turn(("sprint", {"mode": "update", "capacity_effort_points": 20})),
             "Effort Points are off.",
-            forward_turn("sprint"),
+            "Effort Points are off. Turn them on in the Profile?",
         ],
         subagents=(e2e_harness.subagent("sprint"),),
     )

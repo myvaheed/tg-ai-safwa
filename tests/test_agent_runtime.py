@@ -29,6 +29,7 @@ from agent_runtime import (
     ToolOutcome,
     TurnOutcome,
 )
+from agent_runtime.model import NOTHING_DONE_NEXT
 from llm_gateway import CompletionTurn, ToolCall
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -303,6 +304,9 @@ class _Tools:
     def repair_exhausted_message(self) -> str:
         return "Gave up."
 
+    async def anchored(self, words: str) -> bool:
+        return "(item:" in words
+
 
 class _Prompt:
     async def messages_for(self, kind, dialogue, prior_receipts=None) -> list[dict[str, Any]]:
@@ -399,6 +403,56 @@ async def test_ag_route_004_a_subagent_has_no_way_to_hand_the_work_on() -> None:
     # The subagent's own route was refused rather than run, so the chain stayed two deep.
     refused = _results(list(provider.requests[-1].messages))
     assert [item["code"] for item in refused] == ["tool_not_available"]
+
+
+@pytest.mark.parametrize(
+    ("words", "forwardable"),
+    [("Nothing like that here.", False), ("Already so: [Milk](item:3).", True)],
+)
+async def test_ag_nothing_057_a_subagent_that_did_nothing_hands_back_words_that_name_an_item(
+    words: str, forwardable: bool
+) -> None:
+    """AG-NOTHING-057 — tests/brd/tg_agent_shell/agents.feature"""
+    provider = _Provider(
+        [_turn("route"), _turn("read"), _turn(content=words), _turn(content="Which one?")]
+    )
+    runtime, _, _ = _runtime(provider)
+
+    await runtime.handle([{"role": "user", "content": "Change it."}])
+
+    receipt = _results(list(provider.requests[-1].messages))[-1]
+    if forwardable:
+        assert (receipt["outcome"], receipt["text"]) == ("done", words)
+    else:
+        assert "text" not in receipt
+        assert (receipt["outcome"], receipt["reason"], receipt["next"]) == (
+            "nothing_done",
+            words,
+            NOTHING_DONE_NEXT,
+        )
+
+
+@pytest.mark.parametrize("decided", ["saved", "written over"])
+async def test_ag_nothing_057_a_subagent_that_showed_a_change_hands_back_its_words_either_way(
+    decided: str,
+) -> None:
+    """AG-NOTHING-057 — tests/brd/tg_agent_shell/agents.feature"""
+    provider = _Provider([_turn("route"), _turn("write")])
+    runtime, _, _ = _runtime(provider)
+
+    waiting = await runtime.handle([{"role": "user", "content": "Change it."}])
+    assert waiting.ref is not None
+    if decided == "saved":
+        provider.turns.extend([_turn(content="Kept it."), _turn(content="Done.")])
+        await runtime.resume(waiting.ref, Resumption(results={"call-0": {"status": "saved"}}))
+    else:
+        # The owner wrote instead, and the route back adopts the session that showed the screen.
+        await runtime.interrupt(waiting.ref, {}, summary="The owner wrote instead.")
+        provider.turns.extend([_turn("route"), _turn(content="Kept it."), _turn(content="Done.")])
+        await runtime.handle([{"role": "user", "content": "Leave it."}])
+
+    receipt = _results(list(provider.requests[-1].messages))[-1]
+    assert (receipt["outcome"], receipt["text"]) == ("done", "Kept it.")
 
 
 async def test_ag_budget_011_every_refused_response_spends_the_budget() -> None:

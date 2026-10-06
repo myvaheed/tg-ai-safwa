@@ -113,6 +113,10 @@ class ToolRunner(Protocol):
     def repair_exhausted_message(self) -> str:
         """The words for a response whose calls never became changes, after the last round."""
 
+    async def anchored(self, words: str) -> bool:
+        """Whether these words name an item that exists, so whoever reads them sees which
+        one they are about."""
+
 
 class ContextSource(Protocol):
     """What a session reads before its own steps, rebuilt from live state every turn."""

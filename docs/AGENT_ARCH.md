@@ -329,7 +329,7 @@ sequenceDiagram
     Note over A,B: whole chain suspends, status awaiting_approval
     O->>S: Save / Discard
     S->>B: resume
-    B-->>A: receipt {did, text, next, error}
+    B-->>A: receipt {did, text or reason, next, error}
     A-->>O: forward(text), or words of its own
 ```
 
@@ -341,9 +341,10 @@ sequenceDiagram
   that calls none — unless it is declared `answers_questions`: an answer in words is its work.
   The runtime reads this as `AgentDefinition.first_call_required`. Such a session is also offered
   `nothing_to_do(reason)`: alone in its response, it ends the session with nothing proposed, and
-  the reason comes back as the receipt's `text` (`AG-NOTHING-056`).
+  the reason comes back as its final words do (`AG-NOTHING-056`).
 - A subagent's final words come back as the receipt's `text`, with a `next` that names the
-  choice. The Advisor **forwards** them, routes again, or answers in its own words. One author
+  choice — unless they are a `reason`, below. The Advisor **forwards** them, routes again, or
+  answers in its own words. One author
   per message: `forward(name)`, alone in its response, ends the turn and sends that subagent's
   newest words as they are — first and whole, above the receipts — with nothing of the Advisor's
   beside them, so they cannot be repeated; words of the Advisor's own send none of the
@@ -378,6 +379,57 @@ new request rather than a correction to this one (`PR-EXPIRE-029`).
 
 The routing rules in `SYSTEM_PROMPT` are generated from the roster, so a subagent is routed to
 exactly when its `AgentSpec` is in `MODULES`; its `purpose` **is** the prompt line.
+
+### A subagent that changed nothing
+
+A subagent reads the conversation, not a retelling (`AG-ROUTE-040`), so the item a request is
+about has to be in the window it reads. When it has fallen out, the subagent finds nothing, and a
+small model says so with confidence: "there is no such Goal", "it is already Done". Forwarded,
+that sentence closes the request on a misunderstanding nobody can see.
+
+`_run_child` decides from three facts, none of them the model's judgement:
+
+1. The subagent is `first_call_required`: it was handed the turn for the work.
+2. It put no change in front of the owner: a new session that finished without a screen. One
+   that showed a screen comes back through `_hand_up` after the decision, and one adopted after
+   the owner wrote over its screen has shown one; both keep `text`.
+3. Its words cite no item that exists: `ToolRunner.anchored`, which the shell answers with
+   `ScreenCatalogue.citation` and a lookup, as `render_citations` does. A citation of an item that
+   is gone, or of an id the model made up, cites nothing.
+
+With all three the receipt is `nothing_done_receipt`: `outcome` `nothing_done`, the words as
+`reason` and no `text`, so `forward` has nothing to send, and `NOTHING_DONE_NEXT`: say why, cite
+every item named, end with one question, route again only after the owner answers. The question
+puts the items back at the end of the conversation, where the next subagent reads them. Otherwise
+the receipt is the ordinary one (`AG-NOTHING-057`). It is decided by the outcome, not by the tool:
+a subagent that read first and then ended in words is the same case as one that called
+`nothing_to_do`.
+
+A citation is enough because forwarded words become the Advisor's own in the kept turn: the item is
+at the end of the conversation, and the owner sees it as a link, so a wrong one is noticed and
+corrected in an ordinary message. Every outcome is either checkable by the owner or a question;
+an unverifiable claim of a subagent never reaches the chat as it is. The citation also ends the
+loop a question would start: "it is already Done", asked back as "did you mean this one?" and
+answered "yes", routes to the same answer again.
+
+| Why nothing was done | What the words cite | What the owner gets |
+|---|---|---|
+| the item fell out of the window | nothing | a question naming the candidates |
+| several candidates | each of them | the list, forwarded |
+| already so, one of many items | that item | the answer, forwarded |
+| already so, or not allowed, on the one Sprint | nothing | why, and one question |
+| a value is missing | nothing | the question for it |
+| not this subagent's request | usually nothing | a question, then a new route |
+
+Where it does not reach:
+
+- A subagent that `answers_questions` is outside it: words are its expected outcome. One that
+  answered questions and changed one of many items would not be covered; that is a reason to split
+  it, not to widen the rule. The ones that change anything change a single item: the Profile,
+  and onboarding's own switch.
+- An application with nothing to cite gets a question every time, which is the safe direction.
+- It proves that the cited item exists, not that it is the one the owner meant: it makes that
+  mistake visible rather than impossible.
 
 ## `call_helper` — one turn that reads and answers with rows
 

@@ -315,6 +315,18 @@ class ToolAdapters:
     def repair_exhausted_message(self) -> str:
         return REPAIR_EXHAUSTED
 
+    async def anchored(self, words: str) -> bool:
+        """Whether the words cite an item that exists. An id the model made up, or one whose
+        item is gone, is rendered as words with no link, so it names nothing."""
+        cited = {(match[2], int(match[3])) for match in self.screens.citation.finditer(words)}
+        if not cited:
+            return False
+        async with self.sessions() as session:
+            for item_type, item_id in cited:
+                if await session.get(self.screens.by_type[item_type].model, item_id) is not None:
+                    return True
+        return False
+
     # ---------------------------------------------------------------- the tools
 
     async def call_helper(self, agent: AgentSession, call: ToolCall) -> dict[str, Any]:
