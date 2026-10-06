@@ -20,6 +20,7 @@ from tg_agent_shell.proposals.api import World
 from tg_agent_shell.proposals.hooks import AUTOAPPROVAL_HOOK, PLAN_HOOK, REQUEST_REVIEW_HOOK
 from tg_agent_shell.proposals.module import MODULE as PROPOSALS_FEATURE
 from tg_agent_shell.registry import Registry
+from tg_agent_shell.search.words import SnowballWordForms, TextModel
 from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec, FeatureModule
 
 from .. import featuretoggles
@@ -167,6 +168,18 @@ REGISTRY: Registry = Registry.of(
     hooks=HOOKS,
     hook_policy=hook_switched_on,
 )
+
+# What the search index understands a text with. Both cut-offs are read off this model with
+# scripts/search_probe.py, so another model is another pair of numbers (docs/SEARCH.md).
+TEXT_MODEL = TextModel(
+    # 384 numbers per text, about 0.22 GB, some 50 languages Russian among them.
+    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    # Low enough to list some near misses, such as mother and father, rather than miss a
+    # duplicate.
+    alike=0.70,
+    related=0.50,
+)
+WORD_FORMS = SnowballWordForms({"cyrillic": "russian", "latin": "english"})
 
 # What each part of the application reads off the registry, under the names it reads them
 # by. The registry is one object; these are the views of it that are actually used.

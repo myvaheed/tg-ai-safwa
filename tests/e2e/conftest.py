@@ -21,6 +21,8 @@ from safwa.bootstrap.modules import (
     MODULES,
     REGISTRY,
     SYSTEM_PROMPT,
+    TEXT_MODEL,
+    WORD_FORMS,
     routed_prompt,
 )
 from safwa.features.advisor.agent import ADVISOR_ROW_LIMITS, ADVISOR_VIEWS
@@ -38,6 +40,7 @@ from tg_agent_shell.media.library import MediaLibrary
 from tg_agent_shell.proposals.hooks import AUTOAPPROVAL_HOOK, PLAN_HOOK, REQUEST_REVIEW_HOOK
 from tg_agent_shell.proposals.store import ProposalStore
 from tg_agent_shell.registry import Registry
+from tg_agent_shell.search.index import SearchIndex
 from tg_agent_shell.session import RootSession
 from tg_agent_shell.telegram.manifest import AgentContext
 
@@ -114,10 +117,15 @@ class E2EHarness:
     memory: MemoryReader
     # One harness is one running bot: the reviews it opens outlive each advisor it builds.
     reviews: ProposalStore = field(default_factory=ProposalStore)
+    # The application's search index, its text model never loaded: a search goes by words.
+    # A test about meaning puts an index with a loaded encoder here.
+    search: SearchIndex | None = None
 
     def runner(self) -> ReadOnlyQueryRunner:
         """The application's one runner, which each reader is then scoped out of."""
-        return ReadOnlyQueryRunner(keyed(self.database_path), ALLOWED_VIEWS, timezone=TIMEZONE)
+        return ReadOnlyQueryRunner(
+            keyed(self.database_path), ALLOWED_VIEWS, timezone=TIMEZONE, search=self.search
+        )
 
     def subagent(self, name: str, *, history: object | None = None) -> RoutedSubagent:
         """One declared subagent, bound the way the composition root binds it.
@@ -200,6 +208,15 @@ class E2EHarness:
         }
 
 
+def unloaded_text_model():
+    raise AssertionError("An E2E test loads a text model of its own when it needs meaning.")
+
+
+def search_index(database_path: Path, load: Callable[[], object]) -> SearchIndex:
+    """The search index the composition root builds, over the test database."""
+    return SearchIndex(keyed(database_path), TEXT_MODEL, load, WORD_FORMS, AI_VIEWS)
+
+
 @pytest_asyncio.fixture
 async def e2e_harness(tmp_path: Path, monkeypatch) -> E2EHarness:
     """Real migrated SQLite plus real services; only remote APIs are replaced."""
@@ -219,6 +236,7 @@ async def e2e_harness(tmp_path: Path, monkeypatch) -> E2EHarness:
     harness = E2EHarness(
         database.sessions, database, database_path, MemoryReader(database.sessions)
     )
+    harness.search = search_index(database_path, unloaded_text_model)
     try:
         yield harness
     finally:

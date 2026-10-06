@@ -74,3 +74,9 @@ Feature: The workspace
     Then the Tag stays attached
     When the owner explicitly resolves the input or asks to remove the Tag
     Then it is taken off that Card, without requiring any set of filled fields
+
+  Scenario: WS-FIND-009 — The workspace finds the item the owner describes
+    Given the owner describes an item in other words than its title
+    When they ask for a change to it
+    Then the workspace searches for those words and proposes the change on the closest item
+    And when no item is close, it changes nothing and says it could not find the item

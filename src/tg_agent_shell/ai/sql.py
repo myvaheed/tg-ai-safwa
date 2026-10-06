@@ -19,7 +19,7 @@ from collections.abc import Collection, Mapping, Sequence
 from copy import copy
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
@@ -59,6 +59,34 @@ def local_time(stored: str | None, tz: ZoneInfo) -> str | None:
     return f"{datetime.fromisoformat(stored).replace(tzinfo=UTC).astimezone(tz):%Y-%m-%d %H:%M}"
 
 
+def add_view_functions(connection: driver.Connection, tz: ZoneInfo) -> None:
+    """Every function an `ai_*` view calls besides `relevance`, which every connection has.
+
+    SQLite resolves every column of a view it reads, so a connection that reads one column
+    of a view that calls `local_time` needs `local_time` too.
+    """
+    connection.create_function(
+        "local_time", 1, lambda stored: local_time(stored, tz), deterministic=True
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class Searchable:
+    """What a view gives the search index: the item type its rows are, and the columns that
+    are words. The view also selects `relevance('<item_type>', <id>) AS relevance`."""
+
+    item_type: str
+    fields: tuple[str, ...]
+
+
+class Ranking(Protocol):
+    """What a read that searches asks of the search index, which sits above this package."""
+
+    async def relevance(
+        self, search: str, views: Collection[str]
+    ) -> Mapping[tuple[str, int], float]: ...
+
+
 @dataclass(frozen=True, slots=True)
 class SqlView:
     """One `ai_*` view: the name the model sees, the SELECT that builds it, and the block
@@ -71,6 +99,9 @@ class SqlView:
     name: str
     sql: str
     doc: str = ""
+    # The item type and the columns the search index reads from this view, which then
+    # selects `relevance('<item_type>', <id>) AS relevance`.
+    searchable: Searchable | None = None
 
 
 def view_catalogue(views: Collection[SqlView], names: Sequence[str]) -> str:
@@ -284,8 +315,11 @@ class ReadOnlyQueryRunner:
         cell_limit: int = DEFAULT_CELL_LIMIT,
         timeout: float = QUERY_TIMEOUT_SECONDS,
         timezone: str = "UTC",
+        search: Ranking | None = None,
     ) -> None:
         self.database = database
+        # None, and a read that searches is refused.
+        self.search = search
         self.views = frozenset(views)
         self.tz = ZoneInfo(timezone)
         self.row_limit = row_limit
@@ -355,7 +389,7 @@ class ReadOnlyQueryRunner:
         )
         return " ".join(notes)
 
-    def _run(self, sql: str) -> QueryOutcome:
+    def _run(self, sql: str, relevance: Mapping[tuple[str, int], float]) -> QueryOutcome:
         statement, read = validated_read(sql, self.views)
         row_limit = min(
             [self.row_limit, *(self.row_limits[name] for name in read if name in self.row_limits)]
@@ -390,8 +424,12 @@ class ReadOnlyQueryRunner:
                 return driver.SQLITE_DENY
             return driver.SQLITE_OK
 
+        add_view_functions(connection, self.tz)
         connection.create_function(
-            "local_time", 1, lambda stored: local_time(stored, self.tz), deterministic=True
+            "relevance",
+            2,
+            lambda item_type, item_id: relevance.get((item_type, item_id)),
+            deterministic=True,
         )
         connection.set_authorizer(authorizer)
         deadline = time.monotonic() + self.timeout
@@ -419,8 +457,22 @@ class ReadOnlyQueryRunner:
         finally:
             connection.close()
 
-    async def run(self, sql: str) -> QueryOutcome:
-        return await asyncio.wait_for(asyncio.to_thread(self._run, sql), timeout=self.timeout)
+    async def run(self, sql: str, search: str | None = None) -> QueryOutcome:
+        """One read; with `search`, its views' `relevance` ranks by those words (AG-SEARCH-058).
+
+        Only the item types of the views this read names are ranked, so a reader ranks only
+        what its own list lets it read. The ranking is done before the statement's timeout
+        starts: it may first have to bring the index up to date.
+        """
+        relevance: Mapping[tuple[str, int], float] = {}
+        if search:
+            if self.search is None:
+                raise UnsafeQueryError("This reader cannot search: drop search and filter with WHERE")
+            _, read = validated_read(sql, self.views)
+            relevance = await self.search.relevance(search, read)
+        return await asyncio.wait_for(
+            asyncio.to_thread(self._run, sql, relevance), timeout=self.timeout
+        )
 
 
 @dataclass
@@ -447,7 +499,7 @@ async def read_query(runner: ReadOnlyQueryRunner, call: ToolCall) -> QueryRead:
     try:
         query = QueryToolInput.model_validate(json.loads(call.arguments_json))
         sql = query.sql
-        outcome = await runner.run(sql)
+        outcome = await runner.run(sql, query.search)
         if outcome.notice:
             logger.info("AI TOOL query_data capped: %s", outcome.notice)
         return QueryRead(sql, outcome.as_tool_result())

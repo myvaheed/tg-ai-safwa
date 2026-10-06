@@ -54,10 +54,11 @@ message in Telegram does not take it out of what Safwa reads back; rebuilding th
 Safwa's memory is written by the retro analysis of each Sprint alone and lives in the database;
 `/memory` shows it, and what you want Safwa told outright goes in the Profile.
 
-A screen that creates an item lists the open items most like it, compared by a local model.
-The first start downloads that model, about 240 MB, into `data/models/`, and the list appears
-once it has loaded. `SIMILAR_ITEMS` in `src/safwa/featuretoggles.py` turns it off, and then
-nothing is downloaded.
+Safwa finds your items by their words and their meaning, and a screen that creates an item
+lists the open items most like it; both read one search index kept inside the encrypted database
+([SEARCH.md](docs/SEARCH.md)). Meaning comes from a local text model: the first start downloads
+it, about 240 MB, into `data/models/`. Until it has loaded, a search goes by words alone and the
+creating screen goes without its list.
 
 ## Voice input
 

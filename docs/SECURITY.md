@@ -272,6 +272,11 @@ Both are settings of Windows, not of Safwa, and both work with everything above.
   connection's thread running, and unwaited it would finish after the event loop had closed. That
   race exists with the plain driver too; a keyed open is slower, which widens it enough for the
   startup tests to hit.
+- **The search index** ([SEARCH.md](SEARCH.md)) is two tables inside the same file: each
+  searchable text's word stems and its vector. A vector can be turned back into much of the text
+  it came from, so it is kept like the text: never in a file of its own, a cache beside the model
+  in `data/models/`, or a vector store outside the database. No `ai_*` view names either table, so
+  no reader's SQL reaches them.
 - **The read-only runner** sets the key before it installs its authorizer, because the authorizer
   refuses every `PRAGMA`. It keeps refusing ATTACH, which is also how SQLCipher would export a
   plain copy.

@@ -44,6 +44,7 @@ An Action can hold a note, captured idea or draft. Use Tag "{inbox_tag}" to capt
 # Read the data
 `query_data` runs one read-only `SELECT` or `WITH ... SELECT` over these views only.
 Every value listed under a view is the lowercase code stored in that column.
+Find an item the user describes in other words with `search`. Nothing close: call nothing_to_do and say so.
 
 {views}
 

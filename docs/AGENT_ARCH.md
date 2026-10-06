@@ -128,8 +128,8 @@ wallets and entries, with none of Safwa's nouns in it.
 | a shutdown | cancel the loops it started, close the provider and the bot | the polling `finally` |
 
 Everything else is the application's own: the persona, the provider, the product dependencies,
-and the startup itself — Safwa's carries ASR, the similar items model and its attribution headers,
-and the example's
+and the startup itself — Safwa's carries ASR, the text model of its search index and its
+attribution headers, and the example's
 carries none of them, which is why the shell holds no `run()` of its own.
 
 **A second application declares its tables on a `Base` of its own**, and `upgrade_database` takes
@@ -523,10 +523,10 @@ flowchart LR
   wrong screen.
 - **A screen that creates an item lists what is already there** (`PR-SIMILAR-030`). A feature's
   `ProposalContribution.similar` names the create value holding the new item's words and
-  reads its open items; `Similarity` ([similarity.py](../src/tg_agent_shell/similarity.py))
-  compares them with a local model it loads in the background, and until that has loaded, or
-  once it failed, the screen goes without the list. The list is the owner's alone: the model
-  never reads it, and nothing is refused because of it.
+  reads its open items; `SearchIndex.alike` compares that name with theirs by meaning, in the
+  one search index ([SEARCH.md](SEARCH.md)), and until its text model has loaded, or once it
+  failed, the screen goes without the list. The list is the owner's alone: the model never
+  reads it, and nothing is refused because of it.
 - **Autoapproval is the one exception to `PR-WRITE-002`, and `PR-AUTO-024` is where it is
   approved.** It is `AUTOAPPROVAL_HOOK`, and it decides only whether a screen is shown: it never
   bypasses preparation or the stored proposal, and any doubt leaves the pending screen untouched.
@@ -797,7 +797,8 @@ flowchart LR
 - A `SqlView` carries its own `doc`, so the block a model reads about a view lives beside the SELECT.
 - **A reader declares its views once, and that list both describes and scopes it**: it fills the
   `{views}` block in the prompt and narrows that reader's own `query_data`, so a view no list names
-  is refused rather than merely unmentioned. The Diary declares none: `read_day` is its one read.
+  is refused rather than merely unmentioned. The Diary declares `ai_diary` only to find a day by
+  what happened on it; `read_day` is how it reads the day itself.
 - `view_catalogue` refuses a name no feature publishes and a view with no `doc`. A helper that
   declares no views, or a prompt with `{views}` and nothing to fill it, is a wiring error rather
   than a reader of everything; a subagent that declares none reads nothing and has no
@@ -809,6 +810,10 @@ views, a separate read-only connection with an authorizer allowlist, and result 
 exist because a local model pays for what it reads. A reader may cut one of its views shorter
 still: the Advisor's `ADVISOR_ROW_LIMITS` reads `LOG_EVENTS_SHOWN = 20` rows of the log of
 changes, which grows without end, and its prompt tells it to count the rest instead.
+
+A read may carry `search`: a searchable view's `relevance` column then ranks its rows by the
+words and the meaning of those words, computed before the statement runs and only for the views
+it reads. How the index behind it is kept and asked is [SEARCH.md](SEARCH.md).
 
 A saved Request shares the validation and nothing else: it runs on the ordinary session, and no cap
 applies, because its result is always a list in the interface and never enters the model's history.

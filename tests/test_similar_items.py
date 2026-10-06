@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-import math
+from dataclasses import replace
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
+from database_key import keyed
+from scored_encoder import Scored
 from ui_harness import FakeMessage, services_for
 
-from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS
+from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, PROPOSALS, TEXT_MODEL, WORD_FORMS
 from safwa.features.cards.use_cases import archive_subtree, create_card, finish_action
 from safwa.features.checks.use_cases import archive_check, create_check, resolve_check
 from safwa.features.reminders.schedule import resolve
@@ -20,91 +22,84 @@ from safwa.foundation.workspace import Workspace
 from tg_agent_shell.proposals.model import ChangeAction, ProposalChange
 from tg_agent_shell.proposals.store import ProposalStore
 from tg_agent_shell.proposals.telegram import render_proposal
-from tg_agent_shell.proposals.telegram.screens import SIMILAR_HEADING
-from tg_agent_shell.similarity import SIMILAR_ITEMS_SHOWN, SIMILAR_THRESHOLD, Similarity
+from tg_agent_shell.proposals.telegram.screens import SIMILAR_HEADING, SIMILAR_ITEMS_SHOWN
+from tg_agent_shell.search.index import SearchIndex
 
 TZ = ZoneInfo("UTC")
 
 
-class Scored:
-    """An encoder whose texts are exactly as alike to `to` as `scores` says.
-
-    `to` lies on one axis. A scored text leans off it onto an axis of its own, so two texts
-    other than `to` share nothing but that lean; a text not scored shares nothing at all.
-    """
-
-    def __init__(self, to: str, scores: dict[str, float]) -> None:
-        self.to = to
-        self.scores = scores
-        self.axes: dict[str, int] = {to: 0}
-        self.encoded: list[str] = []
-
-    def encode(self, texts):
-        self.encoded.extend(texts)
-        return [self._vector(text) for text in texts]
-
-    def _vector(self, text: str) -> list[float]:
-        vector = [0.0] * 64
-        if text == self.to:
-            vector[0] = 1.0
-            return vector
-        score = self.scores.get(text, 0.0)
-        vector[0] = score
-        vector[self.axes.setdefault(text, len(self.axes))] = math.sqrt(1 - score * score)
-        return vector
+def index(tmp_path, encoder, text_model=TEXT_MODEL) -> SearchIndex:
+    """The application's index over the `sessions` fixture's database."""
+    return SearchIndex(
+        keyed(tmp_path / "sessions.db"), text_model, lambda: encoder, WORD_FORMS, AI_VIEWS
+    )
 
 
-async def loaded(encoder) -> Similarity:
-    similarity = Similarity(lambda: encoder)
-    await similarity.load()
-    return similarity
+async def loaded(tmp_path, encoder, text_model=TEXT_MODEL) -> SearchIndex:
+    search = index(tmp_path, encoder, text_model)
+    await search.load()
+    return search
 
 
-async def test_pr_similar_030_the_closest_above_the_threshold_are_listed_closest_first():
+async def _tags(sessions, *names: str) -> list[int]:
+    async with sessions() as session:
+        ids = [(await create_tag(session, name)).id for name in names]
+        await session.commit()
+    return ids
+
+
+async def test_pr_similar_030_the_closest_above_the_threshold_are_listed_closest_first(
+    sessions, tmp_path
+):
     """PR-SIMILAR-030 — tests/brd/tg_agent_shell/proposals.feature"""
+    names = ("just above", "closest", "just below", "third", "second")
+    ids = dict(zip(names, await _tags(sessions, *names), strict=True))
     encoder = Scored(
         "new",
         {
-            "just above": SIMILAR_THRESHOLD + 0.001,
+            "just above": TEXT_MODEL.alike + 0.001,
             "closest": 0.99,
-            "just below": SIMILAR_THRESHOLD - 0.001,
+            "just below": TEXT_MODEL.alike - 0.001,
             "third": 0.9,
             "second": 0.95,
         },
     )
-    similarity = await loaded(encoder)
-    items = [(1, "just above"), (2, "closest"), (3, "just below"), (4, "third"), (5, "second")]
+    search = await loaded(tmp_path, encoder)
 
-    listed = await similarity.closest("new", items)
-    assert listed == [2, 5, 4]
-    assert len(listed) == SIMILAR_ITEMS_SHOWN
-    assert await similarity.closest("new", [(1, "just above"), (3, "just below")]) == [1]
-    # Each text is encoded once; the second screen reads what the first one did.
-    assert sorted(encoder.encoded) == sorted(["new", *(text for _, text in items)])
+    listed = await search.alike("tag", "name", "new", ids.values())
+    assert listed == [ids["closest"], ids["second"], ids["third"], ids["just above"]]
+    assert await search.alike("tag", "name", "new", [ids["just above"], ids["just below"]]) == [
+        ids["just above"]
+    ]
+    # Each saved name is encoded once and kept in the index; a screen encodes only its own.
+    assert sorted(encoder.encoded) == sorted([*names, "new", "new"])
 
 
-async def test_pr_similar_030_nothing_is_compared_until_the_model_loads_or_once_it_failed():
+async def test_pr_similar_030_nothing_is_compared_until_the_model_loads_or_once_it_failed(
+    sessions, tmp_path
+):
     """PR-SIMILAR-030 — tests/brd/tg_agent_shell/proposals.feature"""
-    items = [(1, "same")]
+    [same] = await _tags(sessions, "same")
     encoder = Scored("new", {"same": 1.0})
-    assert await Similarity(lambda: encoder).closest("new", items) == []
+    assert await index(tmp_path, encoder).alike("tag", "name", "new", [same]) == []
 
     def unreachable():
         raise OSError("The model could not be downloaded.")
 
-    failed = Similarity(unreachable)
+    failed = index(tmp_path, encoder)
+    failed._load = unreachable
     await failed.load()
-    assert await failed.closest("new", items) == []
+    assert await failed.alike("tag", "name", "new", [same]) == []
 
     class Failing:
         def encode(self, texts):
             raise RuntimeError("The model failed.")
 
-    assert await (await loaded(Failing())).closest("new", items) == []
-    assert await (await loaded(encoder)).closest("new", items) == [1]
+    assert await (await loaded(tmp_path, Failing())).alike("tag", "name", "new", [same]) == []
+    assert await (await loaded(tmp_path, encoder)).alike("tag", "name", "new", [same]) == [same]
 
 
-async def _create_screen(sessions, similarity, change: ProposalChange) -> str:
+async def _create_screen(sessions, search, change: ProposalChange) -> str:
     store = ProposalStore()
     async with sessions() as session:
         workspace = await session.get(Workspace, 1)
@@ -113,7 +108,7 @@ async def _create_screen(sessions, similarity, change: ProposalChange) -> str:
         )
         await session.commit()
     services = services_for(sessions, reviews=store)
-    services.similarity = similarity
+    services.search = search
     message = FakeMessage(70, bot_message=True)
     await render_proposal(message, services, proposal.id)
     return message.edits[-1][0]
@@ -123,7 +118,9 @@ def _new(entity: str, **values) -> ProposalChange:
     return ProposalChange(entity=entity, action=ChangeAction.CREATE, values=values)
 
 
-async def test_pr_similar_030_a_new_card_lists_open_cards_of_any_kind_closest_first(sessions):
+async def test_pr_similar_030_a_new_card_lists_open_cards_of_any_kind_closest_first(
+    sessions, tmp_path
+):
     """PR-SIMILAR-030 — tests/brd/tg_agent_shell/proposals.feature"""
     async with sessions() as session:
         family = await create_card(session, kind="goal", title="Family")
@@ -147,7 +144,8 @@ async def test_pr_similar_030_a_new_card_lists_open_cards_of_any_kind_closest_fi
         await create_check(session, title="Called mom")
         await create_card(session, kind="action", title="Buy bread", effort_points=1)
         await session.commit()
-    similarity = await loaded(
+    search = await loaded(
+        tmp_path,
         Scored(
             "Call mom",
             {
@@ -164,7 +162,7 @@ async def test_pr_similar_030_a_new_card_lists_open_cards_of_any_kind_closest_fi
     )
 
     text = await _create_screen(
-        sessions, similarity, _new("card", kind="action", title="Call mom", effort_points=1)
+        sessions, search, _new("card", kind="action", title="Call mom", effort_points=1)
     )
 
     heading, block = text.split(SIMILAR_HEADING)
@@ -217,7 +215,7 @@ async def test_pr_similar_030_only_open_items_of_each_type_are_compared(sessions
     }
 
 
-async def test_pr_similar_030_a_reminder_is_cited_like_the_rest(sessions):
+async def test_pr_similar_030_a_reminder_is_cited_like_the_rest(sessions, tmp_path):
     """PR-SIMILAR-030 — tests/brd/tg_agent_shell/proposals.feature"""
     async with sessions() as session:
         walk = await create_reminder(
@@ -227,11 +225,11 @@ async def test_pr_similar_030_a_reminder_is_cited_like_the_rest(sessions):
             tz=TZ,
         )
         await session.commit()
-    similarity = await loaded(Scored("Go for a walk.", {"Take a <walk> outside.": 0.9}))
+    search = await loaded(tmp_path, Scored("Go for a walk.", {"Take a <walk> outside.": 0.9}))
 
     text = await _create_screen(
         sessions,
-        similarity,
+        search,
         _new("reminder", instruction="Go for a walk.", schedule_text="every 2 hours"),
     )
 
@@ -239,13 +237,20 @@ async def test_pr_similar_030_a_reminder_is_cited_like_the_rest(sessions):
     assert f'?start=reminder-{walk.id}">⏰ Take a &lt;walk&gt; outside.</a>' in block
 
 
-async def test_pr_similar_030_no_list_when_nothing_is_alike_for_a_change_or_when_off(sessions):
+async def test_pr_similar_030_no_list_when_nothing_is_alike_for_a_change_or_unloaded(
+    sessions, tmp_path
+):
     """PR-SIMILAR-030 — tests/brd/tg_agent_shell/proposals.feature"""
     async with sessions() as session:
         tag = await create_tag(session, "Training")
         await session.commit()
-    similar = await loaded(Scored("Workout", {"Training": 0.9}))
-    unlike = await loaded(Scored("Workout", {"Training": SIMILAR_THRESHOLD - 0.1}))
+    similar = await loaded(tmp_path, Scored("Workout", {"Training": 0.9}))
+    # Another text model is another index: the one above kept its own vectors.
+    unlike = await loaded(
+        tmp_path,
+        Scored("Workout", {"Training": TEXT_MODEL.alike - 0.1}),
+        replace(TEXT_MODEL, name="another text model"),
+    )
     new = _new("tag", name="Workout")
     edit = ProposalChange(
         entity="tag", action=ChangeAction.UPDATE, entity_id=tag.id,
@@ -255,6 +260,5 @@ async def test_pr_similar_030_no_list_when_nothing_is_alike_for_a_change_or_when
     assert SIMILAR_HEADING in await _create_screen(sessions, similar, new)
     assert SIMILAR_HEADING not in await _create_screen(sessions, unlike, new)
     assert SIMILAR_HEADING not in await _create_screen(sessions, similar, edit)
-    assert SIMILAR_HEADING not in await _create_screen(sessions, None, new)
-    waiting = Similarity(lambda: Scored("Workout", {"Training": 0.9}))
+    waiting = index(tmp_path, Scored("Workout", {"Training": 0.9}))
     assert SIMILAR_HEADING not in await _create_screen(sessions, waiting, new)

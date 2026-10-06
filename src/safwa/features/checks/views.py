@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tg_agent_shell.ai.sql import SqlView
+from tg_agent_shell.ai.sql import Searchable, SqlView
 
 from ...foundation.marks import ARCHIVE_MARKER, LIVE_FORMAT, MARKER_FORMAT
 from .model import PENDING
@@ -39,14 +39,15 @@ AI_CHECKS = SqlView(
                 JOIN cards cd ON cd.id=cc.card_id WHERE cc.check_id=k.id) AS card_series_id,
                (SELECT group_concat(v.name, ',') FROM check_values cv
                 JOIN "values" v ON v.id=cv.value_id WHERE cv.check_id=k.id) AS direct_values,
-               k.created_at, k.updated_at
+               k.created_at, k.updated_at, relevance('check', k.id) AS relevance
         FROM checks k""",
-    doc="""- `ai_checks(id, title, schedule, status, resolved_at, series_id, card_id, card_series_id, direct_values, created_at, updated_at)`
+    doc="""- `ai_checks(id, title, schedule, status, resolved_at, series_id, card_id, card_series_id, direct_values, created_at, updated_at, relevance)`
   - `status` pending | passed | missed
   - `schedule` is the original timing text, not computed dates or counts
   - a Check with its own Schedule is independent; `card_id` is the one Card a plain Check hangs on, or NULL; `direct_values` is comma-joined
   - `series_id` is the whole series of this check; `card_series_id` is the series of its card: count answers across all copies of a repeating action by it
   - `direct_values` are the Values this Check measures; they are its own, not the Values of its Cards""",
+    searchable=Searchable("check", ("title",)),
 )
 
 

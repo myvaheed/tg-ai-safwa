@@ -507,3 +507,29 @@ Feature: Agents — the session, the hand-over, and what comes back
     And the message shows the newest 10 lines (NOTICE_STEPS), each keeping its number
     When Telegram refuses to show a line
     Then the answer is still written
+
+  Scenario: AG-SEARCH-058 — A read ranks rows by the words and the meaning of a search
+    Given a view a reader may read publishes relevance
+    When the reader reads it with a search and orders by relevance
+    Then the rows closest to the search come first
+    And a row is close by words when it shares a word stem with the search
+    And a row is close by meaning when it is at least as close as the text model's related
+      cut-off (TEXT_MODEL.related = 0.50)
+    And the two orders are joined by place (RRF_K = 60)
+    And a row close by neither has no relevance and comes last
+    And a read without a search has no relevance on any row
+    And only the views that read names are ranked
+
+  Scenario: AG-SEARCH-059 — The index follows every change and every model
+    Given an item is created, changed or deleted by a proposal, a screen or a hook
+    When a read searches next
+    Then it ranks the item as it is now
+    When the application changes its text model or its word forms
+    Then every item is indexed again
+    When the text model has not finished loading, or failed
+    Then a search ranks by words alone
+
+  Scenario: AG-SEARCH-060 — The index is read by the shell alone
+    Given every searchable text and its vector are in the database file
+    When a reader's SQL names the index
+    Then the read is refused

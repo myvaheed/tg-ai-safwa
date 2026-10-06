@@ -113,6 +113,7 @@ class Registry:
         views = _views(modules, views)
         allowed = frozenset(view.name for view in views)
         proposals = _proposals(modules, allowed, world)
+        _similar_is_searchable(proposals.similar, views)
         helpers = _helpers(modules, views)
         return cls(
             modules=modules,
@@ -330,6 +331,19 @@ def _proposals(
         handlers=handlers, presenters=presenters, tools=tools, views=views, world=world,
         similar=similar, autoapprovals=rules,
     )
+
+
+def _similar_is_searchable(
+    similar: Mapping[str, SimilarItems], views: tuple[SqlView, ...]
+) -> None:
+    """A creating screen compares a field the search index holds; any other lists nothing."""
+    fields = {view.searchable.item_type: view.searchable.fields for view in views if view.searchable}
+    for entity, items in similar.items():
+        if items.field not in fields.get(entity, ()):
+            raise RuntimeError(
+                f"The {entity} creating screen compares {items.field!r}, "
+                "which no searchable view indexes"
+            )
 
 
 def _helpers(

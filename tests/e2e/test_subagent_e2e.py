@@ -267,7 +267,7 @@ async def test_a_routed_subagent_is_offered_only_its_own_tools(e2e_harness):
     await advisor.handle("Запиши сегодняшний день")
 
     offered = {tool["function"]["name"] for tool in provider.options[1]["tools"]}
-    assert offered == {"read_day", "read_conversation", "diary", "nothing_to_do"}
+    assert offered == {"query_data", "read_day", "read_conversation", "diary", "nothing_to_do"}
     # No recursion, and no reach into the workspace.
     assert "route" not in offered
     assert "action" not in offered
@@ -915,8 +915,7 @@ async def test_every_session_reads_through_the_one_door_and_no_one_declares_it_t
     for kind in ("advisor", "workspace_mutator", "diary"):
         definition = advisor.adapters.definition(kind)
         names = [tool["function"]["name"] for tool in definition.tools]
-        # The Diary names no view, so it is handed no read of the database at all.
-        assert names.count("query_data") == (0 if kind == "diary" else 1), kind
+        assert names.count("query_data") == 1, kind
         # A session's own read tools are its own: none of them is a name the adapters answer.
         assert not set(definition.read_specs) & IMMEDIATE_TOOLS, kind
 

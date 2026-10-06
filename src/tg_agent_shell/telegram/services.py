@@ -13,7 +13,7 @@ import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from aiogram import BaseMiddleware
 from aiogram.exceptions import TelegramAPIError
@@ -28,9 +28,12 @@ from ..history import TelegramHistorySource
 from ..hooks.registry import HookRegistry
 from ..media.library import MediaLibrary
 from ..session import RootSession
-from ..similarity import Similarity
 from ..turn import TurnManager
 from .contributions import ScreenCommand, StartLink, TextInputFlow
+
+if TYPE_CHECKING:
+    # Only the type: an application that never searches never creates the index's tables.
+    from ..search.index import SearchIndex
 
 logger = logging.getLogger(__name__)
 
@@ -93,8 +96,8 @@ class Services:
     views: frozenset[str] = frozenset()
     bot_username: str = ""
     transcriber: Transcriber | None = None
-    # None, and a creating review screen lists no similar items.
-    similarity: Similarity | None = None
+    # None, and no read may search and a creating review screen lists no similar items.
+    search: SearchIndex | None = None
     # None, and a photo is refused with a line saying image input is off.
     media: MediaLibrary | None = None
     albums: AlbumGatherer = field(default_factory=AlbumGatherer)

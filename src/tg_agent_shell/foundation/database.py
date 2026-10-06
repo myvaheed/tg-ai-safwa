@@ -39,6 +39,10 @@ def _unicode_nocase(left: str, right: str) -> int:
     return (left > right) - (left < right)
 
 
+def _no_relevance(item_type: str, item_id: int) -> None:
+    return None
+
+
 class DatabaseRefused(Exception):
     """The file was not opened, because nothing proves it is encrypted with this key."""
 
@@ -69,6 +73,9 @@ class DatabaseFile:
         try:
             # One comparison for Unicode name lookups and case-insensitive UNIQUE indexes.
             connection.create_collation("UNICODE_NOCASE", _unicode_nocase)
+            # A searchable view selects `relevance`, so every connection can read it: NULL,
+            # unless a read that searches replaces it on its own connection (AG-SEARCH-058).
+            connection.create_function("relevance", 2, _no_relevance, deterministic=True)
             connection.execute(f"PRAGMA key = \"x'{self.key.hex()}'\"")
             # Before the first read, so a file another connection holds locked is waited for
             # rather than taken for one the key does not open.

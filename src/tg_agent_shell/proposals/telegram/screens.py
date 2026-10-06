@@ -21,6 +21,7 @@ from ..model import ChangeAction, ProposalChange
 from ..render import proposal_change_summary, result_value
 
 SIMILAR_HEADING = "<b>Similar items already exist</b>"
+SIMILAR_ITEMS_SHOWN = 3
 
 
 async def render_proposal(
@@ -100,18 +101,20 @@ async def render_proposal(
 
 async def similar_items(session: AsyncSession, services: Services, change: ProposalChange) -> str:
     """The open items of a new item's entity most like it, or nothing (PR-SIMILAR-030)."""
-    if change.action is not ChangeAction.CREATE or services.similarity is None:
+    if change.action is not ChangeAction.CREATE or services.search is None:
         return ""
     similar = services.root.proposals.similar.get(change.entity)
     if similar is None:
         return ""
     items = await similar.open_items(session)
-    ids = await services.similarity.closest(str(change.values.get(similar.field) or ""), items)
+    words = dict(items)
+    ids = await services.search.alike(
+        change.entity, similar.field, str(change.values.get(similar.field) or ""), words
+    )
     if not ids:
         return ""
-    words = dict(items)
     lines = [
         f"• [{html.escape(result_value(words[item_id]))}]({change.entity}:{item_id})"
-        for item_id in ids
+        for item_id in ids[:SIMILAR_ITEMS_SHOWN]
     ]
     return await render_citations(session, services, "\n".join([SIMILAR_HEADING, *lines]))
