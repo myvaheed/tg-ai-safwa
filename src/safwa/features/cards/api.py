@@ -37,17 +37,12 @@ SCHEDULE_NOTICE_DAYS = 1
 _PRIORITY_ORDER = {Priority.CRITICAL.value: 0, Priority.MEDIUM.value: 1, Priority.LOW.value: 2}
 
 
-def list_order(card: Card) -> tuple[bool, datetime, int, datetime]:
+def list_order(card: Card) -> tuple[bool, datetime | None, int, datetime]:
     """An appointment or Deadline first and the sooner one before, then priority, then
     oldest: the ordering of every Card list but Today, which is in the order the day
     cannot move."""
     due = card.scheduled_at or card.deadline_at
-    return (
-        due is None,
-        due or card.created_at,
-        _PRIORITY_ORDER[card.priority],
-        card.created_at,
-    )
+    return (due is None, due, _PRIORITY_ORDER[card.priority], card.created_at)
 
 
 class CardQueryError(ValueError):
