@@ -259,8 +259,11 @@ class QueryToolInput(ToolInput):
     search: str | None = Field(
         default=None,
         description=(
-            "Words to find rows by, in any wording. Fills relevance, NULL when a row is not "
-            "close. Use with ORDER BY relevance DESC."
+            "Words to find rows by meaning, in the user's wording. A separate argument: never "
+            "write search inside sql. Fills the relevance column; NULL means not close. "
+            'Example: {"search": "sport", "sql": "SELECT id, title FROM <view> WHERE relevance '
+            'IS NOT NULL ORDER BY relevance DESC LIMIT 5"}. An exact name or id: filter in sql '
+            "instead."
         ),
     )
 
