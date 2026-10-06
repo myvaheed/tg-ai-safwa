@@ -117,6 +117,8 @@ async def test_without_today_the_dashboard_takes_the_sprint_then_the_backlog(ses
     async with sessions() as session:
         later = await _action(session, "Later", priority="low")
         sooner = await _action(session, "Sooner", priority="critical")
+        # created_at has whole seconds: two inserts can fall on either side of one.
+        later.created_at = datetime.now(UTC) - timedelta(minutes=1)
         await session.commit()
     lines = _block(await _text(sessions), "Backlog")
     assert lines[0] == "<b>📚 Backlog · 2 of 2</b>"
