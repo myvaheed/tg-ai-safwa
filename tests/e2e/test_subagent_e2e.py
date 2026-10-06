@@ -9,6 +9,7 @@ from advisor_e2e_helpers import PLAN, route_turn
 from agent_turns import forward_turn
 from sqlalchemy import select
 
+from agent_runtime.model import NOTHING_DONE_NEXT
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.bootstrap.modules import PROPOSALS
@@ -83,12 +84,17 @@ def diary_subagent(
 
 async def test_a_routed_subagent_hands_its_words_back_and_the_advisor_speaks(e2e_harness):
     """AG-RECEIPT-006 — tests/brd/tg_agent_shell/agents.feature"""
+    async with e2e_harness.sessions() as session:
+        day = DiaryEntry(entry_date=date(2026, 3, 8), body="Долгий день, но рынок закрыл.")
+        session.add(day)
+        await session.commit()
+    cited = f"[08.03.2026](diary:{day.id})"
     advisor, provider = e2e_harness.advisor(
         [
             turn(("route", {"name": "diary"})),
             turn(("read_day", {}), prefix="diary"),
-            "Записал тот день: [08.03.2026](diary:4).",
-            "Готово — [08.03.2026](diary:4).",
+            f"Этот день уже записан: {cited}.",
+            f"Готово — {cited}.",
         ],
         subagents=(diary_subagent(e2e_harness),),
     )
@@ -97,7 +103,7 @@ async def test_a_routed_subagent_hands_its_words_back_and_the_advisor_speaks(e2e
 
     # The owner reads the Advisor; the subagent's sentence reached it as a receipt.
     assert outcome.kind is AIOutcomeKind.ANSWER
-    assert outcome.message == "Готово — [08.03.2026](diary:4)."
+    assert outcome.message == f"Готово — {cited}."
     # It read under its own prompt, not the Advisor's.
     assert str(provider.calls[1][0]["content"]).startswith("# Safwa")
     assert "You keep the user's Diary" in str(provider.calls[1][0]["content"])
@@ -109,7 +115,7 @@ async def test_a_routed_subagent_hands_its_words_back_and_the_advisor_speaks(e2e
         "subagent": "diary",
         "outcome": "done",
         "did": [],
-        "text": "Записал тот день: [08.03.2026](diary:4).",
+        "text": f"Этот день уже записан: {cited}.",
         "next": (
             'If text answers the request, call forward("diary") to send it as it is. '
             "Otherwise route again or answer in your own words."
@@ -379,12 +385,9 @@ async def test_a_subagent_is_required_to_open_with_a_tool_call(e2e_harness):
 async def test_ag_nothing_056_a_subagent_with_nothing_to_do_ends_with_the_reason(e2e_harness):
     """AG-NOTHING-056 — tests/brd/tg_agent_shell/agents.feature"""
     reason = "Время утра — поле Profile, а не Reminder."
+    asked = "Время утра задаётся в Profile. Поменять его там?"
     advisor, provider = e2e_harness.advisor(
-        [
-            route_turn("workspace_mutator"),
-            turn(("nothing_to_do", {"reason": reason})),
-            forward_turn("workspace_mutator"),
-        ],
+        [route_turn("workspace_mutator"), turn(("nothing_to_do", {"reason": reason})), asked],
         subagents=(e2e_harness.subagent("workspace_mutator"),),
     )
 
@@ -394,9 +397,9 @@ async def test_ag_nothing_056_a_subagent_with_nothing_to_do_ends_with_the_reason
     assert "nothing_to_do" in offered
     assert provider.options[1]["tool_choice"] == "required"
     receipt = route_receipts(provider)[0]
-    assert (receipt["outcome"], receipt["did"], receipt["text"]) == ("done", [], reason)
+    assert (receipt["outcome"], receipt["did"], receipt["reason"]) == ("nothing_done", [], reason)
     assert outcome.kind is AIOutcomeKind.ANSWER
-    assert reason in outcome.message
+    assert asked in outcome.message
     assert not e2e_harness.reviews.open_proposals
 
 
@@ -421,7 +424,7 @@ async def test_ag_nothing_056_it_goes_alone_and_only_to_a_subagent_that_must_act
         json.loads(str(item["content"])) for item in provider.calls[2] if item.get("role") == "tool"
     ]
     assert {entry["code"] for entry in refused} == {"nothing_to_do_is_not_shared"}
-    assert route_receipts(provider)[0]["text"] == "Nothing to change."
+    assert route_receipts(provider)[0]["reason"] == "Nothing to change."
 
     guide, guide_provider = e2e_harness.advisor(
         [route_turn("guide"), GUIDE_WORDS, forward_turn("guide")],
@@ -430,6 +433,78 @@ async def test_ag_nothing_056_it_goes_alone_and_only_to_a_subagent_that_must_act
     await guide.handle("What is a Check?")
     offered = [tool["function"]["name"] for tool in guide_provider.options[1]["tools"]]
     assert "nothing_to_do" not in offered
+
+
+async def test_ag_nothing_057_words_that_cite_nothing_are_a_reason_safwa_cannot_forward(
+    e2e_harness,
+):
+    """AG-NOTHING-057 — tests/brd/tg_agent_shell/agents.feature"""
+    async with e2e_harness.sessions() as session:
+        gone = await create_card(session, kind=CardKind.GOAL, title="Выучить испанский")
+        await session.commit()
+        await session.delete(gone)
+        await session.commit()
+    reason = f"Не нашёл [Выучить испанский](card:{gone.id}) и [Испанский](card:999999)."
+    asked = "Не нашёл такую Цель. Какую ты имеешь в виду?"
+    advisor, provider = e2e_harness.advisor(
+        [
+            route_turn("workspace_mutator"),
+            turn(("query_data", {"sql": "SELECT id FROM ai_cards"})),
+            reason,
+            forward_turn("workspace_mutator"),
+            asked,
+        ],
+        subagents=(e2e_harness.subagent("workspace_mutator"),),
+    )
+
+    outcome = await advisor.handle("Отметь цель про испанский")
+
+    receipt = route_receipts(provider)[0]
+    assert "text" not in receipt
+    assert (receipt["outcome"], receipt["reason"], receipt["next"]) == (
+        "nothing_done",
+        reason,
+        NOTHING_DONE_NEXT,
+    )
+    refused = next(
+        json.loads(str(item["content"]))
+        for item in provider.calls[-1]
+        if item.get("role") == "tool" and item.get("name") == "forward"
+    )
+    assert refused["code"] == "nothing_to_forward"
+    assert asked in outcome.message
+    assert reason not in outcome.message
+
+
+async def test_ag_nothing_057_words_that_cite_an_item_come_back_as_the_answer(e2e_harness):
+    """AG-NOTHING-057 — tests/brd/tg_agent_shell/agents.feature"""
+    async with e2e_harness.sessions() as session:
+        card = await create_card(
+            session, kind=CardKind.ACTION, title="Купить молоко", effort_points=1
+        )
+        await session.commit()
+    reason = f"[Купить молоко](card:{card.id}) уже в Today."
+    advisor, provider = e2e_harness.advisor(
+        [
+            route_turn("workspace_mutator"),
+            turn(("nothing_to_do", {"reason": reason})),
+            forward_turn("workspace_mutator"),
+        ],
+        subagents=(e2e_harness.subagent("workspace_mutator"),),
+    )
+
+    outcome = await advisor.handle("Поставь молоко на сегодня")
+
+    receipt = route_receipts(provider)[0]
+    assert (receipt["outcome"], receipt["text"]) == ("done", reason)
+    assert reason in outcome.message
+
+    guide, guide_provider = e2e_harness.advisor(
+        [route_turn("guide"), GUIDE_WORDS, forward_turn("guide")],
+        subagents=(guide_subagent(e2e_harness),),
+    )
+    await guide.handle("What is a Check?")
+    assert route_receipts(guide_provider)[0]["text"] == GUIDE_WORDS
 
 
 async def test_route_cannot_share_its_response_with_another_call(e2e_harness):

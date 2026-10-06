@@ -37,6 +37,7 @@ from .model import (
     RunRecord,
     RunStatus,
     TurnOutcome,
+    nothing_done_receipt,
     route_receipt,
     tool_message,
 )
@@ -473,6 +474,8 @@ class AgentManager:
         """
         started = self.clock()
         record = await self.store.adopt_interrupted_child(kind=name, parent_run_id=parent.run_id)
+        # An adopted session already put a change in front of the person.
+        adopted = record is not None
         if record is None:
             record = await self.store.create(kind=name, parent_run_id=parent.run_id)
             agent = AgentSession.start(
@@ -488,6 +491,14 @@ class AgentManager:
             if outcome.waiting:
                 return outcome, None
             parent.host_state.update(agent.host_state)
+            # Handed the turn for the work, it proposed nothing: words that name nothing that
+            # exists may come from a conversation that lost what the person meant.
+            if (
+                agent.first_call_required
+                and not adopted
+                and not await self.tools.anchored(outcome.message)
+            ):
+                return outcome, nothing_done_receipt(name, outcome.message)
             # The materialized outcome, not the raw loop result: a repair round answers again.
             return outcome, route_receipt(name, outcome.message, agent.display_result_summaries)
         except TimeoutError:

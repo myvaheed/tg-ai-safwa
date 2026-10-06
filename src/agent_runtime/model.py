@@ -338,6 +338,28 @@ def route_receipt(
     return receipt
 
 
+NOTHING_DONE_NEXT = (
+    "Nothing was changed. Tell the user why in your own words and end with one question. "
+    "Cite every item you name. Route again only after they answer."
+)
+
+
+def nothing_done_receipt(name: str, reason: str) -> dict[str, Any]:
+    """What a subagent handed the turn for the work hands back when it proposed nothing and
+    its words name no item that exists.
+
+    Its words are a `reason`, never `text`, so they cannot be forwarded: nothing in them
+    shows the person what they are about, and the conversation the subagent read may no
+    longer hold what the person meant. The caller asks instead, naming the items, which
+    puts them back where the next subagent reads.
+    """
+    receipt: dict[str, Any] = {"subagent": name, "outcome": "nothing_done", "did": []}
+    if reason.strip():
+        receipt["reason"] = reason.strip()
+    receipt["next"] = NOTHING_DONE_NEXT
+    return receipt
+
+
 def routed_answers(transcript: Sequence[Mapping[str, Any]]) -> dict[str, tuple[int, str]]:
     """Each routed subagent's newest words in this transcript, with the message holding them.
 

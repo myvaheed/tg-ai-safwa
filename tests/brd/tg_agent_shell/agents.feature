@@ -135,8 +135,22 @@ Feature: Agents — the session, the hand-over, and what comes back
     Given a subagent whose first step has to be a tool call (AG-ANSWER-014)
     When the request is not its own, or what it asks is already so
     Then its first step can be nothing_to_do with the reason, alone in its response
-    And that ends its session: nothing is proposed, and the reason goes back as the subagent's words
+    And that ends its session: nothing is proposed, and the reason goes back to Safwa by
+      AG-NOTHING-057
     And a subagent that answers questions is not offered it
+
+  Scenario: AG-NOTHING-057 — A subagent that changed nothing reaches the owner only with words that cite an item
+    Given a subagent whose first step has to be a tool call (AG-ANSWER-014) put no change in
+      front of the owner in the request
+    When its last words cite no item that exists
+    Then they go back to Safwa as the reason nothing was done, and Safwa cannot forward them
+    And Safwa is told to say why in its own words, cite every item it names, end with one
+      question, and hand the request over again only after the owner answers
+    When its last words cite an item that exists
+    Then they go back as its answer, and Safwa may forward them by AG-RECEIPT-044
+    And a citation of an item that is gone, or of an id no item has, cites nothing
+    And a subagent that put a change in front of the owner in the request, or that answers
+      questions, hands its words back as its answer either way
 
   Scenario: AG-TURN-015 — Safwa speaks unasked only when nothing of the owner's is open
     Given the system has something for Safwa to say without being asked, such as a Reminder coming

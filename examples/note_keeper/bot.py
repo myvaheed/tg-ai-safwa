@@ -107,6 +107,9 @@ class NoteTools:
     def repair_exhausted_message(self) -> str:
         return "I could not write that note."
 
+    async def anchored(self, words: str) -> bool:
+        return False
+
 
 class OneSystemPrompt:
     """The runtime's `ContextSource`: what a session reads before its own steps."""
