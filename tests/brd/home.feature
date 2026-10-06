@@ -1,7 +1,7 @@
 Feature: Home
-  Home is the way in. It keeps no item of its own: it is the screen every other screen is
-  offered from, the door a link Safwa wrote comes back through, and the dashboard a chat the
-  owner left quiet receives.
+  Home is the way in. It keeps no item of its own: it is the dashboard with the menu every
+  other screen is offered from, the door a link Safwa wrote comes back through, and what a
+  cleared chat is left with.
 
   Numbers below name the constant they come from; the tests read the constant.
 
@@ -44,12 +44,15 @@ Feature: Home
     Then a new dashboard is drawn and the old one is taken out, as by HM-QUIET-003
     And a day is the workspace's local day
 
-  Scenario: HM-STAYS-005 — The dashboard stays until the next clear
-    Given the dashboard is in the chat
+  Scenario: HM-STAYS-005 — The dashboard stays until the next clear, and its menu unfolds in place
+    Given the dashboard a clear drew is in the chat
+    Then it carries one button, ☰ Menu
+    When the owner presses it
+    Then the menu's buttons take its place under the same words, and every screen stays as it was
+    When the owner opens a screen from that menu
+    Then the screen arrives as a new message below, and the dashboard folds back to ☰ Menu
     When the owner writes, opens a screen or taps a link on the dashboard
     Then the dashboard stays where it is, and what comes of it appears below it
-    And the dashboard carries no buttons
-    And /start opens the menu, not the dashboard
 
   Scenario: HM-ACTIONS-006 — The dashboard opens with the next 5 Actions
     Given open Actions in Today
@@ -89,3 +92,20 @@ Feature: Home
     Given the chat was cleared through the last message to the Advisor and the dashboard was drawn
     Then the conversation Safwa reads begins after the dashboard (TG-HOME-023)
     And the Diary still reads everything said that day, before the clear as much as after it (DI-READ-016)
+
+  Scenario: HM-START-011 — /start opens Home: the dashboard with its menu unfolded
+    When the owner sends /start, or presses ↩️ Menu on a screen
+    Then Home arrives as a screen: the dashboard of HM-ACTIONS-006 to HM-LOG-009 with every menu
+      button under it (HM-MENU-001)
+    And ↩️ Menu redraws its screen as Home in place
+    And each Value in focus shows its name alone, and no words are written for it
+    And nothing is cleared, and the conversation Safwa reads goes on
+    And the dashboard with ☰ Menu alone is drawn only by a clear (HM-QUIET-003, HM-CLEAR-012)
+
+  Scenario: HM-CLEAR-012 — /clear clears the chat at once, as a quiet chat is cleared
+    When the owner sends /clear
+    Then the chat is cleared and the dashboard drawn as by HM-QUIET-003, without waiting for the
+      quiet time
+    And each Value in focus carries its words (HM-VALUES-007)
+    When the owner acts while the dashboard is being drawn
+    Then the clearing stops, and what they did is taken up

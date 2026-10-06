@@ -8,16 +8,15 @@ from sqlalchemy import select
 
 from safwa.bootstrap.modules import PROPOSALS, REGISTRY
 from safwa.features.diary.hooks import DIARY_HOOK, DIARY_REQUEST, diary_request
-from safwa.features.profile.api import diary_time, morning_time, set_hook_switch, summary_time
+from safwa.features.profile.api import evening_time, morning_time, set_hook_switch
 from safwa.features.profile.hooks import (
     DAILY_SUMMARY_HOOK,
     DAILY_SUMMARY_REQUEST,
     daily_summary_request,
 )
 from safwa.features.profile.model import (
-    DIARY_TIME_DEFAULT,
+    EVENING_TIME_DEFAULT,
     MORNING_TIME_DEFAULT,
-    SUMMARY_TIME_DEFAULT,
     ProfileField,
     UserProfile,
 )
@@ -91,7 +90,7 @@ async def test_profile_rejects_an_undeclared_field_without_changes(sessions) -> 
 def test_the_declared_fields_are_exactly_the_editable_settings() -> None:
     """PS-FIELD-002 — tests/brd/profile.feature"""
     # The two feature switches are pressed rather than typed.
-    assert len(ProfileField) == 9
+    assert len(ProfileField) == 8
     assert {field.value for field in ProfileField} == set(PROFILE_FIELDS) | {
         ProfileField.TIME_TRACKING.value, ProfileField.EFFORT_TRACKING.value
     }
@@ -99,19 +98,19 @@ def test_the_declared_fields_are_exactly_the_editable_settings() -> None:
 
 def test_scheduled_profile_clocks_accept_hhmm_and_refuse_off() -> None:
     """PS-CLOCK-005 — tests/brd/profile.feature"""
-    diary_clock = PROFILE_FIELDS["diary_time"].parse
-    summary_clock = PROFILE_FIELDS["summary_time"].parse
+    morning_clock = PROFILE_FIELDS["morning_time"].parse
+    evening_clock = PROFILE_FIELDS["evening_time"].parse
 
-    assert diary_clock("00:00") == time(0, 0)
-    assert diary_clock("23:59") == time(23, 59)
-    assert summary_clock("20:00") == time(20, 0)
-    for refused in (diary_clock, summary_clock):
+    assert evening_clock("00:00") == time(0, 0)
+    assert evening_clock("23:59") == time(23, 59)
+    assert morning_clock("09:00") == time(9, 0)
+    for refused in (morning_clock, evening_clock):
         with pytest.raises(ValueError, match="HH:MM"):
             refused("off")
         with pytest.raises(ValueError, match="HH:MM"):
             refused("24:00")
     with pytest.raises(ValueError, match="HH:MM"):
-        diary_clock("tomorrow")
+        evening_clock("tomorrow")
 
 
 async def test_ps_morning_016_the_morning_time_is_a_clock_the_daily_hooks_read(sessions) -> None:
@@ -136,47 +135,46 @@ async def test_ps_morning_016_the_morning_time_is_a_clock_the_daily_hooks_read(s
 async def test_a_scheduled_clock_field_refuses_a_value_that_is_not_a_time(sessions) -> None:
     """PS-CLOCK-005 — tests/brd/profile.feature"""
     async with sessions() as session:
-        for field in (ProfileField.DIARY_TIME, ProfileField.SUMMARY_TIME):
+        for field in (ProfileField.MORNING_TIME, ProfileField.EVENING_TIME):
             with pytest.raises(DomainError, match="clock time"):
                 await set_profile_field(session, field, "22:00")
 
 
-async def test_ps_diary_006_the_diary_nudge_reads_the_diary_time_and_prompt_live(sessions) -> None:
+async def test_ps_diary_006_the_diary_nudge_reads_the_evening_time_and_prompt_live(sessions) -> None:
     """PS-DIARY-006 — tests/brd/profile.feature"""
-    assert DIARY_HOOK.agent_related and DIARY_HOOK.on == (OnTick(at=diary_time),)
+    assert DIARY_HOOK.agent_related and DIARY_HOOK.on == (OnTick(at=evening_time),)
     async with sessions() as session:
-        assert await diary_time(session) == time.fromisoformat(DIARY_TIME_DEFAULT)
+        assert await evening_time(session) == time.fromisoformat(EVENING_TIME_DEFAULT)
         # Off is refused: the nudge is switched in the Profile, like the morning checks.
         with pytest.raises(DomainError, match="clock time"):
-            await set_profile_field(session, ProfileField.DIARY_TIME, None)
+            await set_profile_field(session, ProfileField.EVENING_TIME, None)
         assert await diary_request(session, ["22:00"]) == DIARY_REQUEST
 
-        await set_profile_field(session, ProfileField.DIARY_TIME, time(7, 30))
+        await set_profile_field(session, ProfileField.EVENING_TIME, time(7, 30))
         await set_profile_field(session, ProfileField.DIARY_INSTRUCTIONS, "Ask about sleep.")
-        assert await diary_time(session) == time(7, 30)
+        assert await evening_time(session) == time(7, 30)
         assert await diary_request(session, ["07:30"]) == f"{DIARY_REQUEST} Ask about sleep."
         # No Reminder row stands behind it any more, so none is written or changed.
         assert list(await session.scalars(select(Reminder))) == []
 
 
-async def test_ps_summary_014_the_daily_summary_reads_the_summary_time_and_shares_the_turn(sessions) -> None:
+async def test_ps_summary_014_the_daily_summary_reads_the_evening_time_and_shares_the_turn(sessions) -> None:
     """PS-SUMMARY-014 — tests/brd/profile.feature"""
     assert DAILY_SUMMARY_HOOK.agent_related
-    assert DAILY_SUMMARY_HOOK.on == (OnTick(at=summary_time),)
-    assert {diary_time, summary_time} <= set(REGISTRY.hooks.daily_clocks)
+    # One reader for both: they share the Tick, so they always fall due together.
+    assert DAILY_SUMMARY_HOOK.on == DIARY_HOOK.on == (OnTick(at=evening_time),)
+    assert set(REGISTRY.hooks.daily_clocks) >= {morning_time, evening_time}
+    assert not {"diary_time", "summary_time"} & {field.value for field in ProfileField}
     async with sessions() as session:
-        assert await summary_time(session) == time.fromisoformat(SUMMARY_TIME_DEFAULT)
-        with pytest.raises(DomainError, match="clock time"):
-            await set_profile_field(session, ProfileField.SUMMARY_TIME, None)
-        await set_profile_field(session, ProfileField.SUMMARY_TIME, time(22, 0))
-        assert await summary_time(session) == time(22, 0)
+        assert await evening_time(session) == time.fromisoformat(EVENING_TIME_DEFAULT)
+        await set_profile_field(session, ProfileField.EVENING_TIME, time(22, 0))
+        assert await evening_time(session) == time(22, 0)
         assert await daily_summary_request(session, ["22:00"]) == DAILY_SUMMARY_REQUEST
         await session.commit()
 
     # Both fall due at 22:00: two requests owed at once, said as one.
     hooks = REGISTRY.hooks
-    await queue_advice(hooks, sessions, Tick("22:00", diary_time))
-    await queue_advice(hooks, sessions, Tick("22:00", summary_time))
+    await queue_advice(hooks, sessions, Tick("22:00", evening_time))
     said: list[str] = []
 
     async def gate() -> bool:
@@ -205,7 +203,7 @@ async def test_profile_update_bumps_workspace_revision_once(sessions) -> None:
         revision = workspace.revision
 
         await set_profile_field(
-            session, ProfileField.DIARY_TIME, time(8, 15)
+            session, ProfileField.EVENING_TIME, time(8, 15)
         )
 
         assert workspace.revision == revision + 1
@@ -242,9 +240,8 @@ async def test_ag_hook_038_switching_a_hook_off_drops_its_pending_request_for_go
     [
         ("about_me", "I run in the mornings", "I run in the mornings"),
         ("advisor_instructions", "Be brief", "Be brief"),
-        ("diary_time", "21:30", time(21, 30)),
+        ("evening_time", "21:30", time(21, 30)),
         ("diary_instructions", "Note how I slept", "Note how I slept"),
-        ("summary_time", "19:00", time(19, 0)),
         ("morning_time", "08:00", time(8, 0)),
         ("time_tracking", True, True),
         ("home_after_minutes", 45, 45),
@@ -271,7 +268,7 @@ async def test_ps_ai_019_every_field_is_set_in_words_through_the_screens_check(
 @pytest.mark.parametrize(
     ("name", "sent"),
     [
-        ("diary_time", "25:00"),
+        ("evening_time", "25:00"),
         ("home_after_minutes", 2),
     ],
 )

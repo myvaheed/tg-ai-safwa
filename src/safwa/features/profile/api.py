@@ -17,10 +17,9 @@ from tg_agent_shell.cues.queue import drop_hook_cue
 from tg_agent_shell.foundation.errors import DomainError
 
 from .model import (
-    DIARY_TIME_DEFAULT,
+    EVENING_TIME_DEFAULT,
     HOME_AFTER_MINUTES_DEFAULT,
     MORNING_TIME_DEFAULT,
-    SUMMARY_TIME_DEFAULT,
     UserProfile,
 )
 
@@ -44,22 +43,16 @@ async def morning_time(session: AsyncSession) -> time:
     return profile.morning_time if profile is not None else time.fromisoformat(MORNING_TIME_DEFAULT)
 
 
-async def diary_time(session: AsyncSession) -> time:
-    """The local time the Diary nudge comes at."""
+async def evening_time(session: AsyncSession) -> time:
+    """The local time the Diary nudge and the daily summary come at."""
     profile = await session.get(UserProfile, 1)
-    return profile.diary_time if profile is not None else time.fromisoformat(DIARY_TIME_DEFAULT)
+    return profile.evening_time if profile is not None else time.fromisoformat(EVENING_TIME_DEFAULT)
 
 
 async def diary_instructions(session: AsyncSession) -> str:
     """The owner's standing instruction for the Diary, or nothing."""
     profile = await session.get(UserProfile, 1)
     return profile.diary_instructions if profile is not None else ""
-
-
-async def summary_time(session: AsyncSession) -> time:
-    """The local time the daily summary comes at."""
-    profile = await session.get(UserProfile, 1)
-    return profile.summary_time if profile is not None else time.fromisoformat(SUMMARY_TIME_DEFAULT)
 
 
 async def time_tracking_on(session: AsyncSession) -> bool:
@@ -81,12 +74,12 @@ async def home_after_minutes(session: AsyncSession) -> int:
 
 
 async def active_day_minutes(session: AsyncSession) -> int:
-    """How long the owner's active day is: from the Morning time to the Diary time.
+    """How long the owner's active day is: from the Morning time to the Evening time.
 
-    A Diary time before the Morning time is a day that runs past midnight; the two equal
+    An Evening time before the Morning time is a day that runs past midnight; the two equal
     is a day of no length.
     """
-    start, end = await morning_time(session), await diary_time(session)
+    start, end = await morning_time(session), await evening_time(session)
     return (end.hour * 60 + end.minute - start.hour * 60 - start.minute) % (24 * 60)
 
 

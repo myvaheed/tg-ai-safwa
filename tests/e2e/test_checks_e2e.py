@@ -499,7 +499,7 @@ async def test_manual_check_screens_only_repeat_and_answer(e2e_harness):
 
     from safwa.features.checks.telegram import render_check, render_checks
 
-    back = {"kind": "card", "id": card_id}
+    back = {"action": "card_view", "id": card_id}
     await render_checks(message, services, card_id, back=back)
     # The manual screens answer a Check; every other Check action is proposal-only.
     listed = await _live_actions(e2e_harness)

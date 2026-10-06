@@ -13,13 +13,15 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, InlineKeyboardButton
 from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..foundation.errors import DomainError
 from ..foundation.kinds import MessageKind
-from .chat import send_registered
+from .chat import send_registered, token_button
 from .commands import open_home
+from .layout import menu_row
 from .model import CallbackToken
 from .services import CallbackContext, Services
 
@@ -47,6 +49,19 @@ async def go_back(
 async def go_back_action(context: CallbackContext) -> None:
     """The `↩️ Back` button of any screen that was handed where it came from."""
     await go_back(context, context.payload.get("back"))
+
+
+async def back_button(
+    session: AsyncSession, owner_id: int, action: str, back: dict[str, Any] | None
+) -> InlineKeyboardButton:
+    """`↩️ Back` through `action`, a `go_back_action`, to the screen `back` names.
+
+    A screen opened from a link names none, and its way back would be the menu, so it offers
+    the menu under its own name.
+    """
+    if not (back or {}).get("action"):
+        return menu_row()[0]
+    return await token_button(session, owner_id, "↩️ Back", action, {"back": back})
 
 
 async def callback_token_handler(callback: CallbackQuery, services: Services) -> None:

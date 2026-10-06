@@ -39,7 +39,7 @@ An Action can hold a note, captured idea or draft. Use Tag "{inbox_tag}" to capt
 
 # Reminders
 - Pass the user's own words through in `when`. Never invent a date or an hour.
-- The Morning, Diary and daily summary times are Profile fields, not Reminders.
+- The Morning and Evening times are Profile fields, not Reminders.
 
 # Read the data
 `query_data` runs one read-only `SELECT` or `WITH ... SELECT` over these views only.

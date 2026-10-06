@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..foundation.errors import DomainError
 from ..foundation.kinds import MessageKind
 from .chat import send_registered
+from .layout import start_link
 from .services import Services
 
 logger = logging.getLogger(__name__)
@@ -70,11 +71,9 @@ async def render_citations(session: AsyncSession, services: Services, text: str)
         label, item_type, item_id = match[1], match[2], int(match[3])
         if (item_type, item_id) not in live:
             return label
-        payload = screens.payload(item_type, item_id)
-        link = f"https://t.me/{services.bot_username}?start={payload}"
         override = live[(item_type, item_id)]
         shown = html.escape(override) if override is not None else label
-        return f'<a href="{link}">{shown}</a>'
+        return start_link(services.bot_username, shown, screens.payload(item_type, item_id))
 
     # A target that is not an id — a stamp, a date, an invented number — never reached the
     # pass above, and raw Markdown must not stay in a message the chat keeps for good.

@@ -40,6 +40,8 @@ class QueueTestBot:
         self.photos_sent: list[list[object]] = []
         # Telegram no longer knowing the file ids it handed out, as after a move to another bot.
         self.forgot_file_ids = False
+        # Every change of the buttons alone, by message.
+        self.keyboards: list[tuple[int, InlineKeyboardMarkup | None]] = []
 
     async def download(self, file_id, destination):
         self.downloads.append(file_id)
@@ -66,7 +68,8 @@ class QueueTestBot:
         self.deleted.extend(message_ids)
 
     async def edit_message_reply_markup(self, *, chat_id, message_id, reply_markup=None) -> None:
-        del chat_id, message_id, reply_markup
+        del chat_id
+        self.keyboards.append((message_id, reply_markup))
 
     async def set_my_commands(self, commands) -> None:
         self.published_commands.append([command.command for command in commands])

@@ -12,7 +12,7 @@ from safwa import featuretoggles
 from safwa.bootstrap.modules import HOOKS, REGISTRY
 from safwa.features.heavy_analyzer.module import HEAVY_ANALYZER_HOOK
 from safwa.features.profile.api import hook_switched_on
-from safwa.features.profile.model import DIARY_TIME_DEFAULT, ProfileField, UserProfile
+from safwa.features.profile.model import EVENING_TIME_DEFAULT, ProfileField, UserProfile
 from safwa.features.profile.telegram import command_profile
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.summary.module import SUMMARY_HOOK
@@ -97,7 +97,7 @@ async def test_invalid_settings_input_keeps_data_and_the_same_prompt(sessions) -
         item
         for row in message.edits[-1][1].inline_keyboard
         for item in row
-        if item.text == "📔 Diary time"
+        if item.text == "🌙 Evening time"
     )
     await callback_token_handler(
         FakeCallback(button.callback_data.split(":", 1)[1], message), services
@@ -109,11 +109,11 @@ async def test_invalid_settings_input_keeps_data_and_the_same_prompt(sessions) -
     assert answer.was_deleted is True
     assert "Send a time as HH:MM" in message.bot.edits[-1][1]
     async with sessions() as session:
-        assert (await session.get(UserProfile, 1)).diary_time == time.fromisoformat(
-            DIARY_TIME_DEFAULT
+        assert (await session.get(UserProfile, 1)).evening_time == time.fromisoformat(
+            EVENING_TIME_DEFAULT
         )
         ui = await session.scalar(select(UiSession))
-        assert (ui.kind, ui.state["field"]) == ("text_input", "diary_time")
+        assert (ui.kind, ui.state["field"]) == ("text_input", "evening_time")
 
 
 async def test_ps_hooks_015_a_reaction_with_a_switch_is_turned_off_and_on_in_the_profile(

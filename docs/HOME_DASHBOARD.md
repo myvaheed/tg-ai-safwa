@@ -1,9 +1,11 @@
 # Home dashboard
 
-When the owner does nothing in the chat for the Profile's quiet time, Safwa clears messages
-through the last message the owner sent to the Advisor, inclusive. Messages after it stay,
-and a silent Home dashboard is added, built from the workspace at that moment.
-The conversation Safwa reads starts over after it. The rules are HM-QUIET-003 to HM-HISTORY-010
+Home is one dashboard in two places. `/start` and every `↩️ Menu` draw it as a screen with the
+whole menu under it (HM-START-011). When the owner does nothing in the chat for the Profile's
+quiet time, or sends `/clear`, Safwa clears messages through the last message the owner sent to
+the Advisor, inclusive. Messages after it stay, and a silent Home dashboard is added, built from
+the workspace at that moment, with one `☰ Menu` button. The conversation Safwa reads starts over
+after it. The rules are HM-QUIET-003 to HM-CLEAR-012
 in [home.feature](../tests/brd/home.feature) and PS-HOME-018 in
 [profile.feature](../tests/brd/profile.feature); what a Home message does to the chat is the
 shell's, TG-HOME-023 in [telegram_history.feature](../tests/brd/tg_agent_shell/telegram_history.feature),
@@ -53,9 +55,28 @@ Planned: 8 Actions
   hands its id to the next item.
 
 Every item goes through `render_citations`, so it reads and links exactly as a citation in an
-answer does. The message has no buttons; `/start` is still the menu.
+answer does.
+
+## The menu under it
+
+[telegram.py](../src/safwa/features/home/telegram.py) draws it. `render_home` is the screen of
+`nav:home`, so `/start`, `↩️ Menu` and `go_back` with nowhere to go all reach it. It draws the
+dashboard with `menu_markup` under it, as a `MessageKind.DASHBOARD` screen that the next
+navigation replaces. It writes no words under the Values: they cost a model call per Value, and
+the menu has to open at once.
+
+A cleared chat's dashboard carries `home_markup`, one `☰ Menu` that is `nav:home` too. The
+shell's `navigation` sees the press is on a `MessageKind.HOME` message and hands it to
+`render_home` without ending any screen; `render_home` then only swaps the buttons for the menu
+(`ChatHost.set_buttons`), and the words and the note stay. A menu button pressed under it ends
+the screens as any navigation does, folds Home back to `☰ Menu`, and hands the screen
+`owner_anchor`, so it arrives as a new message below Home instead of replacing it.
 
 ## When the chat is cleared
+
+`/clear` (`command_clear`) clears at once: it writes the words, renders the dashboard and calls
+`clear_draw_home`, all under the background lease, so the owner acting stops it as it stops the
+clear on a tick. It does not wait for the quiet time or check that anything is owed.
 
 `home.dashboard` ([hooks.py](../src/safwa/features/home/hooks.py)) is a `Run` on
 `OnTick(every=HOME_LOOK_EVERY)`, 30 seconds: the hook tick poll hands it the owner's chat as

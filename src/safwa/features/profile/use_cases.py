@@ -50,7 +50,7 @@ def validated_profile_value(field: ProfileField, value: ProfileValue) -> Profile
         case ProfileField.EFFORT_TRACKING:
             if not isinstance(value, bool):
                 raise DomainError("Effort Points are on or off")
-        case ProfileField.DIARY_TIME | ProfileField.SUMMARY_TIME | ProfileField.MORNING_TIME:
+        case ProfileField.MORNING_TIME | ProfileField.EVENING_TIME:
             # Never off: the hook that reads each has a switch of its own.
             if not isinstance(value, time):
                 raise DomainError(f"{field.value} must be a clock time")

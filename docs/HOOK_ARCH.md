@@ -64,8 +64,9 @@
 - Tick — наступление дневной проверки: подписка OnTick(at=...) называет читателя времени
   (TickTime), и читатель — тождество дневного времени: хуки с одним читателем делят один
   Tick. Safwa отдаёт из [profile/api.py](../src/safwa/features/profile/api.py) поля Профиля:
-  «Morning time» (MORNING_TIME_DEFAULT = "09:00") утренним проверкам, «Diary time» —
-  напоминанию о Дневнике, «Daily summary» — дневному итогу. Один цикл оболочки — TickPoll в
+  «Morning time» (MORNING_TIME_DEFAULT = "09:00") утренним проверкам, «Evening time»
+  (EVENING_TIME_DEFAULT = "21:00") — напоминанию о Дневнике и дневному итогу, которые делят
+  один Tick и доходят до Advisor одной просьбой. Один цикл оболочки — TickPoll в
   [cues/initiatives.py](../src/tg_agent_shell/cues/initiatives.py) над TickSchedule из
   [hooks/ticks.py](../src/tg_agent_shell/hooks/ticks.py) — на каждом обороте читает каждого
   читателя один раз и отдаёт наступившие Tick тем же hand_on, что и Committed. Последний
@@ -402,8 +403,8 @@ evaluate → инициатива в очереди. Хук не различа�
 |---|---|
 | [Summary после хода](../src/safwa/features/summary/hooks.py) | Источник AfterTurn; Run вызывает существующую операцию |
 | [Предложение помощника](../src/safwa/features/heavy_analyzer/hooks.py) | BeforeTool; RefuseTool не исполняет сложное чтение и выдаёт существующего помощника |
-| [Напоминание о Дневнике](../src/safwa/features/diary/hooks.py) | Tick по «Diary time»; Advise, слова — просьба позвать субагента Дневника с инструкцией владельца |
-| [Дневной итог](../src/safwa/features/profile/hooks.py) | Tick по «Daily summary»; Advise, слова — просьба рассказать, что сделано за день |
+| [Напоминание о Дневнике](../src/safwa/features/diary/hooks.py) | Tick по «Evening time»; Advise, слова — просьба позвать субагента Дневника с инструкцией владельца |
+| [Дневной итог](../src/safwa/features/profile/hooks.py) | Tick по «Evening time»; Advise, слова — просьба рассказать, что сделано за день |
 | [Предупреждение о конце спринта](../src/safwa/features/planning/hooks.py) | Tick по часу старта идущего спринта (sprint_clock); Advise, слова — что спринт кончается завтра или сегодня; в день старта и в другие дни — молчать |
 | [Итог спринта](../src/safwa/features/planning/hooks.py) | Committed(sprint.ended), факт пишет finish_sprint; Advise, слова — итог из записи спринта |
 | [Истечение спринта](../src/safwa/features/planning/hooks.py) | Tick по полуночи и Started; Run закрывает спринт, чей последний день прошёл; полночь, проспанную Safwa, добирает Started |

@@ -14,19 +14,19 @@ Feature: Profile
     And About me and Advisor instructions come after it, so they are what it goes by
 
   Scenario: PS-FIELD-002 — Profile writes only the fields it has
-    Given the nine fields
+    Given the eight fields
     When anything tries to write a name that is not one of them
     Then it is refused, no field changes, and nothing is recorded as having changed
 
   Scenario: PS-CLOCK-005 — A time of day is a wall clock
-    Given a time from 00:00 through 23:59, for the Diary or the daily summary
+    Given a time from 00:00 through 23:59, for the Morning or the Evening
     Then that local time is accepted
-    And off is refused: each is an automatic reaction with a switch of its own (PS-HOOKS-015)
+    And off is refused: each automatic reaction that follows it has a switch of its own (PS-HOOKS-015)
     But anything else typed in that box is refused
 
-  Scenario: PS-DIARY-006 — The Diary time and prompt are what Safwa's own Diary nudge follows
-    Given a Diary time (DIARY_TIME_DEFAULT = "22:00") and a Diary prompt in the Profile
-    When the Diary time passes and the chat is free
+  Scenario: PS-DIARY-006 — The Evening time and the Diary prompt are what Safwa's own Diary nudge follows
+    Given an Evening time (EVENING_TIME_DEFAULT = "21:00") and a Diary prompt in the Profile
+    When the Evening time passes and the chat is free
     Then the Advisor is asked once to route today to the diary subagent, with the Diary prompt after it when there is one
     And the time is read at every look and the prompt when the request is about to be said, so a change to either counts without a restart, by AG-HOOK-039
     And no Reminder stands behind it: the owner's own Reminders are untouched by either
@@ -54,13 +54,14 @@ Feature: Profile
     When one field is saved
     Then that count goes up by exactly one, so one edit never looks like two
 
-  Scenario: PS-SUMMARY-014 — The summary time is what Safwa's own daily summary follows
-    Given a new workspace, whose summary time is 20:00 (SUMMARY_TIME_DEFAULT = "20:00")
-    When the summary time passes and the chat is free
+  Scenario: PS-SUMMARY-014 — The Evening time is what Safwa's own daily summary follows
+    Given a new workspace, whose Evening time is 21:00 (EVENING_TIME_DEFAULT = "21:00")
+    When the Evening time passes and the chat is free
     Then the Advisor is asked once to tell the owner what they got done that day — the Actions finished, the Checks resolved and the Diary entry of the day — and to offer to write the day down when there is no entry, unless the Diary request came with this one
     And the time is read at every look, so one moved in the Profile counts from the next time it passes, by AG-HOOK-039
-    And when the summary and the Diary fall due together they reach Safwa as one request, so
-      the owner gets one message
+    And the summary and the Diary nudge fall due together, so they reach Safwa as one request
+      and the owner gets one message
+    And the Profile has one Evening time for both, and no Diary or summary time of their own
 
   Scenario: PS-HOOKS-015 — An automatic reaction that reaches the Advisor is switched in the Profile
     Given the application registers its automatic reactions
@@ -86,7 +87,7 @@ Feature: Profile
 
   Scenario: PS-MORNING-016 — The Morning time is when Safwa's morning checks run
     Given a new workspace, whose Morning time is 09:00 (MORNING_TIME_DEFAULT = "09:00")
-    Then it is on the Profile with the other clocks, edited as a time from 00:00 through 23:59
+    Then it is on the Profile beside the Evening time, edited as a time from 00:00 through 23:59
     And off is refused: each morning check has a switch of its own (PS-HOOKS-015)
     When the Morning time changes
     Then the morning checks — Goals without Actions (CD-EMPTY-035), Schedule outside the plan (PL-HARDTIME-021), Rest in Today (CD-REST-037) and the mornings in Today (CD-STALE-038) — run at the new time from the next time it passes, without a restart
@@ -98,7 +99,7 @@ Feature: Profile
     When the owner presses it
     Then it is on from that moment, without a restart, and stays on after one
     And the full editing of an Action offers its time (CD-TIME-039), and the Time tracking reminder is in Hooks with a switch on its own screen, on until the owner turns it off (CD-TIME-041)
-    And the Profile says the active day it measures runs from the Morning time to the Diary time, 09:00 to 22:00 in a new workspace (MORNING_TIME_DEFAULT = "09:00", DIARY_TIME_DEFAULT = "22:00")
+    And the Profile says the active day it measures runs from the Morning time to the Evening time, 09:00 to 21:00 in a new workspace (MORNING_TIME_DEFAULT = "09:00", EVENING_TIME_DEFAULT = "21:00")
     And pressing it again turns it off
 
   Scenario: PS-HOME-018 — The quiet time before the Home dashboard is set in the Profile

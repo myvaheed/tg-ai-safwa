@@ -166,7 +166,11 @@ Feature: The conversation in Telegram
 
   Scenario: TG-HOME-023 — Home clears through the last user message, and the conversation starts after Home
     Given the application puts a Home message in the chat, from a check on a schedule (AG-HOOK-050)
-    Then it arrives as a new message that makes no sound
+    Then it arrives as a new message that makes no sound, with one button, ☰ Menu
+    When the owner presses ☰ Menu
+    Then the application's home screen is handed that Home message, and no screen is ended
+    When the owner presses a menu button under the Home message
+    Then that screen arrives as a new message below it, and its buttons fold back to ☰ Menu
     And messages through the last message the owner sent to the Advisor are taken out, that message included
     And messages after it stay, through repeated Home messages until the owner sends another message to the Advisor
     And a screen that stays keeps accepting its input

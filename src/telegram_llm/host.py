@@ -422,6 +422,18 @@ class ChatHost:
             return False
         return True
 
+    async def set_buttons(self, message: Message, markup: InlineKeyboardMarkup | None) -> None:
+        """Put these buttons under a message the bot sent, and leave its words and note alone."""
+        try:
+            async with self.edit_lock:
+                await message.bot.edit_message_reply_markup(
+                    chat_id=message.chat.id, message_id=message.message_id, reply_markup=markup
+                )
+        except TelegramAPIError as error:
+            # Telegram rejects a no-op edit: the buttons are already these.
+            if "message is not modified" not in str(error).casefold():
+                logger.warning("Could not change the buttons of %s: %s", message.message_id, error)
+
     async def remove_screen(self, message: Message, message_id: int) -> None:
         """Take one bot message away, or at least its buttons when Telegram refuses.
 

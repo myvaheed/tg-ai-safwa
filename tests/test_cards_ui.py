@@ -1023,7 +1023,7 @@ async def test_cd_view_031_a_card_opens_compact_with_full_editing_one_button_awa
         "✅ Done",
         "🌳 Parent: Health",
         "✏️ Full editing",
-        "↩️ Back",
+        "↩️ Menu",
     ]
 
     opener = next(

@@ -153,7 +153,8 @@ safwa/features/cards/telegram/
 **A screen says how to come back to it as the action that draws it.** A `back` payload is
 `{"action": "card_view", "id": 12, ...}` — the callback action plus that action's payload — and
 `shell.go_back` dispatches it through the same table every inline button goes through. No module
-holds a list of which screens exist, and a screen with no `back` is the menu.
+holds a list of which screens exist. A screen with no `back` offers `↩️ Menu` in place of
+`↩️ Back` (`shell.back_button`), because going back from it would land on the menu.
 
 **A screen owns its own transaction.** It opens a session, writes and commits, because a tap is
 where a unit of work begins and ends — it mints its single-use `CallbackToken` rows through

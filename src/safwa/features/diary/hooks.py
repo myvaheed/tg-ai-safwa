@@ -17,7 +17,7 @@ from tg_agent_shell.hooks.contracts import (
     Tick,
 )
 
-from ..profile.api import diary_instructions, diary_time
+from ..profile.api import diary_instructions, evening_time
 
 DIARY_REQUEST = 'End of day. Call route("diary") for today.'
 
@@ -40,11 +40,11 @@ async def diary_request(session: AsyncSession, items: Sequence[str]) -> str | No
 DIARY_HOOK = HookSpec(
     name="diary.nudge",
     owner="diary",
-    on=(OnTick(at=diary_time),),
+    on=(OnTick(at=evening_time),),
     evaluate=evening,
     effect=Advise(prepare=diary_request),
     title="Diary nudge",
-    description="At the Diary time, asks to write your day up.",
+    description="At the Evening time, asks to write your day up.",
 )
 
 

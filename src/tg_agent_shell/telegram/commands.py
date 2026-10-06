@@ -17,9 +17,9 @@ from aiogram.types import BotCommand, CallbackQuery, Message
 from sqlalchemy import delete
 
 from ..foundation.kinds import MessageKind
-from .chat import dismiss_prior_ui, remove_turn_notice, send_registered
+from .chat import dismiss_prior_ui, owner_anchor, remove_turn_notice, send_registered
 from .contributions import HOME_NAV, ScreenCommand
-from .layout import start_payload
+from .layout import home_markup, start_payload
 from .model import UiSession
 from .services import Services
 
@@ -112,6 +112,12 @@ async def navigation(callback: CallbackQuery, services: Services) -> None:
         await callback.answer("This action is no longer available.", show_alert=True)
         return
     await callback.answer()
+    note = await services.chat.notes.note(callback.message.chat.id, callback.message.message_id)
+    on_home = note is not None and note.kind == MessageKind.HOME.value
+    if on_home and action == HOME_NAV:
+        # Home's menu unfolds where it is, and every screen stays as it was.
+        await handler(callback.message, services)
+        return
     # Walking into the menu is an answer too: whatever else was open is refused, and the
     # editor state behind it goes with the screen. A screen that opens an editor of its
     # own writes that state after this, so it needs no exception here.
@@ -119,4 +125,9 @@ async def navigation(callback: CallbackQuery, services: Services) -> None:
     async with services.sessions() as session:
         await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
         await session.commit()
+    if on_home:
+        # Home stays where it is: what it opens comes below it, and its menu folds back.
+        await services.chat.set_buttons(callback.message, home_markup())
+        await handler(owner_anchor(callback.message.bot, services.owner_id), services)
+        return
     await handler(callback.message, services)

@@ -23,9 +23,7 @@ from ..reminders.api import parse_clock
 from .model import ProfileField, ProfileValue
 from .use_cases import profile_field, set_profile_field, validated_profile_value
 
-_CLOCKS = frozenset(
-    {ProfileField.DIARY_TIME, ProfileField.SUMMARY_TIME, ProfileField.MORNING_TIME}
-)
+_CLOCKS = frozenset({ProfileField.MORNING_TIME, ProfileField.EVENING_TIME})
 
 
 def stored_value(field: ProfileField, value: Any) -> ProfileValue:

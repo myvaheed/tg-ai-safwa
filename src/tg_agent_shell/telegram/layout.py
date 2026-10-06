@@ -6,7 +6,9 @@ import html
 from dataclasses import dataclass
 from typing import Any
 
-from aiogram.types import InlineKeyboardButton
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+from .contributions import HOME_NAV
 
 PAGE_SIZE = 5
 CITATION_TITLE_LIMIT = 25
@@ -48,9 +50,26 @@ def paginate(items: list[Any], page: int, size: int = PAGE_SIZE) -> Page:
     return Page(items[index * size : (index + 1) * size], index, last + 1)
 
 
+def start_link(bot_username: str | None, text: str, payload: str) -> str:
+    """`text`, already HTML, as a link that starts the bot with `payload`.
+
+    Without a bot username there is no link to build, and the text stands alone.
+    """
+    if not bot_username:
+        return text
+    return f'<a href="https://t.me/{bot_username}?start={payload}">{text}</a>'
+
+
 def menu_row() -> list[InlineKeyboardButton]:
     """A consistent escape hatch for a screen reached through quick actions."""
-    return [InlineKeyboardButton(text="↩️ Menu", callback_data="nav:home")]
+    return [InlineKeyboardButton(text="↩️ Menu", callback_data=f"nav:{HOME_NAV}")]
+
+
+def home_markup() -> InlineKeyboardMarkup:
+    """Home's one button. Pressed there, the home screen unfolds the menu in its place."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="☰ Menu", callback_data=f"nav:{HOME_NAV}")]]
+    )
 
 
 def start_payload(text: str | None) -> str | None:

@@ -36,7 +36,7 @@ and the call *is* the answer.
 | Shares by Category and Energy type (`Bucket`: effort and count, taken in and finished) | `Sprint.retro` | at the Sprint's end |
 | One row per local day (`DayTally`: in Today that morning, finished that day, how those fell), from the day it started to the day it ended or its planned end, whichever came first — the Sprint's own calendar, there even when every Action was deleted | `Sprint.retro` | at the Sprint's end |
 | Key Actions: how many, how many finished, and how many Actions the model never told key or not (`key_unknown`), so "0 of 0" is never read as "none" | `Sprint.retro` | at the Sprint's end |
-| The share of the active day tracked (`day_share`), in the totals question only, or "not tracked" for a Sprint that ended with Time tracking off; no other number of time | `Sprint.retro` — the minutes, the days and the active day from the Morning time to the Diary time | at the Sprint's end |
+| The share of the active day tracked (`day_share`), in the totals question only, or "not tracked" for a Sprint that ended with Time tracking off; no other number of time | `Sprint.retro` — the minutes, the days and the active day from the Morning time to the Evening time | at the Sprint's end |
 | Success criteria and the owner's mark | `Sprint.success_criteria`, `Sprint.criterion_met` | the mark is the owner's, set on the retro screen, `None` reads as "?" |
 | The two Sprints that ended before this one | `sprints_before` (`RETRO_SPRINTS_BEFORE = 2`) | each its own record |
 | The Diary of the Sprint's days: rating and text, whole | `diary_between` | never — read as it stands today |

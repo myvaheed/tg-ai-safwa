@@ -676,6 +676,9 @@ async def test_a_home_message_clears_only_through_the_last_user_message(sessions
 
     [home] = anchor.sent
     assert anchor.bot.silent == [home.text]
+    assert [button.text for row in anchor.markups[-1].inline_keyboard for button in row] == [
+        "☰ Menu"
+    ]
     # The last user's message goes; everything newer and anything too old stays.
     assert anchor.bot.deleted == [1099, 1100]
     assert None not in [await notes.note(chat_id, 1100), await notes.note(chat_id, 1101)]

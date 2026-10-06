@@ -52,7 +52,7 @@ from safwa.features.profile.api import (
     time_tracking_on,
 )
 from safwa.features.profile.model import (
-    DIARY_TIME_DEFAULT,
+    EVENING_TIME_DEFAULT,
     MORNING_TIME_DEFAULT,
     ProfileField,
     UserProfile,
@@ -71,6 +71,15 @@ from tg_agent_shell.proposals.model import ProposalChange
 from tg_agent_shell.proposals.prepare import ChangePreparer
 from tg_agent_shell.telegram import callback_token_handler
 from tg_agent_shell.telegram.dialogue import ordinary_text
+
+
+def _clock_minutes(clock: str) -> int:
+    hours, minutes = clock.split(":")
+    return int(hours) * 60 + int(minutes)
+
+
+# A new workspace's active day, which the retro reads the share of time against.
+ACTIVE_DAY_MINUTES = _clock_minutes(EVENING_TIME_DEFAULT) - _clock_minutes(MORNING_TIME_DEFAULT)
 
 
 async def _track_time(sessions, on: bool = True) -> None:
@@ -381,7 +390,7 @@ async def test_ps_time_017_time_tracking_is_off_until_the_owner_switches_it_on(s
     rendered, markup = message.edits[-1]
     assert (
         f"Time tracking: off — records the time an Action took; your active day runs from the "
-        f"Morning time to the Diary time, {MORNING_TIME_DEFAULT} to {DIARY_TIME_DEFAULT}."
+        f"Morning time to the Evening time, {MORNING_TIME_DEFAULT} to {EVENING_TIME_DEFAULT}."
     ) in rendered
     assert "⌛ Time tracking: off" in button_texts(markup)
     assert "Time tracking reminder" not in rendered
@@ -423,13 +432,13 @@ async def test_ps_time_017_time_tracking_is_off_until_the_owner_switches_it_on(s
             await set_profile_field(session, ProfileField.TIME_TRACKING, "yes")
 
 
-async def test_ps_time_017_the_active_day_runs_from_the_morning_time_to_the_diary_time(sessions):
+async def test_ps_time_017_the_active_day_runs_from_the_morning_time_to_the_evening_time(sessions):
     """PS-TIME-017 — tests/brd/profile.feature"""
     from datetime import time
 
     async with sessions() as session:
-        assert await active_day_minutes(session) == 13 * 60
-        await set_profile_field(session, ProfileField.DIARY_TIME, time(1, 0))
+        assert await active_day_minutes(session) == ACTIVE_DAY_MINUTES
+        await set_profile_field(session, ProfileField.EVENING_TIME, time(1, 0))
         assert await active_day_minutes(session) == 16 * 60
         await set_profile_field(session, ProfileField.MORNING_TIME, time(1, 0))
         assert await active_day_minutes(session) == 0
@@ -479,7 +488,7 @@ async def test_rt_time_009_a_sprint_that_ends_with_time_tracking_on_keeps_its_ti
         await session.commit()
         again = RetroStatistics.from_record((await session.get(Sprint, sprint_id)).retro)
     assert again == statistics
-    assert (statistics.time_tracking, statistics.active_day_minutes) == (True, 13 * 60)
+    assert (statistics.time_tracking, statistics.active_day_minutes) == (True, ACTIVE_DAY_MINUTES)
     assert (statistics.minutes, statistics.timed, statistics.timed_effort) == (270, 4, 11)
     assert LONGEST_SHOWN == 3
     assert statistics.longest == (
@@ -489,7 +498,7 @@ async def test_rt_time_009_a_sprint_that_ends_with_time_tracking_on_keeps_its_ti
     assert (work.minutes, work.timed_count, work.timed_effort) == (180, 2, 8)
     assert (growth.minutes, growth.timed_count, none.minutes, none.timed_count) == (60, 1, 60, 1)
     assert statistics.by_energy["none"].minutes == 270
-    assert statistics.day_share == round(100 * 270 / (13 * 60))
+    assert statistics.day_share == round(100 * 270 / ACTIVE_DAY_MINUTES)
 
     # Off as it ends, or closed before the record kept time: no time at all.
     await _track_time(sessions, on=False)
@@ -516,7 +525,8 @@ async def test_rt_time_010_the_retro_shows_how_the_sprints_time_went(sessions, e
     text = message.edits[-1][0]
     for line in (
         "<b>Time</b>",
-        "Tracked 4h 45m, 4h 45m a day — 37% of a 13h active day",
+        f"Tracked 4h 45m, 4h 45m a day — {round(100 * 285 / ACTIVE_DAY_MINUTES)}% of a "
+        f"{ACTIVE_DAY_MINUTES // 60}h active day",
         "2.5 EP an hour; recorded on 5 of 6 finished Actions (83%)",
         "By Category: time · share · per Action · EP an hour",
         "work 3h 15m · 57% · 1h 5m · 2.8",
@@ -557,8 +567,9 @@ async def test_rt_time_011_the_analysis_reads_the_share_of_the_active_day_and_no
         compared = (await analysis_input(session, second)).sprints
     text = overview_text(compared)
     assert "- Time: not tracked" in text
-    assert "- Time tracked: 20% of the active day on average" in text
-    assert text.index("- Time: not tracked") < text.index("- Time tracked: 20%")
+    share = round(100 * 156 / ACTIVE_DAY_MINUTES)
+    assert f"- Time tracked: {share}% of the active day on average" in text
+    assert text.index("- Time: not tracked") < text.index(f"- Time tracked: {share}%")
     # No other number of time: not the minutes, the coverage, the buckets or the longest.
     for absent in ("156", "2h 36m", "Quarterly report", "EP an hour"):
         assert absent not in text

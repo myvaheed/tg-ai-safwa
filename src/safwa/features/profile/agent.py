@@ -72,7 +72,7 @@ PROFILE_AGENT = AgentSpec(
     name="profile",
     purpose=(
         "change a Profile field or answer what it holds: About me, Advisor instructions, "
-        "the Morning, Diary and daily summary times, the Diary instruction, Home after, "
+        "the Morning and Evening times, the Diary instruction, Home after, "
         "Time tracking, Effort Points; or asks to switch an automatic reaction."
     ),
     instructions=PROFILE_PROMPT,
@@ -96,14 +96,12 @@ class ProfileToolInput(ToolInput):
     morning_time: str | None = Field(
         default=None, description="HH:MM when the morning checks run."
     )
-    diary_time: str | None = Field(
-        default=None, description="HH:MM when Safwa offers to write the day up."
+    evening_time: str | None = Field(
+        default=None,
+        description="HH:MM when Safwa sums up the day and offers to write the Diary.",
     )
     diary_instructions: str | None = Field(
         default=None, description="A standing instruction for the Diary."
-    )
-    summary_time: str | None = Field(
-        default=None, description="HH:MM when Safwa sums up the day."
     )
     home_after_minutes: int | None = Field(
         default=None,

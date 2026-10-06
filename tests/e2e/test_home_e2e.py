@@ -16,9 +16,10 @@ from telegram_fakes import QueueTestMessage, spawn_timer
 
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
 from safwa.bootstrap.modules import FEATURE_COMMANDS, SCREENS
+from safwa.features.home.api import menu_markup
 from safwa.features.home.hooks import HOME_HOOK, HOME_LOOK_EVERY
 from safwa.features.home.motivation import Motivator
-from safwa.features.home.telegram import render_home
+from safwa.features.home.telegram import command_clear, render_home
 from safwa.features.profile.model import HOME_AFTER_MINUTES_DEFAULT
 from safwa.features.values.use_cases import create_value
 from telegram_llm import ChatHost, Note
@@ -29,7 +30,9 @@ from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.history import TelegramNotes
 from tg_agent_shell.hooks.registry import HookRegistry
 from tg_agent_shell.proposals.store import ProposalStore
+from tg_agent_shell.telegram import commands as commands_module
 from tg_agent_shell.telegram import dismiss_prior_ui
+from tg_agent_shell.telegram.commands import navigation
 from tg_agent_shell.turn import TurnManager
 
 pytestmark = pytest.mark.e2e
@@ -96,6 +99,24 @@ async def _keep(harness, message_id: int, kind: MessageKind, text: str, at=None)
     await TelegramNotes(harness.sessions).write(
         Note(CHAT_ID, message_id, direction, kind.value, text=text, at=at or utcnow())
     )
+
+
+class _Press:
+    """A press of a button that only takes the owner somewhere, on one message."""
+
+    def __init__(self, nav: str, message: QueueTestMessage) -> None:
+        self.data = f"nav:{nav}"
+        self.message = message
+
+    async def answer(self, *_args, **_kwargs) -> None:
+        return None
+
+
+def _labels(markup) -> list[str]:
+    return [button.text for row in markup.inline_keyboard for button in row]
+
+
+MENU = _labels(menu_markup(FEATURE_COMMANDS))
 
 
 async def _kinds(harness) -> dict[int, str]:
@@ -209,22 +230,106 @@ async def test_a_dashboard_from_an_earlier_day_is_drawn_again(e2e_harness) -> No
     assert (await _kinds(e2e_harness)) == {1150: MessageKind.HOME.value}
 
 
-async def test_the_dashboard_stays_until_the_next_clear(e2e_harness) -> None:
+async def test_the_dashboard_stays_until_the_next_clear(e2e_harness, monkeypatch) -> None:
     """HM-STAYS-005 — tests/brd/home.feature"""
     await _a_chat(e2e_harness)
     services = _services(e2e_harness, Model())
     anchor = QueueTestMessage(message_id=150, is_bot=False, answer_as_new=True)
     await Looks(services, anchor).next()
-    assert anchor.markups == [None]
-    deleted = list(anchor.bot.deleted)
+    [dashboard] = anchor.sent
+    assert _labels(anchor.markups[-1]) == ["☰ Menu"]
+    # A screen the owner opened after it.
+    await _keep(e2e_harness, 1170, MessageKind.DASHBOARD, "<b>Today</b>")
 
-    # The owner writes, and then opens the menu with /start.
+    # ☰ Menu unfolds under the same words, and the screen below stays.
+    await navigation(_Press("home", dashboard), services)
+    assert anchor.bot.keyboards[-1][0] == dashboard.message_id
+    assert _labels(anchor.bot.keyboards[-1][1]) == MENU
+    assert len(anchor.sent) == 1 and 1170 not in anchor.bot.deleted
+    assert (await _kinds(e2e_harness))[1170] == MessageKind.DASHBOARD.value
+
+    # A screen opened from it arrives below, and the dashboard folds back.
+    below = QueueTestMessage(message_id=1180, is_bot=False, answer_as_new=True, parent=anchor)
+    monkeypatch.setattr(commands_module, "owner_anchor", lambda _bot, _owner_id: below)
+    await navigation(_Press("tags", dashboard), services)
+    assert anchor.bot.keyboards[-1][0] == dashboard.message_id
+    assert _labels(anchor.bot.keyboards[-1][1]) == ["☰ Menu"]
+    assert anchor.sent[-1].text.startswith("<b>Tags</b>")
+    assert dashboard.message_id not in anchor.bot.deleted
+
+    # The owner writes, and then opens Home with /start.
+    deleted = len(anchor.bot.deleted)
     owner = QueueTestMessage(message_id=1160, is_bot=False, answer_as_new=True, parent=anchor)
     await dismiss_prior_ui(owner, services)
     await render_home(owner, services)
 
-    assert anchor.bot.deleted == deleted
-    assert (await _kinds(e2e_harness))[1150] == MessageKind.HOME.value
-    menu = anchor.sent[-1]
-    assert "Your personal agile advisor" in menu.text
-    assert anchor.markups[-1] is not None
+    assert dashboard.message_id not in anchor.bot.deleted[deleted:]
+    assert (await _kinds(e2e_harness))[dashboard.message_id] == MessageKind.HOME.value
+    assert _labels(anchor.markups[-1]) == MENU
+
+
+async def test_start_opens_home_with_its_menu_and_writes_no_words(e2e_harness) -> None:
+    """HM-START-011 — tests/brd/home.feature"""
+    await _a_chat(e2e_harness)
+    model = Model()
+    services = _services(e2e_harness, model)
+    owner = QueueTestMessage(message_id=170, text="/start", is_bot=False, answer_as_new=True)
+
+    await render_home(owner, services)
+
+    [home] = owner.sent
+    assert home.text.startswith("<b>🏠 ")
+    assert "<b>💎 Values in focus</b>" in home.text and WORDS not in home.text
+    assert model.calls == 0
+    assert _labels(owner.markups[-1]) == MENU
+    assert owner.bot.deleted == [] and owner.bot.silent == []
+    kinds = await _kinds(e2e_harness)
+    assert kinds[home.message_id] == MessageKind.DASHBOARD.value
+    assert kinds[1100] == MessageKind.DIALOGUE_USER.value
+
+    # ↩️ Menu on a screen redraws that screen as Home in place.
+    screen = QueueTestMessage(message_id=1099, is_bot=True, parent=owner)
+    await navigation(_Press("home", screen), services)
+    assert owner.rendered[-1].startswith("<b>🏠 ") and _labels(owner.markups[-1]) == MENU
+    assert len(owner.sent) == 1
+    assert (await _kinds(e2e_harness))[1099] == MessageKind.DASHBOARD.value
+
+
+async def test_clear_clears_the_chat_at_once(e2e_harness) -> None:
+    """HM-CLEAR-012 — tests/brd/home.feature"""
+    await _a_chat(e2e_harness)
+    services = _services(e2e_harness, Model())
+    # The /clear itself: no quiet time has passed.
+    services.owner_acted_at = utcnow()
+    owner = QueueTestMessage(message_id=150, text="/clear", is_bot=False, answer_as_new=True)
+
+    await command_clear(owner, services)
+
+    [dashboard] = owner.sent
+    assert owner.bot.silent == [dashboard.text]
+    assert WORDS in dashboard.text and _labels(owner.markups[-1]) == ["☰ Menu"]
+    assert owner.bot.deleted == [1099, 1100]
+    assert await _kinds(e2e_harness) == {
+        1000: MessageKind.DIALOGUE_USER.value,
+        1100: MessageKind.DIALOGUE_USER.value,
+        1101: MessageKind.DIALOGUE_ASSISTANT.value,
+        dashboard.message_id: MessageKind.HOME.value,
+    }
+
+
+async def test_the_owner_acting_stops_a_clear_they_asked_for(e2e_harness) -> None:
+    """HM-CLEAR-012 — tests/brd/home.feature"""
+    await _a_chat(e2e_harness)
+    model = Model(hold=True)
+    services = _services(e2e_harness, model)
+    owner = QueueTestMessage(message_id=150, text="/clear", is_bot=False, answer_as_new=True)
+
+    clearing = asyncio.create_task(command_clear(owner, services))
+    await asyncio.wait_for(model.reached.wait(), timeout=5)
+    # What the middleware does when the owner's message or press arrives.
+    services.turn.cancel()
+    model.go.set()
+    await asyncio.wait_for(clearing, timeout=5)
+
+    assert owner.sent == [] and owner.bot.deleted == []
+    assert services.turn.active is False and services.turn.background is False

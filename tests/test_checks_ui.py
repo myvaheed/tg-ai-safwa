@@ -204,4 +204,4 @@ async def test_ch_delete_014_a_check_on_no_card_is_deleted_from_its_screen(sessi
     async with sessions() as session:
         assert await session.get(Check, check_id) is None
     # Back leads home, as it would from the Check itself.
-    assert message.edits[-1][0].startswith("<b>Safwa</b>")
+    assert message.edits[-1][0].startswith("<b>🏠 ")

@@ -109,3 +109,9 @@ Feature: Screens
     When the owner taps it
     Then Safwa sends that photo, under its description
     And it stays in the chat when the next screen comes, and is not part of the conversation
+
+  Scenario: SC-BACK-012 — Back returns to the screen the owner came from
+    Given a screen the owner reached from another screen, such as a Card opened from Today
+    Then it offers ↩️ Back, and Back redraws the screen they came from
+    When they open a Card or a Check from a link in the chat
+    Then no screen stands behind it, and it offers ↩️ Menu in place of ↩️ Back

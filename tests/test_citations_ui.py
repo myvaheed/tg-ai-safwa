@@ -7,6 +7,7 @@ from datetime import date
 
 import pytest
 from ui_harness import (
+    FakeCallback,
     FakeMessage,
     button_texts,
     services_for,
@@ -16,6 +17,7 @@ from safwa.bootstrap.modules import (
     AI_VIEWS,
     ALLOWED_VIEWS,
 )
+from safwa.features.cards.telegram import command_today
 from safwa.features.cards.use_cases import create_card
 from safwa.features.checks.use_cases import create_check
 from safwa.features.diary.use_cases import create_diary_entry
@@ -29,6 +31,7 @@ from tg_agent_shell.ai.sql import create_ai_views
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.proposals.telegram import render_ai_outcome
 from tg_agent_shell.telegram import (
+    callback_token_handler,
     open_item_screen,
     render_citations,
 )
@@ -69,6 +72,43 @@ async def test_open_item_screen_renders_the_manual_screen_of_every_item(sessions
     message = FakeMessage(999, bot_message=True)
     with pytest.raises(DomainError):
         await open_item_screen(message, services, "sprint", 1)
+
+
+async def test_sc_back_012_a_screen_from_a_link_offers_the_menu_and_one_from_a_screen_back(
+    sessions,
+) -> None:
+    """SC-BACK-012 — tests/brd/tg_agent_shell/screens.feature"""
+    async with sessions() as session:
+        card = await create_card(session, kind="action", title="Pull-ups", stage="today")
+        check = await create_check(session, title="Form is safe")
+        await session.commit()
+        card_id, check_id = card.id, check.id
+    services = services_for(sessions)
+
+    for index, (item_type, item_id) in enumerate((("card", card_id), ("check", check_id))):
+        message = FakeMessage(940 + index, bot_message=True)
+        await open_item_screen(message, services, item_type, item_id)
+        buttons = [button for row in message.edits[-1][1].inline_keyboard for button in row]
+        assert "↩️ Back" not in [button.text for button in buttons]
+        assert [button.callback_data for button in buttons if button.text == "↩️ Menu"] == [
+            "nav:home"
+        ]
+
+    message = FakeMessage(950, bot_message=True)
+    await command_today(message, services)
+    for label in ("Pull-ups", "↩️ Back"):
+        button = next(
+            button
+            for row in message.edits[-1][1].inline_keyboard
+            for button in row
+            if button.text.startswith(label)
+        )
+        await callback_token_handler(
+            FakeCallback(button.callback_data.split(":", 1)[1], message), services
+        )
+        if label == "Pull-ups":
+            assert "↩️ Menu" not in button_texts(message.edits[-1][1])
+    assert message.edits[-1][0].startswith("<b>Today</b>")
 
 
 async def test_citations_become_deep_links_only_for_live_items(sessions) -> None:

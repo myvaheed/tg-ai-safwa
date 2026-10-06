@@ -5,6 +5,7 @@ from __future__ import annotations
 from .handlers import PLANNING_CALLBACK_ACTIONS
 from .plan import PLAN_LINK, handle_plan_start, render_plan
 from .sprint import (
+    SPRINT_LINK,
     TEXT_INPUT,
     plan_cost,
     render_sprint,
@@ -16,6 +17,7 @@ __all__ = [
     "PLANNING_CALLBACK_ACTIONS",
     "PLAN_LINK",
     "PLAN_UI_KIND",
+    "SPRINT_LINK",
     "TEXT_INPUT",
     "handle_plan_start",
     "plan_cost",

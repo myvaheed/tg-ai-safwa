@@ -12,6 +12,7 @@ from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import (
     Services,
+    back_button,
     choice_rows,
     choice_screen,
     edit_registered_message,
@@ -115,13 +116,7 @@ async def render_checks(
                     )
                 ]
             )
-        rows.append(
-            [
-                await token_button(
-                    session, services.owner_id, "↩️ Back", "check_back", {"back": back}
-                )
-            ]
-        )
+        rows.append([await back_button(session, services.owner_id, "check_back", back)])
         await session.commit()
 
     lines = [f"<b>Checks — {html.escape(owner_title)}</b>"]
@@ -236,9 +231,11 @@ async def render_check(
                     session,
                     services.owner_id,
                     "↩️ Back",
-                    "check_list" if card_id is not None else "check_back",
+                    "check_list",
                     {"card_id": card_id, "back": back},
-                ),
+                )
+                if card_id is not None
+                else await back_button(session, services.owner_id, "check_back", back),
             ]
         )
         card_titles = await card_labels(session, linked_card_ids)

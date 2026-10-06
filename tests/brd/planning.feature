@@ -249,6 +249,8 @@ Feature: Planning — the Sprint, and the mode without one
     And the selectors show each list's Action count and mark the selected list
     When the owner selects a list
     Then the same message shows that list, with no separate button for each Action
+    And each Action's title is a link that opens its Card in place of the Sprint screen
+    And the Card's Back draws the Sprint screen again, on the same list and page
     And an empty list explains that it is empty without saying the Sprint has ended
 
   Scenario: PL-SCREEN-029 — Turning a Sprint list's page keeps the selected list

@@ -98,12 +98,12 @@ PROFILE_FIELDS: dict[str, EditableField] = {
         parse=_parse_clock,
         show=_clock,
     ),
-    "diary_time": EditableField(
-        title="Diary",
-        label="📔 Diary time",
+    "evening_time": EditableField(
+        title="Evening time",
+        label="🌙 Evening time",
         instruction=(
-            "Send the local time Safwa writes up your day, as HH:MM. The Diary nudge is "
-            "switched off in Profile → Hooks."
+            "Send the local time Safwa sums up your day and offers to write the Diary, "
+            "as HH:MM. Switch the Daily summary and the Diary nudge off in Profile → Hooks."
         ),
         parse=_parse_clock,
         show=_clock,
@@ -117,16 +117,6 @@ PROFILE_FIELDS: dict[str, EditableField] = {
         ),
         parse=lambda raw: "" if raw.lower() == "off" else raw,
         show=lambda value: value or "off",
-    ),
-    "summary_time": EditableField(
-        title="Daily summary",
-        label="🌙 Daily summary",
-        instruction=(
-            "Send the local time Safwa sums up your day, as HH:MM. The daily summary is "
-            "switched off in Profile → Hooks."
-        ),
-        parse=_parse_clock,
-        show=_clock,
     ),
     "home_after_minutes": EditableField(
         title="Home after",
@@ -184,8 +174,8 @@ def profile_text(profile: UserProfile, timezone: str) -> str:
     )
     lines.append(
         f"Time tracking: {'on' if profile.time_tracking else 'off'} — records the time an "
-        f"Action took; your active day runs from the Morning time to the Diary time, "
-        f"{_clock(profile.morning_time)} to {_clock(profile.diary_time)}."
+        f"Action took; your active day runs from the Morning time to the Evening time, "
+        f"{_clock(profile.morning_time)} to {_clock(profile.evening_time)}."
     )
     lines.append("Tap a setting to change it.")
     return "\n".join(lines)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, date, datetime
 
 from sqlalchemy import select
@@ -14,13 +15,14 @@ from ui_harness import (
     services_for,
 )
 
-from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
+from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, FEATURE_START_LINKS
 from safwa.features.cards.model import Card, CardStage
 from safwa.features.cards.telegram import command_today, render_card
 from safwa.features.cards.use_cases import create_card, finish_action, move_card
 from safwa.features.home.telegram import render_home
 from safwa.features.planning.model import Sprint
 from safwa.features.planning.telegram import (
+    SPRINT_LINK,
     handle_plan_start,
     render_plan,
     render_sprint,
@@ -104,6 +106,38 @@ async def test_pl_screen_028_sprint_selectors_redraw_only_the_chosen_list(sessio
     assert "No Actions remain in Sprint. Check Today or Done; the Sprint is still running." in text
     assert "Today · 2" in button_texts(markup)
     assert "✓ Remaining · 0" in button_texts(markup)
+
+
+async def test_pl_screen_028_a_title_opens_its_card_and_back_returns_to_the_list_and_page(
+    sessions,
+):
+    """PL-SCREEN-028 — tests/brd/planning.feature"""
+    from tg_agent_shell.telegram.layout import PAGE_SIZE
+
+    async with sessions() as session:
+        for index in range(PAGE_SIZE + 1):
+            await create_card(session, kind="action", title=f"Step {index}", stage="sprint")
+        await start_sprint(session, success_criteria="Ship v2")
+        await session.commit()
+    services = services_for(sessions)
+    screen = FakeMessage(133, bot_message=True)
+    await render_sprint(screen, services, page=1)
+    link = re.search(r'\?start=(ss-(\d+)-remaining-1)">(Step \d+)</a>', screen.edits[-1][0])
+    assert link is not None
+    payload, title = link[1], link[3]
+    assert SPRINT_LINK in FEATURE_START_LINKS and SPRINT_LINK.claims(payload)
+
+    tap = FakeMessage(134, text="/start " + payload, bot_message=False, bot=screen.bot)
+    await SPRINT_LINK.open(tap, services, payload)
+    # The Card took the Sprint screen's place rather than arriving as a message of its own.
+    edited_id, card_text, card_markup = screen.bot.edits[-1]
+    assert edited_id == screen.message_id and title in card_text
+    assert tap.answers == []
+
+    back = next(b for row in card_markup.inline_keyboard for b in row if b.text == "↩️ Back")
+    await callback_token_handler(FakeCallback(back.callback_data.split(":", 1)[1], screen), services)
+    text = screen.edits[-1][0]
+    assert "<b>Remaining" in text and "page 2/2" in text and title in text
 
 
 async def test_pl_end_012_the_finish_button_keeps_its_icon_on_the_last_local_day(sessions, monkeypatch):

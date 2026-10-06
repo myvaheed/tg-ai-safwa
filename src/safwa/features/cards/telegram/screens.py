@@ -13,6 +13,7 @@ from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import (
     Services,
+    back_button,
     edit_registered_message,
     send_registered,
     token_button,
@@ -314,11 +315,7 @@ async def render_card(
                     ),
                 )
             rows.append(closing_row)
-        last_row = [
-            await token_button(
-                session, services.owner_id, "↩️ Back", "card_back", {"back": back}
-            )
-        ]
+        last_row = [await back_button(session, services.owner_id, "card_back", back)]
         if not archived:
             last_row.insert(
                 0,

@@ -114,7 +114,7 @@ Feature: Retro
 
   Scenario: RT-TIME-009 — A Sprint that ends with Time tracking on keeps its time
     Given a Sprint that ends while Time tracking is on in the Profile, some of its finished Actions carrying a time
-    Then its record keeps that Time tracking was on, and how long the active day was, from the Morning time to the Diary time
+    Then its record keeps that Time tracking was on, and how long the active day was, from the Morning time to the Evening time
     And the minutes of the finished Actions that carry a time, how many of them carry one and their effort; the minutes, the Actions with a time and their effort by Category and by Energy type; and the 3 longest by title and minutes (LONGEST_SHOWN = 3)
     And an Action with two Categories counts in both, and one with none counts as none, as effort does
     And a time recorded after the Sprint ended changes nothing in its record

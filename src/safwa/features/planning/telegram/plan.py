@@ -31,6 +31,7 @@ from tg_agent_shell.telegram import (
     paginate,
     send_registered,
     send_toast,
+    start_link,
     token_button,
 )
 from tg_agent_shell.telegram.contributions import StartLink
@@ -94,13 +95,6 @@ def claims_plan_payload(payload: str) -> bool:
 
 
 
-def _link(services: Services, text: str, payload: str) -> str:
-    """One tappable cell. Without a bot username there is no link to build."""
-    if not services.bot_username:
-        return text
-    return f'<a href="https://t.me/{services.bot_username}?start={payload}">{text}</a>'
-
-
 def _table(services: Services, planned: list[Card], load: PlanLoad, *, effort_tracking: bool = False) -> str:
     rows = [
         '<tr><th align="left">Planned in Sprint</th>'
@@ -110,12 +104,12 @@ def _table(services: Services, planned: list[Card], load: PlanLoad, *, effort_tr
     if not planned:
         rows.append(f'<tr><td colspan="{3 if effort_tracking else 2}" align="center">Nothing planned yet.</td></tr>')
     for card in planned:
-        title = _link(services, html.escape(card.title), f"sp-{card.id}")
+        title = start_link(services.bot_username, html.escape(card.title), f"sp-{card.id}")
         count = load.counts[card.id]
         if count != 1:
             title += f" × {count if count is not None else '?'}"
         effort = effort_label((card.effort_points or 0) * count) if count is not None and card.effort_points is not None else "?"
-        back = _link(services, _RETURN, f"sr-{card.id}")
+        back = start_link(services.bot_username, _RETURN, f"sr-{card.id}")
         rows.append(
             f'<tr><td align="left">{title}</td>'
             + (f'<td align="right">{effort}</td>' if effort_tracking else '')

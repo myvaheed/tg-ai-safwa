@@ -625,7 +625,7 @@ facts are handed on, outside the order they are kept in, so the next commit neve
 model call.
 
 A hook that runs daily declares `OnTick(at=...)` with a reader of the local time of day
-(`TickTime`) — Safwa's are the Profile's Morning time, Diary time and Summary time, and the local
+(`TickTime`) — Safwa's are the Profile's Morning time and Evening time, and the local
 midnight that ends a Sprint. The one tick
 poll (`TickPoll`, beside the Cue poll) reads each distinct reader once at every look, keeps its
 last look in process memory and hands a `Tick` on by the same `hand_on` for each time that

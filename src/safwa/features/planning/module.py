@@ -37,5 +37,5 @@ MODULE = FeatureModule(
     ),
     callback_actions=PLANNING_CALLBACK_ACTIONS,
     text_inputs=(telegram.TEXT_INPUT,),
-    start_links=(telegram.PLAN_LINK,),
+    start_links=(telegram.PLAN_LINK, telegram.SPRINT_LINK),
 )

@@ -106,7 +106,7 @@ MANUAL = f"""# Safwa
 - A Sprint runs for the length set in Planning, 14 days at first. Every plan is judged against its Success criteria. "☀️ Today" is the day's work, and it exists only while a Sprint runs.
 - Safwa warns the day before the last day and on the last day. The Sprint closes itself at midnight after its last day.
 - With buttons: "🏃 Sprint" or /sprint: "🎯 Set Success criteria", "🏁 Length", "⚖️ Capacity" while Effort Points are on, tap a Backlog Action in the plan to add it to Sprint, "▶️ Start N-day Sprint", "⏹ Finish early" or "⏹ Finish Sprint". Open an Action from Backlog or Today to move it with the two buttons at the top of its Card.
-- While a Sprint runs, its screen shows the dates, local day, Success criteria and taken and done Actions, or EP while Effort Points are on. "Today", "Remaining", "Done" and "Blocked" select one list in the same message; their counts are Actions. "Remaining" is only the Sprint stage; "Done" is only this Sprint's completions; "Blocked" includes open Actions in Sprint and Today with their reasons. The selected button has a checkmark. Actions are text, without separate buttons.
+- While a Sprint runs, its screen shows the dates, local day, Success criteria and taken and done Actions, or EP while Effort Points are on. "Today", "Remaining", "Done" and "Blocked" select one list in the same message; their counts are Actions. "Remaining" is only the Sprint stage; "Done" is only this Sprint's completions; "Blocked" includes open Actions in Sprint and Today with their reasons. The selected button has a checkmark. Actions have no separate buttons: tap an Action's title to open its Card, and "↩️ Back" returns to the list.
 - In words: start the next Sprint, finish the running one, set the next Sprint's Success criteria, length or capacity, or ask its dates, its length and the days left. A Sprint to start is shown with its Success criteria, its first and last day and its length, for Save.
 - In words: moving Actions into Sprint or Today, or back to Backlog.
 - Not at all: changing a running Sprint's Success criteria, length, capacity or dates, pausing or extending it, or bringing a finished one back.
@@ -125,7 +125,7 @@ MANUAL = f"""# Safwa
 - The Diary keeps one entry per day, in the user's own voice: how the day went and how it felt, with a rating from 0 to 10.
 - In words only: ask the Advisor to write, rewrite or delete a day. It shows the day for Save.
 - Ask what was done on a day or over a week: Safwa reads the log of changes and names each item created, changed or deleted. When there are many, it counts them and asks which to list.
-- At the Diary time Safwa offers to write the day up. The retro reads the Diary.
+- At the Evening time Safwa sums up the day and offers to write it up in the Diary. The retro reads the Diary.
 - A day opens from its link, its photos above its words. No screen edits a day by hand.
 - A photo sent with no words, or with words about the day, goes to the Diary: Safwa shows it for Save on today, or on the day named. A day holds up to 10 photos.
 - Correcting what a photo on a day shows renames that photo everywhere, after Save.
@@ -145,21 +145,21 @@ MANUAL = f"""# Safwa
 - "Today overload" and "Effort Points reminder" are in Hooks only while Effort Points are on, and ask nothing while they are off.
 
 # Profile
-- "⚙️ Profile": About me and Advisor instructions (what the Advisor must know and follow), Morning time, Diary time, Diary instruction, Daily summary, Home after, Time tracking, Effort Points, and "🔔 Hooks".
-- "⌛ Time tracking" is off until pressed. On, it offers "⌛ Time spent" on an Action, keeps a Sprint's time for its retro and turns on "Time tracking reminder". The active day it measures runs from the Morning time to the Diary time.
+- "⚙️ Profile": About me and Advisor instructions (what the Advisor must know and follow), Morning time, Evening time, Diary instruction, Home after, Time tracking, Effort Points, and "🔔 Hooks".
+- "⌛ Time tracking" is off until pressed. On, it offers "⌛ Time spent" on an Action, keeps a Sprint's time for its retro and turns on "Time tracking reminder". The active day it measures runs from the Morning time to the Evening time.
 - In words too: any of its fields, shown for Save with what it was and what it becomes.
 - Time tracking and Effort Points can also be changed in words, through a Profile proposal. Hook switches are buttons only. Onboarding alone may be turned off in words.
 
 # Screens and commands
-- The menu, /start: "☀️ Today", "🏃 Sprint", "📊 Retro", "📚 Backlog", "➕ Add", "💎 Values", "🏷 Tags", "⚙️ Profile", "⏰ Reminders", "🔎 Requests".
-- Commands: /start, /today, /sprint, /retro, /values, /tags, /reminders, /requests, /memory, /status for the workspace mode, /summarize to fold the conversation into a Summary now, /cancel to stop an answer being written.
+- The menu, /start: the Home dashboard with these buttons under it, also reached by ↩️ Menu: "☀️ Today", "🏃 Sprint", "📊 Retro", "📚 Backlog", "➕ Add", "💎 Values", "🏷 Tags", "⚙️ Profile", "⏰ Reminders", "🔎 Requests".
+- Commands: /start, /today, /sprint, /retro, /values, /tags, /reminders, /requests, /memory, /status for the workspace mode, /summarize to fold the conversation into a Summary now, /clear to clear the chat down to the Home dashboard now, /cancel to stop an answer being written.
 - A voice message is transcribed and answered like text.
 - A photo is read as a few words when it arrives, when image input is on. Asked what a photo shows, Safwa looks at it again. A link to a photo opens it, and it stays in the chat.
-- A link in an answer opens its item.
+- A link in an answer opens its item. A Card or Check opened from a link has "↩️ Menu" instead of "↩️ Back".
 
 # Home dashboard
-- When the user does nothing in the chat for the Profile's "🏠 Home after" minutes, 30 at first, Safwa clears messages through the last message the user sent to the Advisor, inclusive. Messages after it stay, including the Advisor's reply and Reminders. The previous Home dashboard is removed. A new Home dashboard arrives without a sound: the next Actions under their Goals, the Values in focus with a few words each, the time tracked today while Time tracking is on, and the last 10 changes.
-- It is drawn again after midnight. Each item on it is a link. It has no buttons: /start opens the menu.
+- When the user does nothing in the chat for the Profile's "🏠 Home after" minutes, 30 at first, or sends /clear, Safwa clears messages through the last message the user sent to the Advisor, inclusive. Messages after it stay, including the Advisor's reply and Reminders. The previous Home dashboard is removed. A new Home dashboard arrives without a sound: the next Actions under their Goals, the Values in focus with a few words each, the time tracked today while Time tracking is on, and the last 10 changes.
+- It is drawn again after midnight. Each item on it is a link. Its one button "☰ Menu" unfolds the menu under it; a screen opened from there arrives below it. /start shows the same dashboard with the menu, without the words under the Values.
 - After a clear the conversation starts over. The Diary still reads the whole day."""
 
 ONBOARDING_PROMPT = f"""You explain Safwa to the user from the manual below. You read no data.

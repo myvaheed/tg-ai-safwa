@@ -35,7 +35,7 @@ from ..history import CONVERSATION_KINDS, TelegramMessage
 from ..proposals.model import BatchDecision
 from ..proposals.render import proposal_outcome_text
 from ..proposals.store import PROPOSAL_REVIEW_MINUTES
-from .layout import Page
+from .layout import Page, home_markup
 from .model import CallbackToken, UiSession
 from .services import Services
 
@@ -402,7 +402,12 @@ async def clear_draw_home(message: Message, services: Services, text: str) -> No
         ) or 0
     homes = await services.chat.notes.outgoing(chat_id, kinds={MessageKind.HOME.value})
     await services.chat.send(
-        message, text, kind=MessageKind.HOME.value, replace=False, silent=True
+        message,
+        text,
+        kind=MessageKind.HOME.value,
+        markup=home_markup(),
+        replace=False,
+        silent=True,
     )
     await services.chat.clear(
         message.bot,
