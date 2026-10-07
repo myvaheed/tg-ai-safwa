@@ -15,6 +15,7 @@ MENU_LAYOUT: tuple[tuple[str, ...], ...] = (
     ("board", "sprint", "retro"),
     ("add",),
     ("values", "tags"),
+    ("diary",),
     ("profile", "reminders", "requests"),
 )
 

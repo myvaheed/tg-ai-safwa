@@ -7,6 +7,12 @@ from sqlalchemy import select
 
 from safwa.constants import SCHEDULER_POLL_SECONDS
 from safwa.features.reminders import firing
+from safwa.features.reminders.api import (
+    REMINDER_CATCHUP_GRACE_MINUTES,
+    REMINDER_MIN_INTERVAL_MINUTES,
+    resolve,
+    schedule_columns,
+)
 from safwa.features.reminders.firing import (
     REMINDER_FIRE_BATCH,
     prepare,
@@ -15,12 +21,6 @@ from safwa.features.reminders.firing import (
 )
 from safwa.features.reminders.hooks import REMINDER_FIRE_HOOK
 from safwa.features.reminders.model import Reminder
-from safwa.features.reminders.schedule import (
-    REMINDER_CATCHUP_GRACE_MINUTES,
-    REMINDER_MIN_INTERVAL_MINUTES,
-    resolve,
-    schedule_columns,
-)
 from safwa.foundation.workspace import Workspace
 from tg_agent_shell.cues.initiatives import TickPoll
 from tg_agent_shell.cues.model import Cue

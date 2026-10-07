@@ -27,13 +27,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tg_agent_shell.cues.queue import add_cue, words_waiting
 
-from .model import Reminder
-from .schedule import (
+from .api import (
     REMINDER_CATCHUP_GRACE_MINUTES,
     describe,
     roll_forward,
     schedule_of,
 )
+from .model import Reminder
 
 # How many due Reminders one Cue may carry.  Everything the tick found goes over
 # in a single advisor turn; the rest stay overdue and the next tick takes them.

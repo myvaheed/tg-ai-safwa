@@ -25,7 +25,7 @@ from safwa.features.checks.use_cases import (
     update_check_fields,
 )
 from safwa.features.planning.use_cases import start_sprint
-from safwa.features.reminders.schedule import resolve, schedule_payload
+from safwa.features.reminders.api import resolve, schedule_payload
 from safwa.features.reminders.use_cases import (
     create_reminder,
     delete_reminder,

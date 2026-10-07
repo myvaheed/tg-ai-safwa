@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from tg_agent_shell.foundation.screens import ScreenSpec
+from tg_agent_shell.telegram.contributions import ScreenCommand
 from tg_agent_shell.telegram.manifest import FeatureModule, ProposalContribution
 
 from . import agent, proposal, telegram, views
@@ -21,6 +22,10 @@ MODULE = FeatureModule(
         ),
     ),
     views=views.VIEWS,
+    commands=(
+        ScreenCommand(handler=telegram.command_diary, nav="diary", title="📔 Diary"),
+    ),
+    callback_actions=telegram.DIARY_CALLBACK_ACTIONS,
     screens=(
         ScreenSpec(
             item_type="diary",

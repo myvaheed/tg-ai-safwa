@@ -124,9 +124,10 @@ MANUAL = f"""# Safwa
 # Diary
 - The Diary keeps one entry per day, in the user's own voice: how the day went and how it felt, with a rating from 0 to 10.
 - In words only: ask the Advisor to write, rewrite or delete a day. It shows the day for Save.
+- With buttons: "📔 Diary" opens years, then months and days. Years and days show 10 per page. "Last 7 days" shows every date up to today; an empty day says "No entry for this day."
 - Ask what was done on a day or over a week: Safwa reads the log of changes and names each item created, changed or deleted. When there are many, it counts them and asks which to list.
 - At the Evening time Safwa sums up the day and offers to write it up in the Diary. The retro reads the Diary.
-- A day opens from its link, its photos above its words. No screen edits a day by hand.
+- A day opens from its link or the Diary menu, its photos above its words. Back returns to the list it came from. No screen edits a day by hand.
 - A photo sent with no words, or with words about the day, goes to the Diary: Safwa shows it for Save on today, or on the day named. A day holds up to 10 photos.
 - Correcting what a photo on a day shows renames that photo everywhere, after Save.
 
@@ -151,7 +152,7 @@ MANUAL = f"""# Safwa
 - Time tracking and Effort Points can also be changed in words, through a Profile proposal. Hook switches are buttons only. Onboarding alone may be turned off in words.
 
 # Screens and commands
-- The menu, /start: the Home dashboard with these buttons under it, also reached by ↩️ Menu: "🗂 Dashboard", "🏃 Sprint", "📊 Retro", "➕ Add", "💎 Values", "🏷 Tags", "⚙️ Profile", "⏰ Reminders", "🔎 Requests".
+- The menu, /start: the Home dashboard with these buttons under it, also reached by ↩️ Menu: "🗂 Dashboard", "🏃 Sprint", "📊 Retro", "➕ Add", "💎 Values", "🏷 Tags", "📔 Diary", "⚙️ Profile", "⏰ Reminders", "🔎 Requests".
 - Commands: /start, /sprint, /retro, /values, /tags, /reminders, /requests, /memory, /status for the workspace mode, /summarize to fold the conversation into a Summary now, /clear to clear the chat down to the Home dashboard now, /cancel to stop an answer being written.
 - A voice message is transcribed and answered like text.
 - A photo is read as a few words when it arrives, when image input is on. Asked what a photo shows, Safwa looks at it again. A link to a photo opens it, and it stays in the chat.

@@ -9,8 +9,8 @@ from ui_harness import FakeCallback, FakeMessage, button_texts, services_for
 
 from safwa.constants import WEEKDAY_NAMES
 from safwa.features.cards.use_cases import create_card
+from safwa.features.reminders.api import resolve, schedule_payload
 from safwa.features.reminders.model import Reminder
-from safwa.features.reminders.schedule import resolve, schedule_payload
 from safwa.features.reminders.telegram import render_reminder, render_reminders
 from safwa.features.reminders.telegram.review import ReminderProposalPresenter
 from safwa.features.reminders.use_cases import create_reminder

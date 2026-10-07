@@ -47,6 +47,8 @@ Feature: The workspace
     Then each of them is written the way Safwa writes a link into its own reply
     And so pointing the owner at one is quoting what Safwa was handed, never building a link out
       of an id it read somewhere else
+    And each active Value and each available Tag is on its own line with its description
+    And the Advisor and the part that changes the workspace receive those descriptions
 
   Scenario: WS-CONTEXT-007 — Safwa is told what time it is where the owner is, and told it last
     Given the owner's timezone

@@ -8,10 +8,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from safwa.bootstrap.modules import HOOKS
-from safwa.features.reminders.firing import Firing, format_cue
-from safwa.features.reminders.hooks import REMINDER_START_HOOK
-from safwa.features.reminders.model import Reminder, ScheduleKind
-from safwa.features.reminders.schedule import (
+from safwa.features.reminders.api import (
     REMINDER_CATCHUP_GRACE_MINUTES,
     resolve,
     schedule_columns,
@@ -19,6 +16,9 @@ from safwa.features.reminders.schedule import (
     schedule_of,
     schedule_payload,
 )
+from safwa.features.reminders.firing import Firing, format_cue
+from safwa.features.reminders.hooks import REMINDER_START_HOOK
+from safwa.features.reminders.model import Reminder, ScheduleKind
 from safwa.features.reminders.use_cases import (
     create_reminder,
     delete_reminder,

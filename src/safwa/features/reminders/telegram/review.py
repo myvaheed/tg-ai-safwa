@@ -30,8 +30,8 @@ from tg_agent_shell.telegram import edited_screen, required_text, short_citation
 from tg_agent_shell.telegram.contributions import TextInputFlow
 
 from ....foundation.workspace import Workspace
+from ..api import describe, next_fire, schedule_from_payload, schedule_of
 from ..model import Reminder
-from ..schedule import describe, next_fire, schedule_from_payload, schedule_of
 from ..use_cases import update_reminder_text
 from .screens import reminder_title, render_reminder
 

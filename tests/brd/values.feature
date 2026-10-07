@@ -18,6 +18,7 @@ Feature: Values
     Given "Fitness" is in focus and "Tidiness" is not
     When Safwa answers the owner
     Then Safwa has been told Fitness is in focus, and not Tidiness
+    And Fitness comes with its description on its own line
     And the Value arrives as something Safwa can hand straight back to the owner as a link
 
   Scenario: VL-READ-003 — A Goal that serves a Value in focus comes before an otherwise equal Goal

@@ -27,8 +27,8 @@ from tg_agent_shell.proposals.api import (
 from ...enums import ActorType
 from ...foundation.workspace import Workspace
 from .agent import resolve_schedule
+from .api import ScheduleError, describe, schedule_from_payload, schedule_payload
 from .model import Reminder
-from .schedule import ScheduleError, describe, schedule_from_payload, schedule_payload
 from .use_cases import (
     create_reminder,
     delete_reminder,

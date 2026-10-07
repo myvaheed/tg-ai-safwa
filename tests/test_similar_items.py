@@ -13,7 +13,7 @@ from ui_harness import FakeMessage, services_for
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, PROPOSALS, TEXT_MODEL, WORD_FORMS
 from safwa.features.cards.use_cases import archive_subtree, create_card, finish_action
 from safwa.features.checks.use_cases import archive_check, create_check, resolve_check
-from safwa.features.reminders.schedule import resolve
+from safwa.features.reminders.api import resolve
 from safwa.features.reminders.use_cases import create_reminder
 from safwa.features.saved_requests.use_cases import create_saved_request
 from safwa.features.tags.use_cases import create_tag

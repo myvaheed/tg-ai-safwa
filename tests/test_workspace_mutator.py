@@ -136,8 +136,10 @@ async def test_ws_context_005_the_mode_comes_first_and_the_owner_next(sessions):
 async def test_ws_context_006_everything_named_in_the_state_is_a_citation(sessions):
     """WS-CONTEXT-006 — tests/brd/workspace_mutator.feature"""
     async with sessions() as session:
-        value = await create_value(session, "Health", active=True)
-        tag = await create_tag(session, "Family")
+        value = await create_value(session, "Health", description="Sleep and exercise", active=True)
+        await create_value(session, "Work", description="Inactive description", active=False)
+        tag = await create_tag(session, "Family", description="Time with my family")
+        empty = await create_tag(session, "Empty")
         card = await create_card(
             session,
             title="Fix the roof",
@@ -152,7 +154,19 @@ async def test_ws_context_006_everything_named_in_the_state_is_a_citation(sessio
     # is already a link, so pointing the owner at one of these is quoting it.
     named = {(kind, int(item_id)) for _label, kind, item_id in SCREENS.citation.findall(state)}
 
-    assert named == {("value", value.id), ("tag", tag.id), ("card", card.id)}
+    assert named == {("value", value.id), ("tag", tag.id), ("tag", empty.id), ("card", card.id)}
+    assert f"- [Health](value:{value.id}): Sleep and exercise" in state.splitlines()
+    assert f"- [Family](tag:{tag.id}): Time with my family" in state.splitlines()
+    assert f"- [Empty](tag:{empty.id}): " in state.splitlines()
+    assert "Inactive description" not in state
+    builder = _builder(state)
+    turn = [{"role": "user", "content": "What should I do?"}]
+    for messages in (
+        await builder.root(turn),
+        await builder.routed(RoutedSubagent("mutator", "Change it.", workspace_state=True), turn),
+    ):
+        assert "Sleep and exercise" in json.dumps(messages)
+        assert "Time with my family" in json.dumps(messages)
 
 
 

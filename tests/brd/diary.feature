@@ -176,3 +176,20 @@ Feature: Diary
     When they ask the Diary to write on that day
     Then the Diary searches its days for those words and writes on the closest day
     And when no day is close, it changes nothing and says it could not find the day
+
+  Scenario: DI-BROWSE-026 — The Diary menu browses saved days by year and month
+    Given the Diary holds days in several years and months, including a day with photos alone
+    When the owner opens Diary in the menu
+    Then the years appear newest first, 10 per page (DIARY_PAGE_SIZE = 10)
+    And a year opens its months, and a month opens its saved days newest first, 10 per page
+    And each screen says which year and month it shows
+    And each day opens its full read-only entry, including its photos
+    And Back returns to the same list and page the day came from
+    And paging offers only pages that exist
+
+  Scenario: DI-RECENT-027 — Last 7 days includes dates with no entry
+    Given the owner's local date and a Diary with some days empty
+    When the owner opens Last 7 days from the Diary menu
+    Then all 7 dates up to today appear newest first (DIARY_RECENT_DAYS = 7)
+    And each date opens its saved entry, or says "No entry for this day."
+    And Back returns to Last 7 days, then to the Diary years

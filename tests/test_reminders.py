@@ -5,8 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from safwa.features.reminders.model import ScheduleKind
-from safwa.features.reminders.schedule import (
+from safwa.features.reminders.api import (
     Schedule,
     ScheduleError,
     describe,
@@ -16,6 +15,7 @@ from safwa.features.reminders.schedule import (
     schedule_columns,
     schedule_of,
 )
+from safwa.features.reminders.model import ScheduleKind
 
 TZ = ZoneInfo("Europe/Istanbul")  # UTC+3 all year, so plain cases stay readable
 BERLIN = ZoneInfo("Europe/Berlin")  # observes DST, for the wall-clock cases

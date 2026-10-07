@@ -37,8 +37,8 @@ from tg_agent_shell.telegram import (
 )
 
 from ....foundation.workspace import Workspace
+from ..api import describe, schedule_of
 from ..model import Reminder
-from ..schedule import describe, schedule_of
 from ..use_cases import delete_reminder
 
 _TEXT_PREVIEW = 40

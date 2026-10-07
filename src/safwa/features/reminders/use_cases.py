@@ -20,8 +20,7 @@ from tg_agent_shell.foundation.errors import DomainError
 from ...enums import ActorType
 from ...foundation.log_events import CREATE, DELETE, UPDATE, record_log_event, snapshot
 from ...foundation.workspace import Workspace, bump_workspace
-from .model import Reminder
-from .schedule import (
+from .api import (
     REMINDER_CATCHUP_GRACE_MINUTES,
     Schedule,
     next_fire,
@@ -30,6 +29,7 @@ from .schedule import (
     schedule_columns,
     schedule_of,
 )
+from .model import Reminder
 
 # The change a hook may follow up on: the owner's Reminder was created, however it was saved.
 REMINDER_CREATED = "reminder.created"

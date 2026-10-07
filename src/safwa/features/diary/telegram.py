@@ -1,16 +1,18 @@
-"""How a proposed Diary day reads to the owner."""
+"""The Diary browser, a saved day and a proposed day."""
 
 from __future__ import annotations
 
 import html
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.ai.contracts import AgentChange
+from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.media.telegram import send_photo_screen
@@ -23,10 +25,26 @@ from tg_agent_shell.proposals.render import (
     ACTION_VERBS,
     detail_lines,
 )
-from tg_agent_shell.telegram import Services
+from tg_agent_shell.telegram import (
+    CallbackContext,
+    CallbackHandler,
+    Place,
+    Services,
+    back_button,
+    dismiss_prior_ui,
+    paginate,
+    paging_row,
+    place_button,
+    send_registered,
+)
 
+from ..schedules.api import workspace_zone
 from .api import day_media
 from .model import DiaryEntry
+from .use_cases import diary_entry_for
+
+DIARY_PAGE_SIZE = 10
+DIARY_RECENT_DAYS = 7
 
 DIARY_MONTH_NAMES = (
     "января",
@@ -64,11 +82,130 @@ def diary_label(entry_date: date, feeling_score: int | None) -> str:
     return f"{written} · {emoji}{feeling_score}" if emoji else written
 
 
+async def command_diary(message: Message, services: Services) -> None:
+    await render_browser(message, services)
+
+
+async def render_browser(
+    message: Message,
+    services: Services,
+    *,
+    year: int | None = None,
+    month: int | None = None,
+    recent: bool = False,
+    page: int = 0,
+    back: Place | None = None,
+) -> None:
+    async with services.sessions() as session:
+        query = select(DiaryEntry.entry_date, DiaryEntry.feeling_score)
+        if recent:
+            today = utcnow().astimezone(await workspace_zone(session)).date()
+            first = today - timedelta(days=DIARY_RECENT_DAYS - 1)
+            query = query.where(DiaryEntry.entry_date.between(first, today))
+        elif year is not None:
+            first = date(year, month or 1, 1)
+            last = (
+                date(year + 1, 1, 1)
+                if month is None or month == 12
+                else date(year, month + 1, 1)
+            )
+            query = query.where(DiaryEntry.entry_date >= first, DiaryEntry.entry_date < last)
+        scores = dict((await session.execute(query)).all())
+        heading = "📔 Diary"
+        if recent:
+            heading += " · Last 7 days"
+            items = [today - timedelta(days=offset) for offset in range(DIARY_RECENT_DAYS)]
+        elif month is not None:
+            heading += f" · {year} · {DIARY_MONTH_NAMES[month - 1]}"
+            items = sorted(scores, reverse=True)
+        elif year is not None:
+            heading += f" · {year}"
+            items = sorted({day.month for day in scores}, reverse=True)
+        else:
+            items = sorted({day.year for day in scores}, reverse=True)
+        size = 12 if year is not None and month is None and not recent else DIARY_PAGE_SIZE
+        shown = paginate(items, page, size)
+        here = Place(
+            "diary_browser",
+            {"year": year, "month": month, "recent": recent, "page": shown.index},
+            back,
+        )
+        rows: list[list[InlineKeyboardButton]] = []
+        for item in shown.items:
+            if isinstance(item, date):
+                label = f"{diary_label(item, scores.get(item))} · {item.year}"
+                target = here.child("diary_day", date=item.isoformat())
+            elif year is not None:
+                label = DIARY_MONTH_NAMES[item - 1]
+                target = here.child("diary_browser", year=year, month=item)
+            else:
+                label = str(item)
+                target = here.child("diary_browser", year=item)
+            rows.append([await place_button(session, services.owner_id, label, target)])
+        if year is None and not recent:
+            rows.append([
+                await place_button(
+                    session, services.owner_id, "Last 7 days", here.child("diary_browser", recent=True)
+                )
+            ])
+        rows.extend(await paging_row(session, services.owner_id, shown, here))
+        rows.append([await back_button(session, services.owner_id, back)])
+        await session.commit()
+    await send_registered(
+        message,
+        services,
+        f"<b>{heading}</b> · {shown.label}" + ("" if items else "\nNo entries here yet."),
+        kind=MessageKind.DASHBOARD,
+        markup=InlineKeyboardMarkup(inline_keyboard=rows),
+    )
+
+
+async def _on_browser(context: CallbackContext) -> None:
+    await dismiss_prior_ui(context.message, context.services)
+    await render_browser(
+        context.message,
+        context.services,
+        year=context.payload.get("year"),
+        month=context.payload.get("month"),
+        recent=bool(context.payload.get("recent", False)),
+        page=int(context.payload.get("page", 0)),
+        back=context.back,
+    )
+
+
+async def _on_day(context: CallbackContext) -> None:
+    day = date.fromisoformat(context.payload["date"])
+    async with context.sessions() as session:
+        entry = await diary_entry_for(session, day)
+        if entry is None:
+            markup = InlineKeyboardMarkup(inline_keyboard=[[
+                await back_button(session, context.owner_id, context.back)
+            ]])
+            await session.commit()
+    if entry is not None:
+        await render_diary(context.message, context.services, entry.id, back=context.back)
+    else:
+        await send_registered(
+            context.message,
+            context.services,
+            f"<b>📔 Diary · {day:%d.%m.%Y}</b>\nNo entry for this day.",
+            kind=MessageKind.DASHBOARD,
+            markup=markup,
+        )
+
+
+DIARY_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
+    "diary_browser": _on_browser,
+    "diary_day": _on_day,
+}
+
+
 async def render_diary(
     message: Message,
     services: Services,
     entry_id: int,
     *,
+    back: Place | None = None,
     replace: bool | None = None,
 ) -> None:
     """One Diary day, in full and read-only: its photos as one album, its words below.
@@ -82,7 +219,8 @@ async def render_diary(
         label = diary_label(entry.entry_date, entry.feeling_score)
         body = entry.body
         media_ids = [media_id for media_id, _label in await day_media(session, entry_id)]
-    rows: list[list[InlineKeyboardButton]] = []
+        rows = [[await back_button(session, services.owner_id, back)]]
+        await session.commit()
     await send_photo_screen(
         message,
         services,
@@ -91,7 +229,7 @@ async def render_diary(
             filter(None, (f"<b>📔 {html.escape(label)}</b>", html.escape(body or "")))
         ),
         kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=rows) if rows else None,
+        markup=InlineKeyboardMarkup(inline_keyboard=rows),
         related_id=entry_id,
         replace=replace,
     )

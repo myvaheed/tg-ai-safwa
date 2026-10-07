@@ -226,22 +226,19 @@ async def test_safwa_can_start_from_a_value_and_find_what_is_behind_it(sessions)
 async def test_safwa_is_told_which_values_are_in_focus(sessions):
     """VL-FOCUS-002 — tests/brd/values.feature"""
     async with sessions() as session:
-        fitness = await create_value(session, "Fitness", active=True)
+        fitness = await create_value(session, "Fitness", description="Daily movement", active=True)
         await create_value(session, "Tidiness", active=False)
         family = await create_tag(session, "Family")
         await session.commit()
 
         context = await workspace_context(session)
 
-    values_line = next(
-        line for line in context.state.splitlines() if line.startswith("Active Values:")
+    lines = context.state.splitlines()
+    assert lines[lines.index("Active Values:") + 1] == (
+        f"- [Fitness](value:{fitness.id}): Daily movement"
     )
-    tags_line = next(
-        line for line in context.state.splitlines() if line.startswith("Available Tags:")
-    )
-    assert values_line == f"Active Values: [Fitness](value:{fitness.id})"
-    assert "Tidiness" not in values_line
-    assert tags_line == f"Available Tags: [Family](tag:{family.id})"
+    assert "Tidiness" not in context.state
+    assert lines[lines.index("Available Tags:") + 1] == f"- [Family](tag:{family.id}): "
 
 
 async def test_a_goal_serving_a_focus_comes_before_other_equal_goals(sessions):

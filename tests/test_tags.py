@@ -116,16 +116,20 @@ async def test_a_deleted_tag_frees_its_name(sessions):
 async def test_ta_context_009_every_tag_reaches_safwa_by_name_and_in_order(sessions):
     """TA-CONTEXT-009 — tests/brd/tags.feature"""
     async with sessions() as session:
-        work = await create_tag(session, "Work")
-        family = await create_tag(session, "Family")
+        work = await create_tag(session, "Work", description="Projects and meetings")
+        family = await create_tag(session, "Family", description="Time together")
         await session.commit()
 
         state = (await workspace_context(session)).state
 
-    line = next(line for line in state.splitlines() if line.startswith("Available Tags:"))
+    lines = state.splitlines()
+    start = lines.index("Available Tags:") + 1
     # Both of them, alphabetically rather than in the order they were written, and each
     # already a link: a Tag has no focus, so there is nothing for one to be left out of.
-    assert line == f"Available Tags: [Family](tag:{family.id}), [Work](tag:{work.id})"
+    assert lines[start:start + 2] == [
+        f"- [Family](tag:{family.id}): Time together",
+        f"- [Work](tag:{work.id}): Projects and meetings",
+    ]
 
 
 async def test_the_inbox_tag_is_seeded_once(sessions):

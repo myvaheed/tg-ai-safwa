@@ -66,9 +66,10 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
         f"About me: {(profile.about_me if profile else '').strip()}",
         f"Advisor instructions: {(profile.advisor_instructions if profile else '').strip()}",
         f"Effort Points: {'on' if effort_on else 'off'}",
-        "Active Values: "
-        + ", ".join(citation(value.name, "value", value.id) for value in active_values),
-        "Available Tags: " + ", ".join(citation(tag.name, "tag", tag.id) for tag in tags),
+        "Active Values:",
+        *(f"- {citation(value.name, 'value', value.id)}: {value.description}" for value in active_values),
+        "Available Tags:",
+        *(f"- {citation(tag.name, 'tag', tag.id)}: {tag.description}" for tag in tags),
     ]
     if sprint is not None:
         # The day is counted here, not by the model: a small model misreads date arithmetic.

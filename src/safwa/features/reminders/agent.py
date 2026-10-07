@@ -19,7 +19,7 @@ from tg_agent_shell.ai.mini import MINI_SESSION_MAX_TOOL_CALLS, TerminalTool, ru
 from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
 
 from ...constants import WEEKDAY_NAMES
-from .schedule import Schedule, ScheduleError, resolve
+from .api import Schedule, ScheduleError, resolve
 
 
 class ReminderToolInput(RecordToolInput):

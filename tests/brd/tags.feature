@@ -45,6 +45,7 @@ Feature: Tags
     Then it has already been handed all of them, by name and in alphabetical order
     And each arrives as a link it can hand straight back to the owner
     And none is left out: a Tag has no focus to be out of, which is what makes it unlike a Value
+    And each Tag comes with its description on its own line
 
   Scenario: TA-INBOX-010 — The Inbox Tag always exists and cannot be deleted or renamed
     Given a new or an existing workspace

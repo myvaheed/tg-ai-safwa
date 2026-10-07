@@ -17,8 +17,8 @@ from safwa.bootstrap.modules import (
     PROPOSALS,
     SCREENS,
 )
+from safwa.features.reminders.api import schedule_of
 from safwa.features.reminders.model import Reminder
-from safwa.features.reminders.schedule import schedule_of
 from telegram_llm import ChatHost, DialogueMessage
 from tg_agent_shell.ai.outcome import AIOutcomeKind
 from tg_agent_shell.history import TelegramNotes

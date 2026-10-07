@@ -265,5 +265,5 @@ async def test_a_diary_citation_is_named_by_the_entry_and_opens_the_whole_day(se
     text, markup = message.edits[-1]
     assert "📔 4 марта · 🙂6" in text
     assert "Долгий день, но рынок закрыл." in text
-    # The Diary is written through proposals alone, so its screen offers no control.
-    assert markup is None
+    # The Diary is written through proposals alone; its only control is navigation.
+    assert button_texts(markup) == ["↩️ Menu"]
