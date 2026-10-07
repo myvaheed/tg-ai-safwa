@@ -1,4 +1,4 @@
-"""The onboarding subagent: a manual of Safwa, answered from as it is, and one tool to stop.
+"""The onboarding subagent: a manual of Safwa, answered from as it is.
 
 It reads no data. The manual is its prompt, the items a tip is about are cited in the
 request that routed it, and the rest is the workspace state. The Advisor forwards its words
@@ -7,9 +7,6 @@ to the user as it wrote them, rather than retelling them.
 
 from __future__ import annotations
 
-from tg_agent_shell.ai.autoapproval import AutoApprovalRule
-from tg_agent_shell.ai.contracts import AgentChange, ChangeAction, ToolInput
-from tg_agent_shell.proposals.api import MutationToolSpec
 from tg_agent_shell.telegram.manifest import AgentSpec
 
 from ...constants import INBOX_TAG_NAME
@@ -181,48 +178,18 @@ Write the tip as its own section. Start it with the words "Onboarding tip:", the
 - what happened, in their words, not the system's — one line;
 - what this makes possible now, on these very items: the screen it lives on, the button, or the words to say — one to three lines. Prefer what is not done yet: a Card with no Check, a Goal with no Value, Actions waiting with no Sprint.
 If the conversation already shows a tip about this kind of item, write one short line only.
-Ask nothing. Your answer goes to the user as you wrote it.
-
-# Stopping
-Only when the user's newest message asks to stop onboarding; an onboarding request never does.
-Write one line saying you turn it off, and call `stop_onboarding` in that same response."""
+Ask nothing. Your answer goes to the user as you wrote it."""
 
 
 ONBOARDING_AGENT = AgentSpec(
     name="onboarding",
     purpose=(
         "the user asks what Safwa is, what a part of it is for, or how to do something in "
-        "it with its screens, buttons and commands; wants a tour; asks to stop onboarding; "
+        "it with its screens, buttons and commands; wants a tour; "
         'or a request starts with "Onboarding.".'
     ),
     instructions=ONBOARDING_PROMPT,
-    mutation_tools=("stop_onboarding",),
     workspace_state=True,
     history_messages=ONBOARDING_HISTORY_MESSAGES,
     answers_questions=True,
 )
-
-
-class StopOnboardingInput(ToolInput):
-    """Turn the onboarding off. It takes nothing: off is the one thing it does."""
-
-
-def _off(call: StopOnboardingInput) -> AgentChange:
-    return AgentChange(
-        entity="onboarding", action=ChangeAction.UPDATE, values={"onboarding": "off"}
-    )
-
-
-STOP_ONBOARDING_TOOL = MutationToolSpec(
-    name="stop_onboarding",
-    input_model=StopOnboardingInput,
-    description="Propose turning the onboarding off, when the user asked to stop it.",
-    to_change=_off,
-)
-
-ONBOARDING_AUTOAPPROVALS = {
-    "update": AutoApprovalRule(
-        criteria="Approve only when the user asked in words to stop the onboarding.",
-        allowed_fields=frozenset({"onboarding"}),
-    ),
-}

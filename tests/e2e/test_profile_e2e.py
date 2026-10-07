@@ -124,6 +124,8 @@ async def test_ps_ai_020_a_switch_is_read_and_left_to_the_profile_screen(e2e_har
     assert outcome.kind is AIOutcomeKind.ANSWER
     assert outcome.message == words
     assert "- Blocker follow-up: off" in str(provider.calls[1][-1]["content"])
-    # The one tool it holds has the ten fields and no switch.
-    assert [tool["function"]["name"] for tool in provider.options[1]["tools"]] == ["profile"]
+    # Fields and stopping onboarding are separate tools; other switches stay on the screen.
+    assert [tool["function"]["name"] for tool in provider.options[1]["tools"]] == [
+        "profile", "stop_onboarding",
+    ]
     assert set(ProfileToolInput.model_fields) - {"mode"} == {field.value for field in ProfileField}

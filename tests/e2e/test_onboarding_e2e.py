@@ -1,4 +1,4 @@
-"""The onboarding subagent in a real Advisor turn: a tip, a question, and the proposal to stop.
+"""Onboarding in a real Advisor turn: tips and questions, and stopping through Profile.
 
 The real registry, the real subagents bound from their own declarations, the real review
 flow and autoapproval; only the provider is scripted.
@@ -66,7 +66,11 @@ def route_receipts(provider) -> list[dict]:
 
 
 def subagents(harness):
-    return (harness.subagent("workspace_mutator"), harness.subagent("onboarding"))
+    return (
+        harness.subagent("workspace_mutator"),
+        harness.subagent("onboarding"),
+        harness.subagent("profile"),
+    )
 
 
 def a_cue_turn(text: str) -> list[DialogueMessage]:
@@ -98,11 +102,11 @@ async def test_ob_tip_002_the_tip_opens_the_message_in_the_subagents_own_words(e
     assert outcome.message == TIP
     assert [receipt["text"] for receipt in route_receipts(provider)] == [TIP]
     # The subagent reads the request as the newest message, reads no data, and was not made
-    # to open with its one tool.
+    # to call any tool.
     read = "\n".join(str(message["content"]) for message in provider.calls[1])
     assert read.rstrip().endswith(f"<User>{request}</User>\n</Conversation>")
     offered = [tool["function"]["name"] for tool in provider.options[1]["tools"]]
-    assert offered == ["stop_onboarding"]
+    assert offered == []
     assert provider.options[1]["tool_choice"] is None
 
 
@@ -198,11 +202,11 @@ async def test_ob_stop_005_an_unambiguous_request_is_saved_with_no_screen(e2e_ha
     revision = await _owed_tip(e2e_harness)
     advisor, provider = e2e_harness.advisor(
         [
-            route_turn("onboarding"),
+            route_turn("profile"),
             STOP,
             review_turn("autoapprove", "The user asked to stop the onboarding."),
             OFF,
-            forward_turn("onboarding"),
+            forward_turn("profile"),
         ],
         subagents=subagents(e2e_harness),
         autoapprove=True,
@@ -225,7 +229,7 @@ async def test_ob_stop_005_an_unambiguous_request_is_saved_with_no_screen(e2e_ha
 async def test_ob_stop_005_doubt_or_no_reviewer_takes_the_screen(e2e_harness, reviewer):
     """OB-STOP-005 — tests/brd/onboarding.feature"""
     await _owed_tip(e2e_harness)
-    script = [route_turn("onboarding"), STOP]
+    script = [route_turn("profile"), STOP]
     if reviewer == "doubts":
         script.append(review_turn("require_review", "Enough for today, or for good?"))
     advisor, _ = e2e_harness.advisor(
@@ -260,7 +264,7 @@ async def test_ob_stop_005_a_turn_safwa_took_on_its_own_is_reviewed_against_its_
     assert request is not None
     advisor, provider = e2e_harness.advisor(
         [
-            route_turn("onboarding"),
+            route_turn("profile"),
             STOP,
             review_turn("require_review", "Nobody asked to stop anything."),
         ],

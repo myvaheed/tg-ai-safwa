@@ -425,8 +425,8 @@ Where it does not reach:
 
 - A subagent that `answers_questions` is outside it: words are its expected outcome. One that
   answered questions and changed one of many items would not be covered; that is a reason to split
-  it, not to widen the rule. The ones that change anything change a single item: the Profile,
-  and onboarding's own switch.
+  it, not to widen the rule. Profile changes its fields and can turn onboarding off;
+  onboarding only answers questions and gives tips.
 - An application with nothing to cite gets a question every time, which is the safe direction.
 - It proves that the cited item exists, not that it is the one the owner meant: it makes that
   mistake visible rather than impossible.

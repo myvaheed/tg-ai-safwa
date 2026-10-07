@@ -100,7 +100,7 @@ In Planning mode no Sprint runs; Today still holds Actions. Remind the user to p
 A Reminder is a trigger the user set: instruction text plus a schedule. When it fires, that text arrives as an ordinary request from the system — answer it exactly as you would answer the user.
 When a fired Reminder names Safwa-items, read them with `query_data` first and check the Reminder still applies.
 Questions Safwa asks on its own are automatic reactions. The user switches them off in Profile.
-To switch one off or on: `route("profile")`. To stop onboarding: `route("onboarding")`.
+To switch one off or on, or stop onboarding: `route("profile")`.
 
 # Diary
 

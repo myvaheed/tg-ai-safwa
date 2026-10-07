@@ -1,7 +1,7 @@
 Feature: Onboarding
   Safwa explains itself as the owner works: one notice, a tip from the onboarding subagent after
-  each created or finished item, and the same subagent answering questions about Safwa and
-  proposing to stop the onboarding.
+  each created or finished item, and the same subagent answering questions about Safwa.
+  The Profile subagent proposes to stop the onboarding.
 
   Numbers below name the constant they come from; the tests read the constant.
 
@@ -54,7 +54,7 @@ Feature: Onboarding
   Scenario: OB-STOP-005 — Stopping onboarding is a proposal that an unambiguous request saves itself
     Given onboarding is on
     When the owner's newest message says they do not want it
-    Then the onboarding subagent proposes to turn it off, and it is saved with no screen when
+    Then the Profile subagent proposes to turn it off, and it is saved with no screen when
       the reviewer is available and agrees, by PR-AUTO-024
     And it is off through the same switch as the Profile's, the tips still owed are dropped, and
       nothing on the workspace changed

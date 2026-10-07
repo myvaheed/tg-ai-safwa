@@ -1,10 +1,8 @@
 """The profile subagent: it sets the Profile's fields in words and answers what they hold.
 
-Its one tool writes any of the fields the Profile screen edits, and Save stores each through
-the same check the screen's prompts use. The switches of the automatic reactions are not
-among them: it reads them, to say whether one is on, and says they are switched on the
-Profile → Hooks. What the Profile holds is the block after the conversation, read again at
-every step.
+Its tools write the fields the Profile screen edits and turn onboarding off. Other automatic
+reactions are switched on Profile → Hooks. What the Profile holds is the block after the
+conversation, read again at every step.
 """
 
 from __future__ import annotations
@@ -13,6 +11,7 @@ from typing import ClassVar
 
 from pydantic import Field, model_validator
 
+from tg_agent_shell.ai.autoapproval import AutoApprovalRule
 from tg_agent_shell.ai.contracts import AgentChange, ChangeAction, ToolInput
 from tg_agent_shell.proposals.api import MutationToolSpec
 from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec
@@ -33,8 +32,12 @@ Answer a question about the Profile from that message.
 - Write one short line naming what you propose, in the same response. The review screen shows the rest.
 
 # What you cannot do
-- Switch an automatic reaction on or off: say whether it is on now, and that its switch is on its own screen through ⚙️ Profile → 🔔 Hooks. Propose nothing.
+- Switch an automatic reaction on or off, except stopping onboarding: say whether it is on now, and that its switch is on its own screen through ⚙️ Profile → 🔔 Hooks. Propose nothing.
 - Change the timezone.
+
+# The `stop_onboarding` tool
+Only when the user's newest message asks to stop onboarding; an onboarding request never does.
+Write one line saying you turn it off, and call `stop_onboarding` in that same response.
 
 # Answering
 Your answer goes to the user as you wrote it. Keep it short."""
@@ -59,7 +62,7 @@ async def profile_now(context: AgentContext) -> str:
             lines += [f"- {field.value}: {_shown(profile, field)}" for field in ProfileField]
         lines.append(f"Timezone: {workspace.timezone}. It is not changed here.")
         if context.switches:
-            lines.append("Automatic reactions, switched only on the Profile screen:")
+            lines.append("Automatic reactions (only onboarding can be turned off here):")
             lines += [
                 f"- {hook.title}: "
                 + ("on" if await hook_switched_on(session, hook.name) else "off")
@@ -73,10 +76,10 @@ PROFILE_AGENT = AgentSpec(
     purpose=(
         "change a Profile field or answer what it holds: About me, Advisor instructions, "
         "the Morning and Evening times, the Diary instruction, Home after, "
-        "Time tracking, Effort Points; or asks to switch an automatic reaction."
+        "Time tracking, Effort Points; or asks to switch an automatic reaction or stop onboarding."
     ),
     instructions=PROFILE_PROMPT,
-    mutation_tools=("profile",),
+    mutation_tools=("profile", "stop_onboarding"),
     current=profile_now,
     answers_questions=True,
 )
@@ -133,3 +136,28 @@ PROFILE_TOOL = MutationToolSpec(
     description="Propose new values for one or more Profile fields.",
     to_change=_profile_change,
 )
+
+
+class StopOnboardingInput(ToolInput):
+    """Turn the onboarding off. It takes nothing: off is the one thing it does."""
+
+
+def _off(call: StopOnboardingInput) -> AgentChange:
+    return AgentChange(
+        entity="onboarding", action=ChangeAction.UPDATE, values={"onboarding": "off"}
+    )
+
+
+STOP_ONBOARDING_TOOL = MutationToolSpec(
+    name="stop_onboarding",
+    input_model=StopOnboardingInput,
+    description="Propose turning the onboarding off, when the user asked to stop it.",
+    to_change=_off,
+)
+
+ONBOARDING_AUTOAPPROVALS = {
+    "update": AutoApprovalRule(
+        criteria="Approve only when the user asked in words to stop the onboarding.",
+        allowed_fields=frozenset({"onboarding"}),
+    ),
+}

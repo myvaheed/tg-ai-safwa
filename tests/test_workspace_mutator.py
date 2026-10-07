@@ -25,7 +25,9 @@ from safwa.bootstrap.modules import (
 from safwa.features.advisor.agent import ADVISOR_VIEWS
 from safwa.features.cards.use_cases import create_card
 from safwa.features.diary.agent import DIARY_AGENT
+from safwa.features.onboarding.agent import ONBOARDING_AGENT
 from safwa.features.planning.use_cases import start_sprint
+from safwa.features.profile.agent import PROFILE_AGENT
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.tags.use_cases import create_tag
@@ -47,6 +49,10 @@ def test_every_mutation_tool_belongs_to_the_part_that_owns_what_it_changes():
     assert set(PROPOSALS.tools) - set(MUTATOR_AGENT.mutation_tools) == {
         "diary", "stop_onboarding", "sprint", "profile",
     }
+    assert ONBOARDING_AGENT.mutation_tools == ()
+    assert [agent.name for agent in AGENTS if "stop_onboarding" in agent.mutation_tools] == [
+        PROFILE_AGENT.name,
+    ]
 
 
 def test_the_board_judges_a_change_against_the_state_it_is_given():

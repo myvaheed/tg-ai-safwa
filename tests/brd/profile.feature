@@ -119,7 +119,7 @@ Feature: Profile
   Scenario: PS-AI-020 — The switches are reached through Profile
     When the owner asks Safwa to turn an automatic reaction off or on
     Then Safwa says whether it is on now and that its switch is reached through Profile → Hooks
-    And nothing is proposed, except turning the onboarding off (OB-STOP-005)
+    And nothing is proposed, except turning the onboarding off through the Profile subagent (OB-STOP-005)
 
   Scenario: PS-EP-021 — Effort Points are off until the owner chooses to estimate load
     Given a new workspace
