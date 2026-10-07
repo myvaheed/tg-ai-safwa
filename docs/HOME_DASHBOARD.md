@@ -131,9 +131,14 @@ reads it.
 
 [motivation.py](../src/safwa/features/home/motivation.py): one `run_mini_session` for every Value
 in focus, ending in `motivate(words)`, a list of a Value's number and its text of at most
-`MOTIVATION_MAX_CHARS = 200`. The context is About me, the open Goal titles, the
+`MOTIVATION_MAX_CHARS = 200`. The context is About me, the open Goals in `priority_goals`
+order with their priorities and deadlines, the current Sprint's Success criteria (or an
+explicit note that no Sprint is running), the local date and `today_actions` in Today's order, the
 `MOTIVATION_DONE_ACTIONS = 10` Actions finished last and the `MOTIVATION_DIARY_ENTRIES = 2` Diary
-days written last with words, however old — then the Values, numbered. A number that names no
+days written last with words, however old, and previous motivation — then the Values, numbered.
+The prompt prefers higher-ranked Goals relevant to a Value and connects a relevant Today Action
+to the Sprint's criteria. It asks for a different angle and wording, without repeating the
+previous message or merely rephrasing it. A number that names no
 Value is dropped, and a Value with no words shows its name alone; a session that fails is logged
 and every Value does.
 
@@ -148,6 +153,9 @@ kept words to a screen that must open at once; `write()` returns them, or joins 
 already running, or starts one. The session is a task of its own, so a caller that stops waiting
 — a `/start` replaced by another, an owner acting — does not stop it. The kept words are not
 dropped when the Values change: a Value put in focus within those minutes shows its name alone.
+The last `MOTIVATION_HISTORY_SIZE = 5` successful generations are kept separately in memory for
+the next session, newest first, mapped to the current Value numbers by id. Cache hits and failed
+sessions do not add history. This history survives cache expiry and resets when the bot restarts.
 
 `/start`, `↩️ Menu` and `/clear` draw at once with `fresh()`. Without fresh words,
 `_put_words_in` waits for `write()` in a task the chat spawns, then redraws the message with the

@@ -185,21 +185,6 @@ async def every_finished_action(session: AsyncSession) -> list[FinishedAction]:
     ]
 
 
-async def open_goal_titles(session: AsyncSession) -> list[str]:
-    """What the Goals still to reach are called, oldest first."""
-    return list(
-        await session.scalars(
-            select(Card.title)
-            .where(
-                Card.kind == CardKind.GOAL.value,
-                Card.effective_stage != CardStage.DONE.value,
-                Card.archived_at.is_(None),
-            )
-            .order_by(Card.created_at, Card.id)
-        )
-    )
-
-
 async def tracked_between(
     session: AsyncSession, start: datetime, end: datetime
 ) -> tuple[int, int]:

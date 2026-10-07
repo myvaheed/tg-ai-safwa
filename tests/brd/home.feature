@@ -67,7 +67,11 @@ Feature: Home
   Scenario: HM-VALUES-007 — Each Value in focus carries a few words written for it
     Given Values in focus
     Then each is on the dashboard as a link that opens it, with one or two sentences under it (MOTIVATION_MAX_CHARS = 200)
-    And the words for every Value are written in one request with reasoning off, from those Values, About me, the titles of the open Goals, the 10 Actions finished last (MOTIVATION_DONE_ACTIONS = 10) and the 2 last Diary entries with words (MOTIVATION_DIARY_ENTRIES = 2), however long ago
+    And the words for every Value are written in one request with reasoning off, from those Values, About me, the open Goals in priority_goals order with their priorities and deadlines, the current Sprint's Success criteria, Today Actions in Today's order, the 10 Actions finished last (MOTIVATION_DONE_ACTIONS = 10) and the 2 last Diary entries with words (MOTIVATION_DIARY_ENTRIES = 2), however long ago
+    And with no Sprint running, the session says so instead of reading the next Sprint's draft criteria
+    And higher-ranked Goals relevant to a Value and Today Actions that serve the Sprint's criteria guide the words
+    And the next request reads the last 5 successful generations by Value (MOTIVATION_HISTORY_SIZE = 5), newest first, and asks for a different angle and wording without repeating or merely rephrasing their message
+    And this history lasts until the bot restarts; fresh words reused and failed requests do not add to it
     And a dashboard drawn within 10 minutes of the words being written shows them again without a request (MOTIVATION_FRESH_MINUTES = 10)
     And a dashboard that needs words while a request runs waits for that request and makes none of its own
     And the request runs to its end when the dashboard that asked for it is gone

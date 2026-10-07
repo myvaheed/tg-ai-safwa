@@ -14,7 +14,7 @@ from ui_harness import history_source, services_for
 
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
 from safwa.features.cards.model import Card
-from safwa.features.cards.use_cases import create_card, delete_subtree, finish_action
+from safwa.features.cards.use_cases import create_card, delete_subtree, finish_action, finish_card
 from safwa.features.diary.model import DiaryEntry
 from safwa.features.diary.use_cases import create_diary_entry
 from safwa.features.home import motivation
@@ -23,6 +23,7 @@ from safwa.features.home.motivation import (
     MOTIVATION_DIARY_ENTRIES,
     MOTIVATION_DONE_ACTIONS,
     MOTIVATION_FRESH_MINUTES,
+    MOTIVATION_HISTORY_SIZE,
     MOTIVATION_MAX_CHARS,
     Motivator,
 )
@@ -38,6 +39,7 @@ from safwa.features.profile.telegram.screens import PROFILE_FIELDS
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.summary.window import SUMMARY_HEADER
 from safwa.features.values.use_cases import create_value
+from safwa.foundation.workspace import require_workspace
 from telegram_llm import Note, markdown_to_telegram_html
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
@@ -245,6 +247,104 @@ async def _health(sessions) -> int:
         health = await create_value(session, "Health", active=True)
         await session.commit()
         return health.id
+
+
+@pytest.mark.parametrize("running", [False, True])
+async def test_motivation_reads_ranked_goals_sprint_criteria_and_today(
+    sessions, monkeypatch, running
+) -> None:
+    """HM-VALUES-007 — tests/brd/home.feature"""
+    now = datetime(2026, 10, 7, 22, 30, tzinfo=UTC)
+    monkeypatch.setattr(motivation, "utcnow", lambda: now)
+    await _health(sessions)
+    async with sessions() as session:
+        workspace = await require_workspace(session)
+        workspace.sprint_success_criteria = "A draft for the next Sprint"
+        await create_card(session, kind="goal", title="Low Goal", priority="low")
+        await create_card(session, kind="goal", title="Critical Goal", priority="critical")
+        await create_card(
+            session, kind="goal", title="Deadline Goal", priority="low",
+            schedule="2026-10-15T23:59:00+03:00",
+            schedule_rule={"kind": "deadline", "date": "2026-10-15", "time": None},
+        )
+        closed = await create_card(session, kind="goal", title="Closed Goal")
+        await finish_card(session, closed.id)
+        await _action(session, "Ordinary Today Action", stage="today")
+        await _action(session, "Critical Today Action", stage="today", priority="critical")
+        await _action(session, "Backlog Action")
+        await _action(session, "Sprint Action", stage="sprint")
+        if running:
+            await start_sprint(session, success_criteria="Run three times this Sprint")
+            workspace.sprint_success_criteria = "A draft for the next Sprint"
+        await session.commit()
+    model = Words({"Health": "Move today."})
+
+    await Motivator(model, spawn=spawn_timer).write(sessions)
+
+    context = model.requests[0].messages[1]["content"]
+    assert "Today: 2026-10-08" in context
+    goals = context.split("Priority Goals, highest focus first:\n")[1].split("\n\n")[0]
+    assert goals.splitlines() == [
+        "- Deadline Goal (priority=low) deadline=2026-10-15 23:59",
+        "- Critical Goal (priority=critical)",
+        "- Low Goal (priority=low)",
+    ]
+    assert "Closed Goal" not in context
+    today = context.split("Today Actions, in Today's order:\n")[1].split("\n\n")[0]
+    assert today.splitlines() == [
+        "- Critical Today Action (priority=critical)",
+        "- Ordinary Today Action (priority=medium)",
+    ]
+    assert "Backlog Action" not in context and "Sprint Action" not in context
+    assert "A draft for the next Sprint" not in context
+    assert ("Run three times this Sprint" if running else "No Sprint is running.") in context
+
+
+async def test_new_motivation_reads_recent_words_by_value_after_the_cache_expires(
+    sessions, monkeypatch
+) -> None:
+    """HM-VALUES-007 — tests/brd/home.feature"""
+    now = datetime(2026, 10, 8, 9, tzinfo=UTC)
+    monkeypatch.setattr(motivation, "utcnow", lambda: now)
+    health = await _health(sessions)
+    model = Words({"Health": "Health message 0."})
+    motivator = Motivator(model, spawn=spawn_timer)
+    assert await motivator.write(sessions) == {health: "Health message 0."}
+    assert "Previous motivation, newest first:\nNone." in model.requests[0].messages[1]["content"]
+    async with sessions() as session:
+        family = await create_value(session, "Family", active=True)
+        await session.commit()
+
+    for generation in range(1, MOTIVATION_HISTORY_SIZE + 2):
+        now += timedelta(minutes=MOTIVATION_FRESH_MINUTES)
+        model.said = {
+            "Health": f"Health message {generation}.",
+            "Family": f"Family message {generation}.",
+        }
+        words = await motivator.write(sessions)
+        assert words == {
+            health: f"Health message {generation}.",
+            family.id: f"Family message {generation}.",
+        }
+        context = model.requests[-1].messages[1]["content"]
+        previous = context.split("Previous motivation, newest first:\n")[1].split("\n\n")[0]
+        assert [line for line in previous.splitlines() if line.startswith("- Value 2:")] == [
+            f"- Value 2: Health message {index}."
+            for index in range(generation - 1, max(-1, generation - MOTIVATION_HISTORY_SIZE - 1), -1)
+        ]
+        assert "- Value 1: Health" not in previous
+        assert f"Health message {generation}." not in previous
+        # Reusing fresh words must not add another generation to history.
+        assert await motivator.write(sessions) == words
+        assert len(model.requests) == generation + 1
+
+    now += timedelta(minutes=MOTIVATION_FRESH_MINUTES)
+    model.said = {}
+    assert await motivator.write(sessions) == {}
+    previous = model.requests[-1].messages[1]["content"]
+    model.said = {"Health": "A fresh angle."}
+    assert await motivator.write(sessions) == {health: "A fresh angle."}
+    assert model.requests[-1].messages[1]["content"] == previous
 
 
 async def test_words_are_shown_again_for_10_minutes_without_a_request(

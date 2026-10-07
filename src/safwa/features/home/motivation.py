@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import deque
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -21,10 +23,14 @@ from tg_agent_shell.ai.contracts import ToolInput
 from tg_agent_shell.ai.mini import TerminalTool, run_mini_session
 from tg_agent_shell.foundation.clock import utcnow
 
-from ..cards.api import finished_actions, open_goal_titles
+from ...foundation.workspace import require_workspace
+from ..cards.api import finished_actions
 from ..diary.api import last_entries
+from ..planning.api import today_actions
+from ..planning.model import Sprint
 from ..profile.api import about_me
 from ..values.api import values_in_focus
+from ..workspace_mutator.api import priority_goals
 
 logger = logging.getLogger(__name__)
 
@@ -36,11 +42,18 @@ MOTIVATION_DIARY_ENTRIES = 2
 MOTIVATION_MAX_CHARS = 200
 # How long written words are shown again before they are asked for anew.
 MOTIVATION_FRESH_MINUTES = 10
+# Successful generations kept as context after the displayed words expire.
+MOTIVATION_HISTORY_SIZE = 5
 
 MOTIVATION_PROMPT = (
     "Write a few words for each Value that move the user to live by it today.\n"
-    "Tie each Value to one real thing from About me, the Goals, the finished Actions or "
-    "the Diary.\n"
+    "Tie each Value to one real thing from About me, the Priority Goals, the Sprint's "
+    "Success criteria, Today Actions, the finished Actions or the Diary.\n"
+    "Prefer higher-ranked Goals when they fit the Value.\n"
+    "Connect a relevant Today Action to the Sprint's Success criteria.\n"
+    "Do not invent an Action or a connection to a Value.\n"
+    "Read Previous motivation for each Value; use a different angle and wording.\n"
+    "Do not repeat its message or merely rephrase it.\n"
     f"One or two sentences per Value, at most {MOTIVATION_MAX_CHARS} characters.\n"
     'Speak to the user as "you".\n'
     "Write in the language of the Diary and About me.\n"
@@ -70,11 +83,34 @@ MOTIVATE_TOOL = TerminalTool(
 
 async def owner_context(session: AsyncSession) -> str:
     """What the session reads before the Values."""
-    goals = await open_goal_titles(session)
+    workspace = await require_workspace(session)
+    local_now = utcnow().astimezone(ZoneInfo(workspace.timezone))
+    goals = await priority_goals(session, local_now)
+    sprint = (
+        await session.get(Sprint, workspace.active_sprint_id)
+        if workspace.active_sprint_id else None
+    )
+    today = await today_actions(session, now=local_now)
     done = await finished_actions(session, MOTIVATION_DONE_ACTIONS)
     days = await last_entries(session, MOTIVATION_DIARY_ENTRIES)
-    lines = ["About me:", (await about_me(session)).strip() or "Nothing written.", "", "Goals:"]
-    lines += [f"- {title}" for title in goals] or ["None."]
+    lines = [
+        "About me:", (await about_me(session)).strip() or "Nothing written.", "",
+        f"Today: {local_now:%Y-%m-%d}", "Priority Goals, highest focus first:",
+    ]
+    lines += [
+        f"- {goal.title} (priority={goal.priority})"
+        + (
+            f" deadline={goal.deadline_at.astimezone(local_now.tzinfo):%Y-%m-%d %H:%M}"
+            if goal.deadline_at else ""
+        )
+        for goal in goals
+    ] or ["None."]
+    lines += [
+        "", "Current Sprint's Success criteria:",
+        sprint.success_criteria.strip() if sprint else "No Sprint is running.",
+    ]
+    lines += ["", "Today Actions, in Today's order:"]
+    lines += [f"- {card.title} (priority={card.priority})" for card in today] or ["None."]
     lines += ["", "Actions finished last, newest first:"]
     lines += [f"- {card.completed_at:%Y-%m-%d} {card.title}" for card in done] or ["None."]
     lines += ["", "Diary, newest first:"]
@@ -92,6 +128,7 @@ class Motivator:
         self.provider = provider
         self.spawn = spawn
         self._kept: tuple[datetime, dict[int, str]] | None = None
+        self._history: deque[dict[int, str]] = deque(maxlen=MOTIVATION_HISTORY_SIZE)
         self._writing: asyncio.Task[None] | None = None
 
     def fresh(self) -> dict[int, str] | None:
@@ -125,6 +162,7 @@ class Motivator:
         # Words that failed are not kept: the next Home asks again.
         if words:
             self._kept = (utcnow(), words)
+            self._history.append(words.copy())
 
     async def _ask(self, sessions: async_sessionmaker[AsyncSession]) -> dict[int, str]:
         async with sessions() as session:
@@ -139,11 +177,22 @@ class Motivator:
             f"{number}. {name}" + (f" — {about}" if about else "")
             for number, (_, name, about) in enumerate(values, start=1)
         ]
+        previous = [
+            f"- Value {number}: {words[value_id]}"
+            for words in reversed(self._history)
+            for number, (value_id, _, _) in enumerate(values, start=1)
+            if value_id in words
+        ]
         try:
             result = await run_mini_session(
                 self.provider,
                 system_prompt=MOTIVATION_PROMPT,
-                context="\n".join([shared, "", "Values, numbered:", *listed]),
+                context="\n".join(
+                    [
+                        shared, "", "Previous motivation, newest first:",
+                        *(previous or ["None."]), "", "Values, numbered:", *listed,
+                    ]
+                ),
                 terminals=(MOTIVATE_TOOL,),
                 max_tool_calls=None,
                 reasoning_effort="none",
