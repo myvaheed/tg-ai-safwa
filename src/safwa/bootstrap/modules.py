@@ -172,12 +172,14 @@ REGISTRY: Registry = Registry.of(
 # What the search index understands a text with. Both cut-offs are read off this model with
 # scripts/search_probe.py, so another model is another pair of numbers (docs/SEARCH.md).
 TEXT_MODEL = TextModel(
-    # 384 numbers per text, about 0.22 GB, some 50 languages Russian among them.
-    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-    # Low enough to list some near misses, such as mother and father, rather than miss a
-    # duplicate.
-    alike=0.70,
-    related=0.50,
+    # 768 numbers per text, about 1.2 GB, 2048 tokens of a text, Russian among 100+ languages.
+    # Under the Gemma Terms of Use, which every owner accepts by downloading it.
+    "google/embeddinggemma-300m",
+    alike=0.80,
+    related=0.25,
+    # The prompts EmbeddingGemma was trained with for a search and the texts it looks through.
+    search_prompt="task: search result | query: ",
+    text_prompt="title: none | text: ",
 )
 WORD_FORMS = SnowballWordForms({"cyrillic": "russian", "latin": "english"})
 

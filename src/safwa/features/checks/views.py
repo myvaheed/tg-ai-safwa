@@ -47,7 +47,7 @@ AI_CHECKS = SqlView(
   - a Check with its own Schedule is independent; `card_id` is the one Card a plain Check hangs on, or NULL; `direct_values` is comma-joined
   - `series_id` is the whole series of this check; `card_series_id` is the series of its card: count answers across all copies of a repeating action by it
   - `direct_values` are the Values this Check measures; they are its own, not the Values of its Cards""",
-    searchable=Searchable("check", ("title",)),
+    searchable=Searchable("check", "checks", ("title",)),
 )
 
 

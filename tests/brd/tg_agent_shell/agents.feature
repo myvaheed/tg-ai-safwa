@@ -514,7 +514,8 @@ Feature: Agents — the session, the hand-over, and what comes back
     Then the rows closest to the search come first
     And a row is close by words when it shares a word stem with the search
     And a row is close by meaning when it is at least as close as the text model's related
-      cut-off (TEXT_MODEL.related = 0.50)
+      cut-off (TEXT_MODEL.related = 0.25)
+    And a row is compared by its item's own words, without the marks a view adds to a title
     And the two orders are joined by place (RRF_K = 60)
     And a row close by neither has no relevance and comes last
     And a read without a search has no relevance on any row
@@ -524,10 +525,12 @@ Feature: Agents — the session, the hand-over, and what comes back
     Given an item is created, changed or deleted by a proposal, a screen or a hook
     When a read searches next
     Then it ranks the item as it is now
-    When the application changes its text model or its word forms
+    When the application changes its text model, its prompts or its word forms
     Then every item is indexed again
     When the text model has not finished loading, or failed
     Then a search ranks by words alone
+    When the first indexing after the text model loads fails
+    Then the failure is logged and the next search indexes again
 
   Scenario: AG-SEARCH-060 — The index is read by the shell alone
     Given every searchable text and its vector are in the database file

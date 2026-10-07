@@ -230,7 +230,7 @@ Feature: Proposals
       (SIMILAR_ITEMS_SHOWN = 3)
     And each is cited
     And a Card is compared with every open Card, a Goal, a Subgoal or an Action alike
-    And an item is listed only when it is at least 0.70 alike (TEXT_MODEL.alike = 0.70)
+    And an item is listed only when it is at least 0.80 alike (TEXT_MODEL.alike = 0.80)
     And an open item is a Card not Done and not archived, a Check not answered, any Value, Tag
       or Request, and a Reminder the owner set
     And the words compared are a Card's or a Check's title, a Value's, a Tag's or a Request's

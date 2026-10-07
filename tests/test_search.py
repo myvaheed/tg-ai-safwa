@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from datetime import UTC, datetime
 
 import pytest
 from database_key import keyed
@@ -11,8 +12,10 @@ from scored_encoder import Scored
 
 from llm_gateway import ToolCall
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, TEXT_MODEL, WORD_FORMS
+from safwa.features.cards.model import Card
 from safwa.features.cards.use_cases import create_card, delete_one_card, edit_card_text
 from safwa.features.tags.use_cases import create_tag
+from safwa.foundation.marks import ARCHIVE_MARKER
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, read_query
 from tg_agent_shell.proposals.api import SimilarItems
 from tg_agent_shell.registry import _similar_is_searchable
@@ -130,7 +133,7 @@ async def test_ag_search_058_a_read_without_search_and_views_it_does_not_read_ra
     assert {row["name"]: row["relevance"] for row in tags}["Зубной"] is None
 
 
-async def test_ag_search_058_every_searchable_view_selects_relevance_and_its_fields(
+async def test_ag_search_058_every_searchable_view_selects_relevance_over_its_table(
     sessions, tmp_path
 ):
     """AG-SEARCH-058 — tests/brd/tg_agent_shell/agents.feature"""
@@ -140,12 +143,36 @@ async def test_ag_search_058_every_searchable_view_selects_relevance_and_its_fie
     assert {view.searchable.item_type for view in searchable} == {
         "card", "check", "value", "tag", "request", "reminder", "diary",
     }
+    # Every table and column a view names is read, or this raises.
+    await search_index.refresh()
     for view in searchable:
-        columns = ", ".join(view.searchable.fields)
         rows = await read(
-            tmp_path, search_index, f"SELECT relevance, {columns} FROM {view.name} LIMIT 1", "x"
+            tmp_path, search_index, f"SELECT relevance FROM {view.name} LIMIT 1", "x"
         )
         assert not rows or "status" not in rows[0], (view.name, rows)
+
+
+async def test_ag_search_058_a_row_is_found_by_its_own_words_not_its_marks(sessions, tmp_path):
+    """AG-SEARCH-058 — tests/brd/tg_agent_shell/agents.feature"""
+    title = "Подтягиваться 20 раз"
+    card_id = (await actions(sessions, title))[title]
+    async with sessions() as session:
+        (await session.get(Card, card_id)).archived_at = datetime.now(UTC)
+        await session.commit()
+    encoder = Scored("подтягивание", {title: 0.5})
+    search_index = index(tmp_path, encoder)
+    await search_index.load()
+
+    [row] = await read(
+        tmp_path, search_index, "SELECT title, relevance FROM ai_cards", "подтягивание"
+    )
+    assert row["title"] == title + ARCHIVE_MARKER
+    assert row["relevance"] == pytest.approx(1 / (RRF_K + 1))
+    assert encoder.encoded == [title, "подтягивание"]
+    assert encoder.sent == [
+        TEXT_MODEL.text_prompt + title,
+        TEXT_MODEL.search_prompt + "подтягивание",
+    ]
 
 
 def test_ag_search_058_a_word_matches_by_its_stem_in_its_own_script():
@@ -195,6 +222,10 @@ async def test_ag_search_059_another_model_or_word_forms_indexes_everything_agai
     await index(tmp_path, other, replace(TEXT_MODEL, name="another text model")).load()
     assert other.encoded == [title]
 
+    prompted = Scored(SEARCH, {title: 0.9})
+    await index(tmp_path, prompted, replace(TEXT_MODEL, text_prompt="passage: ")).load()
+    assert prompted.sent == ["passage: " + title]
+
     await index(tmp_path, first, words=SnowballWordForms({})).load()
     assert first.encoded == [title, title]
     assert indexed(tmp_path) == [("card", 1, "title")]
@@ -213,6 +244,23 @@ async def test_ag_search_059_until_the_text_model_loads_a_search_goes_by_words(
     assert ranked[words] is not None
 
     await search_index.load()
+    assert (await relevance(tmp_path, search_index, SEARCH))[meaning] is not None
+
+
+async def test_ag_search_059_a_first_indexing_that_fails_is_tried_again_by_the_next_search(
+    sessions, tmp_path, caplog
+):
+    """AG-SEARCH-059 — tests/brd/tg_agent_shell/agents.feature"""
+    meaning = "Записаться к стоматологу"
+    await actions(sessions, meaning)
+    search_index = index(tmp_path, Scored(SEARCH, {meaning: 0.9}))
+    failing = search_index._refresh
+    search_index._refresh = lambda item_types: (_ for _ in ()).throw(OSError("disk"))
+
+    await search_index.load()
+    assert "The first indexing failed" in caplog.text
+
+    search_index._refresh = failing
     assert (await relevance(tmp_path, search_index, SEARCH))[meaning] is not None
 
 

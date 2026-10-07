@@ -10,7 +10,7 @@ AI_REQUESTS = SqlView(
                relevance('request', id) AS relevance
         FROM saved_requests""",
     doc="- `ai_requests(id, name, description, query_sql, created_at, updated_at, relevance)`",
-    searchable=Searchable("request", ("name", "description")),
+    searchable=Searchable("request", "saved_requests", ("name", "description")),
 )
 
 VIEWS = (AI_REQUESTS,)

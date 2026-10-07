@@ -11,7 +11,7 @@ AI_VALUES = SqlView(
         FROM "values\"""",
     doc="""- `ai_values(id, name, description, active, created_at, updated_at, relevance)`
   - `active` 0 | 1""",
-    searchable=Searchable("value", ("name", "description")),
+    searchable=Searchable("value", "values", ("name", "description")),
 )
 
 

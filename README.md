@@ -56,9 +56,13 @@ Safwa's memory is written by the retro analysis of each Sprint alone and lives i
 
 Safwa finds your items by their words and their meaning, and a screen that creates an item
 lists the open items most like it; both read one search index kept inside the encrypted database
-([SEARCH.md](docs/SEARCH.md)). Meaning comes from a local text model: the first start downloads
-it, about 240 MB, into `data/models/`. Until it has loaded, a search goes by words alone and the
-creating screen goes without its list.
+([SEARCH.md](docs/SEARCH.md)). Meaning comes from a local text model, Google's EmbeddingGemma:
+the first start downloads it, about 1.2 GB, into `data/models/`. Until it has loaded, a search
+goes by words alone and the creating screen goes without its list.
+
+EmbeddingGemma is provided under and subject to the
+[Gemma Terms of Use](https://ai.google.dev/gemma/terms), which you accept by downloading it.
+This repository holds none of its weights, and its own license covers its code alone.
 
 ## Voice input
 

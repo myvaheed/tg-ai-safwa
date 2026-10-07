@@ -71,7 +71,7 @@ AI_CARDS = SqlView(
   - `categories`, `energy_types`, `direct_values` and `direct_tags` are comma-joined names, so match one with `LIKE '%Health%'`
   - `series_id` is the whole repeat series of one card; a card that never repeated is its own series
   - the checks on a card are `ai_checks WHERE card_id = <id>`""",
-    searchable=Searchable("card", ("title", "note", "blocked_description")),
+    searchable=Searchable("card", "cards", ("title", "note", "blocked_description")),
 )
 
 

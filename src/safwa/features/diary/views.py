@@ -15,7 +15,7 @@ FROM diary_entries d""",
     doc="""- `ai_diary(id, entry_date, body, feeling_score, media, created_at, updated_at, relevance)`
   - `entry_date` is `YYYY-MM-DD`; `feeling_score` is 0-10 and NULL for a day that said nothing
   - `media` is the day's photos as `[words](media:N)`, NULL for none; `body` is NULL for a day of photos alone""",
-    searchable=Searchable("diary", ("body",)),
+    searchable=Searchable("diary", "diary_entries", ("body",)),
 )
 
 VIEWS = (AI_DIARY,)

@@ -2,9 +2,9 @@
 
 How a reader finds items by what they say, and how a creating screen finds the items a new one
 repeats. One index serves both: it lives in the encrypted database file, it ranks by words
-(BM25) and by meaning (a local text model), and it is kept current from the `ai_*` views
-themselves. The shell owns the mechanism; an application chooses the model, the language and
-what is searched.
+(BM25) and by meaning (a local text model), and it is kept current from the tables under the
+`ai_*` views. The shell owns the mechanism; an application chooses the model, its prompts, the
+language and what is searched.
 
 The rules are AG-SEARCH-058 to AG-SEARCH-060 in
 [agents.feature](../tests/brd/tg_agent_shell/agents.feature), PR-SIMILAR-030 in
@@ -18,7 +18,7 @@ The rules are AG-SEARCH-058 to AG-SEARCH-060 in
 
 ```mermaid
 flowchart TD
-    V["searchable ai_* views<br/>(SqlView.searchable)"] -->|refresh: hash of every text| IDX
+    V["the tables under the searchable ai_* views<br/>(SqlView.searchable)"] -->|refresh: hash of every text| IDX
     subgraph IDX["the index, inside the database file"]
         E["search_entries<br/>one row per item, field and text<br/>vector of its meaning"]
         F["search_fts<br/>the same rows as word stems"]
@@ -34,10 +34,12 @@ The two consumers ask different questions of the same rows:
 - **`alike` — "is this new item already here?"** It wants precision. Only the item's name field is
   compared with the new item's name, by meaning alone, at `TextModel.alike` or closer.
 
-One cut-off cannot serve both. On the probe's fixed pairs, a search and a text it is about
-scored from 0.51 to 0.90 and an unrelated pair up to 0.46, while six of seven pairs that name
-one thing twice scored 0.70 or more: the screen's cut-off would hide much of what a search
-should find, and the search's would list items that only share a subject as repeats.
+One cut-off cannot serve both, and with a model that is given a search and a text under two
+different prompts they are not even on one scale. On the probe's fixed pairs, a search and a
+text it is about scored from 0.30 to 0.43 and an unrelated pair up to 0.17, while six of seven
+pairs that name one thing twice scored 0.82 or more, and so did calling mother and calling
+father: the screen's cut-off would find nothing a search should, and the search's would list
+every item that shares a subject as a repeat.
 
 ### The index (shell)
 
@@ -47,6 +49,11 @@ contentless FTS5 table whose `rowid` is the entry's `id` and whose one column is
 stems, tokenized `unicode61 remove_diacritics 2`. The FTS5 table is created with its companion
 by a DDL listener on `search_entries`, so `upgrade_database` builds both; an application that
 never builds a `SearchIndex` never imports them, and its database has neither.
+
+A searchable view names the table under it, and the index reads the item's words from that
+table rather than from the view. A view may dress a column up for its reader: `ai_cards` adds the
+repeat and archive marks to a Card's title, and a mark searched as words would only move the
+text away from what the owner wrote.
 
 An item is found by **the best of its texts**. Today a text is a field: a Card has up to three
 (title, note, blocked description), a Diary day one (its body). Nothing in the index, the ranking
@@ -60,22 +67,22 @@ names either table, so no reader's SQL reaches them; the shell reads them on its
 
 ### Keeping it current (shell)
 
-`SearchIndex.refresh` compares, per searchable view, the set of `(item_id, field, text_hash)` the
-view yields now with the set stored:
+`SearchIndex.refresh` compares, per searchable view, the set of `(item_id, field, text_hash)` its
+table holds now with the set stored:
 
-1. `SELECT id, <searchable fields> FROM <view>`; each non-empty field is one text, and its hash is
-   taken over the text model's name, the word forms' name and the text. SQLite resolves every
-   column of a view it reads, so the refresh's connection gets every function a view calls
-   (`add_view_functions`), as the runner's does.
-2. A stored row the view no longer yields is deleted, with its FTS row.
+1. `SELECT id, <searchable fields> FROM <table>`; each non-empty field is one text, and its hash
+   is taken over the text model's name, its text prompt, the word forms' name and the text.
+2. A stored row the table no longer holds is deleted, with its FTS row.
 3. A text the index does not hold is inserted: its stems at once, its vector once the text model
    has loaded. A row whose vector is still missing is filled by the next refresh after loading.
 
 It runs in the background once the text model has loaded at start, and again before every read
 that searches and every creating screen, where it usually finds nothing or one changed text.
-Because it reads the views rather than listening to writes, every path that changes an item — a
-proposal, a screen, a hook — is covered without one line in a use case. A different text model or
-word forms changes every hash, so the next refresh rebuilds the whole index; nothing is migrated.
+Because it reads the tables rather than listening to writes, every path that changes an item — a
+proposal, a screen, a hook — is covered without one line in a use case. A different text model,
+text prompt or word forms changes every hash, so the next refresh rebuilds the whole index;
+nothing is migrated. `SearchIndex.load` is awaited by nothing, so a refresh that fails there is
+logged, and the next read that searches refreshes again.
 
 The index is derived data, not the owner's: a refresh writes it from inside a read, and the
 `TurnManager` rules about committing owner data do not apply to it.
@@ -97,8 +104,8 @@ plain `query_data`. A read that carries `search` gets real values instead:
 2. `refresh` brings those item types up to date.
 3. **Words:** the search is reduced to stems, the stems are OR-ed in an FTS5 `MATCH`, and each
    item takes the best `bm25()` of its rows.
-4. **Meaning:** the search is encoded once; each item takes the highest cosine of its rows, and an
-   item below `TextModel.related` drops out.
+4. **Meaning:** the search is encoded once, after `TextModel.search_prompt`; each item takes the
+   highest cosine of its rows, and an item below `TextModel.related` drops out.
 5. The two orders are joined by place, reciprocal rank fusion:
    `1/(RRF_K + place by words) + 1/(RRF_K + place by meaning)`, `RRF_K = 60`. Places need no common
    scale, so BM25 and cosine are never weighed against each other.
@@ -107,9 +114,9 @@ plain `query_data`. A read that carries `search` gets real values instead:
 
 The runner asks through `Ranking`, the port [sql.py](../src/tg_agent_shell/ai/sql.py) declares
 beside `SqlView` and `Searchable`, so the agent engine imports nothing of the index above it. A
-searchable view that does not select `relevance` or one of its fields fails loudly rather than
-ranking nothing: its refresh raises "no such column", and a read that orders by it is a
-retryable error.
+`Searchable` that names a missing table or column fails loudly rather than ranking nothing: its
+refresh raises "no such table" or "no such column". A searchable view that does not select
+`relevance` makes a read that orders by it a retryable error.
 
 A row close by neither is NULL, which `ORDER BY relevance DESC` puts last. Every filter — type,
 id, stage, date — stays in the same SELECT, and only rows that pass it are ranked, so nothing
@@ -125,14 +132,17 @@ description of `QueryToolInput.search`; a view's `doc` only lists `relevance` am
 A feature's `SimilarItems` names the create value that holds a new item's name and reads its open
 items. When a proposal creates one, the review screen asks `SearchIndex.alike` for the open items
 of that item type whose name field is at least `TextModel.alike` close in meaning, closest first,
-and lists the first `SIMILAR_ITEMS_SHOWN` of them. Words are not used: a shared common word is not
-a repeat. Until the text model has loaded, or once it failed, the screen goes without the list.
+and lists the first `SIMILAR_ITEMS_SHOWN` of them. The new name is encoded after
+`TextModel.text_prompt`, as the stored names were, so two texts are compared as texts. Words are
+not used: a shared common word is not a repeat. Until the text model has loaded, or once it failed, the screen goes without the list.
 At startup the registry refuses a `SimilarItems.field` that is not a searchable field of a view
 with that item type, since the index would hold nothing to compare.
 
 ### Ports and adapters (shell)
 
-- `TextModel(name, alike, related)` — one embedding model and the two cut-offs read off it.
+- `TextModel(name, alike, related, search_prompt, text_prompt)` — one embedding model, the two
+  cut-offs read off it, and what is written before a search and before a text for a model trained
+  to tell the two apart; both prompts are empty for one that is not.
 - `TextEncoder`, texts in and one vector each out, and `FastEmbedEncoder`, its adapter: an ONNX
   model that `fastembed` downloads once into the directory it is given and runs on the CPU, one
   call at a time, off the event loop.
@@ -149,22 +159,23 @@ background, so the first start's download blocks nothing.
 
 Safwa's choices sit in [modules.py](../src/safwa/bootstrap/modules.py):
 
-- `TEXT_MODEL` — the multilingual MiniLM, with `alike = 0.70` and `related = 0.50`, both read
-  off with the probe below. Changing the model is changing this one declaration and calibrating both numbers
-  again.
+- `TEXT_MODEL` — EmbeddingGemma 300M, with its search and text prompts, `alike = 0.80` and
+  `related = 0.25`, both read off with the probe below. Changing the model is changing this one
+  declaration and calibrating both numbers again. The model is under the Gemma Terms of Use: the
+  repository holds no weights, and each owner downloads the model on the first start.
 - `WORD_FORMS` — Cyrillic as Russian, Latin as English.
 - What is searched, declared by each feature on its own view as
-  `SqlView.searchable = Searchable(item_type, fields)`:
+  `SqlView.searchable = Searchable(item_type, table, fields)`:
 
-  | View | Item type | Fields |
-  |---|---|---|
-  | `ai_cards` | `card` | title, note, blocked_description |
-  | `ai_checks` | `check` | title |
-  | `ai_values` | `value` | name, description |
-  | `ai_tags` | `tag` | name, description |
-  | `ai_requests` | `request` | name, description |
-  | `ai_reminders` | `reminder` | instruction |
-  | `ai_diary` | `diary` | body |
+  | View | Item type | Table | Fields |
+  |---|---|---|---|
+  | `ai_cards` | `card` | `cards` | title, note, blocked_description |
+  | `ai_checks` | `check` | `checks` | title |
+  | `ai_values` | `value` | `values` | name, description |
+  | `ai_tags` | `tag` | `tags` | name, description |
+  | `ai_requests` | `request` | `saved_requests` | name, description |
+  | `ai_reminders` | `reminder` | `reminders` | instruction |
+  | `ai_diary` | `diary` | `diary_entries` | body |
 
 - What the creating screen compares and which items are open: each feature's `SimilarItems`.
 - Who searches: every reader whose views include a searchable one. The Advisor and
@@ -173,8 +184,9 @@ Safwa's choices sit in [modules.py](../src/safwa/bootstrap/modules.py):
 
 ### Calibrating the cut-offs
 
-[search_probe.py](../scripts/search_probe.py) loads `TEXT_MODEL` and prints, against the owner's
-own database (it asks for the passphrase):
+[search_probe.py](../scripts/search_probe.py) loads `TEXT_MODEL`, writes its prompts before every
+text as the index does, and prints, against the owner's own database (it asks for the
+passphrase):
 
 - for `alike`: the closest pairs of open items per creating screen, then fixed pairs that are
   the same thing said twice and pairs that only share words, each marked listed or not;
@@ -206,5 +218,4 @@ constant, and the tests read the constant.
   linear in the number of items. Tens of thousands are fine; beyond that the index needs an
   approximate nearest-neighbour structure and a refresh driven by writes.
 - One search per read. Two different searches are two reads.
-- The text model reads about 128 tokens of a text; a longer Diary body is ranked by its start
-  until a model with a longer reach is chosen.
+- The text model reads 2048 tokens of a text; a longer Diary body is ranked by its start.

@@ -2,7 +2,7 @@
 
 `relevance` ranks the rows of a read that searches, by words and by meaning (AG-SEARCH-058).
 `alike` lists the open items a new one repeats on its creating screen (PR-SIMILAR-030). Both
-first `refresh` the item types they read, which compares what each view yields now with what
+first `refresh` the item types they read, which compares the words each item has now with what
 the index holds (AG-SEARCH-059). How the pieces fit is docs/SEARCH.md.
 """
 
@@ -12,11 +12,10 @@ import asyncio
 import hashlib
 import logging
 from collections.abc import Callable, Collection, Iterable, Sequence
-from zoneinfo import ZoneInfo
 
 import numpy
 
-from ..ai.sql import SqlView, add_view_functions
+from ..ai.sql import SqlView
 from ..foundation.database import DatabaseFile
 from .model import FTS_TABLE
 from .words import TextEncoder, TextModel, WordForms
@@ -64,7 +63,7 @@ class SearchIndex:
         self._load = load
         self._encoder: TextEncoder | None = None
         self._lock = asyncio.Lock()
-        # By item type: the view that lists those items, and its searchable fields.
+        # By item type: the table that holds those items' words, and its searchable fields.
         self._sources: dict[str, tuple[str, tuple[str, ...]]] = {}
         self._types_by_view: dict[str, str] = {}
         for view in views:
@@ -73,7 +72,7 @@ class SearchIndex:
             item_type = view.searchable.item_type
             if item_type in self._sources:
                 raise RuntimeError(f"Two views are searchable as {item_type!r}")
-            self._sources[item_type] = (view.name, view.searchable.fields)
+            self._sources[item_type] = (view.searchable.table, view.searchable.fields)
             self._types_by_view[view.name] = item_type
 
     def fields(self, item_type: str) -> tuple[str, ...]:
@@ -82,17 +81,21 @@ class SearchIndex:
         return source[1] if source else ()
 
     async def load(self) -> None:
-        """Load the text model off the event loop, then index everything. A failure is logged,
-        and searching goes on by words alone."""
+        """Load the text model off the event loop, then index everything. Nothing awaits
+        this, so a failure is logged: one to load goes on by words alone, and one to index
+        is tried again by the next search."""
         try:
             self._encoder = await asyncio.to_thread(self._load)
         except Exception:
             logger.exception("The text model did not load; search goes by words alone")
             return
-        await self.refresh()
+        try:
+            await self.refresh()
+        except Exception:
+            logger.exception("The first indexing failed; the next search tries again")
 
     async def refresh(self, item_types: Collection[str] | None = None) -> None:
-        """Bring the named item types, or all of them, up to what their views yield now."""
+        """Bring the named item types, or all of them, up to the words their items have now."""
         async with self._lock:
             await asyncio.to_thread(self._refresh, item_types)
 
@@ -126,15 +129,16 @@ class SearchIndex:
     # ------------------------------------------------------------- off the event loop
 
     def _hash(self, text: str) -> str:
-        key = f"{self.text_model.name}\0{self.words.name}\0{text}"
+        model = self.text_model
+        key = f"{model.name}\0{model.text_prompt}\0{self.words.name}\0{text}"
         return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
-    def _encode(self, texts: Sequence[str]) -> list[numpy.ndarray] | None:
+    def _encode(self, texts: Sequence[str], prompt: str) -> list[numpy.ndarray] | None:
         """Unit vectors, or None while there is no text model or once it failed."""
         if self._encoder is None or not texts:
             return None
         try:
-            return [_unit(vector) for vector in self._encoder.encode(texts)]
+            return [_unit(vector) for vector in self._encoder.encode([prompt + t for t in texts])]
         except Exception:
             logger.exception("The text model failed; these texts wait for the next refresh")
             return None
@@ -145,8 +149,6 @@ class SearchIndex:
         if not types:
             return
         connection = self.database.connect()
-        # Any zone does: the index reads only the searchable columns.
-        add_view_functions(connection, ZoneInfo("UTC"))
         try:
             for item_type in types:
                 self._refresh_type(connection, item_type)
@@ -155,10 +157,10 @@ class SearchIndex:
             connection.close()
 
     def _refresh_type(self, connection, item_type: str) -> None:  # type: ignore[no-untyped-def]
-        view, fields = self._sources[item_type]
+        table, fields = self._sources[item_type]
         columns = ", ".join(f'"{field}"' for field in fields)
         wanted: dict[tuple[int, str, str], str] = {}
-        for item_id, *values in connection.execute(f'SELECT id, {columns} FROM "{view}"'):
+        for item_id, *values in connection.execute(f'SELECT id, {columns} FROM "{table}"'):
             for field, value in zip(fields, values, strict=True):
                 text = str(value).strip() if value is not None else ""
                 if text:
@@ -176,7 +178,7 @@ class SearchIndex:
             key for key, (_, has_vector) in held.items() if key in wanted and not has_vector
         ]
         # Encoded before anything is written, so the write lock is held only for the writes.
-        vectors = self._encode([wanted[key] for key in unmeant]) or []
+        vectors = self._encode([wanted[key] for key in unmeant], self.text_model.text_prompt) or []
         meant = dict(zip(unmeant, vectors, strict=False))
         stale = [entry_id for key, (entry_id, _) in held.items() if key not in wanted]
         for entry_id in stale:
@@ -214,10 +216,11 @@ class SearchIndex:
         return connection.execute(sql, parameters).fetchall()
 
     def _closest(
-        self, connection, item_types: Collection[str], text: str, field: str | None = None  # type: ignore[no-untyped-def]
+        self, connection, item_types: Collection[str], text: str, prompt: str,  # type: ignore[no-untyped-def]
+        field: str | None = None,
     ) -> dict[Key, float]:
-        """Each item's best cosine to `text` over its rows, for the given types."""
-        encoded = self._encode([text])
+        """Each item's best cosine to `text`, encoded after `prompt`, over its rows."""
+        encoded = self._encode([text], prompt)
         rows = self._vectors(connection, item_types, field) if encoded else []
         if not rows:
             return {}
@@ -253,7 +256,9 @@ class SearchIndex:
             by_words = _places(self._by_words(connection, item_types, search), highest_first=False)
             meaning = {
                 key: score
-                for key, score in self._closest(connection, item_types, search).items()
+                for key, score in self._closest(
+                    connection, item_types, search, self.text_model.search_prompt
+                ).items()
                 if score >= self.text_model.related
             }
             by_meaning = _places(meaning, highest_first=True)
@@ -267,7 +272,9 @@ class SearchIndex:
     def _alike(self, item_type: str, field: str, words: str, candidates: frozenset[int]) -> list[int]:
         connection = self.database.connect(read_only=True)
         try:
-            scores = self._closest(connection, (item_type,), words, field)
+            scores = self._closest(
+                connection, (item_type,), words, self.text_model.text_prompt, field
+            )
         finally:
             connection.close()
         close = [

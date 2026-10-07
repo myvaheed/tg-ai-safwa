@@ -3,8 +3,8 @@
 `TextEncoder` is the meaning port — texts in, one vector each out — and `FastEmbedEncoder` its
 adapter: an ONNX model that `fastembed` downloads once into the directory it is given and runs
 on the CPU. `WordForms` is the words port — a text in, its word stems out — and
-`SnowballWordForms` its adapter. `TextModel` is the encoder an application chose, with the two
-cut-offs read off it.
+`SnowballWordForms` its adapter. `TextModel` is the encoder an application chose, with what it
+is told a text is and the two cut-offs read off it.
 """
 
 from __future__ import annotations
@@ -28,6 +28,10 @@ class TextModel:
     alike: float
     # A search counts a row by its meaning at least this close (AG-SEARCH-058).
     related: float
+    # Written before a search, and before every text it is compared with, for a model trained
+    # to tell the two apart. A new item's name on its creating screen is a text.
+    search_prompt: str = ""
+    text_prompt: str = ""
 
 
 class TextEncoder(Protocol):

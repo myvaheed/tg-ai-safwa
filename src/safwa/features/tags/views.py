@@ -9,7 +9,7 @@ AI_TAGS = SqlView(
     """SELECT id, name, description, created_at, updated_at, relevance('tag', id) AS relevance
         FROM tags""",
     doc="- `ai_tags(id, name, description, created_at, updated_at, relevance)`",
-    searchable=Searchable("tag", ("name", "description")),
+    searchable=Searchable("tag", "tags", ("name", "description")),
 )
 
 

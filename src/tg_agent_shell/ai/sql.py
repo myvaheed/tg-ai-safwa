@@ -59,23 +59,17 @@ def local_time(stored: str | None, tz: ZoneInfo) -> str | None:
     return f"{datetime.fromisoformat(stored).replace(tzinfo=UTC).astimezone(tz):%Y-%m-%d %H:%M}"
 
 
-def add_view_functions(connection: driver.Connection, tz: ZoneInfo) -> None:
-    """Every function an `ai_*` view calls besides `relevance`, which every connection has.
-
-    SQLite resolves every column of a view it reads, so a connection that reads one column
-    of a view that calls `local_time` needs `local_time` too.
-    """
-    connection.create_function(
-        "local_time", 1, lambda stored: local_time(stored, tz), deterministic=True
-    )
-
-
 @dataclass(frozen=True, slots=True)
 class Searchable:
-    """What a view gives the search index: the item type its rows are, and the columns that
-    are words. The view also selects `relevance('<item_type>', <id>) AS relevance`."""
+    """What a view gives the search index: the item type its rows are, the table under it,
+    and that table's columns that are words. The view also selects
+    `relevance('<item_type>', <id>) AS relevance`, its `id` being the table's.
+
+    The index reads the table, not the view: a view may dress a column up for its reader,
+    and only an item's own words are searched."""
 
     item_type: str
+    table: str
     fields: tuple[str, ...]
 
 
@@ -99,8 +93,8 @@ class SqlView:
     name: str
     sql: str
     doc: str = ""
-    # The item type and the columns the search index reads from this view, which then
-    # selects `relevance('<item_type>', <id>) AS relevance`.
+    # The item type, and the table and columns the search index reads for this view's rows,
+    # which then selects `relevance('<item_type>', <id>) AS relevance`.
     searchable: Searchable | None = None
 
 
@@ -424,7 +418,9 @@ class ReadOnlyQueryRunner:
                 return driver.SQLITE_DENY
             return driver.SQLITE_OK
 
-        add_view_functions(connection, self.tz)
+        connection.create_function(
+            "local_time", 1, lambda stored: local_time(stored, self.tz), deterministic=True
+        )
         connection.create_function(
             "relevance",
             2,

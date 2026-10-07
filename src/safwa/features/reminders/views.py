@@ -17,7 +17,7 @@ AI_REMINDERS = SqlView(
     doc="""- `ai_reminders(id, instruction, schedule_kind, weekdays, at_time, interval_minutes, quiet_windows, next_fire_at_local, created_at, updated_at, relevance)`
   - `schedule_kind` once | interval | daily | weekly
   - `weekdays` and `quiet_windows` are JSON arrays; `at_time` is local `HH:MM:SS`""",
-    searchable=Searchable("reminder", ("instruction",)),
+    searchable=Searchable("reminder", "reminders", ("instruction",)),
 )
 
 VIEWS = (AI_REMINDERS,)
