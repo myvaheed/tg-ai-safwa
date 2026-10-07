@@ -130,4 +130,4 @@ User-facing strings are complete sentences with Safwa's capitalized domain nouns
 Bot messages are HTML; escape user/model text. Enums store plain `.value` strings.
 Commit subjects follow `vX.Y <short summary>`.
 Other contracts: [LLM_HISTORY.md](docs/LLM_HISTORY.md), [LLM_GATEWAY.md](docs/LLM_GATEWAY.md),
-[HOME_DASHBOARD.md](docs/HOME_DASHBOARD.md), [SECURITY.md](docs/SECURITY.md).
+[HOME_DASHBOARD.md](docs/HOME_DASHBOARD.md), [SECURITY.md](docs/SECURITY.md), [SEARCH.md](docs/SEARCH.md).

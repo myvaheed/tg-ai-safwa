@@ -85,7 +85,8 @@ def test_di_read_006_the_advisor_reads_the_diary_and_hands_over_only_writing() -
     assert "ai_diary" in ALLOWED_VIEWS
     assert "ai_diary(id, entry_date, body, feeling_score" in SYSTEM_PROMPT
     assert "(diary:12)" in SYSTEM_PROMPT
-    assert DIARY_AGENT.views == ()
+    # The Diary reads its days only to find the one it is asked to write (DI-FIND-025).
+    assert DIARY_AGENT.views == ("ai_diary",)
     assert "ai_diary" not in DIARY_PROMPT
 
 
@@ -317,8 +318,8 @@ async def test_di_read_013_the_entry_and_what_was_said_are_read_apart_and_nothin
 ) -> None:
     """DI-READ-013 — tests/brd/diary.feature
 
-    What the session is given, not what the feature declares: the Diary names no view, so
-    the adapters hand it no `query_data`.
+    What the session is given, not what the feature declares: besides its two reads, the
+    adapters hand it `query_data` over its own days alone (DI-FIND-025).
     """
     async with sessions() as session:
         await create_diary_entry(
@@ -352,8 +353,10 @@ async def test_di_read_013_the_entry_and_what_was_said_are_read_apart_and_nothin
     assert offered - set(DIARY_AGENT.mutation_tools) == {
         "read_day",
         "read_conversation",
+        "query_data",
         "nothing_to_do",
     }
+    assert routed.query_runner.views == {"ai_diary"}
     assert written == {
         "date": "2026-08-22",
         "saved": {"body": "Уже записано.", "feeling_score": 7},

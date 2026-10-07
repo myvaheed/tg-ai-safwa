@@ -273,7 +273,10 @@ the reader's prompt snapshot changes with it. `ai_current_sprint` is the shape o
 `planning` publishes it, and the workspace subagent and the heavy analyzer read it while the
 Advisor does not. A view over a table no one feature owns is the application's own:
 `ai_log_events`, over the log every feature that keeps an item writes to, is passed to
-`Registry.of` as `views=` in `bootstrap/modules.py`.
+`Registry.of` as `views=` in `bootstrap/modules.py`. A view whose rows are items the owner
+finds by their words declares `SqlView.searchable` — its item type and the columns that are
+words — and selects `relevance('<item_type>', <id>) AS relevance`; the search index then keeps
+those columns and every reader of the view can rank by them ([SEARCH.md](SEARCH.md)).
 
 **A screen in the menu.** A `ScreenCommand` on the feature's `commands` — `command` for `/name`,
 `nav` for a button, `title` for the words on it, and both fields when it is both. Two more

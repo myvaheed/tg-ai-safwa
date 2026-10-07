@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tg_agent_shell.ai.sql import SqlView
+from tg_agent_shell.ai.sql import Searchable, SqlView
 
 # The raw schedule columns, not a rendered `schedule`: `describe()` is the one wording,
 # and duplicating it in SQL would give the model a second one to disagree with.  The next
@@ -12,11 +12,12 @@ AI_REMINDERS = SqlView(
     "ai_reminders",
     """SELECT id, instruction, schedule_kind, weekdays, at_time, interval_minutes,
                quiet_windows, local_time(next_fire_at) AS next_fire_at_local,
-               created_at, updated_at
+               created_at, updated_at, relevance('reminder', id) AS relevance
         FROM reminders""",
-    doc="""- `ai_reminders(id, instruction, schedule_kind, weekdays, at_time, interval_minutes, quiet_windows, next_fire_at_local, created_at, updated_at)`
+    doc="""- `ai_reminders(id, instruction, schedule_kind, weekdays, at_time, interval_minutes, quiet_windows, next_fire_at_local, created_at, updated_at, relevance)`
   - `schedule_kind` once | interval | daily | weekly
   - `weekdays` and `quiet_windows` are JSON arrays; `at_time` is local `HH:MM:SS`""",
+    searchable=Searchable("reminder", "reminders", ("instruction",)),
 )
 
 VIEWS = (AI_REMINDERS,)

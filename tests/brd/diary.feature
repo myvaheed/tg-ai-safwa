@@ -98,7 +98,7 @@ Feature: Diary
     Then it can read two things, each on its own: the entry saved for that day, and what was said that day
     And the entry comes with its words, its rating and its photos, each photo by its words and its number
     And it reads what was said that day only when this conversation does not say what to write
-    And it is given nothing else to read
+    And besides its own days, which it searches to find one (DI-FIND-025), it is given nothing else to read
 
   Scenario: DI-MOOD-014 — Rewriting a day without naming a rating keeps the rating it had
     Given 15.08.2026 is rated 8
@@ -170,3 +170,9 @@ Feature: Diary
     And once the owner saves it, the photo is called "Рыжий кот на окне" on its links, under it
       when it opens, and on that day
     And the Diary is asked for a name of at most 5 words (DESCRIPTION_MAX_WORDS = 5)
+
+  Scenario: DI-FIND-025 — The Diary finds a day by what happened on it
+    Given the owner names a day by what happened on it rather than by its date
+    When they ask the Diary to write on that day
+    Then the Diary searches its days for those words and writes on the closest day
+    And when no day is close, it changes nothing and says it could not find the day

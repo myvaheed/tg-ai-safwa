@@ -92,7 +92,9 @@ class DiaryToolInput(ToolInput):
 
 DIARY_PROMPT = f"""You keep the user's Diary. One day, one entry, in their own voice.
 
-1. Pick the day: today, unless the user names another.
+1. Pick the day: today, unless the user names another. A day named by what happened on it,
+   not by its date: find it with `query_data` and `search`. No day is close: call nothing_to_do
+   and say so.
 2. Read what is saved for it with `read_day(date)`: its words, rating and photos.
 3. If this conversation does not say what to write for that day, read what was said that day
    with `read_conversation(date)`.
@@ -135,6 +137,11 @@ finished. Pick the band first, then the number inside it.
 When two numbers both fit, take the one nearer 5. Omit `feeling_score` when the day left no sign at
 all of how it felt; a score already saved for that day then stays as it is.
 Send 0 only when the user asks for it in words. Never choose 0 yourself.
+
+# Find a day
+`query_data` runs one read-only `SELECT` over this view only.
+
+{{views}}
 """
 
 _DATE_PARAMETERS: dict[str, Any] = {
@@ -288,6 +295,8 @@ DIARY_AGENT = AgentSpec(
     name="diary",
     purpose="write, rewrite or delete a day, and rename the photos on it.",
     instructions=DIARY_PROMPT,
+    # To find a day by what happened on it (DI-FIND-025).
+    views=("ai_diary",),
     mutation_tools=("diary",),
     read_tools=_diary_read_tools,
     current=_diary_now,

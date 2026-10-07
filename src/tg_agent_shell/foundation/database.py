@@ -72,6 +72,10 @@ def _unicode_like(pattern: object, value: object, *escape: object) -> int | None
     return int(matched is not None)
 
 
+def _no_relevance(item_type: str, item_id: int) -> None:
+    return None
+
+
 class DatabaseRefused(Exception):
     """The file was not opened, because nothing proves it is encrypted with this key."""
 
@@ -106,6 +110,9 @@ class DatabaseFile:
             # does. Overriding it turns off SQLite's LIKE index optimization.
             for arguments in (2, 3):
                 connection.create_function("like", arguments, _unicode_like, deterministic=True)
+            # A searchable view selects `relevance`, so every connection can read it: NULL,
+            # unless a read that searches replaces it on its own connection (AG-SEARCH-058).
+            connection.create_function("relevance", 2, _no_relevance, deterministic=True)
             connection.execute(f"PRAGMA key = \"x'{self.key.hex()}'\"")
             # Before the first read, so a file another connection holds locked is waited for
             # rather than taken for one the key does not open.

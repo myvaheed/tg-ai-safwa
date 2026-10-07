@@ -136,6 +136,7 @@ Read Schedule dates and counts with `get_scheduled`, never from the Schedule tex
 In its result `range` is the asked dates, `sprint` the running Sprint, `total` the whole series, and `null` is unknown.
 
 Use `query_data` whenever the supplied context is insufficient: find matching Cards/Tags/Values, interpret "recent", or calculate metrics. 
+An item the user describes in words: pass those words as `search`.
 It accepts exactly one read-only `SELECT` or `WITH ... SELECT` over these views only.
 Every value listed under a view is the lowercase code stored in that column: query with it, never
 write it to the user.

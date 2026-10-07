@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tg_agent_shell.ai.sql import SqlView
+from tg_agent_shell.ai.sql import Searchable, SqlView
 
 from ...foundation.marks import ARCHIVE_MARKER, LIVE_FORMAT, MARKER_FORMAT
 from .model import TERMINAL_STAGES
@@ -53,9 +53,9 @@ AI_CARDS = SqlView(
                 JOIN "values" v ON v.id=cv.value_id WHERE cv.card_id=c.id) AS direct_values,
                (SELECT group_concat(t.name, ',') FROM card_tags ct
                 JOIN tags t ON t.id=ct.tag_id WHERE ct.card_id=c.id) AS direct_tags,
-               c.created_at, c.updated_at
+               c.created_at, c.updated_at, relevance('card', c.id) AS relevance
         FROM cards c LEFT JOIN schedules s ON s.id=c.schedule_id""",
-    doc="""- `ai_cards(id, title, note, kind, stage, priority, schedule, blocked_description, effort_points, tracked_mins, parent_id, series_id, categories, energy_types, direct_values, direct_tags, created_at, updated_at)`
+    doc="""- `ai_cards(id, title, note, kind, stage, priority, schedule, blocked_description, effort_points, tracked_mins, parent_id, series_id, categories, energy_types, direct_values, direct_tags, created_at, updated_at, relevance)`
   - `kind` goal | subgoal | action
   - `stage` backlog | sprint | today | done
   - `priority` critical | medium | low
@@ -71,6 +71,7 @@ AI_CARDS = SqlView(
   - `categories`, `energy_types`, `direct_values` and `direct_tags` are comma-joined names, so match one with `LIKE '%Health%'`
   - `series_id` is the whole repeat series of one card; a card that never repeated is its own series
   - the checks on a card are `ai_checks WHERE card_id = <id>`""",
+    searchable=Searchable("card", "cards", ("title", "note", "blocked_description")),
 )
 
 

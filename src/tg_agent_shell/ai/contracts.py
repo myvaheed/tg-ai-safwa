@@ -256,6 +256,16 @@ class QueryToolInput(ToolInput):
     sql: str = Field(
         description="One SELECT or WITH ... SELECT over the allowlisted ai_* views."
     )
+    search: str | None = Field(
+        default=None,
+        description=(
+            "Words to find rows by meaning, in the user's wording. A separate argument: never "
+            "write search inside sql. Fills the relevance column; NULL means not close. "
+            'Example: {"search": "sport", "sql": "SELECT id, title FROM <view> WHERE relevance '
+            'IS NOT NULL ORDER BY relevance DESC LIMIT 5"}. An exact name or id: filter in sql '
+            "instead."
+        ),
+    )
 
     @field_validator("sql")
     @classmethod
@@ -264,6 +274,11 @@ class QueryToolInput(ToolInput):
         if not value:
             raise ValueError("sql must not be empty")
         return value
+
+    @field_validator("search")
+    @classmethod
+    def validate_search_text(cls, value: str | None) -> str | None:
+        return (value or "").strip() or None
 
 
 QUERY_TOOL: dict[str, Any] = {

@@ -7,13 +7,13 @@ from types import SimpleNamespace
 import pytest
 from database_key import keyed
 
-from safwa import featuretoggles
 from safwa.bootstrap import main as safwa_main
+from safwa.bootstrap.modules import TEXT_MODEL
 from safwa.config import Settings
 from safwa.constants import INBOX_TAG_NAME
 from safwa.foundation.models import Base
 from tg_agent_shell.foundation.database import Database, DatabaseFile, upgrade_database
-from tg_agent_shell.similarity import SIMILAR_MODEL, Similarity
+from tg_agent_shell.search.index import SearchIndex
 
 pytestmark = pytest.mark.e2e
 
@@ -55,7 +55,7 @@ class FakeProvider:
 
 
 class FakeEncoder:
-    """The similar items model, never downloaded."""
+    """The text model, never downloaded."""
 
     made: list[tuple[str, Path]] = []
 
@@ -194,24 +194,14 @@ async def test_an_existing_workspace_receives_inbox_once_and_deleted_requests_st
         connection.close()
 
 
-async def test_pr_similar_030_the_comparing_model_loads_only_while_similar_items_are_on(
+async def test_ag_search_059_the_text_model_is_loaded_into_the_one_index(
     tmp_path: Path, monkeypatch
 ):
-    """PR-SIMILAR-030 — tests/brd/tg_agent_shell/proposals.feature"""
-    monkeypatch.setattr(featuretoggles, "SIMILAR_ITEMS", False)
-    (tmp_path / "off").mkdir()
-    database, settings = _prepared_startup(tmp_path / "off", monkeypatch)
+    """AG-SEARCH-059 — tests/brd/tg_agent_shell/agents.feature"""
+    database, settings = _prepared_startup(tmp_path, monkeypatch)
     await safwa_main.run(settings, database)
 
-    assert FakeDispatcher.instances[0].data["services"].similarity is None
-    assert FakeEncoder.made == []
-
-    monkeypatch.setattr(featuretoggles, "SIMILAR_ITEMS", True)
-    (tmp_path / "on").mkdir()
-    database, settings = _prepared_startup(tmp_path / "on", monkeypatch)
-    await safwa_main.run(settings, database)
-
-    similarity = FakeDispatcher.instances[0].data["services"].similarity
-    assert isinstance(similarity, Similarity)
-    await similarity.load()
-    assert FakeEncoder.made[-1] == (SIMILAR_MODEL, settings.data_dir / "models")
+    services = FakeDispatcher.instances[0].data["services"]
+    assert isinstance(services.search, SearchIndex)
+    await services.search.load()
+    assert FakeEncoder.made[-1] == (TEXT_MODEL.name, settings.data_dir / "models")

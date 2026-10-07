@@ -22,7 +22,8 @@ from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.history import TelegramHistorySource, TelegramNotes
 from tg_agent_shell.media.library import MediaLibrary
 from tg_agent_shell.recovery import recover_startup
-from tg_agent_shell.similarity import SIMILAR_MODEL, FastEmbedEncoder, Similarity
+from tg_agent_shell.search.index import SearchIndex
+from tg_agent_shell.search.words import FastEmbedEncoder
 from tg_agent_shell.telegram import (
     SHELL_COMMANDS,
     Services,
@@ -33,7 +34,6 @@ from tg_agent_shell.telegram.manifest import AgentContext
 from tg_agent_shell.telegram.routing import build_router
 from tg_agent_shell.turn import TurnManager
 
-from .. import featuretoggles
 from ..config import Settings
 from ..features.advisor.agent import ADVISOR_ROW_LIMITS, ADVISOR_VIEWS
 from ..features.diagnostics.module import SHOW_ANSWER_SOURCE
@@ -63,6 +63,8 @@ from .modules import (
     REGISTRY,
     SCREENS,
     SYSTEM_PROMPT,
+    TEXT_MODEL,
+    WORD_FORMS,
     routed_subagents,
 )
 
@@ -171,12 +173,20 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
 
     provider = OpenAICompatibleProvider(settings.ai_config())
     memory = MemoryReader(database.sessions)
+    search = SearchIndex(
+        database_file,
+        TEXT_MODEL,
+        lambda: FastEmbedEncoder(TEXT_MODEL.name, settings.data_dir / "models"),
+        WORD_FORMS,
+        AI_VIEWS,
+    )
     query_runner = ReadOnlyQueryRunner(
         database_file,
         ALLOWED_VIEWS,
         row_limit=settings.ai_query_row_limit,
         char_budget=settings.ai_query_char_budget,
         timezone=settings.timezone,
+        search=search,
     )
     bot = Bot(
         token=settings.telegram_bot_token.get_secret_value(),
@@ -263,11 +273,6 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
             settings.resolved_asr_model,
             settings.asr_language or "auto",
         )
-    similarity = (
-        Similarity(lambda: FastEmbedEncoder(SIMILAR_MODEL, settings.data_dir / "models"))
-        if featuretoggles.SIMILAR_ITEMS
-        else None
-    )
     services = Services(
         sessions=database.sessions,
         root=advisor,
@@ -293,7 +298,7 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
         views=ALLOWED_VIEWS,
         bot_username=settings.telegram_bot_username,
         transcriber=transcriber,
-        similarity=similarity,
+        search=search,
         media=media,
     )
     # A commit's facts reach the hooks from here on, with the features a Run reaches for;
@@ -323,9 +328,9 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
     ]
     for task in tasks:
         task.add_done_callback(_report_background_exit)
-    if similarity is not None:
-        # A first start downloads the model. Until it has loaded, screens go without the list.
-        tasks.append(asyncio.create_task(similarity.load(), name="similarity-load"))
+    # A first start downloads the text model. Until it has loaded, a search goes by words
+    # alone and a creating screen goes without its list.
+    tasks.append(asyncio.create_task(search.load(), name="search-load"))
     try:
         await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
     finally:
