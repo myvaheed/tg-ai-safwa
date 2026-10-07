@@ -157,6 +157,32 @@ async def test_query_data_cannot_export_a_plain_copy(tmp_path, sql, refused):
     assert not leak.exists()
 
 
+@pytest.mark.parametrize(
+    "sql, parameters, expected",
+    [
+        ("SELECT ? LIKE ?", ("Стоматолог", "%стоматолог%"), 1),
+        ("SELECT ? LIKE ?", ("Dentist", "%dentist%"), 1),
+        ("SELECT ? LIKE ?", ("Ёлка", "ё_ка"), 1),
+        ("SELECT ? LIKE ?", ("Ёлка", "ё_"), 0),
+        ("SELECT ? LIKE ?", ("line\nbreak", "line%"), 1),
+        ("SELECT ? LIKE ?", (42, "4_"), 1),
+        ("SELECT ? LIKE ?", (None, "%"), None),
+        ("SELECT ? LIKE ? ESCAPE ?", ("100%", "100!%", "!"), 1),
+        ("SELECT ? LIKE ? ESCAPE ?", ("1000", "100!%", "!"), 0),
+        ("SELECT ? LIKE ? ESCAPE ?", ("Я_Ты", "я~_ты", "~"), 1),
+        ("SELECT ? LIKE ? ESCAPE ?", ("ЯxТы", "я~_ты", "~"), 0),
+        ("SELECT ? LIKE ? ESCAPE ?", ("a", "a!", "!"), 0),
+        ("SELECT ? LIKE ? ESCAPE ?", ("a", "a", None), None),
+    ],
+)
+def test_like_folds_case_beyond_ascii(tmp_path, sql, parameters, expected):
+    connection = keyed(tmp_path / "app.db").connect()
+    try:
+        assert connection.execute(sql, parameters).fetchone()[0] == expected
+    finally:
+        connection.close()
+
+
 def test_a_key_round_trips_through_its_file_and_only_with_its_passphrase():
     key = new_key()
     content = lock_key(key, PASSPHRASE)

@@ -16,6 +16,8 @@ is the application's own decision, written where that application's rules are.
 from __future__ import annotations
 
 import asyncio
+import re
+from functools import lru_cache
 from pathlib import Path
 from threading import Thread
 
@@ -37,6 +39,37 @@ ITER_CHUNK_SIZE = 64
 def _unicode_nocase(left: str, right: str) -> int:
     left, right = left.casefold(), right.casefold()
     return (left > right) - (left < right)
+
+
+@lru_cache(maxsize=256)
+def _like_pattern(pattern: str, escape: str | None) -> re.Pattern[str]:
+    parts: list[str] = []
+    characters = iter(pattern)
+    for character in characters:
+        if character == escape:
+            character = next(characters, None)
+            if character is None:
+                # SQLite: a pattern ending in its escape character matches nothing.
+                return re.compile("(?!)")
+            parts.append(re.escape(character.casefold()))
+        elif character == "%":
+            parts.append(".*")
+        elif character == "_":
+            parts.append(".")
+        else:
+            parts.append(re.escape(character.casefold()))
+    return re.compile("".join(parts), re.DOTALL)
+
+
+def _unicode_like(pattern: object, value: object, *escape: object) -> int | None:
+    """SQLite's LIKE, folding case beyond ASCII: `value LIKE pattern ESCAPE escape`."""
+    if pattern is None or value is None or None in escape:
+        return None
+    escape_character = str(escape[0]) if escape else None
+    if escape_character is not None and len(escape_character) != 1:
+        raise ValueError("ESCAPE expression must be a single character")
+    matched = _like_pattern(str(pattern), escape_character).fullmatch(str(value).casefold())
+    return int(matched is not None)
 
 
 class DatabaseRefused(Exception):
@@ -69,6 +102,10 @@ class DatabaseFile:
         try:
             # One comparison for Unicode name lookups and case-insensitive UNIQUE indexes.
             connection.create_collation("UNICODE_NOCASE", _unicode_nocase)
+            # The built-in LIKE folds case for ASCII only; this one folds it as the collation
+            # does. Overriding it turns off SQLite's LIKE index optimization.
+            for arguments in (2, 3):
+                connection.create_function("like", arguments, _unicode_like, deterministic=True)
             connection.execute(f"PRAGMA key = \"x'{self.key.hex()}'\"")
             # Before the first read, so a file another connection holds locked is waited for
             # rather than taken for one the key does not open.

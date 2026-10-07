@@ -376,7 +376,9 @@ def test_a_reader_is_scoped_to_the_views_it_declared(tmp_path):
         runner.scoped(("ai_nothing",))
 
 
-def _runner_over_cards(tmp_path, count: int, note: str = "", **caps):
+def _runner_over_cards(
+    tmp_path, count: int, note: str = "", title: str = "Card {index:03d}", **caps
+):
     from safwa.foundation.models import Base
     from tg_agent_shell.ai.sql import create_ai_views
 
@@ -391,7 +393,7 @@ def _runner_over_cards(tmp_path, count: int, note: str = "", **caps):
                 "blocked_description,version,created_at,"
                 "updated_at) VALUES (?,'action',?,?,'backlog','backlog','medium','',1,"
                 "CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
-                (index + 1, f"Card {index:03d}", note),
+                (index + 1, title.format(index=index), note),
             )
     engine.dispose()
     return ReadOnlyQueryRunner(keyed(path), ALLOWED_VIEWS, **caps)
@@ -427,6 +429,14 @@ async def test_query_result_reports_shortened_text_values(tmp_path):
 
     assert len(outcome.rows[0]["note"]) == 100
     assert "cut to 100 characters" in outcome.notice
+
+
+async def test_like_matches_a_title_that_differs_only_in_cyrillic_letter_case(tmp_path):
+    runner = _runner_over_cards(tmp_path, 1, title="Стоматолог")
+
+    outcome = await runner.run("SELECT title FROM ai_cards WHERE title LIKE '%стоматолог%'")
+
+    assert outcome.rows == [{"title": "Стоматолог"}]
 
 
 async def test_recursive_cte_walks_the_card_tree_under_the_authorizer(tmp_path):
