@@ -11,7 +11,6 @@ import pytest
 from hook_helpers import changes_of
 from schedule_helpers import create_card as create_domain_card
 from sqlalchemy import select
-from ui_harness import FakeMessage, services_for
 
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
 from safwa.bootstrap.modules import REGISTRY
@@ -25,7 +24,6 @@ from safwa.features.cards.hooks import (
     schedule_plan_request,
 )
 from safwa.features.cards.model import Card, CardStage
-from safwa.features.cards.telegram import command_today
 from safwa.features.cards.use_cases import (
     archive_subtree,
     delete_subtree,
@@ -33,6 +31,7 @@ from safwa.features.cards.use_cases import (
     move_card,
     update_card_fields,
 )
+from safwa.features.home.dashboard import dashboard_text
 from safwa.features.planning.agent import sprint_now
 from safwa.features.planning.api import (
     SPRINT_ENDED,
@@ -1147,13 +1146,12 @@ async def test_pl_key_025_today_is_ordered_by_what_the_day_cannot_move(sessions)
             "- [Tomorrow", "- [Critical", "- [Key", "- [Later this week", "- [Plain",
         ]
 
-    # The Today screen shows them in that order too.
-    message = FakeMessage(974, bot_message=True)
-    await command_today(message, services_for(sessions))
-    shown = message.edits[-1][0].splitlines()
-    assert [line[2:].split(" · ")[0] for line in shown if line.startswith("• ")] == [
-        "Tomorrow", "Critical", "Key", "Later this week", "Plain",
-    ]
+    # Today on the Home dashboard shows them in that order too.
+    async with sessions() as session:
+        home = await dashboard_text(session, {})
+    today = home.split("☀️ Today")[1]
+    titles = ["Tomorrow", "Critical", "Key", "Later this week", "Plain"]
+    assert sorted(titles, key=lambda title: today.index(f"[{title}]")) == titles
 
     async with sessions() as session:
         # A Hard Time that passed yesterday holds nothing today.

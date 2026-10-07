@@ -184,8 +184,9 @@ estimate Action load, configure Sprint capacity and receive Today overload warni
 Without them, Sprint and retro use Action counts. Turning them off keeps existing
 estimates and capacity, and Time tracking has its own independent switch.
 
-Use `/start`, `/today`, `/sprint`, `/values`, `/tags`, `/requests`, `/reminders`, `/memory`,
-`/summarize`, `/status`, and `/cancel`. The Backlog and the Profile are menu buttons only.
+Use `/start`, `/sprint`, `/values`, `/tags`, `/requests`, `/reminders`, `/memory`,
+`/summarize`, `/status`, `/clear` and `/cancel`. The Dashboard, its Backlog, the Diary and the
+Profile are menu buttons only; Today is on the Home dashboard.
 
 The advisor reads a window of the chat bounded by a token budget, so nothing has to be started or
 ended. `/summarize` writes a `📜 Summary` on demand, which becomes the far edge of that window.

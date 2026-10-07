@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.errors import DomainError
-from tg_agent_shell.telegram import Page, Services, choice_rows, choice_screen, paginate
+from tg_agent_shell.telegram import Page, Place, Services, choice_rows, choice_screen, paginate
 
 from ....constants import SELECTOR_PAGE_SIZE
 from ...profile.api import effort_tracking_on
@@ -194,17 +194,16 @@ async def handle_card_creation_chooser(
         if relation is not None:
             selected = set(state[relation.draft_field])
 
-            def build(value: Any, relation: RelationChoice = relation) -> tuple[str, dict]:
-                return (
-                    f"card_create_toggle_{relation.singular}",
-                    {relation.payload_key: value},
+            def build(value: Any, relation: RelationChoice = relation) -> Place:
+                return Place(
+                    f"card_create_toggle_{relation.singular}", {relation.payload_key: value}
                 )
         else:
             state_field = SINGLE_CHOICE_FIELDS[field]
             selected = {state[state_field]}
 
-            def build(value: Any, state_field: str = state_field) -> tuple[str, dict]:
-                return "card_create_set", {"field": state_field, "value": value}
+            def build(value: Any, state_field: str = state_field) -> Place:
+                return Place("card_create_set", {"field": state_field, "value": value})
 
         choices = choice_rows(current.items if current else options, selected, build)
         await session.commit()
@@ -213,18 +212,25 @@ async def handle_card_creation_chooser(
         services,
         CHOICE_TITLES[field],
         choices,
-        back=("↩️ Back", "card_create_view", {}),
-        paging=(current, action, {}) if current else None,
+        back=Place("card_create_view"),
+        paging=(current, Place(action)) if current else None,
     )
 
 
 async def render_card_choices(
-    message: Message, services: Services, action: str, card_id: int, *, page: int = 0
+    message: Message,
+    services: Services,
+    action: str,
+    card_id: int,
+    *,
+    page: int = 0,
+    back: Place | None = None,
 ) -> None:
     """Render field and relationship selectors for an already committed Card.
 
     Every selection routes its mutation through the domain layer, and the screens
-    themselves stay out of the persona dialogue.
+    themselves stay out of the persona dialogue. `back` is where the Card was opened from,
+    so a choice redraws the Card with the way back it had.
     """
     field = action.removeprefix("card_choose_")
     if field not in CARD_CHOICE_FIELDS:
@@ -243,25 +249,26 @@ async def render_card_choices(
                 )
             )
 
-            def build(value: Any, relation: RelationChoice = relation) -> tuple[str, dict]:
+            def build(value: Any, relation: RelationChoice = relation) -> Place:
                 # The page rides along, so ticking one on page 2 comes back to page 2.
-                return (
+                return Place(
                     f"card_toggle_{relation.singular}",
                     {"id": card.id, relation.payload_key: value, "page": page},
+                    back,
                 )
         elif field == "stage":
             # A stage change is a domain move, not a plain field write.
             selected = {card.effective_stage}
 
-            def build(value: Any) -> tuple[str, dict]:
-                return "card_move", {"id": card.id, "stage": value}
+            def build(value: Any) -> Place:
+                return Place("card_move", {"id": card.id, "stage": value}, back)
 
         else:
             column = SINGLE_CHOICE_FIELDS[field]
             selected = {getattr(card, column)}
 
-            def build(value: Any, column: str = column) -> tuple[str, dict]:
-                return "card_set_field", {"id": card.id, "field": column, "value": value}
+            def build(value: Any, column: str = column) -> Place:
+                return Place("card_set_field", {"id": card.id, "field": column, "value": value}, back)
 
         choices = choice_rows(current.items if current else options, selected, build)
         await session.commit()
@@ -270,6 +277,6 @@ async def render_card_choices(
         services,
         CHOICE_TITLES[field],
         choices,
-        back=("↩️ Back", "card_view", {"id": card_id}),
-        paging=(current, action, {"id": card_id}) if current else None,
+        back=Place("card_view", {"id": card_id}, back),
+        paging=(current, Place(action, {"id": card_id}, back)) if current else None,
     )

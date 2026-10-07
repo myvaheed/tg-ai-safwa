@@ -475,8 +475,10 @@ class ChatHost:
         *,
         keep: Collection[str],
         first: int = 0,
+        spare: Collection[int] = (),
     ) -> None:
-        """Take every message from `first` to `last` out of the chat, whoever sent it.
+        """Take every message from `first` to `last` out of the chat, whoever sent it, but
+        the ids in `spare`, which stay in the chat with their notes.
 
         In a private chat both sides share one sequence of ids, so a range is everything
         in it, the person's messages and commands included; an id that is gone is skipped.
@@ -491,7 +493,11 @@ class ChatHost:
             for note in await self.notes.messages(chat_id, limit=SCAN_LIMIT)
             if note.at is not None and _utc(note.at) >= since
         ]
-        ids = list(range(max(first, min(deletable, default=last + 1)), last + 1))
+        ids = [
+            message_id
+            for message_id in range(max(first, min(deletable, default=last + 1)), last + 1)
+            if message_id not in spare
+        ]
         for start in range(0, len(ids), TELEGRAM_DELETE_BATCH):
             try:
                 await bot.delete_messages(
@@ -500,7 +506,11 @@ class ChatHost:
             except TelegramAPIError as error:
                 logger.warning("Could not clear messages from %s: %s", ids[start], error)
         for note in await self.notes.outgoing(chat_id):
-            if first <= note.message_id <= last and note.kind not in keep:
+            if (
+                first <= note.message_id <= last
+                and note.kind not in keep
+                and note.message_id not in spare
+            ):
                 await self.notes.forget(chat_id, note.message_id)
 
     async def freeze_screen(self, message: Message, screen: Note, text: str, kind: str) -> None:

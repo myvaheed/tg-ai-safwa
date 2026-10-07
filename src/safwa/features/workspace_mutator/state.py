@@ -7,7 +7,7 @@ is the flag that asks for it.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -17,7 +17,7 @@ from tg_agent_shell.ai.messages import StateBlocks
 from tg_agent_shell.foundation.clock import utcnow
 
 from ...foundation.workspace import Workspace
-from ..cards.model import Card, CardKind, CardStage, Priority, effort_label
+from ..cards.model import effort_label
 from ..planning.api import (
     capacity_effort_points,
     plan_load,
@@ -29,55 +29,14 @@ from ..planning.model import Sprint
 from ..profile.model import UserProfile
 from ..schedules.api import appointment_label
 from ..tags.model import Tag
-from ..values.model import CardValue, Value
+from ..values.model import Value
+from .api import priority_goals
 
 CONTEXT_PRIORITY_GOAL_LIMIT = 10
-PRIORITY_GOAL_DEADLINE_DAYS = 7
 
 def citation(name: str, kind: str, item_id: int) -> str:
     """The one shape an item takes in context, ready for the model to reuse in a reply."""
     return f"[{name}]({kind}:{item_id})"
-
-
-async def _priority_goals(session: AsyncSession, local_now: datetime) -> list[Card]:
-    """Open Goals in focus order, with urgent Deadlines before ordinary importance."""
-    linked_active_value = (
-        select(CardValue.card_id)
-        .join(Value, Value.id == CardValue.value_id)
-        .where(
-            CardValue.card_id == Card.id,
-            Value.active.is_(True),
-        )
-        .exists()
-    )
-    rows = await session.execute(
-        select(Card, linked_active_value).where(
-            Card.kind == CardKind.GOAL.value,
-            Card.parent_id.is_(None),
-            Card.effective_stage != CardStage.DONE.value,
-            Card.archived_at.is_(None),
-        )
-    )
-    near = local_now.date() + timedelta(days=PRIORITY_GOAL_DEADLINE_DAYS)
-    ranks = list(Priority)
-
-    def focus_order(row):
-        goal, active_value = row
-        deadline = goal.deadline_at
-        urgent = deadline is not None and deadline.astimezone(local_now.tzinfo).date() <= near
-        return (
-            not urgent,
-            ranks.index(Priority(goal.priority)),
-            not active_value,
-            goal.effective_stage not in (CardStage.SPRINT.value, CardStage.TODAY.value),
-            deadline is None,
-            deadline or local_now,
-            goal.created_at,
-            goal.id,
-        )
-
-    ordered = sorted(rows.unique(), key=focus_order)
-    return [goal for goal, _ in ordered[:CONTEXT_PRIORITY_GOAL_LIMIT]]
 
 
 async def workspace_context(session: AsyncSession) -> StateBlocks:
@@ -138,7 +97,7 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
         )
         if (capacity := await capacity_effort_points(session)) is not None:
             lines.append(f"Next Sprint's capacity: {effort_label(capacity)} EP.")
-    goals = await _priority_goals(session, local_now)
+    goals = (await priority_goals(session, local_now))[:CONTEXT_PRIORITY_GOAL_LIMIT]
     # An empty heading would read the owner's next line as its first item.
     if goals:
         lines.append("Priority Goals:")

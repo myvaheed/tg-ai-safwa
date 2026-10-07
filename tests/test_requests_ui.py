@@ -195,3 +195,27 @@ async def test_sr_ui_013_a_new_workspace_starts_with_requests_and_a_screen_about
         FakeCallback(back.callback_data.split(":", 1)[1], message), services
     )
     assert "❓ О Запросах" in button_texts(message.edits[-1][1])
+
+
+async def test_a_request_opened_from_the_list_goes_back_to_it(sessions) -> None:
+    """SC-BACK-012 — tests/brd/tg_agent_shell/screens.feature"""
+    await seed_plan(sessions)
+    async with sessions() as session:
+        await create_saved_request(
+            session, "Only Pick me", "SELECT id FROM ai_cards WHERE title = 'Pick me'",
+            views=ALLOWED_VIEWS,
+        )
+        await session.commit()
+    services = services_for(sessions)
+    listing = FakeMessage(950, bot_message=True)
+    await command_requests(listing, services)
+
+    opened = listing.edits[-1][1].inline_keyboard[0][0]
+    await callback_token_handler(FakeCallback(opened.callback_data.split(":", 1)[1], listing), services)
+    assert "<b>Only Pick me</b>" in listing.edits[-1][0]
+    labels = button_texts(listing.edits[-1][1])
+    assert labels[-1] == "↩️ Back" and "↩️ Menu" not in labels
+
+    back = listing.edits[-1][1].inline_keyboard[-1][0]
+    await callback_token_handler(FakeCallback(back.callback_data.split(":", 1)[1], listing), services)
+    assert "<b>Requests</b>" in listing.edits[-1][0]

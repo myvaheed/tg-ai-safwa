@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import html
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -13,8 +13,10 @@ from sqlalchemy import delete
 
 from ..foundation.errors import DomainError
 from ..foundation.kinds import MessageKind
-from .chat import delete_text_input, edit_registered_message, token_button
+from .chat import delete_text_input, edit_registered_message
 from .model import UiSession
+from .navigation import back_button, place_button
+from .place import Place
 from .services import Services
 
 _DEFAULT_TTL = timedelta(minutes=30)
@@ -25,19 +27,18 @@ class TextInputAction:
     """An optional non-mutating route available beside the universal Back button."""
 
     text: str
-    action: str
-    payload: dict[str, Any]
+    place: Place
 
 
 @dataclass(frozen=True, slots=True)
 class TextInputScreen:
-    """The display and navigation contract for one editable text value."""
+    """The display and navigation contract for one editable text value. `back` is the
+    screen the editor stands in for."""
 
     title: str
     current_value: str
     instruction: str
-    back_action: str
-    back_payload: dict[str, Any]
+    back: Place
     related_id: int | None = None
     ttl: timedelta = _DEFAULT_TTL
     extra_actions: tuple[TextInputAction, ...] = ()
@@ -76,6 +77,12 @@ def _screen_text(screen: TextInputScreen, notice: str | None) -> str:
     return "\n\n".join(parts)
 
 
+def edited_screen(state: Mapping[str, Any]) -> Place:
+    """The screen an editor stands in for, from the state its flow is handed: what the
+    flow redraws once the value is written."""
+    return Place.at(state["text_input"]["back"])
+
+
 def _screen_from_state(state: dict[str, Any]) -> TextInputScreen:
     saved = state.get("text_input")
     if not isinstance(saved, dict):
@@ -84,16 +91,11 @@ def _screen_from_state(state: dict[str, Any]) -> TextInputScreen:
         title=str(saved["title"]),
         current_value=str(saved["current_value"]),
         instruction=str(saved["instruction"]),
-        back_action=str(saved["back_action"]),
-        back_payload=dict(saved.get("back_payload") or {}),
+        back=Place.at(saved["back"]),
         related_id=saved.get("related_id"),
         ttl=timedelta(seconds=int(saved.get("ttl_seconds", _DEFAULT_TTL.total_seconds()))),
         extra_actions=tuple(
-            TextInputAction(
-                text=str(action["text"]),
-                action=str(action["action"]),
-                payload=dict(action.get("payload") or {}),
-            )
+            TextInputAction(text=str(action["text"]), place=Place.at(action["place"]))
             for action in saved.get("extra_actions", [])
         ),
     )
@@ -119,12 +121,11 @@ async def render_text_input(
             "title": screen.title,
             "current_value": screen.current_value,
             "instruction": screen.instruction,
-            "back_action": screen.back_action,
-            "back_payload": screen.back_payload,
+            "back": screen.back.address,
             "related_id": screen.related_id,
             "ttl_seconds": int(screen.ttl.total_seconds()),
             "extra_actions": [
-                {"text": action.text, "action": action.action, "payload": action.payload}
+                {"text": action.text, "place": action.place.address}
                 for action in screen.extra_actions
             ],
         },
@@ -140,25 +141,10 @@ async def render_text_input(
             )
         )
         rows = [
-            [
-                await token_button(
-                    session,
-                    services.owner_id,
-                    action.text,
-                    action.action,
-                    action.payload,
-                )
-            ]
+            [await place_button(session, services.owner_id, action.text, action.place)]
             for action in screen.extra_actions
         ]
-        back = await token_button(
-            session,
-            services.owner_id,
-            "↩️ Back",
-            screen.back_action,
-            screen.back_payload,
-        )
-        rows.append([back])
+        rows.append([await back_button(session, services.owner_id, screen.back)])
         await session.commit()
     await edit_registered_message(
         message,

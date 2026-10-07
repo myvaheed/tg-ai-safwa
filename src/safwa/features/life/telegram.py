@@ -24,6 +24,7 @@ from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,
+    Place,
     Services,
     TextInputScreen,
     dismiss_prior_ui,
@@ -344,8 +345,7 @@ async def _on_edit(context: CallbackContext) -> None:
             title=field.title,
             current_value=current,
             instruction=field.instruction,
-            back_action="life_settings",
-            back_payload={"page": _page(context)},
+            back=Place("life_settings", {"page": _page(context)}),
         ),
         state={"flow": "life", "field": name, "page": _page(context)},
     )

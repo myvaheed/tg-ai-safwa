@@ -105,4 +105,4 @@ async def test_the_inbox_tag_screen_offers_neither_rename_nor_delete(sessions) -
     await render_tag(message, services_for(sessions), mode="view", item_id=tag_id)
     text, markup = message.edits[-1]
     assert "cannot be renamed or deleted" in text
-    assert button_texts(markup) == ["📝 Description", "↩️ Back"]
+    assert button_texts(markup) == ["📝 Description", "↩️ Menu"]

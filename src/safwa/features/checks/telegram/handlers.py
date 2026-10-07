@@ -14,13 +14,15 @@ from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,
+    Place,
     Services,
     TextInputScreen,
-    go_back,
-    go_back_action,
+    back_button,
+    edited_screen,
+    go,
+    place_button,
     render_text_input,
     send_registered,
-    token_button,
 )
 from tg_agent_shell.telegram.contributions import TextInputFlow
 
@@ -31,14 +33,9 @@ from ..use_cases import delete_check, resolve_check, toggle_check_value, update_
 from .screens import render_check, render_check_values, render_checks
 
 
-def _back(context: CallbackContext) -> dict[str, Any]:
-    return dict(context.payload.get("back") or {})
-
-
-def _card_id(context: CallbackContext) -> int | None:
-    """A Check opened by the advisor, or hanging on no Card, has no owning Card screen."""
-    card_id = context.payload.get("card_id")
-    return int(card_id) if card_id is not None else None
+def _check(context: CallbackContext) -> Place:
+    """The Check a press on its screen was made on."""
+    return Place("check_view", {"id": int(context.payload["id"])}, context.back)
 
 
 async def _on_list(context: CallbackContext) -> None:
@@ -46,7 +43,7 @@ async def _on_list(context: CallbackContext) -> None:
         context.message,
         context.services,
         int(context.payload["card_id"]),
-        back=_back(context),
+        back=context.back,
     )
 
 
@@ -55,8 +52,7 @@ async def _on_choose_values(context: CallbackContext) -> None:
         context.message,
         context.services,
         context.payload["id"],
-        card_id=context.payload.get("card_id"),
-        back=context.payload.get("back"),
+        back=context.back,
         page=int(context.payload.get("page", 0)),
     )
 
@@ -73,8 +69,8 @@ async def _on_view(context: CallbackContext) -> None:
         context.message,
         context.services,
         int(context.payload["id"]),
-        card_id=_card_id(context),
-        back=_back(context),
+        back=context.back,
+        notice=context.payload.get("notice"),
     )
 
 
@@ -86,8 +82,8 @@ async def _on_open_schedule(context: CallbackContext) -> None:
         context.services,
         Check,
         int(context.payload["id"]),
-        edit=("check_edit_schedule", context.payload),
-        back=("check_view", context.payload),
+        edit=Place("check_edit_schedule", {"id": int(context.payload["id"])}, context.back),
+        back=_check(context),
     )
     if not shown:
         await _on_edit_schedule(context)
@@ -106,10 +102,9 @@ async def _on_edit_schedule(context: CallbackContext) -> None:
             title="Edit Check Schedule",
             current_value=current,
             instruction=SCHEDULE_INSTRUCTION,
-            back_action="check_view",
-            back_payload=context.payload,
+            back=_check(context),
         ),
-        state={"flow": "check_schedule", **context.payload},
+        state={"flow": "check_schedule", "id": int(context.payload["id"])},
     )
 
 
@@ -134,8 +129,7 @@ async def _render_schedule(
         message,
         services,
         int(state["id"]),
-        card_id=state.get("card_id"),
-        back=state.get("back"),
+        back=edited_screen(state).back,
         replace_message_id=int(state["text_input"]["message_id"]),
     )
 
@@ -156,16 +150,13 @@ async def _on_delete_prompt(context: CallbackContext) -> None:
         check = await session.get(Check, int(context.payload["id"]))
         if check is None:
             raise DomainError("Check does not exist")
-        confirm = await token_button(
+        confirm = await place_button(
             session,
             context.owner_id,
             "Permanently delete Check",
-            "check_delete_confirm",
-            context.payload,
+            Place("check_delete_confirm", {"id": check.id}, context.back),
         )
-        back = await token_button(
-            session, context.owner_id, "↩️ Back", "check_view", context.payload
-        )
+        back = await back_button(session, context.owner_id, _check(context))
         title = check.title
         await session.commit()
     await send_registered(
@@ -182,11 +173,8 @@ async def _on_delete_confirm(context: CallbackContext) -> None:
     async with context.sessions() as session:
         await delete_check(session, int(context.payload["id"]))
         await session.commit()
-    # Back to the list it was opened from, or to wherever a Check on no list came from.
-    if _card_id(context) is None:
-        await go_back(context, _back(context))
-    else:
-        await _on_list(context)
+    # Back to wherever the Check was opened from: its list, its Card, or the menu.
+    await go(context, context.back)
 
 
 async def _on_set_status(context: CallbackContext) -> None:
@@ -200,8 +188,7 @@ async def _on_set_status(context: CallbackContext) -> None:
         context.message,
         context.services,
         int(context.payload["id"]),
-        card_id=_card_id(context),
-        back=_back(context),
+        back=context.back,
         notice=notice,
     )
 
@@ -217,5 +204,4 @@ CHECK_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "check_set_status": _on_set_status,
     "check_delete_prompt": _on_delete_prompt,
     "check_delete_confirm": _on_delete_confirm,
-    "check_back": go_back_action,
 }

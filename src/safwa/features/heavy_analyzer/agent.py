@@ -73,8 +73,8 @@ Aim for a result of a few rows: aggregate, group and count rather than listing e
 Every value listed under a view is the lowercase code stored in that column.
 
 {views}
-- In `ai_cards` and `ai_checks` a title ending in ` [🔄2, live #7]` is a finished instance and #7 is the open one.
-- ` [🔄2]` with no id means the series has ended. ` [📦]` means archived: it still counts.
+- In `ai_cards` and `ai_checks` a title ending in ` [✅2, 🔄#7]` is a finished instance and #7 is the open one. ❌ in place of ✅: a Check answered Missed.
+- ` [✅2]` with no id means the series has ended. ` [📦]` means archived: it still counts.
 
 `created_at` and `updated_at` are UTC text: compare them with `datetime('now')`.
 """

@@ -24,8 +24,7 @@ from .telegram import (
     CARD_CALLBACK_ACTIONS,
     CARD_TEXT_INPUTS,
     card_citation_label,
-    command_backlog,
-    command_today,
+    command_board,
     render_card,
     start_manual_card_creation,
 )
@@ -53,15 +52,8 @@ MODULE = FeatureModule(
         ),
     ),
     commands=(
-        # The Backlog is one tap away in the menu, so it needs no command line too.
-        ScreenCommand(handler=command_backlog, nav="backlog", title="📚 Backlog"),
-        ScreenCommand(
-            handler=command_today,
-            command="today",
-            description="Today dashboard",
-            nav="today",
-            title="☀️ Today",
-        ),
+        # Every stage side by side, the Backlog one tap further; Today is on Home itself.
+        ScreenCommand(handler=command_board, nav="board", title="🗂 Dashboard"),
         # Add is a menu button and nothing else: a Card is created on a screen.
         ScreenCommand(
             handler=start_manual_card_creation, nav="add", title="➕ Add"

@@ -17,6 +17,7 @@ from aiogram.types import BotCommand, CallbackQuery, Message
 from sqlalchemy import delete
 
 from ..foundation.kinds import MessageKind
+from .callbacks import SCREEN_LINK
 from .chat import dismiss_prior_ui, owner_anchor, remove_turn_notice, send_registered
 from .contributions import HOME_NAV, ScreenCommand
 from .layout import home_markup, start_payload
@@ -27,10 +28,12 @@ logger = logging.getLogger(__name__)
 
 
 def claimed_link(services: Services, payload: str | None):
-    """The feature that answers this deep link itself, if one does."""
+    """What answers this deep link itself, if anything does: a link inside a screen, or a
+    feature's own."""
     if payload is None:
         return None
-    return next((link for link in services.start_links if link.claims(payload)), None)
+    links = (SCREEN_LINK, *services.start_links)
+    return next((link for link in links if link.claims(payload)), None)
 
 
 async def dismiss_screens_before_a_command(
@@ -50,12 +53,6 @@ async def dismiss_screens_before_a_command(
         if claimed_link(services, start_payload(text)) is None:
             await dismiss_prior_ui(event, services)
     return await handler(event, data)
-
-
-async def open_home(message: Message, services: Services) -> None:
-    """Draw the menu screen, whichever feature owns it. The shell holds no list of them."""
-    handler = next(screen.handler for screen in services.commands if screen.nav == HOME_NAV)
-    await handler(message, services)
 
 
 async def command_cancel(message: Message, services: Services) -> None:

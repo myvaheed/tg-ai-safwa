@@ -97,10 +97,3 @@ async def require_card_draft(session: AsyncSession, owner_id: int) -> UiSession:
         raise DomainError("Card creation is no longer active")
     return draft
 
-
-async def card_editor_back_state(session: AsyncSession, owner_id: int) -> dict[str, Any]:
-    """Keep the navigation trail of the Card screen a focused prompt replaces."""
-    editor = await session.scalar(select(UiSession).where(UiSession.owner_id == owner_id))
-    if editor is None or editor.kind != "card_editor":
-        return {}
-    return dict(editor.state.get("back", {}))

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+import re
+from datetime import UTC, datetime
 
 import pytest
 from schedule_helpers import create_card, create_check, with_compiler
@@ -13,7 +14,10 @@ from ui_harness import (
     FakeCallback,
     FakeMessage,
     button_texts,
+    place_of,
+    press,
     services_for,
+    tap_link,
     ui_sources,
 )
 
@@ -27,12 +31,14 @@ from safwa.features.cards.model import (
     EnergyType,
 )
 from safwa.features.cards.telegram import (
+    render_backlog,
+    render_board,
     render_card,
     render_card_choices,
     render_card_creation,
     render_children,
-    render_dashboard,
 )
+from safwa.features.cards.telegram.board import BACKLOG_PAGE_SIZE
 from safwa.features.cards.telegram.presentation import card_citation_label, card_title_marks
 from safwa.features.cards.telegram.selectors import (
     RELATION_CHOICES,
@@ -52,7 +58,7 @@ from safwa.features.tags.telegram import render_tag
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.telegram import render_value
 from safwa.features.values.use_cases import create_value
-from tg_agent_shell.telegram import callback_token_handler
+from tg_agent_shell.telegram import Place, callback_token_handler
 from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.model import CallbackToken, UiSession
 
@@ -117,53 +123,97 @@ async def test_card_note_input_updates_same_creation_message(sessions) -> None:
         assert editor.state["note"] == "Weekdays"
 
 
-async def test_dashboard_paging_walks_between_pages(sessions) -> None:
-    """SC-PAGE-007 — tests/brd/tg_agent_shell/screens.feature"""
+async def test_the_backlog_is_a_numbered_list_a_page_at_a_time(sessions) -> None:
+    """CD-BACKLOG-047 — tests/brd/cards.feature"""
     async with sessions() as session:
-        for index in range(7):
+        for index in range(BACKLOG_PAGE_SIZE + 2):
             await create_card(
-                session, kind="action", title=f"Task {index}", stage="backlog", effort_points=1
+                session, kind="action", title=f"Task {index:02d}", stage="backlog", effort_points=1
             )
+        await create_card(session, kind="action", title="Urgent", priority="critical")
+        await create_card(session, kind="goal", title="Hidden Goal")
         await session.commit()
 
     services = services_for(sessions)
     message = FakeMessage(95, bot_message=True)
-    await render_dashboard(message, services, CardStage.BACKLOG, title="Backlog")
+    board = Place("board", {"kinds": "actions"})
+    await render_backlog(message, services, back=board)
+
+    text, markup = message.edits[-1]
+    lines = text.splitlines()
+    assert lines[0] == f"<b>📚 Backlog</b> · ⭐️ Actions · {BACKLOG_PAGE_SIZE + 3} · page 1/2"
+    # The Backlog's own order: the Critical one first, and only what is unusual after a title.
+    assert lines[1].startswith("1. <a href=") and lines[1].endswith(">⭐️ Urgent</a> · Critical")
+    assert ">⭐️ Task 00</a>" in lines[2] and "Medium" not in lines[2] and "Backlog" not in lines[2]
+    assert "Hidden Goal" not in text
+    assert await place_of(sessions, markup, "↩️ Back") == board
+
+    await press(services, message, markup, "🎯 Goals")
+    text, markup = message.edits[-1]
+    assert "🎯 Goals · 1 · page 1/1" in text and ">🎯 Hidden Goal</a>" in text
+    assert "✓ 🎯 Goals" in button_texts(markup)
+
+
+async def test_the_backlog_walks_between_its_pages(sessions) -> None:
+    """SC-PAGE-007 — tests/brd/tg_agent_shell/screens.feature"""
+    async with sessions() as session:
+        for index in range(BACKLOG_PAGE_SIZE + 2):
+            await create_card(session, kind="action", title=f"Task {index:02d}")
+        await session.commit()
+    services = services_for(sessions)
+    message = FakeMessage(94, bot_message=True)
+    await render_backlog(message, services)
 
     text, markup = message.edits[-1]
     assert "page 1/2" in text
     assert "◀ Previous" not in button_texts(markup)
-    nxt = next(button for row in markup.inline_keyboard for button in row if button.text == "Next ▶")
 
-    await callback_token_handler(FakeCallback(nxt.callback_data.split(":", 1)[1], message), services)
-
+    await press(services, message, markup, "Next ▶")
     text, markup = message.edits[-1]
+    # Nothing is left out: the last page holds the rest, numbered on from the first.
     assert "page 2/2" in text
-    assert "◀ Previous" in button_texts(markup)
-    assert "Next ▶" not in button_texts(markup)
+    assert f"{BACKLOG_PAGE_SIZE + 1}. " in text and f"{BACKLOG_PAGE_SIZE + 2}. " in text
+    assert "Next ▶" not in button_texts(markup) and "◀ Previous" in button_texts(markup)
 
 
-async def test_stage_lists_offer_one_full_width_button_per_card(sessions) -> None:
+async def test_the_dashboard_shows_every_stage_side_by_side(sessions) -> None:
+    """CD-BOARD-046 — tests/brd/cards.feature"""
     async with sessions() as session:
+        goal = await create_card(session, kind="goal", title="Get fit")
         for stage in ("backlog", "sprint", "today"):
             await create_card(
                 session, kind="action", title=f"Do {stage}", stage=stage, effort_points=1
             )
+        await create_card(
+            session, kind="action", title="Run", stage="sprint", parent_id=goal.id
+        )
+        finished = await create_card(session, kind="action", title="Done one", stage="today")
+        await finish_action(session, finished.id)
+        gone = await create_card(session, kind="action", title="Gone", stage="sprint")
+        gone.archived_at = datetime.now(UTC)
         await session.commit()
 
     services = services_for(sessions)
-    for stage in (CardStage.BACKLOG, CardStage.SPRINT, CardStage.TODAY):
-        message = FakeMessage(96, bot_message=True)
-        await render_dashboard(message, services, stage, title=stage.value.title())
-        text, markup = message.edits[-1]
-        row = markup.inline_keyboard[0]
-        assert len(row) == 1
-        assert f"Do {stage.value}" in row[0].text
-        assert "moves an Action" not in text
-        await callback_token_handler(
-            FakeCallback(row[0].callback_data.split(":", 1)[1], message), services
-        )
-        assert f"Stage: {stage.value.title()}" in message.edits[-1][0]
+    message = FakeMessage(96, bot_message=True)
+    await render_board(message, services)
+
+    text, markup = message.edits[-1]
+    headings = re.findall(r"<th>(.*?)</th>", text)
+    assert headings == ["📚 Backlog · 1", "🏃 Sprint · 2", "☀️ Today · 1", "✅ Done · 1"]
+    assert ">⭐️ Do today</a>" in text and "Gone" not in text and "Get fit" not in text
+    assert button_texts(markup) == ["✓ ⭐️ Actions", "🎯 Goals", "📚 Backlog", "↩️ Menu"]
+
+    # A title opens its Card in the Dashboard's place, and Back comes back to it.
+    await tap_link(services, text, "⭐️ Do today", message.bot)
+    card_text, card_markup = message.bot.edits[-1][1:]
+    assert "Do today" in card_text
+    assert await place_of(sessions, card_markup, "↩️ Back") == Place("board", {"kinds": "actions"})
+
+    await press(services, message, markup, "🎯 Goals")
+    text = message.edits[-1][0]
+    # The Goal stands where the work under it is.
+    assert re.findall(r"<th>(.*?)</th>", text)[1] == "🏃 Sprint · 1"
+    assert ">🎯 Get fit</a>" in text
 
 
 @pytest.mark.parametrize("stage", [CardStage.BACKLOG, CardStage.SPRINT, CardStage.TODAY])
@@ -180,7 +230,7 @@ async def test_card_top_row_moves_to_either_other_stage_and_keeps_navigation(
 
     services = services_for(sessions)
     message = FakeMessage(97, bot_message=True)
-    back = {"action": "dashboard_page", "stage": stage.value, "title": stage.value.title()}
+    back = Place("dashboard_page", {"stage": stage.value, "title": stage.value.title()})
     for target in (CardStage.BACKLOG, CardStage.SPRINT, CardStage.TODAY):
         if target == stage:
             continue
@@ -196,10 +246,10 @@ async def test_card_top_row_moves_to_either_other_stage_and_keeps_navigation(
             FakeCallback(button.callback_data.split(":", 1)[1], message), services
         )
         assert f"Stage: {target.value.title()}" in message.edits[-1][0]
+        assert await place_of(sessions, message.edits[-1][1], "↩️ Back") == back
         async with sessions() as session:
             assert (await session.get(Card, card_id)).effective_stage == target.value
             editor = await session.scalar(select(UiSession).where(UiSession.owner_id == 42))
-            assert editor.state["back"] == back
             assert editor.state["full"] == full
 
 
@@ -379,7 +429,7 @@ async def test_a_closed_card_shows_when_it_closed_and_where_its_series_went(sess
     text, markup = message.edits[-1]
     # One wording: the owner reads the marks the model does, and the id in them is the open
     # instance the series moved to. Today's mark is the screen's alone, by CD-REPEAT-032.
-    assert f"Title: <b>Run [🔄1, live #{live_id}] [🔄✓]</b>" in text
+    assert f"Title: <b>Run [✅1, 🔄#{live_id}]</b>" in text
     assert "Completed at: " in text
     current = next(button for button in button_texts(markup) if button.startswith("🔄 Current"))
     assert current == "🔄 Current: Run"
@@ -727,8 +777,8 @@ async def test_card_overview_uses_derived_progress_and_relationship_navigation(s
     children_message = FakeMessage(73, bot_message=True)
     await render_children(children_message, services_for(sessions), goal.id)
     children_texts = button_texts(children_message.edits[-1][1])
-    assert any("🧩 Subgoal · Prepare release" in text for text in children_texts)
-    assert any("⭐️ Action · Write announcement" in text for text in children_texts)
+    assert "🧩 Prepare release · 📚" in children_texts
+    assert any(text.startswith("⭐️ Write announcement · ") for text in children_texts)
     assert not any("Publish build" in text for text in children_texts)
 
     child_message = FakeMessage(71, bot_message=True, bot=bot)
@@ -745,25 +795,21 @@ async def test_card_overview_uses_derived_progress_and_relationship_navigation(s
     assert "👥 Children" not in button_texts(child_markup)
 
 
-async def test_backlog_dashboard_lists_actions_only(sessions) -> None:
+async def test_a_card_on_a_button_is_named_by_emoji(sessions) -> None:
+    """CD-BUTTON-048 — tests/brd/cards.feature"""
     async with sessions() as session:
-        await create_card(session, title="Hidden Goal", kind="goal")
-        await create_card(session, title="Visible Action", kind="action", effort_points=2)
+        goal = await create_card(session, kind="goal", title="Health")
+        await create_card(session, kind="subgoal", title="Sleep better", parent_id=goal.id)
+        await create_card(session, kind="action", title="Run", stage="sprint", parent_id=goal.id)
         await session.commit()
+    message = FakeMessage(74, bot_message=True)
 
-    message = FakeMessage(72, bot_message=True)
-    await render_dashboard(
-        message,
-        services_for(sessions),
-        CardStage.BACKLOG,
-        title="Backlog",
-    )
+    await render_children(message, services_for(sessions), goal.id)
 
-    dashboard_text, dashboard_markup = message.edits[-1]
-    assert "⭐️ Action" in dashboard_text
-    assert "Visible Action" in dashboard_text
-    assert "Hidden Goal" not in dashboard_text
-    assert any("Visible Action" in text for text in button_texts(dashboard_markup))
+    labels = [label for label in button_texts(message.edits[-1][1]) if label != "↩️ Menu"]
+    assert sorted(labels) == ["⭐️ Run · 🏃", "🧩 Sleep better · 📚"]
+    words = ("Goal", "Subgoal", "Action", "Backlog", "Sprint", "Today", "Done")
+    assert not any(word in label for label in labels for word in words)
 
 
 async def test_no_screen_offers_a_goal_or_a_subgoal_a_stage_control(sessions) -> None:
@@ -1055,7 +1101,9 @@ async def test_cd_view_031_a_card_opens_compact_with_full_editing_one_button_awa
     assert "🗜 Compact" in button_texts(markup)
 
 
-async def test_cd_repeat_032_a_repeating_action_says_its_series_was_done_today(sessions) -> None:
+async def test_cd_repeat_032_the_open_instance_of_a_repeating_action_says_it_repeats(
+    sessions,
+) -> None:
     """CD-REPEAT-032 — tests/brd/cards.feature"""
     async with sessions() as session:
         await create_card(session, kind="action", title="Sprint scope", stage="sprint")
@@ -1071,21 +1119,18 @@ async def test_cd_repeat_032_a_repeating_action_says_its_series_was_done_today(s
     async with sessions() as session:
         live = await session.get(Card, live_id)
         finished = await session.get(Card, first_id)
-        # The open one is still open: the mark acknowledges the work and nothing more.
-        assert await card_title_marks(session, live) == " [🔄✓]"
-        assert (await card_title_marks(session, finished)).endswith(" [🔄✓]")
-        assert (await card_citation_label(session, services, live)).startswith("⭐️ Run [🔄✓]")
+        assert await card_title_marks(session, live) == " [🔄]"
+        # The finished one says how it ended and where the open one is, and nothing more.
+        assert await card_title_marks(session, finished) == f" [✅1, 🔄#{live_id}]"
+        assert (await card_citation_label(session, services, live)).startswith("⭐️ Run [🔄]")
 
     message = FakeMessage(380, bot_message=True)
-    await render_dashboard(message, services, CardStage.TODAY, title="Today")
-    assert any("Run [🔄✓]" in name for name in button_texts(message.edits[-1][1]))
+    await render_board(message, services)
+    assert "⭐️ Run [🔄]" in message.edits[-1][0]
 
     async with sessions() as session:
-        finished = await session.get(Card, first_id)
-        finished.completed_at = finished.completed_at - timedelta(days=1)
-        await session.commit()
-        live = await session.get(Card, live_id)
-        assert await card_title_marks(session, live) == ""
+        once = await create_card(session, kind="action", title="Once", stage="today")
+        assert await card_title_marks(session, once) == ""
 
 
 async def _type_into(message, services, label: str, text: str, message_id: int) -> FakeMessage:

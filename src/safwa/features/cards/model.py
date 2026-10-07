@@ -191,16 +191,26 @@ class Card(Base, TimestampMixin):
         rule = self.schedule_record.rule if self.schedule_record else None
         return self.period_start if rule and rule["kind"] == "deadline" else None
 
-    def is_closed_repeat(self) -> bool:
-        """A repeat instance that already ended, so its series continues on a newer row."""
+    def repeats(self) -> bool:
+        """Whether this Card's Schedule opens the next instance when it ends."""
         rule = self.schedule_record.rule if self.schedule_record else None
         return (
-            self.repeat_series_id is not None
-            and CardStage(self.effective_stage) in TERMINAL_STAGES
-            and self.schedule is not None
+            self.schedule is not None
             and bool(rule)
             and rule.get("timing", {}).get("schedule_kind") != "once"
         )
+
+    def is_closed_repeat(self) -> bool:
+        """A repeat instance that already ended, so its series continues on a newer row."""
+        return (
+            self.repeat_series_id is not None
+            and CardStage(self.effective_stage) in TERMINAL_STAGES
+            and self.repeats()
+        )
+
+    def missed(self) -> bool:
+        """A Card ends only by being Done."""
+        return False
 
     def live_instance_query(self) -> Select[tuple[int]]:
         """The open Card of this series. Only the newest instance can be open."""
@@ -214,16 +224,6 @@ class Card(Base, TimestampMixin):
             .limit(1)
         )
 
-    def series_done_since_query(self, since: datetime) -> Select[tuple[int]]:
-        """Anything in this series completed at or after `since`, if there is one."""
-        return (
-            select(Card.id)
-            .where(
-                Card.repeat_series_id == (self.repeat_series_id or self.id),
-                Card.completed_at >= since,
-            )
-            .limit(1)
-        )
 
     def series_index_query(self) -> Select[tuple[int]]:
         """This instance's place, counted over every row the series has ever had."""

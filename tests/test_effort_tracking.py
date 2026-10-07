@@ -15,8 +15,8 @@ from safwa.features.cards.hooks import (
     TODAY_OVERLOAD_HOOK,
     today_overload_request,
 )
-from safwa.features.cards.model import Card, CardStage
-from safwa.features.cards.telegram import render_card, render_card_creation, render_dashboard
+from safwa.features.cards.model import Card
+from safwa.features.cards.telegram import render_backlog, render_card, render_card_creation
 from safwa.features.cards.use_cases import (
     CARD_TODAY,
     create_card,
@@ -235,7 +235,7 @@ async def test_pl_ep_030_sprint_and_plan_count_actions_with_ep_off(sessions):
     text, _ = message.edits[-1]
     assert "Taken <b>3 Actions</b>" in text and "Done <b>1 Actions</b>" in text
     assert "EP" not in text
-    await render_dashboard(message, services, CardStage.BACKLOG, title="Backlog")
+    await render_backlog(message, services)
     assert "EP" not in message.edits[-1][0]
     await render_card(message, services, joined.id, full=True)
     assert "Effort:" not in message.edits[-1][0]

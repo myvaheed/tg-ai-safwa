@@ -13,8 +13,8 @@ from .plan import (
     on_plan_filter_toggle,
     on_plan_filters,
     on_plan_move,
-    on_plan_open,
     on_plan_page,
+    on_plan_return,
 )
 from .sprint import render_sprint, render_sprint_field_prompt
 
@@ -79,9 +79,9 @@ PLANNING_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "sprint_back": _on_back,
     "sprint_start": _on_start,
     "sprint_finish": _on_finish,
-    "plan_open": on_plan_open,
     "plan_page": on_plan_page,
     "plan_move": on_plan_move,
+    "plan_return": on_plan_return,
     "plan_filters": on_plan_filters,
     "plan_filter_toggle": on_plan_filter_toggle,
 }

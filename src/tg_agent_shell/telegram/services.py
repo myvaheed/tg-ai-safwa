@@ -30,6 +30,7 @@ from ..media.library import MediaLibrary
 from ..session import RootSession
 from ..turn import TurnManager
 from .contributions import ScreenCommand, StartLink, TextInputFlow
+from .place import Place
 
 if TYPE_CHECKING:
     # Only the type: an application that never searches never creates the index's tables.
@@ -180,16 +181,22 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
 
 @dataclass(frozen=True)
 class CallbackContext:
-    """One claimed inline action: the screen it replaces plus its owner-scoped payload."""
+    """One claimed press, of a button or a link: the screen it replaces, and its action and
+    owner-scoped payload, which are the Place it leads to."""
 
-    callback: CallbackQuery
+    message: Message
     services: Services
     action: str
     payload: dict[str, Any]
 
     @property
-    def message(self) -> Message:
-        return self.callback.message
+    def place(self) -> Place:
+        return Place.of(self.action, self.payload)
+
+    @property
+    def back(self) -> Place | None:
+        """Where the screen this press leads to was entered from."""
+        return self.place.back
 
     @property
     def sessions(self) -> async_sessionmaker[AsyncSession]:

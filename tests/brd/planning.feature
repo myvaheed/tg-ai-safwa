@@ -14,7 +14,7 @@ Feature: Planning — the Sprint, and the mode without one
   Scenario: PL-MODE-001 — The workspace is either planning a Sprint or running one
     Given no Sprint is running
     Then the workspace is in Planning
-    And Today keeps its menu button, its command and its screen, and Actions move into and out of it as in a Sprint
+    And Today stays on the Home dashboard and the Dashboard, and Actions move into and out of it as in a Sprint
     And the Planning screen shows no Today list
     When a Sprint starts
     Then the workspace is in Sprint
@@ -165,8 +165,8 @@ Feature: Planning — the Sprint, and the mode without one
     Then the total is shown and nothing is warned about
 
   Scenario: PL-PLAN-019 — The plan says when the owner is tapping too fast
-    Given every row in the plan is a Telegram link, which Telegram counts against the owner's account rather than against Safwa
-    When the owner taps 8 of them inside 10 seconds (PLAN_LINK_BURST_TAPS = 8, PLAN_LINK_BURST_SECONDS = 10)
+    Given every row in the plan is a link inside a screen (SC-LINK-013)
+    When the owner taps 8 of them inside 10 seconds (LINK_BURST_TAPS = 8, LINK_BURST_SECONDS = 10)
     Then they are told what is happening and that Telegram can stop opening bots for hours
     And the tap they just made still opens what it points at
 
@@ -215,7 +215,7 @@ Feature: Planning — the Sprint, and the mode without one
 
   Scenario: PL-KEY-025 — Today is ordered by what the day cannot move
     Given Actions in Today
-    Then the Today screen and the Today list the Advisor reads put first the ones whose Schedule appointment is today or tomorrow (SCHEDULE_NOTICE_DAYS = 1), then Critical ones, then key ones, then the rest
+    Then Today on the Home dashboard and the Today list the Advisor reads put first the ones whose Schedule appointment is today or tomorrow (SCHEDULE_NOTICE_DAYS = 1), then Critical ones, then key ones, then the rest
     And within each group a Card with an appointment comes first, then the more important one, then the one written earlier
     And a day is the workspace's local day
 

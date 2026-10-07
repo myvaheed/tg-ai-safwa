@@ -11,7 +11,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-# The one screen every application has to publish. `go_back` and the shell's own returns
+# The one screen every application has to publish. `go` to no Place and the shell's own returns
 # lead here, so which screen it is has to be answerable without naming a feature.
 HOME_NAV = "home"
 

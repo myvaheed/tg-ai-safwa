@@ -470,6 +470,24 @@ async def test_ch_repeat_015_linked_copies_name_their_card_series(read_views):
 
 
 
+async def test_ch_repeat_015_an_answered_instance_says_how_it_was_answered(read_views):
+    """CH-REPEAT-015 — tests/brd/checks.feature"""
+    sessions, runner = read_views
+    async with sessions() as session:
+        first = await create_check(session, title="Slept well?", schedule="after completion")
+        await session.commit()
+        _, second = await resolve_check(session, first.id, CheckOutcome.MISSED)
+        _, third = await resolve_check(session, second.id, CheckOutcome.PASSED)
+        await session.commit()
+        missed, passed = await session.get(Check, first.id), await session.get(Check, second.id)
+        marks = (await title_marks(session, missed), await title_marks(session, passed))
+
+    assert marks == (f" [❌1, 🔄#{third.id}]", f" [✅2, 🔄#{third.id}]")
+    rows = (await runner.run("SELECT title FROM ai_checks ORDER BY id")).rows
+    # The model reads the same words as the screen.
+    assert [row["title"] for row in rows] == [f"Slept well?{mark}" for mark in marks] + ["Slept well?"]
+
+
 async def test_ch_repeat_015_a_card_finds_its_checks_by_naming_the_card(sessions):
     """CH-REPEAT-015 — tests/brd/checks.feature"""
     async with sessions() as session:

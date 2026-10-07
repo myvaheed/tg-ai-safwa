@@ -214,13 +214,13 @@ Feature: Cards
   Scenario: CD-REPEAT-026 — A repeat series reads as one series
     Given a repeating Action finished twice, so the series holds three Cards
     Then all three name the same series, and a Card that was never copied names itself
-    And each finished one is titled "[🔄2, live #7]": its place in the series, then the open one
+    And each finished one is titled "[✅2, 🔄#7]": Done, its place in the series, then the open one
       (REPEAT_MARKER)
-    And the open one is titled plainly, which is what says it is the one to work with
+    And the open one is titled plainly for Safwa, which is what says it is the one to work with
     And a Card that does not repeat is never titled with a marker
     And an archived one carries "[📦]" after its place in the series (ARCHIVE_MARKER)
     When the series has ended and no open one is left
-    Then the last finished one is titled "[🔄3]" (REPEAT_MARKER_ENDED)
+    Then the last finished one is titled "[✅3]" (REPEAT_MARKER_ENDED)
 
   Scenario: CD-HARDTIME-033 — Schedule supplies timing without separate repeat controls
     Given an Action with a Schedule written in plain words
@@ -230,17 +230,13 @@ Feature: Cards
     And a one-time appointment opens no successor
     And removing Schedule removes its appointment
 
-  Scenario: CD-REPEAT-032 — A repeating Action says its series was already done today
-    Given a repeating Action finished earlier today, and the open one that took its place
-    Then both are titled "[🔄✓]" (REPEAT_TODAY_MARKER), on a board, on the Card screen and in
-      a citation alike
-    And today is the owner's own calendar day, in the workspace timezone
-    And the mark says nothing more than that: the open one is still open, and finishing it
-      again today is allowed
-    And a series whose last completion was yesterday carries no such mark, and neither does an
-      Action that never repeated
-    And it is the one mark ai_cards does not carry, SQLite having no way to work out the
-      owner's day
+  Scenario: CD-REPEAT-032 — The open instance of a repeating Action says it repeats
+    Given a repeating Action finished once, and the open one that took its place
+    Then the open one is titled "[🔄]" (REPEAT_OPEN_MARKER) on the Dashboard, on the Card
+      screen and in a citation alike, and so is a repeating Action never finished yet
+    And the finished one carries only its "[✅1, 🔄#id]", by CD-REPEAT-026, and no second mark
+    And an Action that does not repeat carries no such mark
+    And it is the one mark ai_cards does not carry: Safwa reads the open one by its plain title
 
   Scenario: CD-ARCHIVE-027 — An archived Card opens, and reads as archived
     Given an archived Card, cited in one of Safwa's answers or listed under its Goal
@@ -279,7 +275,7 @@ Feature: Cards
       the Values it carries
     And the buttons are the ones an ordinary day needs: finishing it, moving it between stages,
       and reaching its Checks, its children and its parent
-    And Backlog, Sprint and Today list each Action as one full-width button that opens it
+    And the Dashboard, the Backlog and the Sprint list each Card as a link that opens it
     And an open Action has two buttons at the top for moving it to the other live stages,
       in both compact and full editing
     And "✏️ Full editing" opens the same Card with every control it has, and "🗜 Compact" is
@@ -396,3 +392,26 @@ Feature: Cards
     And nothing is estimated without the owner's answer; if the owner does not know, the estimate stays empty
     And rolling back completion asks nothing
     But with Effort Points off, or the reminder switched off, nothing is asked, and a question not yet said is not said
+
+  Scenario: CD-BOARD-046 — The Dashboard shows every stage side by side
+    Given Cards in the Backlog, the Sprint, Today and Done
+    When the owner opens 🗂 Dashboard from the menu
+    Then one table shows them, a column per stage in this order: Backlog, Sprint, Today, Done
+    And each column heading says how many Cards the stage holds, and the column lists the 10 changed last, newest first (BOARD_ROWS = 10)
+    And each title is a link that opens its Card in place of the Dashboard (SC-LINK-013)
+    And it shows Actions, and its toggle switches to Goals and Subgoals, each in the stage the work under it gives it
+    And an archived Card is in no column
+    And its 📚 Backlog button opens the Backlog
+
+  Scenario: CD-BACKLOG-047 — The Backlog is a numbered list, ten to a page
+    Given Actions in the Backlog
+    When the owner opens the Backlog from the Dashboard
+    Then it lists them in the order of every Card list but Today, 10 to a page (BACKLOG_PAGE_SIZE = 10), numbered across pages
+    And each line is a link that opens its Card in place of the Backlog, followed only by what is unusual about it: a Priority other than Medium, its effort while Effort Points are on, its appointment, its Deadline, and Blocked
+    And ◀ Previous and Next ▶ turn the page (SC-PAGE-007), and its toggle switches between Actions and Goals
+    And ↩️ Back returns to the Dashboard
+
+  Scenario: CD-BUTTON-048 — A Card on a button is named by emoji, never by the word for its kind
+    Given a Card shown as a button among others of several stages, such as a Goal's children or a Request's Cards
+    Then the button shows its kind as 🎯, 🧩 or ⭐️ and its stage as 📚, 🏃, ☀️ or ✅, and no word for either
+    And a list of one stage, such as the Backlog, does not name that stage at all

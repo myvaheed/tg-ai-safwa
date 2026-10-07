@@ -1,9 +1,9 @@
 """The Home dashboard: what a quiet chat is cleared down to, built from the workspace.
 
-Four blocks, each read through the door of the feature that owns it: the next Actions, the
-Values in focus with the words written for them, the time tracked today, and the last
-changes. It is Markdown, as an answer is, and every item is a citation, so it reads and
-links the way it does in an answer.
+Five blocks under the day and the time, each read through the door of the feature that owns
+it: the last changes, the Priority Goals, the Values in focus with the words written for them,
+all of Today, and the time tracked today. It is Markdown, as an answer is, and every item is
+a citation, so it reads and links the way it does in an answer.
 """
 
 from __future__ import annotations
@@ -20,32 +20,17 @@ from tg_agent_shell.foundation.clock import utcnow
 
 from ...foundation.log_events import CREATE, DELETE, UPDATE, LogEvent
 from ...foundation.workspace import require_workspace
-from ..cards.api import (
-    Card,
-    CardStage,
-    actions_on_stages,
-    effort_label,
-    goal_of,
-    list_order,
-    minutes_label,
-    tracked_between,
-)
+from ..cards.api import Card, effort_label, goal_of, minutes_label, tracked_between
 from ..planning.api import plan_load, today_actions
 from ..profile.api import effort_tracking_on, time_tracking_on
 from ..values.api import values_in_focus
+from ..workspace_mutator.api import priority_goals
 
-# How many Actions the dashboard opens with, and how many changes it ends with.
-HOME_ACTIONS_SHOWN = 5
-HOME_LOG_SHOWN = 10
+# How many changes the dashboard opens with, and how many Priority Goals follow them.
+HOME_LOG_SHOWN = 5
+HOME_GOALS_SHOWN = 5
 
 _INDENT = "    "
-
-# Where the Actions come from: the first of these lists that holds any.
-_LISTS = (
-    (CardStage.TODAY, "☀️ Today"),
-    (CardStage.SPRINT, "🏃 Sprint"),
-    (CardStage.BACKLOG, "📚 Backlog"),
-)
 
 _ICONS = {CREATE: "➕", DELETE: "🗑", "done": "✅"}
 # What an operation is called on one short line; `edit_<field>` is its field.
@@ -86,61 +71,54 @@ async def dashboard_text(
     tz = ZoneInfo((await require_workspace(session)).timezone)
     local = (now or utcnow()).astimezone(tz)
     blocks = (
-        f"**🏠 {local:%a, %d %b}**",
-        await _actions(session, local),
-        await _values(session, words),
-        await _time(session, local),
+        f"**🏠 {local:%a, %d %b · %H:%M}**",
         await _changes(session, local),
+        await _goals(session, local),
+        await _values(session, words),
+        await _today(session, local),
+        await _time(session, local),
     )
     return "\n\n".join(block for block in blocks if block)
 
 
-async def _first_list(session: AsyncSession) -> tuple[CardStage, str, list[Card]] | None:
-    """Today in its own order, else the Sprint, else the Backlog, as every Card list orders."""
-    for stage, heading in _LISTS:
-        cards = (
-            await today_actions(session)
-            if stage is CardStage.TODAY
-            else sorted(await actions_on_stages(session, stage), key=list_order)
-        )
-        if cards:
-            return stage, heading, cards
-    return None
+async def _goals(session: AsyncSession, local: datetime) -> str:
+    """The first Priority Goals, in the order Safwa is handed them."""
+    goals = (await priority_goals(session, local))[:HOME_GOALS_SHOWN]
+    if not goals:
+        return ""
+    return "\n".join(
+        ["**🎯 Priority Goals**", *(_cite("card", goal.id, goal.title) for goal in goals)]
+    )
 
 
-async def _actions(session: AsyncSession, local: datetime) -> str:
-    """The first Actions of the first list that holds any, each under its Goal."""
-    found = await _first_list(session)
-    if found is None:
-        return "Nothing is planned yet."
-    stage, heading, cards = found
-    load = await plan_load(session, cards, **(
-        {"start_date": local.date(), "end_date": local.date()} if stage is CardStage.TODAY else {}
-    )) if stage in {CardStage.TODAY, CardStage.SPRINT} else None
+async def _today(session: AsyncSession, local: datetime) -> str:
+    """Every Action in Today, in Today's order, each under its Goal."""
+    cards = await today_actions(session)
+    if not cards:
+        return "**☀️ Today** · Nothing is planned for today."
+    load = await plan_load(session, cards, start_date=local.date(), end_date=local.date())
     goals: dict[int, Card] = {}
     under: dict[int | None, list[Card]] = {}
-    for action in cards[:HOME_ACTIONS_SHOWN]:
+    for action in cards:
         goal = await goal_of(session, action)
         if goal is not None:
             goals[goal.id] = goal
         under.setdefault(goal.id if goal else None, []).append(action)
-    lines = [f"**{heading} · {min(len(cards), HOME_ACTIONS_SHOWN)} of {len(cards)}**"]
-    if load is not None:
-        planned = f"Planned: {'at least ' if load.unknown_schedules else ''}{load.actions} Actions"
-        if await effort_tracking_on(session):
-            planned += f" · {effort_label(load.effort)} EP"
-            if load.unestimated:
-                planned += f" · {load.unestimated} Actions have no estimate; EP total is partial"
-        if load.unknown_schedules:
-            planned += " · Schedule quantities are unknown"
-        lines.append(planned)
+    planned = f"Planned: {'at least ' if load.unknown_schedules else ''}{load.actions} Actions"
+    if await effort_tracking_on(session):
+        planned += f" · {effort_label(load.effort)} EP"
+        if load.unestimated:
+            planned += f" · {load.unestimated} Actions have no estimate; EP total is partial"
+    if load.unknown_schedules:
+        planned += " · Schedule quantities are unknown"
+    lines = [f"**☀️ Today · {len(cards)}**", planned]
     for goal_id, actions in sorted(under.items(), key=lambda item: item[0] is None):
         indent = ""
         if goal_id is not None:
             lines.append(_cite("card", goal_id, goals[goal_id].title))
             indent = _INDENT
         for action in actions:
-            quantity = load.counts[action.id] if load is not None else 1
+            quantity = load.counts[action.id]
             suffix = f" × {quantity if quantity is not None else '?'}" if quantity != 1 else ""
             lines.append(f"{indent}{_cite('card', action.id, action.title)}{suffix}")
     return "\n".join(lines)

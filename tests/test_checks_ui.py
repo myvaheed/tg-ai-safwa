@@ -17,7 +17,7 @@ from safwa.features.checks.use_cases import (
 )
 from safwa.features.values.model import Value
 from safwa.features.values.use_cases import create_value
-from tg_agent_shell.telegram import callback_token_handler
+from tg_agent_shell.telegram import Place, callback_token_handler
 from tg_agent_shell.telegram.dialogue import ordinary_text
 
 
@@ -102,7 +102,8 @@ async def test_ch_delete_014_the_owner_deletes_a_check_from_its_screen(sessions)
 
     services = services_for(sessions)
     message = FakeMessage(700, bot_message=True)
-    await render_check(message, services, check_id, card_id=card_id)
+    on_card = Place("check_list", {"card_id": card_id}, Place("card_view", {"id": card_id}))
+    await render_check(message, services, check_id, back=on_card)
     remove = next(
         button
         for row in message.edits[-1][1].inline_keyboard
@@ -122,6 +123,8 @@ async def test_ch_delete_014_the_owner_deletes_a_check_from_its_screen(sessions)
         FakeCallback(confirm.callback_data.split(":", 1)[1], message), services
     )
 
+    # Back to the list the Check was opened from.
+    assert "No Checks yet." in message.edits[-1][0]
     async with sessions() as session:
         assert await session.get(Check, check_id) is None
         # Its Card stays, and so does the Value it pointed at.
@@ -152,11 +155,16 @@ async def test_ch_gate_007_answer_buttons_read_yes_and_no(sessions) -> None:
 
     services = services_for(sessions)
     message = FakeMessage(800, bot_message=True)
-    await render_check(message, services, milk_id, card_id=card_id)
+    await render_check(
+        message,
+        services,
+        milk_id,
+        back=Place("check_list", {"card_id": card_id}, Place("card_view", {"id": card_id})),
+    )
     assert {"✅ Yes", "❌ No"} <= set(button_texts(message.edits[-1][1]))
 
     # One Check needs no number; the buttons carry the answer, never the title.
-    back = {"action": "card_view", "id": card_id}
+    back = Place("card_view", {"id": card_id})
     await render_check_resolution(message, services, card_id, back=back)
     labels = button_texts(message.edits[-1][1])
     assert {"✅ Yes", "❌ No"} <= set(labels)

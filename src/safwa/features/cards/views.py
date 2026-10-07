@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from tg_agent_shell.ai.sql import Searchable, SqlView
 
-from ...foundation.marks import ARCHIVE_MARKER, LIVE_FORMAT, MARKER_FORMAT
+from ...foundation.marks import ARCHIVE_MARKER, LIVE_FORMAT, MARKER_FORMAT, REPEAT_DONE
 from .model import TERMINAL_STAGES
 
 _TERMINAL_STAGE_SQL = ", ".join(f"'{stage.value}'" for stage in TERMINAL_STAGES)
@@ -30,7 +30,7 @@ AI_CARDS = SqlView(
                  || CASE WHEN c.repeat_series_id IS NOT NULL AND c.schedule IS NOT NULL
                               AND COALESCE(json_extract(s.rule, '$.timing.schedule_kind'), '') != 'once'
                               AND c.effective_stage IN ({_TERMINAL_STAGE_SQL})
-                         THEN printf('{MARKER_FORMAT}',
+                         THEN printf('{MARKER_FORMAT}', '{REPEAT_DONE}',
                               (SELECT count(*) FROM cards p
                                WHERE COALESCE(p.repeat_series_id, p.id)
                                      = COALESCE(c.repeat_series_id, c.id)

@@ -1,71 +1,11 @@
-"""What the plan screen remembers between taps.
-
-A deep-link payload is 64 characters of `[A-Za-z0-9_-]` and cannot carry the page or the
-picked Requests, so they live in one `UiSession` row that every tap reads and rewrites.
-"""
+"""Which Backlog Actions the plan's picked Requests narrow it to."""
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
-from typing import Any
-
-from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from tg_agent_shell.foundation.kinds import MessageKind
-from tg_agent_shell.history import TelegramMessage
-from tg_agent_shell.telegram.model import UiSession
 
 from ...saved_requests.api import request_cards
 from ...saved_requests.model import SavedRequest
-
-PLAN_UI_KIND = "sprint_plan"
-_PLAN_TTL = timedelta(hours=24)
-
-
-def plan_back(state: dict[str, Any]) -> dict[str, Any]:
-    """What a Card opened from the plan has to be handed to come back to it."""
-    return {
-        "action": "plan_page",
-        "page": int(state.get("page", 0)),
-        "filters": list(state.get("filters", [])),
-    }
-
-
-async def load_plan_state(session: AsyncSession, owner_id: int) -> dict[str, Any]:
-    ui = await session.scalar(
-        select(UiSession).where(
-            UiSession.owner_id == owner_id, UiSession.kind == PLAN_UI_KIND
-        )
-    )
-    return dict(ui.state) if ui is not None else {}
-
-
-async def store_state(session: AsyncSession, owner_id: int, state: dict[str, Any]) -> None:
-    await session.execute(delete(UiSession).where(UiSession.owner_id == owner_id))
-    session.add(
-        UiSession(
-            owner_id=owner_id,
-            kind=PLAN_UI_KIND,
-            state=state,
-            expires_at=datetime.now(UTC) + _PLAN_TTL,
-        )
-    )
-
-
-async def plan_screen_id(session: AsyncSession, chat_id: int, state: dict[str, Any]) -> int | None:
-    """The plan screen this tap belongs to, or None when it is no longer in the chat."""
-    message_id = state.get("message_id")
-    if message_id is None:
-        return None
-    known = await session.scalar(
-        select(TelegramMessage.message_id).where(
-            TelegramMessage.chat_id == chat_id,
-            TelegramMessage.message_id == int(message_id),
-            TelegramMessage.kind == MessageKind.DASHBOARD.value,
-        )
-    )
-    return known
 
 
 async def resolve_filters(

@@ -12,18 +12,23 @@ from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,
+    Place,
     Services,
+    back_button,
     menu_row,
+    place_button,
     send_registered,
-    token_button,
 )
 
-from ...cards.telegram import kind_label
+from ...cards.telegram import item_button_label
 from ..api import request_cards
 from ..model import SavedRequest
 
 # How many matching Cards one Request screen lists before it only counts the rest.
 REQUEST_RESULT_LIMIT = 25
+
+# The Requests list, which the menu opens and every Request opened from it goes back to.
+_LIST = Place("request_list")
 
 
 async def command_requests(message: Message, services: Services) -> None:
@@ -32,20 +37,19 @@ async def command_requests(message: Message, services: Services) -> None:
         requests = list(await session.scalars(select(SavedRequest).order_by(SavedRequest.name)))
         rows = [
             [
-                await token_button(
+                await place_button(
                     session,
                     services.owner_id,
                     request.name,
-                    "request_view",
-                    {"id": request.id},
+                    _LIST.child("request_view", id=request.id),
                 )
             ]
             for request in requests
         ]
         rows.append(
             [
-                await token_button(
-                    session, services.owner_id, "❓ О Запросах", "request_about", {}
+                await place_button(
+                    session, services.owner_id, "❓ О Запросах", _LIST.child("request_about")
                 )
             ]
         )
@@ -71,16 +75,18 @@ ABOUT_REQUESTS = (
 )
 
 
-async def render_about_requests(message: Message, services: Services) -> None:
+async def render_about_requests(
+    message: Message, services: Services, *, back: Place | None
+) -> None:
     async with services.sessions() as session:
-        back = await token_button(session, services.owner_id, "↩️ Back", "request_list", {})
+        leave = await back_button(session, services.owner_id, back)
         await session.commit()
     await send_registered(
         message,
         services,
         ABOUT_REQUESTS,
         kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=[[back]]),
+        markup=InlineKeyboardMarkup(inline_keyboard=[[leave]]),
     )
 
 
@@ -89,8 +95,11 @@ async def render_saved_request(
     services: Services,
     request_id: int,
     *,
+    back: Place | None = None,
     replace: bool | None = None,
 ) -> None:
+    """One Request run against the workspace now. `back` is where it was opened from."""
+    here = Place("request_view", {"id": request_id}, back)
     async with services.sessions() as session:
         request = await session.get(SavedRequest, request_id)
         if request is None:
@@ -99,28 +108,17 @@ async def render_saved_request(
         cards = matches[:REQUEST_RESULT_LIMIT]
         rows = [
             [
-                await token_button(
+                await place_button(
                     session,
                     services.owner_id,
-                    f"{kind_label(card.kind)} · {card.title}"[:60],
-                    "card_view",
-                    {"id": card.id, "back": {"action": "request_view", "id": request.id}},
+                    item_button_label(card),
+                    here.child("card_view", id=card.id),
                 )
             ]
             for card in cards
         ]
-        rows.append(
-            [
-                await token_button(
-                    session,
-                    services.owner_id,
-                    "↻ Refresh",
-                    "request_view",
-                    {"id": request.id},
-                )
-            ]
-        )
-        rows.append(menu_row())
+        rows.append([await place_button(session, services.owner_id, "↻ Refresh", here)])
+        rows.append([await back_button(session, services.owner_id, back)])
         await session.commit()
     details = request.description or "No description."
     details += f"\n\n{len(matches)} matching card{'s' if len(matches) != 1 else ''}"
@@ -138,11 +136,13 @@ async def render_saved_request(
 
 
 async def _on_view(context: CallbackContext) -> None:
-    await render_saved_request(context.message, context.services, context.payload["id"])
+    await render_saved_request(
+        context.message, context.services, context.payload["id"], back=context.back
+    )
 
 
 async def _on_about(context: CallbackContext) -> None:
-    await render_about_requests(context.message, context.services)
+    await render_about_requests(context.message, context.services, back=context.back)
 
 
 async def _on_list(context: CallbackContext) -> None:

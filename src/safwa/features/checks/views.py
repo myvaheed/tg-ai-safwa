@@ -4,8 +4,14 @@ from __future__ import annotations
 
 from tg_agent_shell.ai.sql import Searchable, SqlView
 
-from ...foundation.marks import ARCHIVE_MARKER, LIVE_FORMAT, MARKER_FORMAT
-from .model import PENDING
+from ...foundation.marks import (
+    ARCHIVE_MARKER,
+    LIVE_FORMAT,
+    MARKER_FORMAT,
+    REPEAT_DONE,
+    REPEAT_MISSED,
+)
+from .model import PENDING, CheckOutcome
 
 # The open instance of this row's series, already rendered as the marker's tail. See the
 # note in `features/cards/views.py` for why this is a plain SELECT and not a derived table.
@@ -23,6 +29,8 @@ AI_CHECKS = SqlView(
                k.title
                  || CASE WHEN k.series_id IS NOT NULL AND k.outcome IS NOT NULL
                          THEN printf('{MARKER_FORMAT}',
+                              CASE k.outcome WHEN '{CheckOutcome.MISSED.value}'
+                                   THEN '{REPEAT_MISSED}' ELSE '{REPEAT_DONE}' END,
                               (SELECT count(*) FROM checks p
                                WHERE COALESCE(p.series_id, p.id) = COALESCE(k.series_id, k.id)
                                  AND p.id <= k.id),

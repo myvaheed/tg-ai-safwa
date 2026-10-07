@@ -36,8 +36,8 @@ ITEMS = f"""# Safwa items
 - Tag: a free label for finding things.
 - Request: a saved Card query the user reruns.
 - Reminder: a message at a set time, not work.
-- A title ending in ` [🔄2, live #7]` is a finished repeat; #7 is the open one.
-- ` [🔄2]` with no id: the series has ended. ` [📦]`: archived."""
+- A title ending in ` [✅2, 🔄#7]` is a finished repeat; #7 is the open one. ❌ in place of ✅: a Check answered Missed.
+- ` [✅2]` with no id: the series has ended. ` [📦]`: archived."""
 
 # What the Advisor is told it may read. The running Sprint's number, dates and Success
 # criteria come with the workspace state every turn, so only its metrics are a view.

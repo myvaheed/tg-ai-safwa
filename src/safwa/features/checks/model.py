@@ -67,6 +67,9 @@ class Check(Base, TimestampMixin):
         """A repeat instance that already ended, so its series continues on a newer row."""
         return self.series_id is not None and self.outcome is not None
 
+    def missed(self) -> bool:
+        return self.outcome == CheckOutcome.MISSED.value
+
     def live_instance_query(self) -> Select[tuple[int]]:
         """The open Check of this series. Only the newest instance can be open."""
         return (

@@ -111,7 +111,23 @@ Feature: Screens
     And it stays in the chat when the next screen comes, and is not part of the conversation
 
   Scenario: SC-BACK-012 — Back returns to the screen the owner came from
-    Given a screen the owner reached from another screen, such as a Card opened from Today
-    Then it offers ↩️ Back, and Back redraws the screen they came from
-    When they open a Card or a Check from a link in the chat
+    Given a screen the owner reached from another screen, such as a Card opened from a Sprint list
+    Then it offers ↩️ Back, and Back redraws the screen they came from, on the page they left
+    And a screen opened from that one goes back to it the same way, up to 10 screens deep
+      (NAV_DEPTH = 10), and the way back from the deepest one kept is the menu
+    And a press that redraws a screen, such as turning its page or answering a Check, leaves
+      its way back as it was
+    When they open an item from a link in the chat, on the Home dashboard, or from the menu
     Then no screen stands behind it, and it offers ↩️ Menu in place of ↩️ Back
+
+  Scenario: SC-LINK-013 — A link inside a screen opens what it names in place of that screen
+    Given a screen whose words carry links, such as the Sprint's list or the plan's table
+    When the owner taps one
+    Then what it names is drawn in place of that screen, not as a message of its own
+    And its ↩️ Back returns to that screen, on the same page and with the same filters
+    And a link works once, as an action button does by SC-BUTTON-003, and a second tap says it is
+      out of date
+    When the owner taps 8 links inside 10 seconds (LINK_BURST_TAPS = 8, LINK_BURST_SECONDS = 10)
+    Then they are told what is happening and that Telegram can stop opening bots for hours,
+      because Telegram counts a link tap against the owner's account rather than the bot
+    And the tap they just made still opens what it points at

@@ -1006,8 +1006,8 @@ async def test_cd_repeat_026_a_closed_repeat_names_its_place_and_the_open_one(se
         third = await session.get(Card, result.successor_ids[0])
         await session.commit()
 
-        assert await title_marks(session, first) == f" [🔄1, live #{third.id}]"
-        assert await title_marks(session, second) == f" [🔄2, live #{third.id}]"
+        assert await title_marks(session, first) == f" [✅1, 🔄#{third.id}]"
+        assert await title_marks(session, second) == f" [✅2, 🔄#{third.id}]"
         # The open one is named plainly, and that is what says it is the one to work with.
         assert await title_marks(session, third) == ""
 
@@ -1019,7 +1019,7 @@ async def test_cd_repeat_026_a_closed_repeat_names_its_place_and_the_open_one(se
         # With the open one deleted the series has ended, so the marker names no id.
         await delete_subtree(session, third.id)
         await session.commit()
-        assert await title_marks(session, second) == " [🔄2]"
+        assert await title_marks(session, second) == " [✅2]"
 
 
 async def test_cd_repeat_026_the_views_name_the_series_and_the_open_one(read_views):
@@ -1039,7 +1039,7 @@ async def test_cd_repeat_026_the_views_name_the_series_and_the_open_one(read_vie
     # A Card that never repeated is a series of one, named after itself rather than left
     # nameless, so grouping by the series never drops it into a bucket with the others.
     assert by_id[plain_id]["series_id"] == plain_id
-    assert by_id[first_id]["title"] == f"Run [🔄1, live #{second_id}]"
+    assert by_id[first_id]["title"] == f"Run [✅1, 🔄#{second_id}]"
     assert by_id[second_id]["title"] == "Run"
 
 

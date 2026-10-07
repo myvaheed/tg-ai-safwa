@@ -19,11 +19,13 @@ from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,
+    Place,
     Services,
     TextInputScreen,
     TextValidator,
+    back_button,
     edit_registered_message,
-    menu_row,
+    place_button,
     render_text_input,
     required_text,
     send_registered,
@@ -39,6 +41,9 @@ from .use_cases import create_category, create_wallet, rename_wallet, wallet_bal
 # How many of a wallet's entries its screen shows before the owner has to ask the model.
 WALLET_ENTRY_LIMIT = 10
 
+# The home list, which every screen opened from it goes back to.
+_HOME = Place("wallet_home")
+
 
 async def render_home(
     message: Message, services: Services, *, replace_message_id: int | None = None
@@ -52,8 +57,11 @@ async def render_home(
         ]
         rows = [
             [
-                await token_button(
-                    session, services.owner_id, wallet.name, "wallet_view", {"id": wallet.id}
+                await place_button(
+                    session,
+                    services.owner_id,
+                    wallet.name,
+                    _HOME.child("wallet_view", id=wallet.id),
                 )
                 for wallet in wallets[index : index + 2]
             ]
@@ -64,8 +72,8 @@ async def render_home(
                 await token_button(
                     session, services.owner_id, "➕ Wallet", "wallet_add_prompt", {}
                 ),
-                await token_button(
-                    session, services.owner_id, "🏷 Categories", "category_list", {}
+                await place_button(
+                    session, services.owner_id, "🏷 Categories", _HOME.child("category_list")
                 ),
             ]
         )
@@ -83,8 +91,15 @@ async def render_home(
 
 
 async def render_wallet(
-    message: Message, services: Services, wallet_id: int, *, replace: bool | None = None
+    message: Message,
+    services: Services,
+    wallet_id: int,
+    *,
+    back: Place | None = None,
+    replace: bool | None = None,
 ) -> None:
+    """One wallet. `back` is the screen it was opened from: none from a link, and then its
+    way back is the menu."""
     async with services.sessions() as session:
         wallet = await session.get(Wallet, wallet_id)
         if wallet is None:
@@ -102,6 +117,7 @@ async def render_wallet(
         rename = await token_button(
             session, services.owner_id, "✏️ Rename", "wallet_rename_prompt", {"id": wallet.id}
         )
+        leave = await back_button(session, services.owner_id, back)
         await session.commit()
     body = f"<b>👛 {html.escape(wallet.name)}</b>\n{money(balance, wallet.currency)}"
     body += "\n\n" + html.escape("\n".join(lines) if lines else "Nothing here yet.")
@@ -110,7 +126,7 @@ async def render_wallet(
         services,
         body,
         kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=[[rename], menu_row()]),
+        markup=InlineKeyboardMarkup(inline_keyboard=[[rename], [leave]]),
         related_id=wallet.id,
         replace=replace,
     )
@@ -127,18 +143,23 @@ async def wallet_citation_label(session: AsyncSession, services: Any, wallet: Wa
 
 
 async def render_categories(
-    message: Message, services: Services, *, replace_message_id: int | None = None
+    message: Message,
+    services: Services,
+    *,
+    back: Place | None = _HOME,
+    replace_message_id: int | None = None,
 ) -> None:
     async with services.sessions() as session:
         categories = list(await session.scalars(select(Category).order_by(Category.name)))
         add = await token_button(
             session, services.owner_id, "➕ Category", "category_add_prompt", {}
         )
+        leave = await back_button(session, services.owner_id, back)
         await session.commit()
     listed = "\n".join(f"{item.name} — {item.kind}" for item in categories) or "None yet."
     body = "<b>Categories</b>\nWhat an entry is for, and which way the money goes.\n\n"
     body += html.escape(listed)
-    markup = InlineKeyboardMarkup(inline_keyboard=[[add], menu_row()])
+    markup = InlineKeyboardMarkup(inline_keyboard=[[add], [leave]])
     if replace_message_id is not None:
         await edit_registered_message(
             message, services, replace_message_id, body, kind=MessageKind.DASHBOARD, markup=markup
@@ -167,8 +188,7 @@ async def _ask_for(
             title=title,
             current_value=current,
             instruction=instruction,
-            back_action="wallet_home",
-            back_payload={},
+            back=Place("wallet_home"),
             related_id=item_id,
         ),
         state={"flow": "wallet", "field": field, "item_id": item_id},
@@ -218,7 +238,7 @@ TEXT_INPUT = TextInputFlow(
 
 
 async def _on_view(context: CallbackContext) -> None:
-    await render_wallet(context.message, context.services, context.payload["id"])
+    await render_wallet(context.message, context.services, context.payload["id"], back=context.back)
 
 
 async def _on_add_prompt(context: CallbackContext) -> None:
@@ -242,7 +262,7 @@ async def _on_rename_prompt(context: CallbackContext) -> None:
 
 
 async def _on_category_list(context: CallbackContext) -> None:
-    await render_categories(context.message, context.services)
+    await render_categories(context.message, context.services, back=context.back)
 
 
 async def _on_category_add_prompt(context: CallbackContext) -> None:

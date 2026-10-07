@@ -25,7 +25,7 @@ LINK_MODES = (
     "link and unlink take `values`, `tags` or `checks`, one per call. "
     "Deleting is the remove tool."
 )
-REPEAT_INSTANCE = "For a finished repeat ` [🔄2, live #7]`, send it with that instance's id."
+REPEAT_INSTANCE = "For a finished repeat ` [✅2, 🔄#7]`, send it with that instance's id."
 
 
 def _validate_call(

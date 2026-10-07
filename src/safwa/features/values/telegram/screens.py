@@ -16,15 +16,18 @@ from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,
+    Place,
     Services,
     TextInputScreen,
     TextValidator,
+    back_button,
     edit_registered_message,
+    edited_screen,
     menu_row,
+    place_button,
     render_text_input,
     required_text,
     send_registered,
-    token_button,
 )
 from tg_agent_shell.telegram.contributions import TextInputFlow
 from tg_agent_shell.telegram.model import UiSession
@@ -41,23 +44,33 @@ from ..use_cases import (
 _EDITOR_TTL = timedelta(minutes=30)
 
 
+# The Values list, which the menu opens and every Value opened from it goes back to.
+_LIST = Place("value_list")
+
+
 async def command_values(message: Message, services: Services) -> None:
     async with services.sessions() as session:
         values = list(await session.scalars(select(Value).order_by(Value.name)))
         rows = [
             [
-                await token_button(
+                await place_button(
                     session,
                     services.owner_id,
                     f"{'✅' if value.active else '○'} {value.name}",
-                    "value_view",
-                    {"id": value.id},
+                    _LIST.child("value_view", id=value.id),
                 )
             ]
             for value in values
         ]
         rows.append(
-            [await token_button(session, services.owner_id, "➕ Add Value", "value_create_prompt", {})]
+            [
+                await place_button(
+                    session,
+                    services.owner_id,
+                    "➕ Add Value",
+                    _LIST.child("value_create_prompt"),
+                )
+            ]
         )
         await session.commit()
     await send_registered(
@@ -75,10 +88,12 @@ async def render_value(
     *,
     mode: str,
     item_id: int | None = None,
+    back: Place | None = None,
     values: dict[str, str] | None = None,
     replace_message_id: int | None = None,
     replace: bool | None = None,
 ) -> None:
+    """One Value, or one being created. `back` is where it was opened from."""
     if mode not in {"create", "view"}:
         raise DomainError("Unsupported Value editor")
     carried_by: tuple[int, int] = (0, 0)
@@ -110,54 +125,54 @@ async def render_value(
         )
         rows: list[list[InlineKeyboardButton]] = [
             [
-                await token_button(
+                await place_button(
                     session,
                     services.owner_id,
                     "✏️ Name",
-                    "value_edit_text",
-                    {"mode": mode, "id": item_id, "field": "name"},
+                    Place("value_edit_text", {"mode": mode, "id": item_id, "field": "name"}, back),
                 ),
-                await token_button(
+                await place_button(
                     session,
                     services.owner_id,
                     "📝 Description",
-                    "value_edit_text",
-                    {"mode": mode, "id": item_id, "field": "description"},
+                    Place(
+                        "value_edit_text",
+                        {"mode": mode, "id": item_id, "field": "description"},
+                        back,
+                    ),
                 ),
             ]
         ]
         if value is not None:
             rows.append(
                 [
-                    await token_button(
+                    await place_button(
                         session,
                         services.owner_id,
                         f"💎 Focus: {'On' if value.active else 'Off'}",
-                        "value_toggle_focus",
-                        {"id": value.id},
+                        Place("value_toggle_focus", {"id": value.id}, back),
                     )
                 ]
             )
             rows.append(
                 [
-                    await token_button(
+                    await place_button(
                         session,
                         services.owner_id,
                         "Delete Value",
-                        "value_delete_prompt",
-                        {"id": value.id},
+                        Place("value_delete_prompt", {"id": value.id}, back),
                     )
                 ]
             )
         elif editor_values["name"].strip():
             rows.append(
                 [
-                    await token_button(
-                        session, services.owner_id, "✅ Create Value", "value_create", {}
+                    await place_button(
+                        session, services.owner_id, "✅ Create Value", Place("value_create", {}, back)
                     )
                 ]
             )
-        rows.append([await token_button(session, services.owner_id, "↩️ Back", "value_back", {})])
+        rows.append([await back_button(session, services.owner_id, back)])
         await session.commit()
 
     body = (
@@ -200,8 +215,15 @@ async def open_value(
 
 
 async def render_value_text_prompt(
-    message: Message, services: Services, *, mode: str, item_id: int | None, field: str
+    message: Message,
+    services: Services,
+    *,
+    mode: str,
+    item_id: int | None,
+    field: str,
+    back: Place | None = None,
 ) -> None:
+    """Type one field of the Value on screen. `back` is where that Value was opened from."""
     if field not in {"name", "description"}:
         raise DomainError("Unsupported text field")
     async with services.sessions() as session:
@@ -220,8 +242,7 @@ async def render_value_text_prompt(
             title=f"Edit Value {field.title()}",
             current_value=str(state.get("values", {}).get(field, "")),
             instruction=f"Send the new {field}.",
-            back_action="value_text_back",
-            back_payload={"mode": mode, "id": item_id},
+            back=Place("value_text_back", {"mode": mode, "id": item_id}, back),
             related_id=item_id,
         ),
         state=state,
@@ -250,6 +271,7 @@ async def _render_after_text(
         services,
         mode=str(state["mode"]),
         item_id=int(item_id) if item_id is not None else None,
+        back=edited_screen(state).back,
         values={**dict(state.get("values", {})), str(state["field"]): value},
         replace_message_id=int(state["text_input"]["message_id"]),
     )
@@ -264,12 +286,16 @@ TEXT_INPUT = TextInputFlow(
 
 
 async def _on_create_prompt(context: CallbackContext) -> None:
-    await render_value(context.message, context.services, mode="create")
+    await render_value(context.message, context.services, mode="create", back=context.back)
 
 
 async def _on_view(context: CallbackContext) -> None:
     await render_value(
-        context.message, context.services, mode="view", item_id=context.payload["id"]
+        context.message,
+        context.services,
+        mode="view",
+        item_id=context.payload["id"],
+        back=context.back,
     )
 
 
@@ -280,6 +306,7 @@ async def _on_edit_text(context: CallbackContext) -> None:
         mode=context.payload["mode"],
         item_id=context.payload.get("id"),
         field=context.payload["field"],
+        back=context.back,
     )
 
 
@@ -294,6 +321,7 @@ async def _on_text_back(context: CallbackContext) -> None:
         context.services,
         mode=context.payload["mode"],
         item_id=context.payload.get("id"),
+        back=context.back,
         values=values,
     )
 
@@ -311,7 +339,9 @@ async def _on_create(context: CallbackContext) -> None:
             session, values.get("name", ""), values.get("description", "").strip() or None
         )
         await session.commit()
-    await render_value(context.message, context.services, mode="view", item_id=value.id)
+    await render_value(
+        context.message, context.services, mode="view", item_id=value.id, back=context.back
+    )
 
 
 async def _on_toggle_focus(context: CallbackContext) -> None:
@@ -319,7 +349,11 @@ async def _on_toggle_focus(context: CallbackContext) -> None:
         await set_value_focus(session, context.payload["id"])
         await session.commit()
     await render_value(
-        context.message, context.services, mode="view", item_id=context.payload["id"]
+        context.message,
+        context.services,
+        mode="view",
+        item_id=context.payload["id"],
+        back=context.back,
     )
 
 
@@ -329,15 +363,14 @@ async def _on_delete_prompt(context: CallbackContext) -> None:
         if value is None:
             raise DomainError("Value does not exist")
         cards, checks = await value_link_counts(session, value.id)
-        confirm = await token_button(
+        confirm = await place_button(
             session,
             context.owner_id,
             "Delete Value",
-            "value_delete_confirm",
-            {"id": value.id},
+            Place("value_delete_confirm", {"id": value.id}, context.back),
         )
-        back = await token_button(
-            session, context.owner_id, "↩️ Back", "value_view", {"id": value.id}
+        back = await back_button(
+            session, context.owner_id, Place("value_view", {"id": value.id}, context.back)
         )
         await session.commit()
     await send_registered(
@@ -365,9 +398,7 @@ async def _on_delete_confirm(context: CallbackContext) -> None:
     async with context.sessions() as session:
         value, removed = await delete_value(session, context.payload["id"])
         await session.execute(delete(UiSession).where(UiSession.owner_id == context.owner_id))
-        back = await token_button(
-            session, context.owner_id, "Back to Values", "value_back", {}
-        )
+        back = await back_button(session, context.owner_id, context.back)
         await session.commit()
     await send_registered(
         context.message,
@@ -379,7 +410,7 @@ async def _on_delete_confirm(context: CallbackContext) -> None:
     )
 
 
-async def _on_back(context: CallbackContext) -> None:
+async def _on_list(context: CallbackContext) -> None:
     async with context.sessions() as session:
         await session.execute(delete(UiSession).where(UiSession.owner_id == context.owner_id))
         await session.commit()
@@ -395,5 +426,5 @@ VALUE_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "value_toggle_focus": _on_toggle_focus,
     "value_delete_prompt": _on_delete_prompt,
     "value_delete_confirm": _on_delete_confirm,
-    "value_back": _on_back,
+    "value_list": _on_list,
 }

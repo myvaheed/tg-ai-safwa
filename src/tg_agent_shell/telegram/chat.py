@@ -37,6 +37,7 @@ from ..proposals.render import proposal_outcome_text
 from ..proposals.store import PROPOSAL_REVIEW_MINUTES
 from .layout import Page, home_markup
 from .model import CallbackToken, UiSession
+from .place import Place
 from .services import Services
 
 logger = logging.getLogger(__name__)
@@ -44,13 +45,35 @@ logger = logging.getLogger(__name__)
 # How long a Toast stays on screen before it removes itself.
 TOAST_SECONDS = 5
 
-_SCREEN_KINDS = frozenset(
+# What Safwa says on its own, with no message of the owner's to answer: a clear leaves it in
+# the chat until the owner next writes to the Advisor.
+UNASKED_KINDS = frozenset({MessageKind.CUE.value, MessageKind.PASSING_CUE.value})
+
+# What the owner acts on: one of these is ever live (SC-LIVE-001).
+SCREEN_KINDS = frozenset(
     {
         MessageKind.DASHBOARD.value,
         MessageKind.EDITOR.value,
         MessageKind.APPROVAL.value,
     }
 )
+
+
+async def mint_token(
+    session: AsyncSession, owner_id: int, action: str, payload: dict[str, Any] | None = None
+) -> str:
+    """One press of `action` that works once, minted in the transaction that draws its
+    screen. A button and a link in a screen's words both carry one."""
+    token = secrets.token_urlsafe(9)
+    session.add(
+        CallbackToken(
+            token=token,
+            owner_id=owner_id,
+            action=action,
+            payload=payload or {},
+        )
+    )
+    return token
 
 
 async def token_button(
@@ -61,15 +84,7 @@ async def token_button(
     payload: dict[str, Any] | None = None,
 ) -> InlineKeyboardButton:
     """One button that works once, minted in the transaction that draws its screen."""
-    token = secrets.token_urlsafe(9)
-    session.add(
-        CallbackToken(
-            token=token,
-            owner_id=owner_id,
-            action=action,
-            payload=payload or {},
-        )
-    )
+    token = await mint_token(session, owner_id, action, payload)
     return InlineKeyboardButton(text=text, callback_data=f"cb:{token}")
 
 
@@ -125,25 +140,14 @@ async def delete_text_input(message: Message, services: Services) -> bool:
 
 
 async def paging_row(
-    session: AsyncSession,
-    owner_id: int,
-    page: Page,
-    action: str,
-    payload: dict[str, Any],
+    session: AsyncSession, owner_id: int, page: Page, here: Place
 ) -> list[list[InlineKeyboardButton]]:
+    """The way to the pages either side of `page`, redrawing `here` with `page` changed."""
     row: list[InlineKeyboardButton] = []
-    if page.index > 0:
-        row.append(
-            await token_button(
-                session, owner_id, "◀ Previous", action, {**payload, "page": page.index - 1}
-            )
-        )
-    if page.index + 1 < page.count:
-        row.append(
-            await token_button(
-                session, owner_id, "Next ▶", action, {**payload, "page": page.index + 1}
-            )
-        )
+    for text, index in (("◀ Previous", page.index - 1), ("Next ▶", page.index + 1)):
+        if 0 <= index < page.count:
+            moved = here.but(page=index)
+            row.append(await token_button(session, owner_id, text, moved.action, moved.payload))
     return [row] if row else []
 
 
@@ -153,7 +157,7 @@ async def dismiss_prior_ui(message: Message, services: Services) -> None:
     async def freeze(screen: Note) -> tuple[str, str] | None:
         return await _interrupted_review(services, screen)
 
-    await services.chat.leave_one_screen(message, kinds=_SCREEN_KINDS, freeze=freeze)
+    await services.chat.leave_one_screen(message, kinds=SCREEN_KINDS, freeze=freeze)
     async with services.sessions() as session:
         await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
         await session.commit()
@@ -386,11 +390,24 @@ def owner_anchor(bot: Bot, owner_id: int) -> Message:
     ).as_(bot)
 
 
-async def clear_draw_home(message: Message, services: Services, text: str) -> Message:
-    """Draw Home silently and clear only through the last message to the Advisor.
+def screen_anchor(bot: Bot, chat_id: int, message_id: int) -> Message:
+    """A stand-in for the bot's own screen `message_id`: what is drawn on it replaces that
+    screen, as a press of one of its buttons would."""
+    return Message(
+        message_id=message_id,
+        date=datetime.now(UTC),
+        chat=Chat(id=chat_id, type="private"),
+        from_user=User(id=bot.id, is_bot=True, first_name="Bot"),
+    ).as_(bot)
 
-    Newer messages stay, and the previous Home goes separately. What was said stays
-    kept, and the conversation starts over after this message, which is returned.
+
+async def clear_draw_home(message: Message, services: Services, text: str) -> Message:
+    """Draw Home silently, and take every message before it out of the chat but what Safwa
+    said unasked since the owner last wrote to the Advisor (TG-HOME-023).
+
+    A bot cannot tell whether a message was read, so a message the owner has not answered
+    is one they may not have seen. What was said stays kept, and the conversation starts
+    over after this message, which is returned.
     """
     chat_id = message.chat.id
     async with services.sessions() as session:
@@ -400,7 +417,11 @@ async def clear_draw_home(message: Message, services: Services, text: str) -> Me
                 TelegramMessage.kind == MessageKind.DIALOGUE_USER.value,
             )
         ) or 0
-    homes = await services.chat.notes.outgoing(chat_id, kinds={MessageKind.HOME.value})
+    unread = {
+        note.message_id
+        for note in await services.chat.notes.outgoing(chat_id, kinds=UNASKED_KINDS)
+        if note.message_id > last
+    }
     home = await services.chat.send(
         message,
         text,
@@ -410,20 +431,12 @@ async def clear_draw_home(message: Message, services: Services, text: str) -> Me
         silent=True,
     )
     await services.chat.clear(
-        message.bot,
-        chat_id,
-        last,
-        keep=CONVERSATION_KINDS,
+        message.bot, chat_id, home.message_id - 1, keep=CONVERSATION_KINDS, spare=unread
     )
-    for home in homes:
-        if home.message_id > last:
-            await services.chat.remove_screen(message, home.message_id)
-    if not await services.chat.notes.outgoing(chat_id, kinds=_SCREEN_KINDS):
-        async with services.sessions() as session:
-            await session.execute(
-                delete(UiSession).where(UiSession.owner_id == services.owner_id)
-            )
-            await session.commit()
+    # Every screen went with the rest, so no editor is left to type into.
+    async with services.sessions() as session:
+        await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
+        await session.commit()
     return home
 
 

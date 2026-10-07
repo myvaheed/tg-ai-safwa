@@ -2,7 +2,7 @@
 
 The running Sprint shows one selected list without separate Action buttons: each title is a
 link that opens its Card in place of the screen, and the Card's Back returns to that list and
-page. Planning carries
+page (`place_link`). Planning carries
 the Success criteria and the shape of the plan, and it offers Start only once it has both, because a Sprint
 that begins without either is a Sprint nobody can close against anything.  The plan
 itself is built one screen further in, in `plan.py`.
@@ -11,7 +11,6 @@ itself is built one screen further in, in `plan.py`.
 from __future__ import annotations
 
 import html
-import re
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import timedelta
@@ -26,25 +25,26 @@ from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import (
+    Place,
     Services,
     TextInputScreen,
     edit_registered_message,
     menu_row,
     paginate,
     paging_row,
+    place_button,
+    place_link,
     render_text_input,
     required_text,
     send_registered,
-    start_link,
     token_button,
     with_notice,
 )
-from tg_agent_shell.telegram.contributions import StartLink, TextInputFlow
+from tg_agent_shell.telegram.contributions import TextInputFlow
 
 from ....foundation.workspace import Workspace
 from ...cards.api import CardStage, actions_on_stages, effort_label, list_order
 from ...cards.model import Card
-from ...cards.telegram import render_card
 from ...profile.api import effort_tracking_on
 from ..api import (
     SPRINT_LENGTH_MAX_DAYS,
@@ -63,10 +63,8 @@ from ..use_cases import set_sprint_capacity, set_sprint_length, set_sprint_succe
 
 _PROMPT_TTL = timedelta(minutes=30)
 
-# The lists the running Sprint selects between. A tap on a title names its Card, its list and
-# its page, so the Card's Back draws that list and page again.
-SPRINT_VIEWS = ("today", "remaining", "done", "blocked")
-_OPEN_PAYLOAD = re.compile(rf"^ss-(\d{{1,9}})-({'|'.join(SPRINT_VIEWS)})-(\d{{1,4}})$")
+# The Sprint screen with any editor left behind ended: where its own editors go back to.
+SPRINT_SCREEN = Place("sprint_back")
 
 
 async def render_sprint(
@@ -135,13 +133,12 @@ async def render_sprint(
             for key, values in quantities.items()
         }
         shown = paginate(cards, page)
+        here = Place("sprint_page", {"view": view, "page": shown.index})
         descriptions = []
         for card in shown.items:
             mark = "✓" if view == "done" else "⛔" if card.blocked else "•"
-            title = start_link(
-                services.bot_username,
-                html.escape(card.title),
-                f"ss-{card.id}-{view}-{shown.index}",
+            title = await place_link(
+                session, services, html.escape(card.title), here.child("card_view", id=card.id)
             )
             line = f"{mark} {title}"
             quantity = quantities[view][card.id]
@@ -166,7 +163,7 @@ async def render_sprint(
                 )
             )
         rows.extend([buttons[:2], buttons[2:]])
-        rows.extend(await paging_row(session, services.owner_id, shown, "sprint_page", {"view": view}))
+        rows.extend(await paging_row(session, services.owner_id, shown, here))
         # On the last day ending the Sprint is not early, and the button says so.
         day, length = sprint_day(sprint, local_today)
         page_label = f" · {shown.label}" if shown.count > 1 else ""
@@ -206,28 +203,6 @@ async def render_sprint(
     else:
         await send_registered(message, services, text, kind=MessageKind.DASHBOARD, markup=markup)
 
-
-def claims_sprint_payload(payload: str) -> bool:
-    """Whether this deep link is a tap on an Action in one of the running Sprint's lists."""
-    return _OPEN_PAYLOAD.fullmatch(payload) is not None
-
-
-async def handle_sprint_start(message: Message, services: Services, payload: str) -> None:
-    """Open the tapped Action in place of the Sprint screen, the one screen left in the chat."""
-    card_id, view, page = _OPEN_PAYLOAD.fullmatch(payload).groups()
-    screens = await services.chat.notes.outgoing(
-        message.chat.id, kinds={MessageKind.DASHBOARD.value}
-    )
-    await render_card(
-        message,
-        services,
-        int(card_id),
-        replace_message_id=screens[0].message_id if screens else None,
-        back={"action": "sprint_page", "view": view, "page": int(page)},
-    )
-
-
-SPRINT_LINK = StartLink(claims=claims_sprint_payload, open=handle_sprint_start)
 
 
 @dataclass(frozen=True, slots=True)
@@ -310,8 +285,7 @@ async def render_sprint_field_prompt(
             title=edited.title,
             current_value=current,
             instruction=edited.instruction,
-            back_action="sprint_back",
-            back_payload={},
+            back=SPRINT_SCREEN,
         ),
         state={"flow": "sprint", "field": field},
         notice=notice,
@@ -360,7 +334,14 @@ async def _render_planning(
                 )
             ],
             settings,
-            [await token_button(session, services.owner_id, "🗓 Plan", "plan_open")],
+            [
+                await place_button(
+                    session,
+                    services.owner_id,
+                    "🗓 Plan",
+                    SPRINT_SCREEN.child("plan_page", page=0, filters=[]),
+                )
+            ],
         ]
         if planned and criteria:
             rows.append(

@@ -98,7 +98,8 @@ Feature: Checks
     And every instance also names the series of the Card it hangs on, and none if it hangs on none
     And answers can be counted by the Check series or the Card series
     And the Checks on a Card are found by naming that Card, and in no other place
-    And an answered instance is titled "[🔄2, live #7]" and the Pending one plainly (REPEAT_MARKER)
+    And an answered instance is titled "[✅2, 🔄#7]", or "[❌2, 🔄#7]" when it was Missed, and the
+      Pending one plainly (REPEAT_MARKER)
 
   Scenario: CH-ARCHIVE-016 — An archived Check opens, and keeps its answer
     Given an archived Check, cited in one of Safwa's answers or listed on its Card

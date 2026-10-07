@@ -648,7 +648,9 @@ def test_conversation_block_is_empty_when_the_conversation_is() -> None:
     assert conversation_block([]) == ""
 
 
-async def test_a_home_message_clears_only_through_the_last_user_message(sessions) -> None:
+async def test_a_home_clears_everything_before_it_but_unasked_words_not_yet_answered(
+    sessions,
+) -> None:
     """TG-HOME-023 — tests/brd/tg_agent_shell/telegram_history.feature"""
     chat_id, now = 700, datetime.now(UTC)
     await keep(sessions, chat_id, 1000, "Too old", MessageKind.DIALOGUE_USER, now - timedelta(days=3))
@@ -679,21 +681,23 @@ async def test_a_home_message_clears_only_through_the_last_user_message(sessions
     assert [button.text for row in anchor.markups[-1].inline_keyboard for button in row] == [
         "☰ Menu"
     ]
-    # The last user's message goes; everything newer and anything too old stays.
-    assert anchor.bot.deleted == [1099, 1100]
+    # Everything before Home goes but the Cue after the owner's last message; the message
+    # too old for Telegram to delete stays.
+    assert anchor.bot.deleted == [id_ for id_ in range(1099, home.message_id) if id_ != 1103]
     assert None not in [await notes.note(chat_id, 1100), await notes.note(chat_id, 1101)]
-    assert await notes.note(chat_id, 1099) is None
-    assert None not in [await notes.note(chat_id, 1102), await notes.note(chat_id, 1103)]
+    assert await notes.note(chat_id, 1099) is None and await notes.note(chat_id, 1102) is None
+    assert await notes.note(chat_id, 1103) is not None
     async with sessions() as session:
-        assert await session.scalar(select(UiSession)) is not None
+        assert await session.scalar(select(UiSession)) is None
     assert await source.recent(chat_id) == []
 
-    # Another dashboard without user dialogue must still preserve those messages.
+    # Another Home with no message to the Advisor since still leaves the Cue, and takes the
+    # last Home out.
     deleted = len(anchor.bot.deleted)
     await clear_draw_home(anchor, services, "<b>🏠 Home again</b>")
-    assert anchor.bot.deleted[deleted:] == [1100, home.message_id]
+    assert home.message_id in anchor.bot.deleted[deleted:]
+    assert 1103 not in anchor.bot.deleted
     assert await notes.note(chat_id, home.message_id) is None
-    assert None not in [await notes.note(chat_id, 1102), await notes.note(chat_id, 1103)]
     home = anchor.sent[-1]
     await keep(sessions, chat_id, home.message_id + 1, "Hello again", MessageKind.DIALOGUE_USER, now)
     assert [entry.text for entry in await source.recent(chat_id)] == ["Hello again"]
@@ -702,15 +706,13 @@ async def test_a_home_message_clears_only_through_the_last_user_message(sessions
     )
     assert "What is next?" in day and "Hello again" in day and "Home" not in day
 
-    # New user dialogue lets the next clear take out the previously protected messages.
+    # A message to the Advisor answers the Cue, so the next clear takes it out too.
     deleted = len(anchor.bot.deleted)
     anchor.message_id = 160
     await clear_draw_home(anchor, services, "<b>🏠 Home again</b>")
-    assert anchor.bot.deleted[deleted:] == list(range(1100, home.message_id + 2))
+    assert 1103 in anchor.bot.deleted[deleted:]
+    assert home.message_id + 1 in anchor.bot.deleted[deleted:]
     assert await notes.note(chat_id, home.message_id) is None
-    assert await notes.note(chat_id, 1102) is None
-    async with sessions() as session:
-        assert await session.scalar(select(UiSession)) is None
 
 
 async def test_a_home_without_user_dialogue_preserves_unsolicited_messages(sessions) -> None:
@@ -726,6 +728,7 @@ async def test_a_home_without_user_dialogue_preserves_unsolicited_messages(sessi
 
     await clear_draw_home(anchor, services, "<b>🏠 Home</b>")
 
-    assert anchor.bot.deleted == [1101]
+    assert 1101 in anchor.bot.deleted
+    assert 1100 not in anchor.bot.deleted and 1102 not in anchor.bot.deleted
     assert await services.chat.notes.note(chat_id, 1100) is not None
     assert await services.chat.notes.note(chat_id, 1102) is not None

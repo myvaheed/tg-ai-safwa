@@ -123,11 +123,11 @@ Priority, derived stage and compiled Deadline. The Advisor starts advice and pla
   opens, it reads as archived, and no proposal changes it — only the owner, by reopening or deleting
   it. `foundation.marks.title_marks` is the one place both marks are written, and `ai_cards` and
   `ai_checks` render the same wording in SQL.
-- **A repeating Action also carries `[🔄✓]` while its series has a completion today**, on the
-  finished instance and the open successor alike, so finishing one never leaves the next
-  looking untouched. It is the one mark SQL does not mirror — today is the owner's calendar
-  day in the workspace timezone, which SQLite cannot work out — so `cards.telegram`
-  writes it and the model is told nothing of it.
+- **A finished instance reads `[✅3, 🔄#5]`**: how it ended — ❌ for a Check answered Missed —
+  its place in the series and the open one, or `[✅3]` once the series has ended. **The open
+  instance of a repeating Action carries `[🔄]` on a screen**, so the one to work with stands
+  apart from the finished ones at a glance. That is the one mark SQL does not mirror: the model
+  is told the open one by its plain title, so `cards.telegram` writes it and nothing else does.
 - **Deleting a Card is the whole branch or that Card alone**, and the owner chooses on the
   confirmation screen; Safwa only ever proposes the branch. Deleting one Card alone leaves its
   children standing where the tree allows, which makes a Subgoal a Goal. That and a Goal placed

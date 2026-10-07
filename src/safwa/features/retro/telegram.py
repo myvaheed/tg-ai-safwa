@@ -29,6 +29,7 @@ from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,
+    Place,
     Progress,
     Services,
     dismiss_prior_ui,
@@ -203,7 +204,7 @@ async def render_retro_list(message: Message, services: Services, *, page: int =
                 )
             ]
         )
-        rows.extend(await paging_row(session, services.owner_id, window, "retro_list", {}))
+        rows.extend(await paging_row(session, services.owner_id, window, Place("retro_list")))
         await session.commit()
     text = (
         f"<b>Retro</b> · {window.label}\nEvery Sprint that ended, the newest first."

@@ -198,18 +198,18 @@ def test_the_menu_draws_every_label_a_screen_declared() -> None:
     }
 
 
-def test_pl_mode_001_today_stays_on_the_menu_and_among_the_commands_in_planning() -> None:
+def test_pl_mode_001_one_menu_in_planning_as_in_a_sprint() -> None:
     """PL-MODE-001 — tests/brd/planning.feature"""
-    # One menu and one command list, whatever mode the workspace is in.
+    # One menu and one command list, whatever mode the workspace is in; Today is on Home.
     drawn = [
         button.callback_data
         for row in menu_markup(FEATURE_COMMANDS).inline_keyboard
         for button in row
     ]
 
-    assert "nav:today" in drawn
-    assert "today" in {screen.command for screen in FEATURE_COMMANDS}
-    assert "nav:sprint" in drawn
+    assert "nav:board" in drawn and "nav:sprint" in drawn
+    assert "nav:today" not in drawn and "nav:backlog" not in drawn
+    assert "today" not in {screen.command for screen in FEATURE_COMMANDS}
 
 
 def test_the_screen_catalogue_is_the_one_list_of_openable_items() -> None:

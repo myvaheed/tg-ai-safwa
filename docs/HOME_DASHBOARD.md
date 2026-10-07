@@ -2,9 +2,9 @@
 
 Home is one dashboard in two places. `/start` and every `↩️ Menu` draw it as a screen with the
 whole menu under it (HM-START-011). When the owner does nothing in the chat for the Profile's
-quiet time, or sends `/clear`, Safwa clears messages through the last message the owner sent to
-the Advisor, inclusive. Messages after it stay, and a silent Home dashboard is added, built from
-the workspace at that moment, with one `☰ Menu` button. The conversation Safwa reads starts over
+quiet time, or sends `/clear`, Safwa adds a silent Home dashboard, built from the workspace at
+that moment, with one `☰ Menu` button, and clears every message before it but what Safwa said
+unasked after the owner last wrote to the Advisor. The conversation Safwa reads starts over
 after it. The rules are HM-QUIET-003 to HM-CLEAR-012
 in [home.feature](../tests/brd/home.feature) and PS-HOME-018 in
 [profile.feature](../tests/brd/profile.feature); what a Home message does to the chat is the
@@ -15,44 +15,50 @@ and the check that draws it is a hook on a schedule, AG-HOOK-049 and AG-HOOK-050
 ## How it looks
 
 ```text
-🏠 Sat, 27 Sep
-
-☀️ Today · 5 of 8
-Planned: 8 Actions
-🎯 Launch the blog · ⚡3/8
-    ⭐️ Write the first post · 🧠·⚡2
-    ⭐️ Pick a domain · ⚡1
-⭐️ Call the bank · ⚡1
-⭐️ Pay rent · ⚡0.5
-
-💎 Values in focus
-💎 Family
-💎 Health — Three runs last week and a calm evening in the Diary: a short walk today keeps it going.
-
-⌛ Tracked today: 2h 15m over 3 Actions
+🏠 Sat, 27 Sep · 14:32
 
 🗒 Latest changes
 14:05 ✅ ⭐️ Write the outline · ⚡2 — done
 13:40 ✏️ ⭐️ Pay rent · ⚡0.5 — priority
 26.09 21:10 🗑 Old plan — deleted
 …
+
+🎯 Priority Goals
+🎯 Launch the blog · ⚡3/8
+🎯 Run a marathon · ⚡1/13
+
+💎 Values in focus
+💎 Family
+💎 Health — Three runs last week and a calm evening in the Diary: a short walk today keeps it going.
+
+☀️ Today · 4
+Planned: 4 Actions
+🎯 Launch the blog · ⚡3/8
+    ⭐️ Write the first post · 🧠·⚡2
+    ⭐️ Pick a domain · ⚡1
+⭐️ Call the bank · ⚡1
+⭐️ Pay rent · ⚡0.5
+
+⌛ Tracked today: 2h 15m over 3 Actions
 ```
 
-- **The next Actions**: the first `HOME_ACTIONS_SHOWN = 5` of Today in its own order
-  (`today_actions`); with Today empty, of the Sprint; with that empty, of the Backlog — both in
-  the order every other Card list uses (`list_order`). The heading names the list and how many it
-  holds. An Action under a Goal stands under it (`goal_of` skips a Subgoal between them); Goals
-  come in the order of their first Action, Actions with no Goal after them.
-  The shown/total heading counts Card rows for pagination. Today/Sprint also show planned
-  execution counts and, with EP on, their load; repeating rows show × quantity. Today's
-  count uses its local day, Sprint uses its dates (the next Sprint's length while Planning).
-- **Values in focus**, by name, each with the words written for it, or its name alone when
-  none could be written.
-- **Time tracked today**, only while Time tracking is on: `tracked_mins` of the Actions finished
-  today, workspace local day (`tracked_between`).
-- **The last `HOME_LOG_SHOWN = 10` changes**, newest first: when, an icon, the item, what
+The day and the time it was drawn head it (HM-ORDER-014), then:
+
+- **The last `HOME_LOG_SHOWN = 5` changes**, newest first: when, an icon, the item, what
   changed. An item deleted at or after that change is its title without a link, because SQLite
   hands its id to the next item.
+- **The first `HOME_GOALS_SHOWN = 5` Priority Goals**, in the order the workspace context hands
+  them to Safwa (`priority_goals`, WS-CONTEXT-008).
+- **Values in focus**, by name, each with the words written for it, or its name alone when
+  none could be written.
+- **Today**, every Action in it, in its own order (`today_actions`). An Action under a Goal
+  stands under it (`goal_of` skips a Subgoal between them); Goals come in the order of their
+  first Action, Actions with no Goal after them. The heading counts its Card rows; the line under
+  it gives the planned executions of the local day and, with EP on, their load; repeating rows
+  show × quantity. With Today empty it says so, and no other list stands in for it: the Sprint and
+  the Backlog are the Dashboard's (`📊 Dashboard` in the menu).
+- **Time tracked today**, only while Time tracking is on: `tracked_mins` of the Actions finished
+  today, workspace local day (`tracked_between`).
 
 Every item goes through `render_citations`, so it reads and links exactly as a citation in an
 answer does.
@@ -60,7 +66,7 @@ answer does.
 ## The menu under it
 
 [telegram.py](../src/safwa/features/home/telegram.py) draws it. `render_home` is the screen of
-`nav:home`, so `/start`, `↩️ Menu` and `go_back` with nowhere to go all reach it. It draws the
+`nav:home`, so `/start`, `↩️ Menu` and `go` with no Place all reach it. It draws the
 dashboard with `menu_markup` under it, as a `MessageKind.DASHBOARD` screen that the next
 navigation replaces. It opens at once, with the words under the Values only when fresh ones are
 kept; otherwise the words are asked for while it is shown and put in when they come (see
@@ -98,13 +104,14 @@ kind `home`.
 `speak_on_schedule` drops it if the owner acted since that look, renders it the way an answer
 is rendered, and takes the background lease for the sending alone, so the owner acting stops it
 there too. `clear_draw_home` sends it as a new, silent message of `MessageKind.HOME`, and
-`ChatHost.clear` deletes every id through the last `MessageKind.DIALOGUE_USER`, inclusive, in
-`TELEGRAM_DELETE_BATCH = 100` a call. Both sides share one id sequence in a private chat, so
-the range takes older messages and commands too. Messages after that last user message stay,
-including the Advisor's reply, Reminders and screens; a surviving screen keeps its input session.
-The previous Home dashboard is removed separately. With no user dialogue, only the previous
-dashboard is removed. A later user message allows the next clear to remove messages preserved
-by an earlier one. The range starts no earlier than the oldest
+`ChatHost.clear` deletes every id before it, in `TELEGRAM_DELETE_BATCH = 100` a call. Both sides
+share one id sequence in a private chat, so the range takes the owner's messages and commands,
+the Advisor's replies, receipts, every screen and the previous Home dashboard alike, and no
+editor session is left. It spares `UNASKED_KINDS` — Cues, which is how a Reminder or a hook's
+question reaches the chat — sent after the last `MessageKind.DIALOGUE_USER`: a bot cannot tell
+whether a message was read, and one the owner has not written back after may not have been. They
+stay through later clears until the owner writes to the Advisor. The range starts no earlier
+than the oldest
 message kept in the last `TELEGRAM_DELETE_WINDOW` of 48 hours: Telegram lets a bot delete nothing
 older.
 

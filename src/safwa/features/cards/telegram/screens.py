@@ -12,11 +12,12 @@ from sqlalchemy import delete, select
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import (
+    Place,
     Services,
     back_button,
     edit_registered_message,
+    place_button,
     send_registered,
-    token_button,
     with_notice,
 )
 from tg_agent_shell.telegram.model import UiSession
@@ -39,12 +40,16 @@ async def render_card(
     card_id: int,
     *,
     replace_message_id: int | None = None,
-    back: dict[str, Any] | None = None,
+    back: Place | None = None,
     full: bool | None = None,
     notice: str | None = None,
     replace: bool | None = None,
 ) -> None:
-    """Draw one Card, compact by default; `full` is remembered until it is changed."""
+    """Draw one Card, compact by default; `full` is remembered until it is changed.
+
+    `back` is the screen the Card was opened from; a press on the Card that redraws it
+    carries the same one, and a screen it opens carries the Card.
+    """
     async with services.sessions() as session:
         existing_editor = await session.scalar(
             select(UiSession).where(UiSession.owner_id == services.owner_id)
@@ -56,12 +61,10 @@ async def render_card(
             and existing_editor.state.get("card_id") == card_id
             else {}
         )
-        if back is None:
-            back = dict(remembered.get("back", {}))
         if full is None:
             # An edit redraws the Card, and it redraws it in the view it was made in.
             full = bool(remembered.get("full", False))
-        back = back or {}
+        here = Place("card_view", {"id": card_id}, back)
         card = await session.get(Card, card_id)
         if card is None:
             raise DomainError("Card does not exist")
@@ -145,21 +148,20 @@ async def render_card(
                     ("🏷 Tags", "card_choose_tags", {"id": card.id}),
                 ]
             )
-        buttons = [await token_button(session, services.owner_id, *spec) for spec in field_specs]
+        buttons = [
+            await place_button(session, services.owner_id, text, Place(action, args, back))
+            for text, action, args in field_specs
+        ]
         rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
         relationship_rows: list[list[InlineKeyboardButton]] = []
         if parent is not None:
             relationship_rows.append(
                 [
-                    await token_button(
+                    await place_button(
                         session,
                         services.owner_id,
                         f"🌳 Parent: {parent.title}"[:60],
-                        "card_view",
-                        {
-                            "id": parent.id,
-                            "back": {"action": "card_view", "id": card.id, "back": back},
-                        },
+                        here.child("card_view", id=parent.id),
                     )
                 ]
             )
@@ -168,39 +170,33 @@ async def render_card(
         if live_card is not None:
             relationship_rows.append(
                 [
-                    await token_button(
+                    await place_button(
                         session,
                         services.owner_id,
                         f"🔄 Current: {live_card.title}"[:60],
-                        "card_view",
-                        {
-                            "id": live_card.id,
-                            "back": {"action": "card_view", "id": card.id, "back": back},
-                        },
+                        here.child("card_view", id=live_card.id),
                     )
                 ]
             )
         if card.kind in {CardKind.GOAL.value, CardKind.SUBGOAL.value}:
             relationship_rows.append(
                 [
-                    await token_button(
+                    await place_button(
                         session,
                         services.owner_id,
                         "👥 Children",
-                        "card_children",
-                        {"id": card.id, "page": 0, "back": back},
+                        here.child("card_children", id=card.id, page=0),
                     )
                 ]
             )
         # Every Value on the Card is a button, so the one on a Goal opens from the Goal.
         value_buttons = (
             [
-                await token_button(
+                await place_button(
                     session,
                     services.owner_id,
                     f"💎 {value.name}"[:60],
-                    "value_view",
-                    {"id": value.id},
+                    here.child("value_view", id=value.id),
                 )
                 for value in direct_values
             ]
@@ -216,15 +212,11 @@ async def render_card(
         if direct_checks:
             relationship_rows.append(
                 [
-                    await token_button(
+                    await place_button(
                         session,
                         services.owner_id,
                         f"☑️ Checks ({answered_total}/{len(direct_checks)})",
-                        "check_list",
-                        {
-                            "card_id": card.id,
-                            "back": {"action": "card_view", "id": card.id, "back": back},
-                        },
+                        here.child("check_list", card_id=card.id),
                     )
                 ]
             )
@@ -241,36 +233,40 @@ async def render_card(
             ):
                 if stage.value != card.effective_stage:
                     move_row.append(
-                        await token_button(
+                        await place_button(
                             session,
                             services.owner_id,
                             label,
-                            "card_move",
-                            {"id": card.id, "stage": stage.value},
+                            Place("card_move", {"id": card.id, "stage": stage.value}, back),
                         )
                     )
         primary_row: list[InlineKeyboardButton] = []
         if not archived and card.effective_stage != CardStage.DONE.value:
             primary_row.append(
-                await token_button(
-                    session, services.owner_id, "✅ Done", "card_finish", {"id": card.id}
+                await place_button(
+                    session, services.owner_id, "✅ Done", Place("card_finish", {"id": card.id}, back)
                 )
             )
         if not archived and card.effective_stage == CardStage.DONE.value and not card.is_closed_repeat():
             primary_row.append(
-                await token_button(
-                    session, services.owner_id, "♻️ Reopen", "card_move",
-                    {"id": card.id, "stage": CardStage.BACKLOG.value, "reopen": True},
+                await place_button(
+                    session,
+                    services.owner_id,
+                    "♻️ Reopen",
+                    Place(
+                        "card_move",
+                        {"id": card.id, "stage": CardStage.BACKLOG.value, "reopen": True},
+                        back,
+                    ),
                 )
             )
         if not full and card.kind == CardKind.ACTION.value and not archived and not move_row:
             primary_row.append(
-                await token_button(
+                await place_button(
                     session,
                     services.owner_id,
                     "📍 Stage",
-                    "card_choose_stage",
-                    {"id": card.id},
+                    Place("card_choose_stage", {"id": card.id}, back),
                 )
             )
         rows = (
@@ -283,48 +279,48 @@ async def render_card(
             # What an archived Card still offers: it leaves the archive by being
             # reopened, and a closed repeat never reopens, so the only way out is Delete.
             closing_row = [
-                await token_button(
+                await place_button(
                     session,
                     services.owner_id,
                     "Delete",
-                    "card_delete_prompt",
-                    {"id": card.id},
+                    Place("card_delete_prompt", {"id": card.id}, back),
                 )
             ]
             if archived:
                 if not card.is_closed_repeat():
                     closing_row.insert(
                         0,
-                        await token_button(
+                        await place_button(
                             session,
                             services.owner_id,
                             "♻️ Reopen",
-                            "card_move",
-                            {"id": card.id, "stage": CardStage.BACKLOG.value, "reopen": True},
+                            Place(
+                                "card_move",
+                                {"id": card.id, "stage": CardStage.BACKLOG.value, "reopen": True},
+                                back,
+                            ),
                         ),
                     )
             else:
                 closing_row.insert(
                     0,
-                    await token_button(
+                    await place_button(
                         session,
                         services.owner_id,
                         "Archive",
-                        "card_archive",
-                        {"id": card.id},
+                        Place("card_archive", {"id": card.id}, back),
                     ),
                 )
             rows.append(closing_row)
-        last_row = [await back_button(session, services.owner_id, "card_back", back)]
+        last_row = [await back_button(session, services.owner_id, back)]
         if not archived:
             last_row.insert(
                 0,
-                await token_button(
+                await place_button(
                     session,
                     services.owner_id,
                     "🗜 Compact" if full else "✏️ Full editing",
-                    "card_view_mode",
-                    {"id": card.id, "full": not full},
+                    here.but(full=not full),
                 ),
             )
         rows.append(last_row)
@@ -337,7 +333,6 @@ async def render_card(
                     kind="card_editor",
                     state={
                         "card_id": card.id,
-                        "back": back,
                         "full": full,
                         "message_id": replace_message_id or message.message_id,
                     },

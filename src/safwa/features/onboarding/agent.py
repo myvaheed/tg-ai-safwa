@@ -61,7 +61,7 @@ MANUAL = f"""# Safwa
 - A repeating Action makes its next copy when it is finished.
 - A Done Card is archived two Sprints later, or by hand. It still counts.
 - In words: create, change, move, finish, place under another Card, delete.
-- With buttons: "➕ Add" creates a Goal or an Action. "📚 Backlog" and "☀️ Today" list Cards. On a Card: "✅ Done", "📍 Stage", "☑️ Checks", and "✏️ Full editing" for every field, its Values and Tags, "Archive" and "Delete".
+- With buttons: "➕ Add" creates a Goal or an Action. "🗂 Dashboard" shows Backlog, Sprint, Today and Done side by side, the 10 changed last in each, for Actions or for Goals; its "📚 Backlog" lists the Backlog 10 to a page. Each title there is a link that opens its Card. On a Card: "✅ Done", "📍 Stage", "☑️ Checks", and "✏️ Full editing" for every field, its Values and Tags, "Archive" and "Delete".
 - Not with buttons: placing a Card under another Card, or making a Subgoal. Ask the Advisor.
 - Not at all: moving an Action straight to Done. Finish it with "✅ Done".
 
@@ -102,10 +102,10 @@ MANUAL = f"""# Safwa
 - Not with buttons: making or changing a Request.
 
 # Sprint
-- Planning is the mode with no Sprint. The user writes the Success criteria, what the next Sprint must achieve, and plans Actions into it. Today and /today work as in a Sprint; only the Planning screen leaves Today out.
+- Planning is the mode with no Sprint. The user writes the Success criteria, what the next Sprint must achieve, and plans Actions into it. Today works as in a Sprint; only the Planning screen leaves Today out.
 - A Sprint runs for the length set in Planning, 14 days at first. Every plan is judged against its Success criteria. "☀️ Today" is the day's work, and it exists only while a Sprint runs.
 - Safwa warns the day before the last day and on the last day. The Sprint closes itself at midnight after its last day.
-- With buttons: "🏃 Sprint" or /sprint: "🎯 Set Success criteria", "🏁 Length", "⚖️ Capacity" while Effort Points are on, tap a Backlog Action in the plan to add it to Sprint, "▶️ Start N-day Sprint", "⏹ Finish early" or "⏹ Finish Sprint". Open an Action from Backlog or Today to move it with the two buttons at the top of its Card.
+- With buttons: "🏃 Sprint" or /sprint: "🎯 Set Success criteria", "🏁 Length", "⚖️ Capacity" while Effort Points are on, tap a Backlog Action in the plan to add it to Sprint, "▶️ Start N-day Sprint", "⏹ Finish early" or "⏹ Finish Sprint". Open an Action from the Dashboard or Home to move it with the two buttons at the top of its Card.
 - While a Sprint runs, its screen shows the dates, local day, Success criteria and taken and done Actions, or EP while Effort Points are on. "Today", "Remaining", "Done" and "Blocked" select one list in the same message; their counts are Actions. "Remaining" is only the Sprint stage; "Done" is only this Sprint's completions; "Blocked" includes open Actions in Sprint and Today with their reasons. The selected button has a checkmark. Actions have no separate buttons: tap an Action's title to open its Card, and "↩️ Back" returns to the list.
 - In words: start the next Sprint, finish the running one, set the next Sprint's Success criteria, length or capacity, or ask its dates, its length and the days left. A Sprint to start is shown with its Success criteria, its first and last day and its length, for Save.
 - In words: moving Actions into Sprint or Today, or back to Backlog.
@@ -151,14 +151,14 @@ MANUAL = f"""# Safwa
 - Time tracking and Effort Points can also be changed in words, through a Profile proposal. Hook switches are buttons only. Onboarding alone may be turned off in words.
 
 # Screens and commands
-- The menu, /start: the Home dashboard with these buttons under it, also reached by ↩️ Menu: "☀️ Today", "🏃 Sprint", "📊 Retro", "📚 Backlog", "➕ Add", "💎 Values", "🏷 Tags", "⚙️ Profile", "⏰ Reminders", "🔎 Requests".
-- Commands: /start, /today, /sprint, /retro, /values, /tags, /reminders, /requests, /memory, /status for the workspace mode, /summarize to fold the conversation into a Summary now, /clear to clear the chat down to the Home dashboard now, /cancel to stop an answer being written.
+- The menu, /start: the Home dashboard with these buttons under it, also reached by ↩️ Menu: "🗂 Dashboard", "🏃 Sprint", "📊 Retro", "➕ Add", "💎 Values", "🏷 Tags", "⚙️ Profile", "⏰ Reminders", "🔎 Requests".
+- Commands: /start, /sprint, /retro, /values, /tags, /reminders, /requests, /memory, /status for the workspace mode, /summarize to fold the conversation into a Summary now, /clear to clear the chat down to the Home dashboard now, /cancel to stop an answer being written.
 - A voice message is transcribed and answered like text.
 - A photo is read as a few words when it arrives, when image input is on. Asked what a photo shows, Safwa looks at it again. A link to a photo opens it, and it stays in the chat.
-- A link in an answer opens its item. A Card or Check opened from a link has "↩️ Menu" instead of "↩️ Back".
+- A link in an answer opens its item. An item opened from a link or from the Home dashboard has "↩️ Menu" instead of "↩️ Back"; one opened from a screen goes "↩️ Back" to that screen.
 
 # Home dashboard
-- When the user does nothing in the chat for the Profile's "🏠 Home after" minutes, 30 at first, or sends /clear, Safwa clears messages through the last message the user sent to the Advisor, inclusive. Messages after it stay, including the Advisor's reply and Reminders. The previous Home dashboard is removed. A new Home dashboard arrives without a sound: the next Actions under their Goals, the Values in focus with a few words each, the time tracked today while Time tracking is on, and the last 10 changes.
+- When the user does nothing in the chat for the Profile's "🏠 Home after" minutes, 30 at first, or sends /clear, Safwa clears every message before the new Home dashboard: screens, receipts, the user's messages and the Advisor's replies. A Reminder or anything else Safwa said on its own since the user last wrote to it stays until the user writes again. A new Home dashboard arrives without a sound: the day and the time, the last 5 changes, the first 5 Priority Goals, the Values in focus with a few words each, every Action in Today under its Goal, and the time tracked today while Time tracking is on.
 - It is drawn again after midnight. Each item on it is a link. Its one button "☰ Menu" unfolds the menu under it; a screen opened from there arrives below it. /start and /clear show the dashboard at once. The words under the Values are kept for 10 minutes; without them, they appear on the dashboard a moment later.
 - After a clear the conversation starts over. The Diary still reads the whole day."""
 

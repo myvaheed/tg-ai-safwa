@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.errors import DomainError
-from tg_agent_shell.telegram import TextValidator, required_text
+from tg_agent_shell.telegram import TextValidator, edited_screen, required_text
 from tg_agent_shell.telegram.contributions import TextInputFlow
 from tg_agent_shell.telegram.model import UiSession
 
@@ -142,7 +142,7 @@ async def _render_card(
         services,
         int(state["card_id"]),
         replace_message_id=int(state["text_input"]["message_id"]),
-        back=dict(state.get("back", {})),
+        back=edited_screen(state).back,
         # Only the full view offers a field to type into, so that is where typing returns.
         full=True,
     )

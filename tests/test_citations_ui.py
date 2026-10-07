@@ -7,17 +7,18 @@ from datetime import date
 
 import pytest
 from ui_harness import (
-    FakeCallback,
     FakeMessage,
     button_texts,
+    press,
     services_for,
+    tap_link,
 )
 
 from safwa.bootstrap.modules import (
     AI_VIEWS,
     ALLOWED_VIEWS,
 )
-from safwa.features.cards.telegram import command_today
+from safwa.features.cards.telegram import render_board
 from safwa.features.cards.use_cases import create_card
 from safwa.features.checks.use_cases import create_check
 from safwa.features.diary.use_cases import create_diary_entry
@@ -31,7 +32,6 @@ from tg_agent_shell.ai.sql import create_ai_views
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.proposals.telegram import render_ai_outcome
 from tg_agent_shell.telegram import (
-    callback_token_handler,
     open_item_screen,
     render_citations,
 )
@@ -95,20 +95,12 @@ async def test_sc_back_012_a_screen_from_a_link_offers_the_menu_and_one_from_a_s
         ]
 
     message = FakeMessage(950, bot_message=True)
-    await command_today(message, services)
-    for label in ("Pull-ups", "↩️ Back"):
-        button = next(
-            button
-            for row in message.edits[-1][1].inline_keyboard
-            for button in row
-            if button.text.startswith(label)
-        )
-        await callback_token_handler(
-            FakeCallback(button.callback_data.split(":", 1)[1], message), services
-        )
-        if label == "Pull-ups":
-            assert "↩️ Menu" not in button_texts(message.edits[-1][1])
-    assert message.edits[-1][0].startswith("<b>Today</b>")
+    await render_board(message, services)
+    await tap_link(services, message.edits[-1][0], "⭐️ Pull-ups", message.bot)
+    card_markup = message.bot.edits[-1][2]
+    assert "↩️ Menu" not in button_texts(card_markup)
+    await press(services, message, card_markup, "↩️ Back")
+    assert message.edits[-1][0].startswith("<p><b>🗂 Dashboard</b>")
 
 
 async def test_citations_become_deep_links_only_for_live_items(sessions) -> None:

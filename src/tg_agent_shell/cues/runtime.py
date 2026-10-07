@@ -62,7 +62,8 @@ async def speak_on_schedule(
     """Put the message of a check on a schedule in the chat, while the chat is free.
 
     The lease is taken for the sending alone, so the owner acting stops it, and the work
-    before it runs on. Home clears only through the last message to the Advisor.
+    before it runs on. Home clears what came before it but what was said unasked since the
+    owner last wrote to the Advisor.
     """
     if not still_current() or not await chat_is_free(services):
         return

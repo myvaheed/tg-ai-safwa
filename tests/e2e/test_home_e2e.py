@@ -159,7 +159,9 @@ async def _a_chat(harness) -> None:
     await _keep(harness, 1099, MessageKind.DASHBOARD, "<b>Today</b>")
 
 
-async def test_a_quiet_chat_keeps_messages_after_the_last_user_message(e2e_harness) -> None:
+async def test_a_quiet_chat_keeps_only_what_safwa_said_unasked_since_the_owner_wrote(
+    e2e_harness,
+) -> None:
     """HM-QUIET-003 — tests/brd/home.feature"""
     await _a_chat(e2e_harness)
     services = _services(e2e_harness, Model())
@@ -172,7 +174,8 @@ async def test_a_quiet_chat_keeps_messages_after_the_last_user_message(e2e_harne
     assert dashboard.message_id == 1150
     assert anchor.bot.silent == [dashboard.text]
     assert "<b>💎 Values in focus</b>" in dashboard.text and WORDS in dashboard.text
-    assert anchor.bot.deleted == [1099, 1100]
+    # Everything before it goes, the Advisor's reply included; three days old is too old.
+    assert anchor.bot.deleted == list(range(1099, 1150))
     # What was said is still kept; the screen is gone with its message.
     assert await _kinds(e2e_harness) == {
         1000: MessageKind.DIALOGUE_USER.value,
@@ -191,7 +194,7 @@ async def test_a_quiet_chat_keeps_messages_after_the_last_user_message(e2e_harne
     deleted = len(anchor.bot.deleted)
     await looks.next()
     assert len(anchor.sent) == 2
-    assert anchor.bot.deleted[deleted:] == [1100, 1150]
+    assert 1150 in anchor.bot.deleted[deleted:] and 1151 not in anchor.bot.deleted
     assert (await _kinds(e2e_harness))[1151] == MessageKind.CUE.value
     await looks.next()
     assert len(anchor.sent) == 2
@@ -373,7 +376,7 @@ async def test_clear_clears_the_chat_at_once_and_puts_the_words_in_after(e2e_har
     [dashboard] = owner.sent
     assert owner.bot.silent == [dashboard.text]
     assert WORDS not in dashboard.text and _labels(owner.markups[-1]) == ["☰ Menu"]
-    assert owner.bot.deleted == [1099, 1100]
+    assert owner.bot.deleted == list(range(1099, dashboard.message_id))
     assert await _kinds(e2e_harness) == {
         1000: MessageKind.DIALOGUE_USER.value,
         1100: MessageKind.DIALOGUE_USER.value,

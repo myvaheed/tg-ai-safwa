@@ -33,7 +33,7 @@ from tg_agent_shell.ai.sql import ReadOnlyQueryRunner
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.history import TelegramMessage, TelegramNotes
 from tg_agent_shell.proposals.telegram import render_ai_outcome, render_proposal
-from tg_agent_shell.telegram import callback_token_handler
+from tg_agent_shell.telegram import Place, callback_token_handler
 from tg_agent_shell.telegram.model import CallbackToken
 from tg_agent_shell.turn import TurnManager
 
@@ -310,13 +310,13 @@ async def test_a_closed_repeat_is_marked_everywhere_it_is_read(e2e_harness):
         row["id"]: row["title"]
         for row in (await runner.run("SELECT id, title FROM ai_checks")).rows
     }
-    assert titles[first_id] == f"Posture straight? [🔄1, live #{second_id}]"
+    assert titles[first_id] == f"Posture straight? [✅1, 🔄#{second_id}]"
     assert titles[second_id] == "Posture straight?"
     cards = {
         row["id"]: row["title"]
         for row in (await runner.run("SELECT id, title FROM ai_cards")).rows
     }
-    assert cards[run_id] == f"Run [🔄1, live #{live_run_id}]"
+    assert cards[run_id] == f"Run [✅1, 🔄#{live_run_id}]"
     assert cards[live_run_id] == "Run"
 
     # `open` shows exactly the id it was given: the marker is what says which one that is.
@@ -329,7 +329,7 @@ async def test_a_closed_repeat_is_marked_everywhere_it_is_read(e2e_harness):
     message = _TestMessage()
     services = _services(e2e_harness, advisor)
     await render_ai_outcome(message, services, outcome)
-    assert f"<b>Check</b>: Posture straight? [🔄1, live #{second_id}]" in message.sent[-1]
+    assert f"<b>Check</b>: Posture straight? [✅1, 🔄#{second_id}]" in message.sent[-1]
     # The closed screen offers the live instance the series moved to.
     await _claim(e2e_harness, "check_view", message, services, id=second_id)
     assert "Status: ⬜ Pending" in message.rendered[-1]
@@ -340,7 +340,7 @@ async def test_a_closed_repeat_is_marked_everywhere_it_is_read(e2e_harness):
     cited = await advisor.handle("How did it go yesterday?")
     await render_ai_outcome(message, _services(e2e_harness, advisor), cited)
     assert (
-        f'?start=check-{first_id}">Posture straight? [🔄1, live #{second_id}]</a>'
+        f'?start=check-{first_id}">Posture straight? [✅1, 🔄#{second_id}]</a>'
         in message.rendered[-1]
     )
 
@@ -499,13 +499,15 @@ async def test_manual_check_screens_only_repeat_and_answer(e2e_harness):
 
     from safwa.features.checks.telegram import render_check, render_checks
 
-    back = {"action": "card_view", "id": card_id}
+    back = Place("card_view", {"id": card_id})
     await render_checks(message, services, card_id, back=back)
     # The manual screens answer a Check; every other Check action is proposal-only.
     listed = await _live_actions(e2e_harness)
-    assert listed == {"check_view", "check_back"}
+    assert listed == {"check_view", "card_view"}
 
-    await render_check(message, services, check_ids[0], card_id=card_id, back=back)
+    await render_check(
+        message, services, check_ids[0], back=Place("check_list", {"card_id": card_id}, back)
+    )
     assert (await _live_actions(e2e_harness)) - listed == {
         "check_set_status",
         "check_choose_values",
@@ -532,9 +534,7 @@ async def test_manual_done_button_opens_the_resolution_screen(e2e_harness):
 
     from safwa.features.cards.telegram import render_check_resolution
 
-    await render_check_resolution(
-        message, services, card_id, back={"action": "card_view", "id": card_id}
-    )
+    await render_check_resolution(message, services, card_id, back=Place("card_view", {"id": card_id}))
     assert "Pending Checks" in message.rendered[-1]
     # Nothing is prefilled.
     assert message.rendered[-1].count("Pending") == len(check_ids) + 1

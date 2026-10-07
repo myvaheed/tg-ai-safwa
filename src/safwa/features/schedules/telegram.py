@@ -12,7 +12,14 @@ from aiogram.types import InlineKeyboardMarkup, Message
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
-from tg_agent_shell.telegram import CallbackContext, Services, send_registered, token_button
+from tg_agent_shell.telegram import (
+    CallbackContext,
+    Place,
+    Services,
+    back_button,
+    place_button,
+    send_registered,
+)
 
 from ..cards.model import Card
 from ..checks.model import Check
@@ -27,8 +34,6 @@ from .api import (
     workspace_zone,
 )
 from .use_cases import set_remind
-
-type Route = tuple[str, dict[str, Any]]
 
 
 async def compile_typed_schedule(
@@ -53,11 +58,12 @@ async def render_schedule(
     model: type[Card] | type[Check],
     item_id: int,
     *,
-    edit: Route,
-    back: Route,
+    edit: Place,
+    back: Place,
 ) -> bool:
     """The Schedule with Remind beside Edit while it has a clock still ahead or Remind is
-    on. False draws nothing, and the caller opens the editor at once."""
+    on. False draws nothing, and the caller opens the editor at once. `back` is the item's
+    own screen, and `edit` the editor Edit opens."""
     async with services.sessions() as session:
         entity = await session.get(model, item_id)
         if entity is None:
@@ -66,25 +72,19 @@ async def render_schedule(
         if not on and remind_timing(entity, utcnow()) is None:
             return False
         summary = await schedule_summary(session, entity)
-        toggle = {
-            "type": item_type(model),
-            "id": item_id,
-            "on": not on,
-            "edit": list(edit),
-            "back": list(back),
-        }
+        toggle = Place(
+            "schedule_remind",
+            {"type": item_type(model), "id": item_id, "on": not on, "edit": edit.address},
+            back,
+        )
         rows = [
             [
-                await token_button(
-                    session,
-                    services.owner_id,
-                    f"🔔 Remind: {'On' if on else 'Off'}",
-                    "schedule_remind",
-                    toggle,
+                await place_button(
+                    session, services.owner_id, f"🔔 Remind: {'On' if on else 'Off'}", toggle
                 )
             ],
-            [await token_button(session, services.owner_id, "✏️ Edit", *edit)],
-            [await token_button(session, services.owner_id, "↩️ Back", *back)],
+            [await place_button(session, services.owner_id, "✏️ Edit", edit)],
+            [await back_button(session, services.owner_id, back)],
         ]
         await session.commit()
     noun = "Deadline" if schedule_target(entity) == "deadline" else "Schedule"
@@ -116,8 +116,8 @@ async def _on_remind(context: CallbackContext) -> None:
         context.services,
         model,
         item_id,
-        edit=tuple(context.payload["edit"]),
-        back=tuple(context.payload["back"]),
+        edit=Place.at(context.payload["edit"]),
+        back=context.back,
     )
 
 

@@ -19,8 +19,11 @@ from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,
+    Place,
     Services,
+    go,
     menu_row,
+    place_button,
     send_registered,
     token_button,
     with_notice,
@@ -32,7 +35,6 @@ from ...checks.telegram import answer_button_label, check_line
 from ...checks.use_cases import pending_checks
 from ..api import live_card_title
 from ..use_cases import finish_card
-from .screens import render_card
 
 _GATE_TTL = timedelta(minutes=30)
 
@@ -42,11 +44,11 @@ async def render_check_resolution(
     services: Services,
     card_id: int,
     *,
-    back: dict[str, Any],
+    back: Place,
     outcomes: dict[str, str | None] | None = None,
     notice: str | None = None,
 ) -> None:
-    """Answer every Pending linked Check before completing its Card."""
+    """Answer every Pending linked Check before completing its Card. `back` is the Card."""
     async with services.sessions() as session:
         card_name = await live_card_title(session, card_id)
         pending = await pending_checks(session, card_id)
@@ -64,7 +66,7 @@ async def render_check_resolution(
                 state={
                     "card_id": card_id,
                     "outcomes": state_outcomes,
-                    "back": back,
+                    "back": back.address,
                     "message_id": message.message_id,
                 },
                 expires_at=datetime.now(UTC) + _GATE_TTL,
@@ -100,12 +102,8 @@ async def render_check_resolution(
                 )
             )
         closing.append(
-            await token_button(
-                session,
-                services.owner_id,
-                "↩️ Back",
-                "check_resolve_cancel",
-                {"id": card_id, "back": back},
+            await place_button(
+                session, services.owner_id, "↩️ Back", Place("check_resolve_cancel", {}, back)
             )
         )
         rows.append(closing)
@@ -150,7 +148,7 @@ async def _on_set(context: CallbackContext) -> None:
         context.message,
         context.services,
         int(context.payload["card_id"]),
-        back=dict(state.get("back") or {}),
+        back=Place.at(state["back"]),
         outcomes=outcomes,
     )
 
@@ -164,7 +162,7 @@ async def _on_save(context: CallbackContext) -> None:
             context.message,
             context.services,
             card_id,
-            back=dict(state.get("back") or {}),
+            back=Place.at(state["back"]),
             outcomes=stored,
             notice="Answer every Check before saving.",
         )
@@ -188,12 +186,7 @@ async def _on_cancel(context: CallbackContext) -> None:
     async with context.sessions() as session:
         await session.execute(delete(UiSession).where(UiSession.owner_id == context.owner_id))
         await session.commit()
-    await render_card(
-        context.message,
-        context.services,
-        int(context.payload["id"]),
-        notice="The Card is still live; its Checks were not changed.",
-    )
+    await go(context, context.back, notice="The Card is still live; its Checks were not changed.")
 
 
 CARD_DONE_ACTIONS: dict[str, CallbackHandler] = {

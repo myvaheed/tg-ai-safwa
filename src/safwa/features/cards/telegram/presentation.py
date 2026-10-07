@@ -3,17 +3,14 @@
 from __future__ import annotations
 
 import html
-from datetime import datetime, time
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.telegram import Page, paginate, short_citation_title, with_citation_fields
 
-from ....foundation.marks import REPEAT_TODAY_MARKER, title_marks
-from ....foundation.workspace import Workspace
+from ....foundation.marks import REPEAT_OPEN_MARKER, title_marks
 from ...profile.api import effort_tracking_on
 from ..api import list_order
 from ..hierarchy import card_progress
@@ -22,6 +19,7 @@ from ..model import (
     CardCategory,
     CardEnergyType,
     CardKind,
+    CardStage,
     Category,
     EnergyType,
     effort_label,
@@ -33,6 +31,24 @@ _KIND_EMOJIS = {
     CardKind.SUBGOAL.value: "🧩",
     CardKind.ACTION.value: "⭐️",
 }
+
+STAGE_EMOJIS = {
+    CardStage.BACKLOG.value: "📚",
+    CardStage.SPRINT.value: "🏃",
+    CardStage.TODAY.value: "☀️",
+    CardStage.DONE.value: "✅",
+}
+
+# Telegram cuts a button's text short of this anyway; cut here, it ends where the title does.
+ITEM_BUTTON_LIMIT = 60
+
+
+def item_button_label(card: Card) -> str:
+    """A Card on a button in a list of several stages: its kind and its stage as emoji, which
+    say both without a word (CD-BUTTON-048)."""
+    stage = STAGE_EMOJIS[card.effective_stage]
+    title = card.title[: ITEM_BUTTON_LIMIT - len(stage) - 6]
+    return f"{_KIND_EMOJIS[card.kind]} {title} · {stage}"
 
 
 CATEGORY_EMOJIS = {
@@ -202,21 +218,12 @@ def card_overview_text(
 
 
 async def card_title_marks(session: AsyncSession, card: Card) -> str:
-    """What a Card's title carries: its repeat marks, and today's work on the series.
-
-    A repeating Action says when its series was already completed today, on the
-    finished instance and on the open successor alike, so finishing one never leaves
-    the next looking as though nothing was done. It acknowledges the work and stops
-    there: the successor is still open, and finishing it again today is allowed.
-    """
+    """What a Card's title carries on a screen: its repeat marks, and on the open instance
+    of a repeating Action that it repeats, so the one to work with is told apart from the
+    finished ones at a glance (CD-REPEAT-032)."""
     marks = await title_marks(session, card)
-    if card.repeat_series_id is None and not card.schedule:
-        return marks
-    workspace = await session.get(Workspace, 1)
-    tz = ZoneInfo(workspace.timezone if workspace else "UTC")
-    day_start = datetime.combine(datetime.now(tz).date(), time.min, tzinfo=tz)
-    if await session.scalar(card.series_done_since_query(day_start)):
-        marks += REPEAT_TODAY_MARKER
+    if card.kind == CardKind.ACTION.value and card.completed_at is None and card.repeats():
+        marks = REPEAT_OPEN_MARKER + marks
     return marks
 
 

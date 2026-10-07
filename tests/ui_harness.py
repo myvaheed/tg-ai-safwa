@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
-from sqlalchemy import select
+from aiogram.methods import EditMessageText
 from telegram_fakes import spawn_timer
 
 import safwa
-import safwa.features.planning.telegram.plan as plan_module
 from safwa.bootstrap.modules import (
     AI_VIEWS,
     ALLOWED_VIEWS,
@@ -29,8 +29,9 @@ from tg_agent_shell.ai.sql import create_ai_views
 from tg_agent_shell.history import TelegramHistorySource, TelegramNotes
 from tg_agent_shell.proposals.api import ProposalDescription
 from tg_agent_shell.proposals.store import ProposalStore
-from tg_agent_shell.telegram import SHELL_COMMANDS
-from tg_agent_shell.telegram.model import UiSession
+from tg_agent_shell.telegram import SHELL_COMMANDS, Place, callback_token_handler, claimed_link
+from tg_agent_shell.telegram.callbacks import _link_taps as link_taps
+from tg_agent_shell.telegram.model import CallbackToken
 from tg_agent_shell.turn import TurnManager
 
 # What the composition root puts together, which is what a live Safwa answers with.
@@ -88,6 +89,21 @@ class FakeBot:
 
     async def set_my_commands(self, commands) -> None:
         self.published_commands.append([command.command for command in commands])
+
+    async def __call__(self, method, request_timeout=None):
+        """An aiogram method a stand-in message sent, such as an edit of a screen a link was
+        tapped on: the same record as the direct call."""
+        del request_timeout
+        if isinstance(method, EditMessageText):
+            await self.edit_message_text(
+                method.text,
+                chat_id=method.chat_id,
+                message_id=method.message_id,
+                reply_markup=method.reply_markup,
+                rich_message=method.rich_message,
+            )
+            return True
+        raise NotImplementedError(type(method).__name__)
 
 
 class FakeMessage:
@@ -203,6 +219,7 @@ def services_for(sessions, *, root=None, reviews=None, transcriber=None):
         commands=(*FEATURE_COMMANDS, *SHELL_COMMANDS),
         callback_actions=CALLBACK_ACTIONS,
         text_inputs=FEATURE_TEXT_INPUTS,
+        start_links=(),
         views=ALLOWED_VIEWS,
         hooks=HookRegistry.of(),
         features=SimpleNamespace(motivator=KeptWords()),
@@ -238,6 +255,29 @@ def button_texts(markup) -> list[str]:
     return [button.text for row in markup.inline_keyboard for button in row]
 
 
+async def press(services, message: FakeMessage, markup, text: str) -> None:
+    """Press the button reading `text` on `markup`, which is on `message`."""
+    button = next(button for row in markup.inline_keyboard for button in row if button.text == text)
+    await callback_token_handler(FakeCallback(button.callback_data.split(":", 1)[1], message), services)
+
+
+async def tap_link(services, body: str, words: str, bot: FakeBot) -> FakeMessage:
+    """Tap the link reading `words` in `body`, the way Telegram hands that tap to the bot:
+    as the owner's `/start <payload>`. Returns the tap."""
+    payload = re.search(rf'\?start=([\w-]+)">{re.escape(words)}</a>', body)[1]
+    tap = FakeMessage(9_000, text=f"/start {payload}", bot_message=False, bot=bot)
+    await claimed_link(services, payload).open(tap, services, payload)
+    return tap
+
+
+async def place_of(sessions, markup, text: str) -> Place:
+    """Where the button `text` on `markup` leads, read off the token it carries."""
+    button = next(button for row in markup.inline_keyboard for button in row if button.text == text)
+    async with sessions() as session:
+        token = await session.get(CallbackToken, button.callback_data.split(":", 1)[1])
+    return Place.of(token.action, token.payload)
+
+
 def ui_sources() -> list[Path]:
     """Every module that draws a Telegram screen.
 
@@ -256,7 +296,7 @@ def ui_sources() -> list[Path]:
 
 async def seed_plan(sessions) -> dict[str, int]:
     # The link-tap counter is per process, so one test's taps would otherwise count in the next.
-    plan_module._link_taps.clear()
+    link_taps.clear()
     async with sessions() as session:
         await (await session.connection()).run_sync(
             lambda connection: create_ai_views(connection, AI_VIEWS)
@@ -278,10 +318,12 @@ async def seed_plan(sessions) -> dict[str, int]:
     return ids
 
 
-async def plan_filters(sessions) -> list[int]:
-    async with sessions() as session:
-        ui = await session.scalar(select(UiSession).where(UiSession.kind == "sprint_plan"))
-        return list(ui.state["filters"])
+async def plan_filters(sessions, markup) -> list[int]:
+    """The Requests the plan on `markup` is narrowed by, read off its own Place."""
+    button = next(
+        button for row in markup.inline_keyboard for button in row if "Apply filter" in button.text
+    )
+    return list((await place_of(sessions, markup, button.text)).back.args["filters"])
 
 
 class ScriptedTranscriber:

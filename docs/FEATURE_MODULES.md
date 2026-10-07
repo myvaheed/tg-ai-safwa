@@ -150,11 +150,25 @@ safwa/features/cards/telegram/
   review.py        # ProposalPresenter
 ```
 
-**A screen says how to come back to it as the action that draws it.** A `back` payload is
-`{"action": "card_view", "id": 12, ...}` — the callback action plus that action's payload — and
-`shell.go_back` dispatches it through the same table every inline button goes through. No module
-holds a list of which screens exist. A screen with no `back` offers `↩️ Menu` in place of
-`↩️ Back` (`shell.back_button`), because going back from it would land on the menu.
+**A screen's address is a `Place`, and the way back travels with it.** A Place is the callback
+action that draws the screen, that action's arguments, and the Place the screen was entered from
+([place.py](../src/tg_agent_shell/telegram/place.py)). A screen is handed its `back` and builds
+`here` from it; every button and link it draws is a Place:
+
+| The button | Its Place |
+|---|---|
+| into another screen | `here.child("card_view", id=12)` |
+| redrawing this screen in another state: a page, a view | `here.but(page=2)` |
+| changing something, then redrawing this screen | `Place("card_move", {"id": 12, ...}, back)` |
+| leaving this screen | `back_button(back)`: `↩️ Back`, or `↩️ Menu` when `back` is None |
+
+The handler reads `context.back` and hands it on, so no screen hard-codes where it returns to and
+no module holds a list of which screens exist. `shell.go` draws a Place from code, as after a
+delete. A screen opened from a link or the menu has no `back`, and offers `↩️ Menu`
+(SC-BACK-012). A text editor's `back` is the screen it stands in for, and its flow reads it with
+`edited_screen(state)`. A link inside a screen's words is `place_link`, the same token in a deep
+link, and opens in place of that screen (SC-LINK-013); a feature's own `StartLink` is left for
+payloads that are not a Place.
 
 **A screen owns its own transaction.** It opens a session, writes and commits, because a tap is
 where a unit of work begins and ends — it mints its single-use `CallbackToken` rows through

@@ -71,6 +71,8 @@ Feature: Reminders
     Given Safwa proposes a Reminder, by PR-WRITE-002
     When the owner reads the screen
     Then it says the time that was worked out, not the words that were said
+    And it shows the Reminder's words, when they fire and when they fire first, and never the stored parameters
+    And an edit shows each change as before → after, and a deletion shows what is deleted
     And Save makes the Reminder with exactly that schedule and that first firing
     And Discard leaves no Reminder and no trace of one
 
@@ -171,7 +173,9 @@ Feature: Reminders
 
   Scenario: RM-UI-023 — /reminders is a list, a Reminder, and two things to do with it
     Given the owner opens /reminders
-    Then each line is when it fires and the start of its words, soonest first
+    Then each line is what it is about, then when it fires, soonest first
+    And what it is about is the title of the Card or Check Remind made it for, or else the start of its words
+    And one Remind made does not say when it starts, which is its item's Schedule
     And opening one shows when it fires next and all of its words
     And the only things to do are change the words and delete it
     And there is no way to make one here, and no way to change a time here

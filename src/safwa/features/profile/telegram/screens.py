@@ -18,6 +18,7 @@ from tg_agent_shell.hooks.contracts import HookSpec
 from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,
+    Place,
     Services,
     TextInputScreen,
     edit_registered_message,
@@ -251,8 +252,7 @@ async def render_profile_field_prompt(
             title=field.title,
             current_value=current,
             instruction=field.instruction,
-            back_action="profile_back",
-            back_payload={},
+            back=Place("profile_back"),
         ),
         state={"flow": "profile", "field": field_name},
         notice=notice,

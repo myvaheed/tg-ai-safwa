@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import func, select
 
@@ -12,8 +10,9 @@ from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,
+    Place,
     TextInputScreen,
-    go_back_action,
+    back_button,
     menu_row,
     render_text_input,
     send_registered,
@@ -35,10 +34,10 @@ from ..use_cases import (
     reopen_card,
     update_card_fields,
 )
+from .board import BOARD_ACTIONS
 from .creation import CARD_DRAFT_ACTIONS
 from .done_gate import CARD_DONE_ACTIONS, render_check_resolution
-from .draft import card_editor_back_state
-from .lists import render_children, render_dashboard
+from .lists import render_children
 from .screens import render_card
 from .selectors import (
     CARD_CHOICE_FIELDS,
@@ -49,35 +48,15 @@ from .selectors import (
 from .text_input import TIME_SPENT_INSTRUCTION
 
 
-async def _on_dashboard_page(context: CallbackContext) -> None:
-    await render_dashboard(
-        context.message,
-        context.services,
-        CardStage(context.payload["stage"]),
-        title=context.payload.get("title", "Backlog"),
-        page=int(context.payload.get("page", 0)),
-        notice=context.payload.get("notice"),
-    )
-
-
 async def _on_view(context: CallbackContext) -> None:
+    """The Card, or the same Card swapped between the compact view and full editing."""
     await render_card(
         context.message,
         context.services,
         context.payload["id"],
-        back=context.payload.get("back"),
+        back=context.back,
         full=context.payload.get("full"),
         notice=context.payload.get("notice"),
-    )
-
-
-async def _on_view_mode(context: CallbackContext) -> None:
-    """Swap the same Card between the compact view and full editing."""
-    await render_card(
-        context.message,
-        context.services,
-        context.payload["id"],
-        full=bool(context.payload["full"]),
     )
 
 
@@ -87,7 +66,7 @@ async def _on_children(context: CallbackContext) -> None:
         context.services,
         context.payload["id"],
         page=int(context.payload.get("page", 0)),
-        back=context.payload.get("back"),
+        back=context.back,
     )
 
 
@@ -102,6 +81,7 @@ async def _on_move(context: CallbackContext) -> None:
         context.message,
         context.services,
         context.payload["id"],
+        back=context.back,
         notice="⚠️ " + "; ".join(result.warnings) if result.warnings else None,
     )
 
@@ -113,11 +93,16 @@ _FIELD_INSTRUCTIONS = {
 }
 
 
+def _full_card(context: CallbackContext, card_id: int) -> Place:
+    """The full Card an editor opened from it stands in for: only that view has fields."""
+    return Place("card_view", {"id": card_id, "full": True}, context.back)
+
+
+
 async def _on_edit_text(context: CallbackContext) -> None:
     card_id = context.payload["id"]
     field = context.payload["field"]
     async with context.sessions() as session:
-        back_state = await card_editor_back_state(session, context.owner_id)
         card = await session.get(Card, card_id)
         if card is None:
             raise DomainError("Card does not exist")
@@ -136,11 +121,10 @@ async def _on_edit_text(context: CallbackContext) -> None:
             instruction=DEADLINE_INSTRUCTION
             if deadline
             else _FIELD_INSTRUCTIONS.get(field, f"Send the new {field.replace('_', ' ')}."),
-            back_action="card_view",
-            back_payload={"id": card_id, "back": back_state, "full": True},
+            back=_full_card(context, card_id),
             related_id=card_id,
         ),
-        state={"flow": "card", "card_id": card_id, "field": field, "back": back_state},
+        state={"flow": "card", "card_id": card_id, "field": field},
     )
 
 
@@ -148,15 +132,13 @@ async def _on_open_schedule(context: CallbackContext) -> None:
     """A Schedule or Deadline with a clock still ahead offers Remind beside Edit; any other
     opens its editor at once."""
     card_id = context.payload["id"]
-    async with context.sessions() as session:
-        back_state = await card_editor_back_state(session, context.owner_id)
     shown = await render_schedule(
         context.message,
         context.services,
         Card,
         card_id,
-        edit=("card_edit_text", {"id": card_id, "field": "schedule"}),
-        back=("card_view", {"id": card_id, "back": back_state, "full": True}),
+        edit=Place("card_edit_text", {"id": card_id, "field": "schedule"}, context.back),
+        back=_full_card(context, card_id),
     )
     if not shown:
         await _on_edit_text(context)
@@ -169,6 +151,7 @@ async def _on_choices(context: CallbackContext) -> None:
         context.action,
         context.payload["id"],
         page=int(context.payload.get("page", 0)),
+        back=context.back,
     )
 
 
@@ -182,24 +165,22 @@ async def _on_set_field(context: CallbackContext) -> None:
             {context.payload["field"]: context.payload["value"]},
         )
         await session.commit()
-    await render_card(context.message, context.services, context.payload["id"])
+    await render_card(context.message, context.services, context.payload["id"], back=context.back)
 
 
 async def _on_toggle_field(context: CallbackContext) -> None:
     """🚧 Blocked: a blocked Action is unblocked, and any other is asked its reason first,
     because the reason is what blocks it."""
-    blocked_prompt: tuple[int, dict[str, Any]] | None = None
+    card_id = int(context.payload["id"])
     async with context.sessions() as session:
-        card = await session.get(Card, context.payload["id"])
+        card = await session.get(Card, card_id)
         if card is None:
             raise DomainError("Card does not exist")
-        if card.blocked:
+        blocked = card.blocked
+        if blocked:
             await update_card_fields(session, card.id, {"blocked_description": ""})
             await session.commit()
-        else:
-            blocked_prompt = (card.id, await card_editor_back_state(session, context.owner_id))
-    if blocked_prompt is not None:
-        card_id, back_state = blocked_prompt
+    if not blocked:
         await render_text_input(
             context.message,
             context.services,
@@ -207,14 +188,13 @@ async def _on_toggle_field(context: CallbackContext) -> None:
                 title="Mark Card as blocked",
                 current_value="",
                 instruction="Describe what is blocking it.",
-                back_action="card_view",
-                back_payload={"id": card_id, "back": back_state, "full": True},
+                back=_full_card(context, card_id),
                 related_id=card_id,
             ),
-            state={"flow": "card_blocked", "card_id": card_id, "back": back_state},
+            state={"flow": "card_blocked", "card_id": card_id},
         )
         return
-    await render_card(context.message, context.services, context.payload["id"])
+    await render_card(context.message, context.services, card_id, back=context.back)
 
 
 async def _on_toggle_relation(context: CallbackContext) -> None:
@@ -234,6 +214,7 @@ async def _on_toggle_relation(context: CallbackContext) -> None:
         f"card_choose_{field}",
         context.payload["id"],
         page=int(context.payload.get("page", 0)),
+        back=context.back,
     )
 
 
@@ -300,6 +281,13 @@ async def _on_delete_prompt(context: CallbackContext) -> None:
                 )
             ]
         )
+        rows.append(
+            [
+                await back_button(
+                    session, context.owner_id, Place("card_view", {"id": card_id}, context.back)
+                )
+            ]
+        )
         await session.commit()
     text = "<b>Final confirmation</b>\nThis removes the tree and its historical contribution."
     if children:
@@ -312,7 +300,7 @@ async def _on_delete_prompt(context: CallbackContext) -> None:
         context.services,
         text,
         kind=MessageKind.APPROVAL,
-        markup=InlineKeyboardMarkup(inline_keyboard=rows + [menu_row()]),
+        markup=InlineKeyboardMarkup(inline_keyboard=rows),
     )
 
 
@@ -342,7 +330,7 @@ async def _on_finish(context: CallbackContext) -> None:
             context.message,
             context.services,
             card_id,
-            back={"action": "card_view", "id": card_id},
+            back=Place("card_view", {"id": card_id}, context.back),
         )
         return
     async with context.sessions() as session:
@@ -359,10 +347,8 @@ async def _on_finish(context: CallbackContext) -> None:
 
 
 CARD_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
-    "dashboard_page": _on_dashboard_page,
     "card_view": _on_view,
     "card_children": _on_children,
-    "card_back": go_back_action,
     "card_move": _on_move,
     "card_edit_text": _on_edit_text,
     "card_open_schedule": _on_open_schedule,
@@ -370,7 +356,6 @@ CARD_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "card_toggle_field": _on_toggle_field,
     "card_archive": _on_archive,
     "card_restore": _on_restore,
-    "card_view_mode": _on_view_mode,
     "card_delete_prompt": _on_delete_prompt,
     "card_delete_confirm": _on_delete_confirm,
     "card_finish": _on_finish,
@@ -378,4 +363,5 @@ CARD_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     **dict.fromkeys(CARD_RELATION_TOGGLES, _on_toggle_relation),
     **CARD_DRAFT_ACTIONS,
     **CARD_DONE_ACTIONS,
+    **BOARD_ACTIONS,
 }

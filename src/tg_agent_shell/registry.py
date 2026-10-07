@@ -256,7 +256,7 @@ def _unique_names(names: Iterable[str], kind: str) -> None:
 def _commands(modules: tuple[FeatureModule, ...]) -> tuple[ScreenCommand, ...]:
     """The screens reached by name, in registration order, which is Telegram's order.
 
-    Exactly one of them is the home screen: `go_back` and every menu button lead there,
+    Exactly one of them is the home screen: `go` to no Place and every menu button lead there,
     so an application without one has buttons that reach nothing.
     """
     commands = tuple(command for module in modules for command in module.commands)

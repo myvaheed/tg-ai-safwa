@@ -25,12 +25,12 @@ Feature: Home
     When the link names something that is not one of Safwa's items
     Then Safwa says so
 
-  Scenario: HM-QUIET-003 — A quiet chat is cleared through the last message to the Advisor
+  Scenario: HM-QUIET-003 — A quiet chat is cleared down to Home and what Safwa said unasked since
     Given the owner has not written, spoken, sent a photo or pressed a button for 30 minutes (HOME_AFTER_MINUTES_DEFAULT = 30)
     And the chat is free: no answer is being written and no review is waiting
-    Then the Home dashboard is drawn once its words are written (HM-VALUES-007), and messages through the last message the owner sent to the Advisor are cleared (TG-HOME-023)
-    And messages after it stay, including the Advisor's reply and a Reminder Safwa sent while the owner was quiet
-    And those messages stay through later clears until the owner sends another message to the Advisor
+    Then the Home dashboard is drawn once its words are written (HM-VALUES-007), and every message before it is cleared: screens, receipts, the owner's messages and the Advisor's replies (TG-HOME-023)
+    But a Reminder or anything else Safwa said unasked after the owner last wrote to the Advisor stays
+    And it stays through later clears until the owner sends another message to the Advisor
     When a review is waiting
     Then nothing is cleared until it is answered or closes by itself
     When the owner acts while the chat is being cleared
@@ -54,18 +54,15 @@ Feature: Home
     When the owner writes, opens a screen or taps a link on the dashboard
     Then the dashboard stays where it is, and what comes of it appears below it
 
-  Scenario: HM-ACTIONS-006 — The dashboard opens with the next 5 Actions
+  Scenario: HM-ACTIONS-006 — The dashboard shows every Action in Today
     Given open Actions in Today
-    Then the first 5 in Today's order (PL-KEY-025) are on the dashboard (HOME_ACTIONS_SHOWN = 5), each a link that opens it
+    Then every one of them is on the dashboard, in Today's order (PL-KEY-025), each a link that opens it
     And the heading says Today, and how many Card rows it holds
-    And Today and Sprint show planned execution counts, and EP load while enabled, including repeats (PL-REPEAT-031, PL-REPEAT-033)
-    When Today holds none
-    Then the first 5 of the Sprint are shown, in the Sprint's own order, under a heading that says Sprint
-    And with the Sprint empty too, the first 5 of the Backlog, under a heading that says Backlog
+    And Today shows planned execution counts, and EP load while enabled, including repeats (PL-REPEAT-031, PL-REPEAT-033)
     And an Action under a Goal is shown under that Goal, and a Subgoal between them is not shown
     And the Goals come in the order of their first Action, and the Actions with no Goal after them
-    When Today, the Sprint and the Backlog are empty
-    Then the dashboard says nothing is planned yet
+    When Today holds none
+    Then the dashboard says nothing is planned for today, and no Sprint or Backlog is shown in its place
 
   Scenario: HM-VALUES-007 — Each Value in focus carries a few words written for it
     Given Values in focus
@@ -87,9 +84,9 @@ Feature: Home
     Then the dashboard shows no time
     And a day is the workspace's local day
 
-  Scenario: HM-LOG-009 — The dashboard ends with the last 10 changes
+  Scenario: HM-LOG-009 — The dashboard opens with the last 5 changes
     Given saved changes to the workspace
-    Then the last 10 are on the dashboard, newest first (HOME_LOG_SHOWN = 10), one line each: when, which item, and what changed
+    Then the last 5 are on the dashboard, newest first (HOME_LOG_SHOWN = 5), one line each: when, which item, and what changed
     And an item that still exists is a link that opens it
 
   Scenario: HM-HISTORY-010 — After a clear Safwa starts the conversation over
@@ -120,3 +117,13 @@ Feature: Home
     And its words come as on /start (HM-START-011), under its one ☰ Menu
     When the owner acts while the dashboard is being drawn
     Then the clearing stops, and what they did is taken up
+
+  Scenario: HM-GOALS-013 — The dashboard names the first 5 Priority Goals
+    Given open Goals
+    Then the first 5 are on the dashboard (HOME_GOALS_SHOWN = 5), in the order Safwa is handed them (WS-CONTEXT-008), each a link that opens it
+    When no Goal is open
+    Then the dashboard has no Goals block
+
+  Scenario: HM-ORDER-014 — The dashboard reads in one order
+    Given changes, open Goals, Values in focus, Actions in Today, and Time tracking on
+    Then the dashboard reads, top to bottom: the day and the time it was drawn, the last changes, the Priority Goals, the Values in focus, Today, and the time tracked today

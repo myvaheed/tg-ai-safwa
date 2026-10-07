@@ -164,19 +164,19 @@ Feature: The conversation in Telegram
     And the photo itself does not enter the conversation
     But where images are off, Safwa has no way to look at a photo
 
-  Scenario: TG-HOME-023 — Home clears through the last user message, and the conversation starts after Home
+  Scenario: TG-HOME-023 — Home clears everything before it but what was said unasked and not yet answered, and the conversation starts after Home
     Given the application puts a Home message in the chat, from a check on a schedule (AG-HOOK-050)
     Then it arrives as a new message that makes no sound, with one button, ☰ Menu
+    And every message before it is taken out, from both sides: screens, receipts, the owner's
+      words, the answers to them, and the previous Home message
+    But what Safwa said unasked after the owner last wrote to the Advisor stays, through repeated
+      Home messages, until the owner writes to the Advisor again
+    And no screen is left before it, so nothing is left waiting for a typed value
+    But a message older than 48 hours stays in the chat (TELEGRAM_DELETE_WINDOW = 48 hours)
     When the owner presses ☰ Menu
     Then the application's home screen is handed that Home message, and no screen is ended
     When the owner presses a menu button under the Home message
     Then that screen arrives as a new message below it, and its buttons fold back to ☰ Menu
-    And messages through the last message the owner sent to the Advisor are taken out, that message included
-    And messages after it stay, through repeated Home messages until the owner sends another message to the Advisor
-    And a screen that stays keeps accepting its input
-    And the previous Home message is taken out separately
-    And with no message from the owner to the Advisor, all other messages stay
-    But a message older than 48 hours stays in the chat (TELEGRAM_DELETE_WINDOW = 48 hours)
     And what was said stays kept, and a day read back still reads all of it
     And a screen, a progress line or anything else that was not said is forgotten with its message
     When Safwa reads the conversation back

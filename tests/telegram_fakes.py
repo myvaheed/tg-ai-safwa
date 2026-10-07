@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from aiogram.exceptions import TelegramBadRequest
+from aiogram.methods import EditMessageText
 from aiogram.types import InlineKeyboardMarkup
 
 
@@ -61,6 +62,21 @@ class QueueTestBot:
         self.edits.append(text)
         self.edited.append((message_id, reply_markup))
         self.drawn.append(text)
+
+    async def __call__(self, method, request_timeout=None):
+        """An aiogram method a stand-in message sent, such as an edit of the screen a link
+        was tapped on: the same record as the direct call."""
+        del request_timeout
+        if isinstance(method, EditMessageText):
+            text = method.text if method.rich_message is None else method.rich_message.html
+            await self.edit_message_text(
+                text,
+                chat_id=method.chat_id,
+                message_id=method.message_id,
+                reply_markup=method.reply_markup,
+            )
+            return True
+        raise NotImplementedError(type(method).__name__)
 
     async def delete_message(self, chat_id, message_id) -> None:
         del chat_id

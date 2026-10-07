@@ -15,15 +15,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # One wording, in two renderings: `title_marks` builds a title in Python and the `ai_*`
 # views build one in SQL, so a row reads the same whether the model queried it or the
-# owner tapped a citation.
-REPEAT_MARKER = " [🔄{index}{live}]"
-REPEAT_LIVE = ", live #{live_id}"
+# owner tapped a citation. A finished instance says how it ended and its place in the
+# series, then the open one: `[✅3, 🔄#5]`.
+REPEAT_MARKER = " [{ended}{index}{live}]"
+REPEAT_DONE = "✅"
+REPEAT_MISSED = "❌"
+REPEAT_LIVE = ", 🔄#{live_id}"
 ARCHIVE_MARKER = " [📦]"
-# The one mark SQL does not mirror: today is the owner's calendar day in the workspace
-# timezone, and SQLite has no timezone database to work it out with. So it is written
-# where a screen renders a title and nowhere else, and the model is told nothing of it.
-REPEAT_TODAY_MARKER = " [🔄✓]"
-MARKER_FORMAT = REPEAT_MARKER.replace("{index}", "%d").replace("{live}", "%s")
+# The one mark SQL does not mirror: the open instance of a repeating Action, on a screen.
+# The model is told the open one by its plain title, as the one to work with.
+REPEAT_OPEN_MARKER = " [🔄]"
+MARKER_FORMAT = (
+    REPEAT_MARKER.replace("{ended}", "%s").replace("{index}", "%d").replace("{live}", "%s")
+)
 LIVE_FORMAT = REPEAT_LIVE.replace("{live_id}", "%d")
 
 
@@ -34,6 +38,10 @@ class RepeatSeries(Protocol):
     archived_at: datetime | None
 
     def is_closed_repeat(self) -> bool: ...
+
+    def missed(self) -> bool:
+        """Whether this instance ended without the thing being done."""
+        ...
 
     def live_instance_query(self) -> Select[tuple[int]]: ...
 
@@ -71,17 +79,19 @@ async def closed_repeat_refusal(
 
 
 async def title_marks(session: AsyncSession, entity: RepeatSeries) -> str:
-    """What a title carries after it: its place in a repeat series, and the archive.
+    """What a title carries after it: how it ended and its place in a repeat series, and the
+    archive.
 
     The place is counted over every row the series has ever had, so archiving one does not
-    renumber the others, and `live #7` is the open one — a closed instance read as the one
-    to work with is the mistake both marks exist to stop.  Nothing is stored renamed:
+    renumber the others, and `🔄#7` is the open one — a closed instance read as the one to
+    work with is the mistake both marks exist to stop.  Nothing is stored renamed:
     `ai_cards` and `ai_checks` render the same marks in SQL.
     """
     marks = ""
     if entity.is_closed_repeat():
         live_id = await live_repeat_instance_id(session, entity)
         marks += REPEAT_MARKER.format(
+            ended=REPEAT_MISSED if entity.missed() else REPEAT_DONE,
             index=await session.scalar(entity.series_index_query()),
             live="" if live_id is None else REPEAT_LIVE.format(live_id=live_id),
         )

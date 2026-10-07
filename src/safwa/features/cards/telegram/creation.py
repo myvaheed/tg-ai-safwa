@@ -15,6 +15,7 @@ from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,
+    Place,
     Services,
     TextInputScreen,
     edit_registered_message,
@@ -225,8 +226,7 @@ async def _on_edit_text(context: CallbackContext) -> None:
             title=f"Edit Card {'Deadline' if deadline else field.replace('_', ' ').title()}",
             current_value=current,
             instruction=instruction,
-            back_action="card_create_view",
-            back_payload={},
+            back=Place("card_create_view"),
         ),
         state=state,
     )

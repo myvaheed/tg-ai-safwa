@@ -18,7 +18,7 @@ from safwa.features.cards.use_cases import create_card, delete_subtree, finish_a
 from safwa.features.diary.model import DiaryEntry
 from safwa.features.diary.use_cases import create_diary_entry
 from safwa.features.home import motivation
-from safwa.features.home.dashboard import HOME_ACTIONS_SHOWN, HOME_LOG_SHOWN, dashboard_text
+from safwa.features.home.dashboard import HOME_GOALS_SHOWN, HOME_LOG_SHOWN, dashboard_text
 from safwa.features.home.motivation import (
     MOTIVATION_DIARY_ENTRIES,
     MOTIVATION_DONE_ACTIONS,
@@ -78,7 +78,7 @@ def _block(text: str, heading: str) -> list[str]:
     return []
 
 
-async def test_the_dashboard_opens_with_the_first_actions_of_today(sessions) -> None:
+async def test_the_dashboard_shows_every_action_in_today(sessions) -> None:
     """HM-ACTIONS-006 — tests/brd/home.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Launch the blog")
@@ -96,7 +96,7 @@ async def test_the_dashboard_opens_with_the_first_actions_of_today(sessions) -> 
     lines = _block(await _text(sessions), "Today")
 
     total = 4 + len(extra)
-    assert lines[0] == f"<b>☀️ Today · {HOME_ACTIONS_SHOWN} of {total}</b>"
+    assert lines[0] == f"<b>☀️ Today · {total}</b>"
     # The Goal comes with its first Action, a Subgoal between them is not shown, and the
     # Actions with no Goal follow in Today's order: Critical first.
     body = "\n".join(lines[1:])
@@ -106,32 +106,62 @@ async def test_the_dashboard_opens_with_the_first_actions_of_today(sessions) -> 
     assert body.index(_link("card", critical.id)) < body.index(_link("card", plain.id))
     assert lines[1] == f"Planned: {total} Actions"
     assert [line.startswith("    ") for line in lines[2:5]] == [False, True, True]
-    assert sum(_link("card", card.id) in body for card in (plain, post, critical, domain, *extra)) == (
-        HOME_ACTIONS_SHOWN
-    )
+    assert all(_link("card", card.id) in body for card in (plain, post, critical, domain, *extra))
 
 
-async def test_without_today_the_dashboard_takes_the_sprint_then_the_backlog(sessions) -> None:
+async def test_without_today_the_dashboard_says_so_and_shows_no_other_list(sessions) -> None:
     """HM-ACTIONS-006 — tests/brd/home.feature"""
-    assert (await _text(sessions)).split("\n\n")[1] == "Nothing is planned yet."
-    async with sessions() as session:
-        later = await _action(session, "Later", priority="low")
-        sooner = await _action(session, "Sooner", priority="critical")
-        # created_at has whole seconds: two inserts can fall on either side of one.
-        later.created_at = datetime.now(UTC) - timedelta(minutes=1)
-        await session.commit()
-    lines = _block(await _text(sessions), "Backlog")
-    assert lines[0] == "<b>📚 Backlog · 2 of 2</b>"
-    assert lines[1].find(_link("card", sooner.id)) >= 0
-    assert lines[2].find(_link("card", later.id)) >= 0
-
     async with sessions() as session:
         planned = await _action(session, "Planned", stage="sprint")
+        later = await _action(session, "Later")
         await session.commit()
-    lines = _block(await _text(sessions), "Sprint")
-    assert lines[0] == "<b>🏃 Sprint · 1 of 1</b>"
-    assert lines[1] == "Planned: 1 Actions"
-    assert _link("card", planned.id) in lines[2]
+
+    text = await _text(sessions)
+
+    assert _block(text, "Today") == ["<b>☀️ Today</b> · Nothing is planned for today."]
+    # The two Actions are only the changes that created them, not a list of their own.
+    assert text.count(_link("card", planned.id)) == 1 and text.count(_link("card", later.id)) == 1
+    assert "Sprint" not in text and "Backlog" not in text
+
+
+async def test_the_dashboard_names_the_first_priority_goals(sessions) -> None:
+    """HM-GOALS-013 — tests/brd/home.feature"""
+    assert "Priority Goals" not in await _text(sessions)
+    async with sessions() as session:
+        critical = await create_card(session, kind="goal", title="Critical", priority="critical")
+        others = [
+            await create_card(session, kind="goal", title=f"Goal {n}", priority="low")
+            for n in range(HOME_GOALS_SHOWN)
+        ]
+        await session.commit()
+
+    lines = _block(await _text(sessions), "Priority Goals")
+
+    assert len(lines) == 1 + HOME_GOALS_SHOWN
+    assert _link("card", critical.id) in lines[1]
+    assert _link("card", others[-1].id) not in "\n".join(lines)
+
+
+async def test_the_dashboard_reads_in_one_order(sessions) -> None:
+    """HM-ORDER-014 — tests/brd/home.feature"""
+    async with sessions() as session:
+        await set_profile_field(session, ProfileField.TIME_TRACKING, True)
+        await create_value(session, "Health", active=True)
+        await create_card(session, kind="goal", title="Get fit")
+        await _action(session, "Run", stage="today")
+        await session.commit()
+    now = datetime(2026, 10, 7, 11, 5, tzinfo=UTC)
+
+    headings = [block.splitlines()[0] for block in (await _text(sessions, now=now)).split("\n\n")]
+
+    assert headings[0].startswith("<b>🏠 Wed, 07 Oct · ")
+    assert [heading.split("</b>")[0] for heading in headings[1:5]] == [
+        "<b>🗒 Latest changes",
+        "<b>🎯 Priority Goals",
+        "<b>💎 Values in focus",
+        "<b>☀️ Today · 1",
+    ]
+    assert headings[5].startswith("⌛ Tracked today")
 
 
 class Words:
@@ -300,7 +330,7 @@ async def test_the_dashboard_shows_the_time_of_the_day_while_time_tracking_is_on
     assert "⌛ Tracked today: nothing yet" in await _text(sessions, now=now + timedelta(days=2))
 
 
-async def test_the_dashboard_ends_with_the_last_changes(sessions) -> None:
+async def test_the_dashboard_opens_with_the_last_changes(sessions) -> None:
     """HM-LOG-009 — tests/brd/home.feature"""
     async with sessions() as session:
         kept = await _action(session, "Kept")

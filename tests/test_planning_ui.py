@@ -10,24 +10,21 @@ from ui_harness import (
     FakeCallback,
     FakeMessage,
     button_texts,
+    place_of,
     plan_filters,
+    press,
     seed_plan,
     services_for,
+    tap_link,
 )
 
-from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, FEATURE_START_LINKS
+from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
 from safwa.features.cards.model import Card, CardStage
-from safwa.features.cards.telegram import command_today, render_card
+from safwa.features.cards.telegram import render_board, render_card
 from safwa.features.cards.use_cases import create_card, finish_action, move_card
 from safwa.features.home.telegram import render_home
 from safwa.features.planning.model import Sprint
-from safwa.features.planning.telegram import (
-    SPRINT_LINK,
-    handle_plan_start,
-    render_plan,
-    render_sprint,
-)
-from safwa.features.planning.telegram.plan import PLAN_LINK_BURST_TAPS, claims_plan_payload
+from safwa.features.planning.telegram import render_plan, render_sprint
 from safwa.features.planning.use_cases import (
     set_sprint_capacity,
     set_sprint_success_criteria,
@@ -37,6 +34,7 @@ from safwa.features.saved_requests.use_cases import create_saved_request
 from safwa.foundation.workspace import Workspace
 from tg_agent_shell.ai.sql import create_ai_views
 from tg_agent_shell.telegram import callback_token_handler
+from tg_agent_shell.telegram.callbacks import LINK_BURST_TAPS
 from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.model import UiSession
 
@@ -122,13 +120,8 @@ async def test_pl_screen_028_a_title_opens_its_card_and_back_returns_to_the_list
     services = services_for(sessions)
     screen = FakeMessage(133, bot_message=True)
     await render_sprint(screen, services, page=1)
-    link = re.search(r'\?start=(ss-(\d+)-remaining-1)">(Step \d+)</a>', screen.edits[-1][0])
-    assert link is not None
-    payload, title = link[1], link[3]
-    assert SPRINT_LINK in FEATURE_START_LINKS and SPRINT_LINK.claims(payload)
-
-    tap = FakeMessage(134, text="/start " + payload, bot_message=False, bot=screen.bot)
-    await SPRINT_LINK.open(tap, services, payload)
+    title = re.search(r'">(Step \d+)</a>', screen.edits[-1][0])[1]
+    tap = await tap_link(services, screen.edits[-1][0], title, screen.bot)
     # The Card took the Sprint screen's place rather than arriving as a message of its own.
     edited_id, card_text, card_markup = screen.bot.edits[-1]
     assert edited_id == screen.message_id and title in card_text
@@ -196,13 +189,22 @@ async def test_pl_screen_029_sprint_paging_keeps_the_list_and_switching_resets_i
     assert "Nothing here yet." not in text
 
 
-async def test_pl_mode_001_the_menu_offers_today_in_planning_too(sessions) -> None:
+async def test_pl_mode_001_today_is_on_home_in_planning_as_in_a_sprint(sessions) -> None:
     """PL-MODE-001 — tests/brd/planning.feature"""
+    async with sessions() as session:
+        await create_card(session, kind="action", title="Call the bank", stage="today")
+        await session.commit()
     services = services_for(sessions)
     message = FakeMessage(74, bot_message=True)
 
     await render_home(message, services)
-    assert "☀️ Today" in button_texts(message.edits[-1][1])
+    assert "☀️ Today · 1" in message.edits[-1][0] and "Call the bank" in message.edits[-1][0]
+
+    planning = FakeMessage(76, bot_message=True)
+    await render_sprint(planning, services)
+    text, markup = planning.edits[-1]
+    assert "Call the bank" not in text
+    assert not any("Today" in label for label in button_texts(markup))
 
     async with sessions() as session:
         await create_card(
@@ -212,27 +214,7 @@ async def test_pl_mode_001_the_menu_offers_today_in_planning_too(sessions) -> No
         await session.commit()
 
     await render_home(message, services)
-    assert "☀️ Today" in button_texts(message.edits[-1][1])
-
-
-async def test_pl_mode_001_the_today_screen_lists_its_actions_during_planning(sessions) -> None:
-    """PL-MODE-001 — tests/brd/planning.feature"""
-    async with sessions() as session:
-        await create_card(session, kind="action", title="Call the bank", stage="today")
-        await session.commit()
-    message = FakeMessage(75, bot_message=True)
-
-    await command_today(message, services_for(sessions))
-
-    text, markup = message.edits[-1]
-    assert "Call the bank" in text
-    assert "Plan the next Sprint first" not in text
-
-    planning = FakeMessage(76, bot_message=True)
-    await render_sprint(planning, services_for(sessions))
-    text, markup = planning.edits[-1]
-    assert "Call the bank" not in text
-    assert not any("Today" in label for label in button_texts(markup))
+    assert "☀️ Today · 1" in message.edits[-1][0]
 
 
 async def test_card_move_buttons_walk_an_action_between_today_and_sprint(sessions) -> None:
@@ -246,35 +228,19 @@ async def test_card_move_buttons_walk_an_action_between_today_and_sprint(session
 
     services = services_for(sessions)
     message = FakeMessage(76, bot_message=True)
-    await command_today(message, services)
+    await render_board(message, services)
+    assert "☀️ Today · 1" in message.edits[-1][0]
 
-    text, markup = message.edits[-1]
-    assert "Ship it" in text
-    assert len(markup.inline_keyboard[0]) == 1
-    opener = markup.inline_keyboard[0][0]
-    await callback_token_handler(
-        FakeCallback(opener.callback_data.split(":", 1)[1], message), services
-    )
-    _, markup = message.edits[-1]
-    move_to_sprint = next(
-        button for button in markup.inline_keyboard[0] if button.text == "🏃 Into Sprint"
-    )
-
-    await callback_token_handler(
-        FakeCallback(move_to_sprint.callback_data.split(":", 1)[1], message), services
-    )
+    await tap_link(services, message.edits[-1][0], "⭐️ Ship it", message.bot)
+    markup = message.bot.edits[-1][2]
+    await press(services, message, markup, "🏃 Into Sprint")
 
     async with sessions() as session:
         assert (await session.get(Card, action_id)).effective_stage == CardStage.SPRINT.value
     text, markup = message.edits[-1]
     assert "Stage: Sprint" in text
-    back = next(
-        button for row in markup.inline_keyboard for button in row if button.text == "↩️ Back"
-    )
-    await callback_token_handler(
-        FakeCallback(back.callback_data.split(":", 1)[1], message), services
-    )
-    assert "Ship it" not in message.edits[-1][0]
+    await press(services, message, markup, "↩️ Back")
+    assert "☀️ Today · 0" in message.edits[-1][0] and "🏃 Sprint · 1" in message.edits[-1][0]
 
     await render_card(message, services, action_id)
     text, markup = message.edits[-1]
@@ -389,15 +355,15 @@ async def test_pl_criteria_003_the_planning_screen_refuses_an_empty_plan(session
 
 async def test_pl_plan_016_the_plan_is_a_table_and_the_backlog_is_the_keyboard(sessions, effort_on):
     """PL-PLAN-016 — tests/brd/planning.feature"""
-    ids = await seed_plan(sessions)
+    await seed_plan(sessions)
     services = services_for(sessions)
     screen = FakeMessage(100, bot_message=True)
     await render_plan(screen, services)
 
     body, markup = screen.edits[-1]
     # Every planned Action is a row: its title opens it, its Return sends it back.
-    assert f"?start=sp-{ids['sprint']}" in body
-    assert f"?start=sr-{ids['sprint']}" in body
+    assert re.search(r'\?start=go-[\w-]+">Ship it</a>', body)
+    assert re.search(r'\?start=go-[\w-]+">↩️ Return</a>', body)
     assert "<table bordered striped>" in body
     assert "In Sprint: 1 Actions" in body
     labels = button_texts(markup)
@@ -430,13 +396,12 @@ async def test_tapping_a_backlog_item_plans_it_and_preserves_filters(sessions, e
     )
     body, markup = screen.edits[-1]
     assert "<table bordered striped>" in body
-    assert f"?start=sp-{ids['pick']}" in body
+    assert re.search(r'\?start=go-[\w-]+">Pick me</a>', body)
     assert "Pick me (1)" not in button_texts(markup)
     assert "Skip me (2)" not in button_texts(markup)
-    assert await plan_filters(sessions) == [request_id]
+    assert await plan_filters(sessions, markup) == [request_id]
     async with sessions() as session:
         assert (await session.get(Card, ids["pick"])).effective_stage == CardStage.SPRINT.value
-        assert (await session.scalar(select(UiSession))).kind == "sprint_plan"
 
 
 async def test_pl_plan_016_a_return_tap_moves_the_card_back_and_redraws_the_same_screen(sessions):
@@ -446,10 +411,7 @@ async def test_pl_plan_016_a_return_tap_moves_the_card_back_and_redraws_the_same
     screen = FakeMessage(101, bot_message=True)
     await render_plan(screen, services)
 
-    payload = f"sr-{ids['sprint']}"
-    tap = FakeMessage(102, text="/start " + payload, bot_message=False, bot=screen.bot)
-    assert claims_plan_payload(payload) is True
-    await handle_plan_start(tap, services, payload)
+    await tap_link(services, screen.edits[-1][0], "↩️ Return", screen.bot)
 
     async with sessions() as session:
         assert (await session.get(Card, ids["sprint"])).effective_stage == CardStage.BACKLOG.value
@@ -459,7 +421,7 @@ async def test_pl_plan_016_a_return_tap_moves_the_card_back_and_redraws_the_same
 
 
 async def test_opening_a_card_from_the_plan_comes_back_to_the_same_page_and_filters(sessions, effort_on):
-    ids = await seed_plan(sessions)
+    await seed_plan(sessions)
     async with sessions() as session:
         request = await create_saved_request(
             session, "Only Pick me", "SELECT id FROM ai_cards WHERE title = 'Pick me'",
@@ -473,9 +435,9 @@ async def test_opening_a_card_from_the_plan_comes_back_to_the_same_page_and_filt
     await render_plan(screen, services, filters=[request_id])
     assert "Skip me (2)" not in button_texts(screen.edits[-1][1])
 
-    await handle_plan_start(screen, services, f"sp-{ids['pick']}")
+    await tap_link(services, screen.edits[-1][0], "Ship it", screen.bot)
     card_text, card_markup = screen.bot.edits[-1][1], screen.bot.edits[-1][2]
-    assert "Pick me" in card_text
+    assert "Ship it" in card_text
 
     back = next(
         button
@@ -555,7 +517,8 @@ async def test_pl_plan_017_the_filter_screen_toggles_a_request_on_and_off(sessio
         if button.text.endswith("Only Pick me")
     )
     assert checked.text.startswith("☑")
-    assert await plan_filters(sessions) == [request_id]
+    # Back draws the plan with what was picked here.
+    assert (await place_of(sessions, screen.edits[-1][1], "↩️ Back")).args["filters"] == [request_id]
 
     back = next(
         button
@@ -576,23 +539,24 @@ async def test_pl_plan_019_a_burst_of_link_taps_earns_a_warning(sessions, monkey
     import tg_agent_shell.telegram.chat as messaging
 
     monkeypatch.setattr(messaging, "TOAST_SECONDS", 0)
-    ids = await seed_plan(sessions)
+    await seed_plan(sessions)
     services = services_for(sessions)
     screen = FakeMessage(106, bot_message=True, answer_as_new=True)
     await render_plan(screen, services)
 
-    payload = f"sp-{ids['pick']}"
-    for _ in range(PLAN_LINK_BURST_TAPS - 1):
-        await handle_plan_start(screen, services, payload)
+    for _ in range(LINK_BURST_TAPS - 1):
+        await tap_link(services, screen.edits[-1][0], "Ship it", screen.bot)
+        # Back to the plan, so the next tap has a link to tap.
+        await render_plan(screen, services)
     assert screen.answers == []
 
-    await handle_plan_start(screen, services, payload)
-    assert "link taps" in screen.answers[-1]
-    assert "hours" in screen.answers[-1]
+    tap = await tap_link(services, screen.edits[-1][0], "Ship it", screen.bot)
+    assert "link taps" in tap.answers[-1]
+    assert "hours" in tap.answers[-1]
     # The tap that earned the warning still opened the Card it points at.
-    assert "Pick me" in screen.bot.edits[-1][1]
+    assert "Ship it" in screen.bot.edits[-1][1]
 
-    _, expiry = services.chat.toasts[screen.chat.id]
+    _, expiry = services.chat.toasts[tap.chat.id]
     await expiry
 
 
