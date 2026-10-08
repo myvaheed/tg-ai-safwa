@@ -31,8 +31,10 @@ rtk proxy uv sync --extra dev
 rtk proxy uv run safwa
 ```
 
-Send the bot a request, then open the **safwa** project in Phoenix. Model spans show the actual
-messages, tool schemas, parameters, responses and input/output tokens. Tool spans show their
+Send the bot a request, then open the **safwa-&lt;model&gt;** project in Phoenix. Its name uses the
+full `SAFWA_AI_MODEL` value: for example, `openai/gpt-5.6-luna` creates
+`safwa-openai/gpt-5.6-luna`. Model spans show the actual messages, tool schemas, parameters,
+responses and input/output tokens. Tool spans show their
 call IDs, arguments, results and errors. Cached tokens are shown when the endpoint reports them.
 Token counts come from the endpoint; missing usage is not a measured zero. Phoenix can estimate
 cost for models it knows, but local and custom model names may have no price.

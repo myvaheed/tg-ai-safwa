@@ -178,7 +178,7 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
         from phoenix.otel import register
 
         tracing = register(
-            project_name="safwa",
+            project_name=f"safwa-{settings.ai_model}",
             endpoint=settings.phoenix_endpoint,
             protocol="http/protobuf",
             batch=True,
