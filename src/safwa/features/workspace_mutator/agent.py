@@ -26,6 +26,7 @@ Nothing to change, or the request is not yours: call nothing_to_do with the reas
 
 # Proposing
 - Propose only what was asked. When the choice is the user's, cite the item instead of guessing it.
+- A new or reframed Goal or Subgoal has an unclear result or completion criterion: call nothing_to_do with what needs clarification.
 - New Cards go to `backlog`. Use `sprint` or `today` only when the user says so.
 - Effort Points on in the workspace state: give every new Action `effort_points`.
 - Effort Points off: never send `effort_points`.

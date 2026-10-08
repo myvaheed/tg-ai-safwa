@@ -39,6 +39,7 @@ MANUAL = f"""# Safwa
 
 # Cards
 - A Card is a Goal, a Subgoal or an Action. A Goal stands at the root. A Subgoal stands under a Goal. An Action stands under either, or alone, and is the only work.
+- Goals name a specific, attainable, meaningful result, with a verifiable completion criterion in Note; Deadline is optional. A Subgoal contributes to its parent's result. Unclear results or criteria are clarified before proposing. Directions are Values; ongoing practices are repeating Actions.
 - An Action has a stage: Backlog, Sprint, Today, Done. It goes to Sprint or Today when the user takes it on; it need not pass every stage. An open Goal shows its children's live stage. Goals and Subgoals close only by an explicit Done or approved proposal after their Actions are finished; an open Action reopens them.
 - After all Actions under a Goal or Subgoal are Done, the Advisor asks whether to close it too or create a new Action. Goal completion follow-up in Profile → Hooks switches this question off or on.
 - Priority: Critical, Medium, Low.

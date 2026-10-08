@@ -24,6 +24,15 @@ model reads it under that name. The `Workspace mode:` line inside it is the othe
 
 ## The Card tree, and what is derived
 
+Advisor and workspace mutator formulate Goals and Subgoals as specific, verifiable results,
+attainable with the owner's resources and meaningful to them (SMAR; a Deadline is optional).
+The title names the result; the Note states its observable completion criterion. A Subgoal's
+result contributes to its parent's result. Directions belong to Values and ongoing practices
+to repeating Actions. Unclear results or completion criteria need clarification before a new
+or reframed Goal is proposed; targets, resources and deadlines are never invented. Advice
+works backward from results to Actions and assesses progress toward results, not Action counts.
+These are agent instructions, not restrictions on manual Card editing or ordinary updates.
+
 - A Goal is created root-level, and a Goal placed under a Goal becomes a Subgoal; a Subgoal is
   always under a Goal; an Action may be root or under Goal/Subgoal and has no children. **Live stage**, effort, time spent, categories, energy and **Blocked** belong to an
   Action alone. The model writes a Goal or a Subgoal with the `goal` tool, which has none of

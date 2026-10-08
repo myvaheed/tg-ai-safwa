@@ -266,7 +266,7 @@ GOAL_TOOL = MutationToolSpec(
     name="goal",
     input_model=GoalToolInput,
     description=(
-        "Propose one Goal or Subgoal: a result that takes more than one day. "
+        "Propose one Goal or Subgoal as defined under Safwa items. "
         "With a Goal as `parent` it is a Subgoal."
     ),
     to_change=_card_change(_goal_kind),

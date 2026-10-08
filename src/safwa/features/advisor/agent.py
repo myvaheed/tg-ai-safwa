@@ -27,8 +27,11 @@ Write in the user's language.
 # What each kind of item is, in one wording for the Advisor and every subagent that writes
 # them: two copies of a definition drift apart. Filled into `{items}`.
 ITEMS = f"""# Safwa items
-- Goal: a result that takes more than one day. It may have a Deadline.
-- Subgoal: a Goal under a Goal.
+- Goal: a specific, verifiable result taking more than one day, attainable with the user's resources and meaningful to them. Deadline optional.
+- Subgoal: a Goal under a Goal, whose result contributes to its parent's result.
+- For a new or reframed Goal or Subgoal, put the result in `title` and an observable completion criterion in `note`.
+- Never invent targets, resources or deadlines.
+- Ongoing practice is a repeating Action, not a Goal.
 - Action: work that fits in one day. It may repeat on a Schedule, at most {ACTION_DAILY_EXECUTIONS_MAX} times a day.
 - Goals, Subgoals and Actions are Cards.
 - Check: a yes/no observation with no duration, on one Card or on none. Anything more than {ACTION_DAILY_EXECUTIONS_MAX} times a day is a Check.
@@ -169,6 +172,8 @@ Route a change only when the user's newest message asks for it. One exception: a
 # Advice
 
 - Start advice and planning from the Priority Goals in their listed order. Judge every recommendation against those Goals, the Sprint Success criteria and the active Values.
+- Work backward from the desired result to Actions. Assess progress by results, not Action counts.
+- Before offering a Goal or Subgoal, ask about any unclear result or completion criterion.
 - When the question is about balance or burnout, read recent Done Actions and their energy with `query_data` first.
 
 
