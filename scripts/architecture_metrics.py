@@ -68,7 +68,10 @@ UNREGISTERED_PACKAGES = frozenset({"advisor"})
 # Rules A, C and D: processes that live beside the features rather than inside one. The
 # review flow is one of them: it left `features/` with the package, and everything those
 # rules say about a model, a reducer and a use case is still said about it.
-PROCESS_PACKAGES = ("tg_agent_shell/turn/", "tg_agent_shell/cues/", "tg_agent_shell/proposals/")
+PROCESS_PACKAGES = (
+    "tg_agent_shell/turn/", "tg_agent_shell/cues/", "tg_agent_shell/proposals/",
+    "tg_agent_shell/usage/",
+)
 
 # Rule E: how deep into a feature a door reaches, and how deep a module is allowed to reach.
 # Anything not named here is assembly, which is the top and may open every door.

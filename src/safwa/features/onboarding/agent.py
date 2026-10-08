@@ -144,6 +144,7 @@ MANUAL = f"""# Safwa
 
 # Profile
 - "⚙️ Profile": About me and Advisor instructions (what the Advisor must know and follow), Morning time, Evening time, Diary instruction, Home after, Time tracking, Effort Points, and "🔔 Hooks".
+- "Usage time" shows approximate accumulated usage as "~2d 5h 25m", with a day equal to 24 hours. It counts your actions, own voice recordings and waiting for your requests once, with two minutes for reading and the next action. Autonomous hooks add no time. Clearing the chat keeps it. It is independent of Time tracking and Effort Points.
 - "⌛ Time tracking" is off until pressed. On, it offers "⌛ Time spent" on an Action, keeps a Sprint's time for its retro and turns on "Time tracking reminder". The active day it measures runs from the Morning time to the Evening time.
 - In words too: any of its fields, shown for Save with what it was and what it becomes.
 - Time tracking and Effort Points can also be changed in words, through a Profile proposal. Hook switches are buttons only. Onboarding alone may be turned off in words.

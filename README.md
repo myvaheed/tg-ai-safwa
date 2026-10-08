@@ -184,6 +184,11 @@ estimate Action load, configure Sprint capacity and receive Today overload warni
 Without them, Sprint and retro use Action counts. Turning them off keeps existing
 estimates and capacity, and Time tracking has its own independent switch.
 
+Profile also shows **Usage time**, the approximate accumulated time spent interacting with
+Safwa and waiting for your requests, as `~2d 5h 25m`. It counts overlapping activity once,
+includes own voice recording time and excludes autonomous work. Its two-minute quiet window
+and restart behavior are described in [USAGE_TIME.md](docs/USAGE_TIME.md).
+
 Use `/start`, `/sprint`, `/values`, `/tags`, `/requests`, `/reminders`, `/memory`,
 `/summarize`, `/status`, `/clear` and `/cancel`. The Dashboard, its Backlog, the Diary and the
 Profile are menu buttons only; Today is on the Home dashboard.

@@ -133,4 +133,12 @@ Feature: Profile
     When Effort Points are switched off again
     Then saved estimates and capacity are kept
     And an estimate button from an older screen cannot change the saved estimate
+
+  Scenario: PS-USAGE-022 — Profile shows the approximate accumulated usage time
+    Given the owner has used Safwa since usage tracking began
+    When the owner opens Profile
+    Then Usage time shows the total elapsed usage, recalculated at that moment
+    And it reads as ~2d 5h 25m, where a day is 24 hours and zero units are omitted
+    And seconds are rounded down to whole minutes, with ~0m below one minute
+    And it is a read-only value independent of Time tracking and Effort Points
     And the setting persists when Safwa restarts

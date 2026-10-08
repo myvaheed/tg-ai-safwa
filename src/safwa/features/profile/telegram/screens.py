@@ -159,7 +159,14 @@ def _switch_label(profile: UserProfile, hook: HookSpec) -> str:
     return f"{'🔔' if on else '🔕'} {hook.title}: {'on' if on else 'off'}"
 
 
-def profile_text(profile: UserProfile, timezone: str) -> str:
+def usage_label(seconds: int) -> str:
+    days, minutes = divmod(seconds // 60, 24 * 60)
+    hours, minutes = divmod(minutes, 60)
+    parts = [f"{value}{unit}" for value, unit in ((days, "d"), (hours, "h"), (minutes, "m")) if value]
+    return "~" + (" ".join(parts) or "0m")
+
+
+def profile_text(profile: UserProfile, timezone: str, *, usage: int = 0) -> str:
     """Render the Profile values; timezone is deliberately display-only."""
     lines = [
         "<b>Profile</b>",
@@ -169,6 +176,7 @@ def profile_text(profile: UserProfile, timezone: str) -> str:
     for name, field in PROFILE_FIELDS.items():
         lines.append(f"{field.title}: {html.escape(field.show(getattr(profile, name)))}")
     lines.append(f"Timezone: {html.escape(timezone)}")
+    lines.append(f"Usage time: {usage_label(usage)}")
     lines.append(
         f"Effort Points: {'on' if profile.effort_tracking else 'off'} — optional estimates "
         "of Action load, a Sprint's capacity and Today overload warnings."
@@ -201,7 +209,8 @@ async def command_profile(
                     session, services.owner_id, field.label, "profile_edit", {"field": name}
                 )
             )
-        rendered = profile_text(profile, workspace.timezone)
+        usage = await services.usage.seconds(session) if services.usage is not None else 0
+        rendered = profile_text(profile, workspace.timezone, usage=usage)
         rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
         rows.append([
             await token_button(

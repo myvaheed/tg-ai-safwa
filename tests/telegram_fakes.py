@@ -118,6 +118,8 @@ class QueueTestMessage:
         self.from_user = SimpleNamespace(id=owner_id, is_bot=is_bot, full_name="Owner")
         self.bot = parent.bot if parent is not None else QueueTestBot()
         self.date = datetime.now(UTC)
+        self.edit_date = None
+        self.forward_origin = None
         self.text = text
         self.owner_id = owner_id
         self.answer_as_new = answer_as_new

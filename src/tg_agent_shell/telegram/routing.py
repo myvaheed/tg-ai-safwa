@@ -23,6 +23,7 @@ def build_router(commands: tuple[ScreenCommand, ...]) -> Router:
     router = Router(name="tg_agent_shell")
     router.message.outer_middleware.register(OwnerAndWritingMiddleware())
     router.callback_query.outer_middleware.register(OwnerAndWritingMiddleware())
+    router.edited_message.outer_middleware.register(OwnerAndWritingMiddleware())
     router.message.middleware(dismiss_screens_before_a_command)
     register_commands(router, commands)
     router.message.register(ordinary_text, F.text & ~F.text.startswith("/"))

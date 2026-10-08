@@ -149,6 +149,7 @@ async def test_proposal_ui_gives_up_the_turn_before_after_turn_work(sessions) ->
         hooks=run_hooks(close_window),
         features=None,
         search=None,
+        usage=None,
     )
     message = FakeMessage(20, text="Create a Tag VrWalk", bot_message=False)
 

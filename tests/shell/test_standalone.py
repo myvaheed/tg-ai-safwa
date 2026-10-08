@@ -20,6 +20,7 @@ SHELL_TABLES = {
     "chat_media",
     "telegram_messages",
     "ui_sessions",
+    "usage_intervals",
 }
 WALLET_TABLES = {"categories", "entries", "ledger", "wallets"}
 

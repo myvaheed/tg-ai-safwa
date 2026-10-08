@@ -185,6 +185,9 @@ async def run_after_turn(message: Message, services: Services, event: AfterTurn)
     one broken piece of after-work must not silence the others, and must never tell the
     owner their request did not go through.
     """
+    if services.usage is not None:
+        await services.usage.finish()
+
     async def run(still_current: Callable[[], bool]) -> None:
         if services.turn.dialogue_revision != event.dialogue_revision:
             return
@@ -266,6 +269,8 @@ async def run_dialogue_turn(
         # an autoapproved change bumps it from inside this very turn.
         if services.turn.dialogue_revision != dialogue_revision:
             logger.info("Discarding an answer the owner already moved past")
+            if services.usage is not None:
+                await services.usage.finish(reading=False)
             return
         await render_ai_outcome(message, services, outcome)
         await end_turn(message, services)

@@ -29,6 +29,7 @@ from ..hooks.registry import HookRegistry
 from ..media.library import MediaLibrary
 from ..session import RootSession
 from ..turn import TurnManager
+from ..usage.recorder import UsageRecorder
 from .contributions import ScreenCommand, StartLink, TextInputFlow
 from .place import Place
 
@@ -102,6 +103,7 @@ class Services:
     # None, and a photo is refused with a line saying image input is off.
     media: MediaLibrary | None = None
     albums: AlbumGatherer = field(default_factory=AlbumGatherer)
+    usage: UsageRecorder | None = None
     # The owner's last message or press, in this process: starting counts as one.
     owner_acted_at: datetime = field(default_factory=utcnow)
 
@@ -121,6 +123,37 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
         if user is None or user.id != services.owner_id or (chat and chat.type != "private"):
             return None
         services.owner_acted_at = utcnow()
+        edited = isinstance(event, Message) and event.edit_date is not None
+        if not edited and services.turn.background:
+            # The owner outranks work nobody asked for, before any storage await too.
+            services.turn.cancel()
+        event_key = ""
+        if services.usage is not None:
+            if isinstance(event, Message):
+                edited_at = event.edit_date
+                event_key = f"message:{event.chat.id}:{event.message_id}"
+                if edited_at is not None:
+                    event_key += f":edit:{edited_at.isoformat()}"
+                recording = event.voice or event.video_note
+                duration = (
+                    int(recording.duration) if recording and event.forward_origin is None
+                    and edited_at is None else 0
+                )
+                await services.usage.activity(
+                    event_key, at=edited_at or event.date, voice_seconds=duration,
+                )
+            elif isinstance(event, CallbackQuery):
+                event_key = f"callback:{event.id}"
+                await services.usage.activity(event_key, at=services.usage.clock.now())
+        if edited:
+            return await handler(event, data)
+
+        async def dispatch() -> Any:
+            if services.usage is not None and event_key:
+                async with services.usage.processing(event_key):
+                    return await handler(event, data)
+            return await handler(event, data)
+
         album: list[Message] | None = None
         if isinstance(event, Message) and event.media_group_id is not None:
             album = await services.albums.gather(event)
@@ -140,13 +173,9 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
                     command_deleted = True
                 except TelegramAPIError as error:
                     logger.warning("Could not delete operational command %s: %s", command, error)
-        if services.turn.background:
-            # The owner outranks work nobody asked for: drop it and take the message
-            # normally, rather than deleting it the way a foreground collision would.
-            services.turn.cancel()
         if isinstance(event, Message) and services.turn.active:
             if command == "/cancel":
-                return await handler(event, data)
+                return await dispatch()
             if event.message_id != services.turn.source_message_id:
                 # Nothing joins a running answer: the message leaves the chat, and leaving
                 # the chat is what makes it not something the owner said. A recording or a
@@ -158,7 +187,7 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
                     except TelegramAPIError:
                         # It could not be taken out, so it is theirs and stays theirs.
                         services.turn.cancel()
-                        return await handler(event, data)
+                        return await dispatch()
                 return None
         if isinstance(event, CallbackQuery) and services.turn.active:
             await event.answer(STILL_ANSWERING, show_alert=True)
@@ -173,7 +202,7 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
             if is_dialogue:
                 taken = services.turn.try_begin(event.message_id)
         try:
-            return await handler(event, data)
+            return await dispatch()
         finally:
             if taken:
                 services.turn.end(event.message_id)

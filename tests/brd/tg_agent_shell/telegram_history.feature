@@ -182,3 +182,52 @@ Feature: The conversation in Telegram
     When Safwa reads the conversation back
     Then it begins after the newest Home message: nothing said before it, a Summary included, and not the Home message itself
     And an application that never puts a Home message in the chat has nothing taken out and nothing started over
+
+  Scenario: TG-USAGE-024 — Usage counts elapsed activity once with a two-minute quiet window
+    Given the application records its owner's usage
+    When the owner sends a message, command or presses a button
+    Then activity lasts for two minutes after that action
+    And another action extends that quiet window
+    And overlapping intervals count once, with future time never counted in advance
+    And a longer quiet gap adds no time, including across midnight
+
+  Scenario: TG-VOICE-025 — An own recording adds its duration before it was sent
+    Given the owner sends a new voice message or video note
+    Then its duration is included as an approximate interval before the message was sent
+    And that interval counts only once where it overlaps other activity
+    But a forwarded recording or uploaded audio file adds no recording duration
+
+  Scenario: TG-WAIT-026 — Usage includes the owner's full request but no autonomous work
+    Given the owner requested an answer
+    Then usage includes waiting for transcription, tools, subagents and delivery of the answer
+    And a delivered answer starts another two-minute window for reading
+    But work after the answer and autonomous Cues or hooks start no usage interval
+    And cancellation or an unhandled failure ends the wait without a reading window
+    And cancellation while opening the wait leaves no active interval behind
+
+  Scenario: TG-PAUSE-027 — A review pauses the wait until the owner decides
+    Given the owner's request stopped on Save or Discard
+    Then its reading window lasts for two minutes after that screen
+    And time after that window is not counted while the owner has not decided
+    When the owner decides and the request continues
+    Then its new work is counted, followed by the reading window of its answer
+
+  Scenario: TG-RESTART-028 — Restart retains confirmed usage without counting downtime
+    Given an owner's request is running
+    Then its elapsed work is checkpointed every 30 seconds
+    And a temporary checkpoint failure does not stop later checkpoints
+    When the application stops before that request ends and starts again
+    Then the interrupted wait ends at its last checkpoint
+    And time until restart is not added
+
+  Scenario: TG-KEEP-029 — Usage survives clearing the conversation
+    Given the owner has accumulated usage
+    When the chat is cleared or its kept messages are forgotten
+    Then the accumulated usage remains
+
+  Scenario: TG-EVENT-030 — Usage belongs to owner actions and repeated delivery adds nothing
+    Given the application receives an owner's event again
+    Then the event's activity and work are not added a second time
+    When the owner edits a message
+    Then the edit is a new action, without repeating any recording duration
+    But events from another user or a group add no usage

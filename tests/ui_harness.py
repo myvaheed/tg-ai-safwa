@@ -33,6 +33,7 @@ from tg_agent_shell.telegram import SHELL_COMMANDS, Place, callback_token_handle
 from tg_agent_shell.telegram.callbacks import _link_taps as link_taps
 from tg_agent_shell.telegram.model import CallbackToken
 from tg_agent_shell.turn import TurnManager
+from tg_agent_shell.usage.recorder import UsageRecorder
 
 # What the composition root puts together, which is what a live Safwa answers with.
 CALLBACK_ACTIONS = FEATURE_CALLBACK_ACTIONS
@@ -130,6 +131,8 @@ class FakeMessage:
         self.chat = SimpleNamespace(id=chat_id, type="private")
         self.from_user = SimpleNamespace(id=42, is_bot=bot_message, full_name="Name Surname")
         self.date = datetime.now(UTC)
+        self.edit_date = None
+        self.forward_origin = None
         self.edits: list[tuple[str, object | None]] = []
         self.answers: list[str] = []
         self.answer_markups: list[object | None] = []
@@ -230,6 +233,7 @@ def services_for(sessions, *, root=None, reviews=None, transcriber=None):
             proposals=PROPOSALS, reviews=reviews if reviews is not None else ProposalStore()
         ),
         transcriber=transcriber,
+        usage=UsageRecorder(sessions, 42),
     )
 
 

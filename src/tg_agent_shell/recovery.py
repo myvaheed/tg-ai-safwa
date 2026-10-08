@@ -18,11 +18,13 @@ from .ai.runs import AgentRun
 from .foundation.kinds import MessageKind
 from .history import TelegramMessage
 from .telegram.model import CallbackToken, UiSession
+from .usage.use_cases import recover_usage
 
 
 async def recover_startup(session: AsyncSession) -> None:
     """Reconcile the run machinery's interrupted work."""
     now = datetime.now(UTC)
+    await recover_usage(session)
     # Both end the same way, so both are recorded the same way.  `interrupted` is the one
     # a later turn may pick up, and nothing after a restart can be its caller.
     await session.execute(

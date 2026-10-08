@@ -33,6 +33,7 @@ from tg_agent_shell.telegram import (
 from tg_agent_shell.telegram.manifest import AgentContext
 from tg_agent_shell.telegram.routing import build_router
 from tg_agent_shell.turn import TurnManager
+from tg_agent_shell.usage.recorder import UsageRecorder
 
 from ..config import Settings
 from ..features.advisor.agent import ADVISOR_ROW_LIMITS, ADVISOR_VIEWS
@@ -300,6 +301,7 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
         transcriber=transcriber,
         search=search,
         media=media,
+        usage=UsageRecorder(database.sessions, settings.telegram_owner_id),
     )
     # A commit's facts reach the hooks from here on, with the features a Run reaches for;
     # what the start ends — a Sprint whose midnight Safwa slept through — is handed on too.
