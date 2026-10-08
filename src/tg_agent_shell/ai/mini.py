@@ -14,8 +14,10 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+from opentelemetry import trace
 from pydantic import BaseModel, ValidationError
 
+from agent_runtime.tracing import operation, record_output, tool_span
 from llm_gateway import CompletionRequest, LlmProvider, ToolCall
 
 from .contracts import ToolResultStatus, tool_json_schema
@@ -88,94 +90,105 @@ async def run_mini_session(
     so the model repairs the call instead of the caller guessing what it meant.
     `reasoning_effort` overrides the provider's own for every request of the session.
     """
-    by_name = {terminal.name: terminal for terminal in terminals}
-    readers = {spec.name: spec for spec in read_tools}
-    tools = [spec.schema for spec in read_tools] + [
-        terminal.schema() for terminal in terminals
-    ]
-    messages: list[dict[str, Any]] = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": context},
-    ]
-    calls = 0
-    repairs = 0
-    while True:
-        turn = await provider.complete(
-            CompletionRequest(
-                messages=tuple(messages),
-                tools=tuple(tools),
-                reasoning_effort=reasoning_effort,
+    with operation(
+        "mini_session:" + ",".join(terminal.name for terminal in terminals),
+        "CHAIN",
+        {"system_prompt": system_prompt, "context": context},
+    ) as mini_span:
+        by_name = {terminal.name: terminal for terminal in terminals}
+        readers = {spec.name: spec for spec in read_tools}
+        tools = [spec.schema for spec in read_tools] + [
+            terminal.schema() for terminal in terminals
+        ]
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": context},
+        ]
+        calls = 0
+        repairs = 0
+        while True:
+            turn = await provider.complete(
+                CompletionRequest(
+                    messages=tuple(messages),
+                    tools=tuple(tools),
+                    reasoning_effort=reasoning_effort,
+                )
             )
-        )
-        if not turn.tool_calls:
-            repairs += 1
+            if not turn.tool_calls:
+                repairs += 1
+                if repairs > max_repairs:
+                    raise MiniSessionError(
+                        f"The session answered in prose instead of calling one of: "
+                        f"{', '.join(by_name)}"
+                    )
+                messages.append(turn.as_message())
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "Do not answer in prose. Call exactly one of: "
+                            f"{', '.join(by_name)}."
+                        ),
+                    }
+                )
+                continue
+
+            messages.append(turn.as_message())
+            for call in turn.tool_calls:
+                calls += 1
+                if max_tool_calls is not None and calls > max_tool_calls:
+                    raise MiniSessionError("The session exceeded its tool-call budget")
+                with tool_span(call) as span:
+                    reader = readers.get(call.name)
+                    if reader is not None:
+                        rows = await reader.run(call)
+                        _reply(messages, call, rows)
+                        continue
+                    terminal = by_name.get(call.name)
+                    if terminal is None:
+                        repairs += 1
+                        _reply(
+                            messages,
+                            call,
+                            {
+                                "status": ToolResultStatus.ERROR.value,
+                                "code": "unknown_tool",
+                                "error": f"Unknown tool: {call.name}",
+                                "hint": f"Call exactly one of: {', '.join(by_name)}.",
+                                "retryable": True,
+                            },
+                        )
+                        continue
+                    try:
+                        payload = terminal.model.model_validate(json.loads(call.arguments_json or "{}"))
+                    except (ValidationError, json.JSONDecodeError, TypeError) as error:
+                        repairs += 1
+                        _reply(
+                            messages,
+                            call,
+                            {
+                                "status": ToolResultStatus.ERROR.value,
+                                "code": "invalid_arguments",
+                                "error": str(error),
+                                "hint": f"Fix the arguments and call {call.name} again.",
+                                "retryable": True,
+                            },
+                        )
+                        continue
+                    logger.info("MINI SESSION -> %s %s", call.name, payload)
+                    if span.is_recording():
+                        values = payload.model_dump()
+                        record_output(span, values)
+                        record_output(mini_span, {"name": call.name, "payload": values})
+                    return MiniSessionResult(name=call.name, payload=payload)
             if repairs > max_repairs:
                 raise MiniSessionError(
-                    f"The session answered in prose instead of calling one of: "
-                    f"{', '.join(by_name)}"
+                    f"The session could not produce a valid call to one of: {', '.join(by_name)}"
                 )
-            messages.append(turn.as_message())
-            messages.append(
-                {
-                    "role": "user",
-                    "content": (
-                        "Do not answer in prose. Call exactly one of: "
-                        f"{', '.join(by_name)}."
-                    ),
-                }
-            )
-            continue
-
-        messages.append(turn.as_message())
-        for call in turn.tool_calls:
-            calls += 1
-            if max_tool_calls is not None and calls > max_tool_calls:
-                raise MiniSessionError("The session exceeded its tool-call budget")
-            reader = readers.get(call.name)
-            if reader is not None:
-                rows = await reader.run(call)
-                _reply(messages, call, rows)
-                continue
-            terminal = by_name.get(call.name)
-            if terminal is None:
-                repairs += 1
-                _reply(
-                    messages,
-                    call,
-                    {
-                        "status": ToolResultStatus.ERROR.value,
-                        "code": "unknown_tool",
-                        "error": f"Unknown tool: {call.name}",
-                        "hint": f"Call exactly one of: {', '.join(by_name)}.",
-                        "retryable": True,
-                    },
-                )
-                continue
-            try:
-                payload = terminal.model.model_validate(json.loads(call.arguments_json or "{}"))
-            except (ValidationError, json.JSONDecodeError, TypeError) as error:
-                repairs += 1
-                _reply(
-                    messages,
-                    call,
-                    {
-                        "status": ToolResultStatus.ERROR.value,
-                        "code": "invalid_arguments",
-                        "error": str(error),
-                        "hint": f"Fix the arguments and call {call.name} again.",
-                        "retryable": True,
-                    },
-                )
-                continue
-            logger.info("MINI SESSION -> %s %s", call.name, payload)
-            return MiniSessionResult(name=call.name, payload=payload)
-        if repairs > max_repairs:
-            raise MiniSessionError(
-                f"The session could not produce a valid call to one of: {', '.join(by_name)}"
-            )
 
 
 def _reply(messages: list[dict[str, Any]], call: ToolCall, content: Any) -> None:
+    record_output(trace.get_current_span(), content)
     messages.append(
         {
             "role": "tool",

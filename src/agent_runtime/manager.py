@@ -42,6 +42,7 @@ from .model import (
     tool_message,
 )
 from .ports import ContextSource, Materializer, Observer, SessionStore, ToolRunner
+from .tracing import operation, record_output
 
 logger = logging.getLogger(__name__)
 
@@ -107,13 +108,23 @@ class AgentManager:
         Every stretch of every session starts here: a new one with nothing said yet, a
         resumed one with what it left behind and the answers it was waiting for.
         """
-        messages = await self.context.messages_for(
-            agent.kind, agent.dialogue, agent.prior_receipts
-        )
-        agent.prefix_len = len(messages)
-        messages.extend(transcript)
-        agent.messages = messages
-        return await self._complete(agent, await self.run(agent), started)
+        with operation(
+            agent.kind,
+            "AGENT",
+            {"dialogue": agent.dialogue, "transcript": transcript},
+            {"session.id": str(agent.run_id), "agent.run_id": agent.run_id},
+        ) as span:
+            if agent.parent_run_id is not None:
+                span.set_attribute("agent.parent_run_id", agent.parent_run_id)
+            messages = await self.context.messages_for(
+                agent.kind, agent.dialogue, agent.prior_receipts
+            )
+            agent.prefix_len = len(messages)
+            messages.extend(transcript)
+            agent.messages = messages
+            outcome = await self._complete(agent, await self.run(agent), started)
+            record_output(span, {"message": outcome.message, "waiting": outcome.waiting})
+            return outcome
 
     async def _bounded(
         self, agent: AgentSession, work: Coroutine[Any, Any, TurnOutcome]

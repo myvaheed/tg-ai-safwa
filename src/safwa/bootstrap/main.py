@@ -173,6 +173,19 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
         await session.commit()
 
     provider = OpenAICompatibleProvider(settings.ai_config())
+    tracing = None
+    if settings.phoenix_enabled:
+        from phoenix.otel import register
+
+        tracing = register(
+            project_name="safwa",
+            endpoint=settings.phoenix_endpoint,
+            protocol="http/protobuf",
+            batch=True,
+            auto_instrument=True,
+            verbose=False,
+        )
+        logger.info("Phoenix tracing enabled: %s", settings.phoenix_endpoint)
     memory = MemoryReader(database.sessions)
     search = SearchIndex(
         database_file,
@@ -346,6 +359,8 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
         if transcriber is not None:
             await transcriber.close()
         await provider.aclose()
+        if tracing is not None:
+            await asyncio.to_thread(tracing.shutdown)
         await bot.session.close()
         await database.dispose()
 

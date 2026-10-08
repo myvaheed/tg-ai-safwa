@@ -27,6 +27,7 @@ from .model import (
     tool_message,
 )
 from .ports import Observer, ToolRunner
+from .tracing import record_output, tool_span
 
 logger = logging.getLogger(__name__)
 
@@ -185,41 +186,46 @@ async def run_loop(
                 agent.tool_count += 1
                 if agent.tool_count > max_tool_calls:
                     raise ToolBudgetExceeded("The session exceeded the tool-call limit")
-                change = None
-                if not_shared is not None:
-                    result = _NOT_SHARED[not_shared]
-                elif call.name not in available:
-                    result = _tool_not_available(agent, call.name)
-                elif call.name == "route":
-                    result, suspended = await route(agent, call)
-                    if suspended is not None:
-                        return AgentLoopResult(message="", suspended=suspended)
-                elif call.name == "forward":
-                    name, words, result = _forward(agent, call)
-                    if words is not None:
-                        messages.append(tool_message(call.id, call.name, result))
-                        if observer is not None:
-                            await observer.step(
-                                agent.run_id,
-                                agent.tool_count,
-                                "forward",
-                                {"tool_call_id": call.id, "subagent": name},
-                            )
-                        logger.info("FORWARD <- %s", name)
-                        return AgentLoopResult(words, forwarded=name)
-                elif call.name == "nothing_to_do":
-                    reason, result = _nothing_to_do(call)
-                    if reason:
-                        messages.append(tool_message(call.id, call.name, result))
-                        logger.info("NOTHING TO DO: %s", log_preview(reason))
-                        return AgentLoopResult(reason)
-                elif immediate[call.name]:
-                    result = (await tools.run(agent, call)).result
-                elif has_reads and has_mutations:
-                    result = tools.refuse_mixed()
-                else:
-                    outcome = await tools.run(agent, call)
-                    change, result = outcome.change, outcome.result
+                with tool_span(call) as span:
+                    change = None
+                    if not_shared is not None:
+                        result = _NOT_SHARED[not_shared]
+                    elif call.name not in available:
+                        result = _tool_not_available(agent, call.name)
+                    elif call.name == "route":
+                        result, suspended = await route(agent, call)
+                        if suspended is not None:
+                            record_output(span, result)
+                            return AgentLoopResult(message="", suspended=suspended)
+                    elif call.name == "forward":
+                        name, words, result = _forward(agent, call)
+                        if words is not None:
+                            record_output(span, result)
+                            messages.append(tool_message(call.id, call.name, result))
+                            if observer is not None:
+                                await observer.step(
+                                    agent.run_id,
+                                    agent.tool_count,
+                                    "forward",
+                                    {"tool_call_id": call.id, "subagent": name},
+                                )
+                            logger.info("FORWARD <- %s", name)
+                            return AgentLoopResult(words, forwarded=name)
+                    elif call.name == "nothing_to_do":
+                        reason, result = _nothing_to_do(call)
+                        if reason:
+                            record_output(span, result)
+                            messages.append(tool_message(call.id, call.name, result))
+                            logger.info("NOTHING TO DO: %s", log_preview(reason))
+                            return AgentLoopResult(reason)
+                    elif immediate[call.name]:
+                        result = (await tools.run(agent, call)).result
+                    elif has_reads and has_mutations:
+                        result = tools.refuse_mixed()
+                    else:
+                        outcome = await tools.run(agent, call)
+                        change, result = outcome.change, outcome.result
+                    record_output(span, result)
                 pending_tools.append(PendingTool(call=call, result=result, change=change))
                 messages.append(tool_message(call.id, call.name, result))
             if not_shared is not None:

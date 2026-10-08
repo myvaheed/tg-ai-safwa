@@ -109,6 +109,9 @@ name>`, or just `User` when Telegram gives none.
 
 ## Architecture
 
+For local LLM and tool traces, token usage and timings, connect Phoenix as described in
+[docs/PHOENIX.md](docs/PHOENIX.md).
+
 `src/` holds five packages. `llm_gateway`, `agent_runtime`, `telegram_llm` and `tg_agent_shell`
 import no Safwa at all and are checked on it; `safwa` is the application built on them. The
 packages, the sessions and the flows they run are [docs/AGENT_ARCH.md](docs/AGENT_ARCH.md), and a

@@ -76,6 +76,8 @@ class Settings(BaseSettings):
     scheduler_enabled: bool = True
     scheduler_poll_seconds: float = SCHEDULER_POLL_SECONDS
     log_level: str = Field(default="INFO", pattern=r"^(?i:DEBUG|INFO|WARNING|ERROR|CRITICAL)$")
+    phoenix_enabled: bool = False
+    phoenix_endpoint: str = "http://localhost:6006/v1/traces"
 
     @field_validator("telegram_bot_username", mode="before")
     @classmethod

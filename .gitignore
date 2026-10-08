@@ -18,3 +18,4 @@ config/providers.yaml
 telegram-bot-exampler/
 ignored_docs/
 data/models/
+data/phoenix/
