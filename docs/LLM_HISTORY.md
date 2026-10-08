@@ -11,7 +11,7 @@ flowchart LR
     EDIT[owner's edit] -->|ChatHost.amend| T
     BOT[every bot message] -->|ChatHost.send · send_parts · edit · freeze| T
     ANS[an answer] -->|with its turn| T
-    GONE[a message the bot takes out] -->|forget| T
+    GONE[a message the bot takes out] -->|forget or retain a clear boundary| T
     T -->|newest first, in Telegram's own order| W[the window]
     W --> L[laid out as the provider's messages]
     L --> C[ContextBuilder.root]
@@ -21,8 +21,8 @@ flowchart LR
 - Every message the bot sends leaves through `ChatHost`, which keeps it in `telegram_messages`:
   its kind, the words it carries as the Telegram HTML it was sent in, and when it was put in the
   chat. A rewrite in place replaces the words and keeps the moment, so an answer drawn over a
-  review screen stands where the screen stood. A message the bot takes out of the chat goes from
-  the table with it.
+  review screen stands where the screen stood. Removing a bot message removes its row; removing
+  Home keeps its clear boundary as a textless `MessageKind.CHAT_RESET` row.
 - Something too long for one Telegram message is kept once: `send_parts` puts all of its words on
   the first part and none on the rest, so a long answer or Summary reads back as one message.
 - The owner's words are kept by `ordinary_text` as they arrive, before the turn reads the window,
@@ -44,7 +44,8 @@ In a private chat Telegram numbers both sides' messages in one sequence, so the 
 order of the chat. [`telegram_llm/window.py`](../src/telegram_llm/window.py) walks the kept messages
 newest first and stops at the first of: `SUMMARY_TRIGGER_TOKENS = 6000` spent, the newest Summary
 (`SummaryEdge`, plus up to `EDGE_CONTEXT_MESSAGE_LIMIT = 20` messages before it, as their words
-alone), the newest Home dashboard (`MessageKind.HOME`, which the vocabulary `resets`: nothing older
+alone), the newest clear boundary (`MessageKind.HOME` while visible, `MessageKind.CHAT_RESET` after
+the screen is removed, which the vocabulary `resets`: nothing older
 is read, a Summary neither — [HOME_DASHBOARD.md](HOME_DASHBOARD.md)), or `SCAN_LIMIT = 2000`
 messages. A period read — the Diary's day — goes past both. The budget counts everything a message puts in front of
 the model, an answer's calls and their results included, and an answer is taken whole or not at

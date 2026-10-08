@@ -159,7 +159,7 @@ MANUAL = f"""# Safwa
 
 # Home dashboard
 - When the user does nothing in the chat for the Profile's "🏠 Home after" minutes, 30 at first, or sends /clear, Safwa clears every message before the new Home dashboard: screens, receipts, the user's messages and the Advisor's replies. A Reminder or anything else Safwa said on its own since the user last wrote to it stays until the user writes again. A new Home dashboard arrives without a sound: the day and the time, the last 5 changes, the first 5 Priority Goals, the Values in focus with a few words each, every Action in Today under its Goal, and the time tracked today while Time tracking is on.
-- It is drawn again after midnight. Each item on it is a link. Its one button "☰ Menu" unfolds the menu under it; a screen opened from there arrives below it. /start and /clear show the dashboard at once. The words under the Values are kept for 10 minutes; without them, they appear on the dashboard a moment later.
+- It is drawn again after midnight. Each item on it is a link. Only one screen stays in the chat, at the bottom. /start, "☰ Menu", another screen or a message to the Advisor removes the old Home. /start opens the dashboard with the menu; /clear opens it with "☰ Menu". The words under the Values are kept for 10 minutes; without them, they appear on the dashboard a moment later.
 - Those words use About me, the Goals in focus order, the running Sprint's Success criteria, Today Actions, finished Actions and the Diary. Each new request reads the last 5 generations to avoid repeating their message or wording; that history resets when the bot restarts.
 - After a clear the conversation starts over. The Diary still reads the whole day."""
 

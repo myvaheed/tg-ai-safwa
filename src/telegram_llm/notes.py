@@ -2,8 +2,9 @@
 
 A bot cannot read its own chat back, so it keeps the chat itself as the messages pass
 through it: the words as they stand in the chat, what kind of message each one is, which
-item a screen is about, and an identifier that survives editing it. A message the bot takes
-out of the chat takes its note with it; one the person deletes is not seen, and stays.
+item a screen is about, and an identifier that survives editing it. Removing a screen drops
+its note, or keeps it without words as a conversation boundary. A deletion by the person
+is not seen, so that message's note stays.
 
 The store is the host's, because the table belongs to the host's database. This is the
 shape the package asks of it.
@@ -49,7 +50,7 @@ class NoteStore(Protocol):
         """Every message the bot sent in this chat, newest first, of these kinds if named."""
 
     async def messages(self, chat_id: int, *, limit: int) -> Sequence[Note]:
-        """The chat as it stands: every message whose words are kept, newest first."""
+        """The kept chat and its conversation boundaries, newest first."""
 
     async def note(self, chat_id: int, message_id: int) -> Note | None:
         """What is remembered about one message, or None if nothing is."""

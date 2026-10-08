@@ -13,9 +13,10 @@ from types import SimpleNamespace
 
 import pytest
 from telegram_fakes import QueueTestMessage, spawn_timer
+from ui_harness import history_source
 
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
-from safwa.bootstrap.modules import FEATURE_COMMANDS, SCREENS
+from safwa.bootstrap.modules import FEATURE_CALLBACK_ACTIONS, FEATURE_COMMANDS, SCREENS
 from safwa.features.home import telegram as home_telegram
 from safwa.features.home.api import menu_markup
 from safwa.features.home.dashboard import dashboard_text
@@ -34,6 +35,7 @@ from tg_agent_shell.hooks.registry import HookRegistry
 from tg_agent_shell.proposals.store import ProposalStore
 from tg_agent_shell.telegram import commands as commands_module
 from tg_agent_shell.telegram import dismiss_prior_ui
+from tg_agent_shell.telegram.chat import SCREEN_KINDS, mint_token
 from tg_agent_shell.telegram.commands import navigation
 from tg_agent_shell.turn import TurnManager
 
@@ -81,6 +83,8 @@ def _services(harness, model: Model, *, busy: bool = False) -> SimpleNamespace:
         root=SimpleNamespace(reviews=reviews),
         screens=SCREENS,
         commands=FEATURE_COMMANDS,
+        callback_actions=FEATURE_CALLBACK_ACTIONS,
+        start_links=(),
         bot_username="safwa_ai_bot",
         features=SimpleNamespace(motivator=Motivator(model, spawn=spawn_timer)),
         owner_acted_at=utcnow() - timedelta(minutes=HOME_AFTER_MINUTES_DEFAULT + 1),
@@ -250,7 +254,10 @@ async def test_a_dashboard_from_an_earlier_day_is_drawn_again(e2e_harness) -> No
     assert (await _kinds(e2e_harness)) == {1150: MessageKind.HOME.value}
 
 
-async def test_the_dashboard_stays_until_the_next_clear(e2e_harness, monkeypatch) -> None:
+@pytest.mark.parametrize("opened", ("/start", "/tags", "/start value-1", "place", "home", "tags"))
+async def test_the_dashboard_is_the_only_ui_until_the_owner_opens_another(
+    e2e_harness, monkeypatch, opened,
+) -> None:
     """HM-STAYS-005 — tests/brd/home.feature"""
     await _a_chat(e2e_harness)
     services = _services(e2e_harness, Model())
@@ -258,34 +265,61 @@ async def test_the_dashboard_stays_until_the_next_clear(e2e_harness, monkeypatch
     await Looks(services, anchor).next()
     [dashboard] = anchor.sent
     assert _labels(anchor.markups[-1]) == ["☰ Menu"]
-    # A screen the owner opened after it.
-    await _keep(e2e_harness, 1170, MessageKind.DASHBOARD, "<b>Today</b>")
-
-    # ☰ Menu unfolds under the same words, and the screen below stays.
-    await navigation(_Press("home", dashboard), services)
-    assert anchor.bot.keyboards[-1][0] == dashboard.message_id
-    assert _labels(anchor.bot.keyboards[-1][1]) == MENU
-    assert len(anchor.sent) == 1 and 1170 not in anchor.bot.deleted
-    assert (await _kinds(e2e_harness))[1170] == MessageKind.DASHBOARD.value
-
-    # A screen opened from it arrives below, and the dashboard folds back.
-    below = QueueTestMessage(message_id=1180, is_bot=False, answer_as_new=True, parent=anchor)
+    if opened == "place":
+        async with e2e_harness.sessions() as session:
+            token = await mint_token(session, services.owner_id, "value_view", {"id": 1})
+            await session.commit()
+        opened = f"/start go-{token}"
+    below = QueueTestMessage(
+        message_id=180, text=opened, is_bot=False, answer_as_new=True, parent=anchor
+    )
     monkeypatch.setattr(commands_module, "owner_anchor", lambda _bot, _owner_id: below)
-    await navigation(_Press("tags", dashboard), services)
-    assert anchor.bot.keyboards[-1][0] == dashboard.message_id
-    assert _labels(anchor.bot.keyboards[-1][1]) == ["☰ Menu"]
-    assert anchor.sent[-1].text.startswith("<b>Tags</b>")
-    assert dashboard.message_id not in anchor.bot.deleted
+    if opened.startswith("/"):
+        handler = next(
+            screen.handler for screen in FEATURE_COMMANDS
+            if screen.command == opened.split()[0][1:]
+        )
+        await commands_module.dismiss_screens_before_a_command(
+            lambda message, data: handler(message, data["services"]), below, {"services": services}
+        )
+    else:
+        await navigation(_Press(opened, dashboard), services)
 
-    # The owner writes, and then opens Home with /start.
-    deleted = len(anchor.bot.deleted)
-    owner = QueueTestMessage(message_id=1160, is_bot=False, answer_as_new=True, parent=anchor)
+    assert dashboard.message_id in anchor.bot.deleted
+    live = await services.chat.notes.outgoing(CHAT_ID, kinds=SCREEN_KINDS)
+    assert [note.message_id for note in live] == [anchor.sent[-1].message_id]
+    assert len(anchor.sent) == 2
+    if opened in ("/start", "home"):
+        assert _labels(anchor.markups[-1]) == MENU
+    # Removing a screen must not restore the conversation the clear ended.
+    source = history_source(e2e_harness.sessions)
+    assert await source.recent(CHAT_ID) == []
+    day = await source.day_transcript(
+        CHAT_ID, start=utcnow() - timedelta(hours=1), end=utcnow() + timedelta(hours=1),
+        token_budget=10_000,
+    )
+    assert "What is next?" in day and "Pay the rent." in day
+
+
+async def test_writing_to_the_advisor_removes_home_without_restoring_old_history(e2e_harness):
+    """HM-STAYS-005 — tests/brd/home.feature"""
+    await _a_chat(e2e_harness)
+    services = _services(e2e_harness, Model())
+    anchor = QueueTestMessage(message_id=150, is_bot=False, answer_as_new=True)
+    await Looks(services, anchor).next()
+    [dashboard] = anchor.sent
+    owner = QueueTestMessage(message_id=1160, text="Hello again", is_bot=False, parent=anchor)
+
     await dismiss_prior_ui(owner, services)
-    await render_home(owner, services)
+    await _keep(e2e_harness, owner.message_id, MessageKind.DIALOGUE_USER, owner.text)
 
-    assert dashboard.message_id not in anchor.bot.deleted[deleted:]
-    assert (await _kinds(e2e_harness))[dashboard.message_id] == MessageKind.HOME.value
-    assert _labels(anchor.markups[-1]) == MENU
+    assert dashboard.message_id in anchor.bot.deleted
+    assert [entry.text for entry in await history_source(e2e_harness.sessions).recent(CHAT_ID)] == [
+        "Hello again"
+    ]
+    deleted = list(anchor.bot.deleted)
+    await dismiss_prior_ui(owner, services)
+    assert anchor.bot.deleted == deleted
 
 
 async def test_start_opens_home_at_once_and_puts_the_words_in_when_they_come(

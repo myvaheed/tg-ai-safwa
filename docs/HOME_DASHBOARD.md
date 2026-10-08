@@ -72,12 +72,16 @@ navigation replaces. It opens at once, with the words under the Values only when
 kept; otherwise the words are asked for while it is shown and put in when they come (see
 [The words under a Value](#the-words-under-a-value)).
 
-A cleared chat's dashboard carries `home_markup`, one `☰ Menu` that is `nav:home` too. The
-shell's `navigation` sees the press is on a `MessageKind.HOME` message and hands it to
-`render_home` without ending any screen; `render_home` then only swaps the buttons for the menu
-(`ChatHost.set_buttons`), and the words and the note stay. A menu button pressed under it ends
-the screens as any navigation does, folds Home back to `☰ Menu`, and hands the screen
-`owner_anchor`, so it arrives as a new message below Home instead of replacing it.
+A cleared chat's dashboard carries `home_markup`, one `☰ Menu` that is `nav:home` too.
+`MessageKind.HOME` belongs to `SCREEN_KINDS`, so `/start`, another command, a message to the
+Advisor or an item link removes it through `dismiss_prior_ui`. Home follows the same rule as
+every screen: only one UI is live, at the bottom of the chat (HM-STAYS-005, SC-LIVE-001).
+
+For a navigation button on Home, `navigation` removes Home and opens the chosen screen through
+`owner_anchor`. `☰ Menu` opens the dashboard with the whole menu; another button opens that
+feature's screen. The removed Home note becomes a textless `MessageKind.CHAT_RESET` boundary,
+so a new screen never overwrites the clear boundary. Links carried by Places use the same
+rule when the newest screen is Home.
 
 ## When the chat is cleared
 
@@ -121,11 +125,12 @@ The notes of `CONVERSATION_KINDS` — what was said — stay; every other note i
 its message. The Diary's `read_conversation` reads a whole day from them (DI-READ-016), past the
 clear.
 
-`MessageKind.HOME` is in the history vocabulary's `resets`: the window stops at the newest
-dashboard, so the Advisor, a routed subagent and the Summary writer read only what came after it,
+`MessageKind.HOME` and `MessageKind.CHAT_RESET` are in the history vocabulary's `resets`: the window stops at the newest
+clear boundary, so the Advisor, a routed subagent and the Summary writer read only what came after it,
 an older Summary included. A period read — `day_transcript`, which `read_conversation` is — goes past it. The dashboard is
-neither a screen kind nor conversation: nothing the owner does takes it out, and the model never
-reads it.
+a screen, and its words are never conversation. Removing Home retains its boundary without
+its words, so it is no longer a screen and the model never reads it. A later clear replaces
+that retained boundary with the new Home boundary.
 
 ## The words under a Value
 

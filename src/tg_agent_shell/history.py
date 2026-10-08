@@ -84,7 +84,7 @@ def vocabulary(citation_types: tuple[str, ...]) -> ChatVocabulary:
         ),
         events=frozenset({MessageKind.EVENT.value}),
         citation_types=citation_types,
-        resets=frozenset({MessageKind.HOME.value}),
+        resets=frozenset({MessageKind.HOME.value, MessageKind.CHAT_RESET.value}),
     )
 
 

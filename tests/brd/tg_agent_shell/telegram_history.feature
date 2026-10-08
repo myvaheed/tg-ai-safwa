@@ -174,11 +174,14 @@ Feature: The conversation in Telegram
     And no screen is left before it, so nothing is left waiting for a typed value
     But a message older than 48 hours stays in the chat (TELEGRAM_DELETE_WINDOW = 48 hours)
     When the owner presses ☰ Menu
-    Then the application's home screen is handed that Home message, and no screen is ended
+    Then the Home message is taken out and the application's home screen opens as the only screen
     When the owner presses a menu button under the Home message
-    Then that screen arrives as a new message below it, and its buttons fold back to ☰ Menu
+    Then the Home message is taken out and the chosen screen opens as the only screen
+    When the owner runs a command, writes a message or opens an item from a link
+    Then Home is taken out like every other screen
     And what was said stays kept, and a day read back still reads all of it
-    And a screen, a progress line or anything else that was not said is forgotten with its message
+    And a screen, a progress line or anything else that was not said is forgotten with its message,
+      except the clear boundary, which stays after Home is taken out
     When Safwa reads the conversation back
     Then it begins after the newest Home message: nothing said before it, a Summary included, and not the Home message itself
     And an application that never puts a Home message in the chat has nothing taken out and nothing started over

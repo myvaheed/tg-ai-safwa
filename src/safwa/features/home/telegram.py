@@ -77,11 +77,6 @@ async def render_home(message: Message, services: Services) -> None:
         else:
             await open_citation(message, services, payload)
         return
-    note = await services.chat.notes.note(message.chat.id, message.message_id)
-    if note is not None and note.kind == MessageKind.HOME.value:
-        # The dashboard a clear drew keeps its words: only its menu unfolds.
-        await services.chat.set_buttons(message, menu_markup(services.commands))
-        return
     words = services.features.motivator.fresh()
     markup = menu_markup(services.commands)
     async with services.sessions() as session:

@@ -44,15 +44,16 @@ Feature: Home
     Then a new dashboard is drawn and the old one is taken out, as by HM-QUIET-003
     And a day is the workspace's local day
 
-  Scenario: HM-STAYS-005 — The dashboard stays until the next clear, and its menu unfolds in place
+  Scenario: HM-STAYS-005 — Home follows the same one-screen rule as every other screen
     Given the dashboard a clear drew is in the chat
     Then it carries one button, ☰ Menu
     When the owner presses it
-    Then the menu's buttons take its place under the same words, and every screen stays as it was
+    Then Home is taken out and the dashboard with the menu opens as the only screen
     When the owner opens a screen from that menu
-    Then the screen arrives as a new message below, and the dashboard folds back to ☰ Menu
-    When the owner writes, opens a screen or taps a link on the dashboard
-    Then the dashboard stays where it is, and what comes of it appears below it
+    Then that screen replaces the menu dashboard
+    When the owner sends /start, writes a message, opens another screen or taps a link on Home
+    Then the old dashboard is taken out, and only the newly opened screen remains
+    And the conversation still starts after the clear, even though Home is no longer visible
 
   Scenario: HM-ACTIONS-006 — The dashboard shows every Action in Today
     Given open Actions in Today
@@ -111,7 +112,7 @@ Feature: Home
     Then the message stays as it is, and the words are kept for the next dashboard
     When the owner sends /start again while the words are written
     Then one request is made, and only the last Home is redrawn with its words
-    And nothing is cleared, and the conversation Safwa reads goes on
+    And earlier screens are removed, while what was said stays and the conversation Safwa reads goes on
     And the dashboard with ☰ Menu alone is drawn only by a clear (HM-QUIET-003, HM-CLEAR-012)
 
   Scenario: HM-CLEAR-012 — /clear clears the chat at once, as a quiet chat is cleared

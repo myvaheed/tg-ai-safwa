@@ -14,6 +14,7 @@ Feature: Screens
     And a dashboard or an editor is taken out of the chat, while a review screen stays as a written
       account of what became of it
     And the screen that action belongs to is left alone
+    And Home drawn after a clear is a screen too; removing it keeps the cleared conversation boundary
     When the owner presses a button that only redraws the screen they are already on, such as
       turning its page
     Then no screen is ended by that

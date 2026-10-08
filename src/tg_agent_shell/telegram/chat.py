@@ -52,6 +52,7 @@ UNASKED_KINDS = frozenset({MessageKind.CUE.value, MessageKind.PASSING_CUE.value}
 # What the owner acts on: one of these is ever live (SC-LIVE-001).
 SCREEN_KINDS = frozenset(
     {
+        MessageKind.HOME.value,
         MessageKind.DASHBOARD.value,
         MessageKind.EDITOR.value,
         MessageKind.APPROVAL.value,
@@ -157,7 +158,12 @@ async def dismiss_prior_ui(message: Message, services: Services) -> None:
     async def freeze(screen: Note) -> tuple[str, str] | None:
         return await _interrupted_review(services, screen)
 
-    await services.chat.leave_one_screen(message, kinds=SCREEN_KINDS, freeze=freeze)
+    await services.chat.leave_one_screen(
+        message,
+        kinds=SCREEN_KINDS,
+        freeze=freeze,
+        retain={MessageKind.HOME.value: MessageKind.CHAT_RESET.value},
+    )
     async with services.sessions() as session:
         await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
         await session.commit()

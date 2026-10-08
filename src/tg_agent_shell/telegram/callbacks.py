@@ -20,7 +20,7 @@ from sqlalchemy import select, update
 
 from ..foundation.errors import DomainError
 from ..foundation.kinds import MessageKind
-from .chat import SCREEN_KINDS, screen_anchor, send_registered, send_toast
+from .chat import SCREEN_KINDS, dismiss_prior_ui, screen_anchor, send_registered, send_toast
 from .contributions import StartLink
 from .model import CallbackToken
 from .navigation import LINK_PREFIX
@@ -156,8 +156,11 @@ async def open_screen_link(message: Message, services: Services, payload: str) -
         return
     screens = await services.chat.notes.outgoing(message.chat.id, kinds=SCREEN_KINDS)
     target = (
-        screen_anchor(message.bot, message.chat.id, screens[0].message_id) if screens else message
+        screen_anchor(message.bot, message.chat.id, screens[0].message_id)
+        if screens and screens[0].kind != MessageKind.HOME.value else message
     )
+    if target is message:
+        await dismiss_prior_ui(message, services)
     action, args = claimed
     await _dispatch(CallbackContext(target, services, action, args))
     if _is_a_burst():
