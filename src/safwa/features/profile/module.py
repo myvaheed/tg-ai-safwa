@@ -25,5 +25,5 @@ MODULE = FeatureModule(
         ScreenCommand(handler=command_profile, nav="profile", title="⚙️ Profile"),
     ),
     callback_actions=PROFILE_CALLBACK_ACTIONS,
-    text_inputs=(telegram.TEXT_INPUT,),
+    text_inputs=(telegram.TEXT_INPUT, telegram.SECRET_WORD_INPUT),
 )

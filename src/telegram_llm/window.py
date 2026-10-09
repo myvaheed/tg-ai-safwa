@@ -149,6 +149,7 @@ class ChatWindow:
         since: datetime | None = None,
         until: datetime | None = None,
         stop_at_edge: bool = True,
+        after_message_id: int = 0,
     ) -> list[HistoryEntry]:
         """The window: the host's edge plus as many messages as fit.
 
@@ -169,7 +170,13 @@ class ChatWindow:
         before_edge: list[HistoryEntry] = []
         boundary: HistoryEntry | None = None
         spent = 0
-        for note in await self.notes.messages(chat_id, limit=SCAN_LIMIT):
+        notes = await self.notes.messages(chat_id, limit=SCAN_LIMIT)
+        if not stop_at_edge:
+            # Replayed messages may have a new transport id and their original timestamp.
+            notes = sorted(notes, key=lambda note: _aware(note.at) if note.at else datetime.min.replace(tzinfo=UTC), reverse=True)
+        for note in notes:
+            if stop_at_edge and note.message_id <= after_message_id:
+                break
             created_at = _aware(note.at) if note.at else datetime.now(UTC)
             if since is not None and created_at <= since:
                 break

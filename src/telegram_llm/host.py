@@ -204,6 +204,7 @@ class ChatHost:
                 event_id=event_id,
                 text=text,
                 at=sent.date,
+                displayed_at=sent.date,
                 reads_as=tuple(reads_as) if reads_as is not None else None,
             )
         )
@@ -217,6 +218,7 @@ class ChatHost:
         event_id: str | None = None,
         replace: bool | None = None,
         reads_as: Sequence[Mapping[str, Any]] | None = None,
+        related_id: int | None = None,
     ) -> Message:
         """Put words in the chat in as many messages as Telegram needs, and return the last.
 
@@ -246,6 +248,7 @@ class ChatHost:
                 delivery,
                 text=text if first else None,
                 reads_as=reads_as if first else None,
+                related_id=related_id,
             )
         return sent
 
@@ -484,6 +487,7 @@ class ChatHost:
         keep: Collection[str],
         first: int = 0,
         spare: Collection[int] = (),
+        strict: bool = False,
     ) -> None:
         """Take every message from `first` to `last` out of the chat, whoever sent it, but
         the ids in `spare`, which stay in the chat with their notes.
@@ -499,7 +503,7 @@ class ChatHost:
         deletable = [
             note.message_id
             for note in await self.notes.messages(chat_id, limit=SCAN_LIMIT)
-            if note.at is not None and _utc(note.at) >= since
+            if (shown := note.displayed_at or note.at) is not None and _utc(shown) >= since
         ]
         ids = [
             message_id
@@ -512,6 +516,8 @@ class ChatHost:
                     chat_id=chat_id, message_ids=ids[start : start + TELEGRAM_DELETE_BATCH]
                 )
             except TelegramAPIError as error:
+                if strict:
+                    raise
                 logger.warning("Could not clear messages from %s: %s", ids[start], error)
         for note in await self.notes.outgoing(chat_id):
             if (
@@ -586,6 +592,7 @@ class ChatHost:
             key = (message.chat.id, note.message_id)
             if key in self.passing:
                 continue
+            await self.notes.write(replace(note, passing_seconds=seconds))
             self.passing.add(key)
             self.spawn(self._pass(message, note.message_id, seconds), "passing-expiry")
 

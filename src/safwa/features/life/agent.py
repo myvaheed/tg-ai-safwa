@@ -12,7 +12,6 @@ import asyncio
 import json
 from typing import Any
 
-from aiogram.enums import ChatAction
 from aiogram.types import BufferedInputFile
 
 from llm_gateway import ToolCall
@@ -23,6 +22,7 @@ from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import owner_anchor
 from tg_agent_shell.telegram.manifest import AgentContext
+from tg_agent_shell.telegram.output import publish_agent_photos
 
 from ..cards.model import Category, EnergyType
 from .api import life_grid
@@ -91,7 +91,7 @@ def _refused(error: str, hint: str) -> dict[str, Any]:
 
 def show_life_tool(context: AgentContext) -> ReadToolSpec:
     """`show_life` for an application that hands its read tools the chat and the bot."""
-    chat, bot = context.chat, context.bot
+    bot = context.bot
 
     async def show_life(call: ToolCall) -> dict[str, Any]:
         try:
@@ -152,12 +152,11 @@ def show_life_tool(context: AgentContext) -> ReadToolSpec:
                 str(error), f'Retry with "chart" one of: {", ".join(charts)}, or without it.'
             )
         anchor = owner_anchor(bot, context.owner_id)
-        await bot.send_chat_action(anchor.chat.id, ChatAction.UPLOAD_PHOTO)
         pictures = await asyncio.to_thread(draw_life, shown, grid, records.today, records.since)
         # Not a screen kind, so it stays in the chat like a message when the next screen
         # comes; and not a conversation kind, so the model reads no words for it.
-        await chat.send_photos(
-            anchor,
+        await publish_agent_photos(
+            context, anchor,
             [BufferedInputFile(png, filename=f"{name}.png") for name, png in pictures],
             kind=MessageKind.RECEIPT.value,
         )

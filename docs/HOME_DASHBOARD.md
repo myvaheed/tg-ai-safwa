@@ -2,7 +2,7 @@
 
 Home is one dashboard in two places. `/start` and every `↩️ Menu` draw it as a screen with the
 whole menu under it (HM-START-011). When the owner does nothing in the chat for the Profile's
-quiet time, or sends `/clear`, Safwa adds a silent Home dashboard, built from the workspace at
+quiet time with Secret word off, or sends `/clear` in an unlocked session, Safwa adds a silent Home dashboard, built from the workspace at
 that moment, with one `☰ Menu` button, and clears every message before it but what Safwa said
 unasked after the owner last wrote to the Advisor. The conversation Safwa reads starts over
 after it. The rules are HM-QUIET-003 to HM-CLEAR-012
@@ -11,6 +11,12 @@ in [home.feature](../tests/brd/home.feature) and PS-HOME-018 in
 shell's, TG-HOME-023 in [telegram_history.feature](../tests/brd/tg_agent_shell/telegram_history.feature),
 and the check that draws it is a hook on a schedule, AG-HOOK-049 and AG-HOOK-050 in
 [agents.feature](../tests/brd/tg_agent_shell/agents.feature).
+
+With Secret word set, automatic clearing instead locks access and leaves the chat empty,
+including its unanswered hooks. Those hooks and new answers prepared while locked are stored;
+entering the word deletes attempts, restores the hooks and draws Home last. That Home is a
+dashboard without a reset: the conversation boundary precedes the restored hooks.
+The access gate and durable delivery are described in [CHAT_ACCESS.md](CHAT_ACCESS.md).
 
 ## How it looks
 
@@ -131,6 +137,9 @@ an older Summary included. A period read — `day_transcript`, which `read_conve
 a screen, and its words are never conversation. Removing Home retains its boundary without
 its words, so it is no longer a screen and the model never reads it. A later clear replaces
 that retained boundary with the new Home boundary.
+
+Protected clears use the shell's persistent message-id boundary instead of sending a Home
+reset. A day read goes past this boundary as it does past an ordinary Home reset.
 
 ## The words under a Value
 

@@ -21,8 +21,8 @@ from .chat import (
     end_turn,
     keep_typing,
     open_turn_notice,
+    publish_prose,
     send_owner_turn,
-    send_prose,
     send_registered,
 )
 from .model import UiSession
@@ -149,8 +149,8 @@ async def run_before_turn(
 
     async def publish(text: str, kind: str) -> None:
         if still_current():
-            await send_prose(
-                message, services, html.escape(text), kind=MessageKind(kind), replace=False
+            await publish_prose(
+                message, services, html.escape(text), kind=MessageKind(kind)
             )
 
     context = RunContext(
@@ -194,8 +194,8 @@ async def run_after_turn(message: Message, services: Services, event: AfterTurn)
 
         async def publish(text: str, kind: str) -> None:
             if still_current():
-                await send_prose(
-                    message, services, html.escape(text), kind=MessageKind(kind), replace=False
+                await publish_prose(
+                    message, services, html.escape(text), kind=MessageKind(kind)
                 )
 
         async for checked in services.hooks.evaluate(event, services.sessions):
@@ -222,7 +222,7 @@ async def run_after_turn(message: Message, services: Services, event: AfterTurn)
                 name = checked.spec.name
                 logger.error("The after-turn hook %s failed: %s", name, error)
                 try:
-                    await send_registered(
+                    await publish_prose(
                         message, services,
                         f"{html.escape(name)}, which runs after the answer, failed: "
                         f"{html.escape(str(error))}\nYour answer above stands.",

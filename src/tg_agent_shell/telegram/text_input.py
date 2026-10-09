@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from aiogram.types import InlineKeyboardMarkup, Message
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from ..foundation.errors import DomainError
 from ..foundation.kinds import MessageKind
@@ -192,7 +192,9 @@ async def handle_text_input(
     if flow is None:
         return False
     try:
-        value = validate_text_input(message.text or "", flow.validator(state))
+        validator = flow.validator(state)
+        raw = message.text or ""
+        value = (validator(raw) if validator else raw) if flow.raw else validate_text_input(raw, validator)
         if flow.prepare is not None:
             value = await flow.prepare(message, services, state, value)
         async with services.sessions() as session:
@@ -209,4 +211,15 @@ async def handle_text_input(
     await delete_text_input(message, services)
     await flow.render(message, services, state, value)
     return True
+
+
+async def handle_raw_text_input(message: Message, services: Services) -> bool:
+    async with services.sessions() as session:
+        ui = await session.scalar(select(UiSession).where(
+            UiSession.owner_id == services.owner_id,
+            UiSession.kind == "text_input", UiSession.expires_at > datetime.now(UTC),
+        ))
+        state = dict(ui.state) if ui is not None else {}
+    flow = services.text_inputs.get(str(state.get("flow", "")))
+    return await handle_text_input(message, services, state) if flow is not None and flow.raw else False
 

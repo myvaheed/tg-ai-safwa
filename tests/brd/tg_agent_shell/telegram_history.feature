@@ -234,3 +234,16 @@ Feature: The conversation in Telegram
     When the owner edits a message
     Then the edit is a new action, without repeating any recording duration
     But events from another user or a group add no usage
+
+  Scenario: TG-LOCK-031 — Protected access gates every update and restores durable deliveries before Home
+    Given the application enables secret-word access and the chat is locked
+    Then messages, commands, callbacks, deep links, edits and media cannot reach their handlers
+    And an attempted input asks for Secret word without changing the dialogue or cancelling a hook
+    And only an exact new text message containing the word unlocks access
+    And a restart requires the word again and retains prepared deliveries
+    And a hidden proposal is resolved as Discard and its continuation is stored
+    When the owner unlocks access
+    Then running background work finishes first, attempts are cleared and stored messages precede Home
+    And restored hooks are readable by the Advisor, with one logical copy in a day read
+    And failed delivery leaves access closed and the queue available for retry
+    But applications without protection keep their ordinary behavior

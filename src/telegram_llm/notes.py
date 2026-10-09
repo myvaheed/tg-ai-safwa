@@ -39,6 +39,9 @@ class Note:
     # words alone: an answer's calls, their results and the model's own words, or the
     # person's words a relayed message carries without its heading.
     reads_as: tuple[Mapping[str, Any], ...] | None = None
+    passing_seconds: float | None = None
+    # A replay keeps its original time in history but has a new Telegram deletion window.
+    displayed_at: datetime | None = None
 
 
 class NoteStore(Protocol):

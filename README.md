@@ -192,6 +192,10 @@ Safwa and waiting for your requests, as `~2d 5h 25m`. It counts overlapping acti
 includes own voice recording time and excludes autonomous work. Its two-minute quiet window
 and restart behavior are described in [USAGE_TIME.md](docs/USAGE_TIME.md).
 
+Profile → **Secret word** optionally locks chat access after automatic clearing and after
+restart. Entering it removes attempts, restores unanswered and deferred hooks, and shows Home.
+`off` disables it; `/clear` in an open session still shows Home. See [CHAT_ACCESS.md](docs/CHAT_ACCESS.md).
+
 Use `/start`, `/sprint`, `/values`, `/tags`, `/requests`, `/reminders`, `/memory`,
 `/summarize`, `/status`, `/clear` and `/cancel`. The Dashboard, its Backlog, the Diary and the
 Profile are menu buttons only; Today is on the Home dashboard.

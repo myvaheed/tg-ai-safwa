@@ -25,7 +25,7 @@ Feature: Home
     When the link names something that is not one of Safwa's items
     Then Safwa says so
 
-  Scenario: HM-QUIET-003 — A quiet chat is cleared down to Home and what Safwa said unasked since
+  Scenario: HM-QUIET-003 — A quiet chat with Secret word off is cleared down to Home and what Safwa said unasked since
     Given the owner has not written, spoken, sent a photo or pressed a button for 30 minutes (HOME_AFTER_MINUTES_DEFAULT = 30)
     And the chat is free: no answer is being written and no review is waiting
     Then the Home dashboard is drawn once its words are written (HM-VALUES-007), and every message before it is cleared: screens, receipts, the owner's messages and the Advisor's replies (TG-HOME-023)
@@ -132,3 +132,13 @@ Feature: Home
   Scenario: HM-ORDER-014 — The dashboard reads in one order
     Given changes, open Goals, Values in focus, Actions in Today, and Time tracking on
     Then the dashboard reads, top to bottom: the day and the time it was drawn, the last changes, the Priority Goals, the Values in focus, Today, and the time tracked today
+
+  Scenario: HM-LOCK-015 — Automatic clearing leaves a protected chat empty until the word is entered
+    Given Secret word is set in Profile
+    When Home after elapses and the chat is free
+    Then every deletable message is removed, including unanswered hooks, and no Home is sent
+    And unanswered hooks are stored to be returned, while new hook answers are prepared unseen
+    When the correct word is entered
+    Then attempts and prompts are deleted, the stored hooks appear in order and Home is last
+    And access remains open until the next automatic clear
+    But /clear while access is open still draws Home and does not lock access

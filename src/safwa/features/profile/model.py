@@ -38,6 +38,7 @@ class UserProfile(Base, TimestampMixin):
     time_tracking: Mapped[bool] = mapped_column(Boolean, default=False)
     effort_tracking: Mapped[bool] = mapped_column(Boolean, default=False)
     home_after_minutes: Mapped[int] = mapped_column(Integer, default=HOME_AFTER_MINUTES_DEFAULT)
+    secret_word_hash: Mapped[str | None] = mapped_column(Text)
     # The automatic reactions the owner turned off, by hook name. A hook that is not
     # here is on, so a new hook needs no column of its own.
     disabled_hooks: Mapped[list[str]] = mapped_column(JSON, default=list)

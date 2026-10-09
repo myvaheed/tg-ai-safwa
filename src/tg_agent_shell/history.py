@@ -14,6 +14,7 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    Float,
     Integer,
     String,
     Text,
@@ -67,6 +68,8 @@ class TelegramMessage(Base):
     text: Mapped[str | None] = mapped_column(Text)
     # What the model reads for it, in the provider's shape, when that is not its words.
     reads_as: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
+    passing_seconds: Mapped[float | None] = mapped_column(Float)
+    displayed_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, server_default=func.now())
     __table_args__ = (UniqueConstraint("chat_id", "message_id"),)
 
@@ -99,6 +102,8 @@ def _note(row: TelegramMessage) -> Note:
         text=row.text,
         at=row.created_at,
         reads_as=tuple(row.reads_as) if row.reads_as is not None else None,
+        passing_seconds=row.passing_seconds,
+        displayed_at=row.displayed_at,
     )
 
 
@@ -130,7 +135,6 @@ class TelegramNotes:
                     select(TelegramMessage)
                     .where(
                         TelegramMessage.chat_id == chat_id,
-                        TelegramMessage.text.is_not(None),
                     )
                     .order_by(TelegramMessage.message_id.desc())
                     .limit(limit)
@@ -161,6 +165,8 @@ class TelegramNotes:
                 text=note.text,
                 at=note.at,
                 reads_as=note.reads_as,
+                passing_seconds=note.passing_seconds,
+                displayed_at=note.displayed_at,
             )
             await session.commit()
 
@@ -187,6 +193,8 @@ async def register_message(
     text: str | None = None,
     at: datetime | None = None,
     reads_as: Sequence[Mapping[str, Any]] | None = None,
+    passing_seconds: float | None = None,
+    displayed_at: datetime | None = None,
 ) -> None:
     kept = [dict(message) for message in reads_as] if reads_as is not None else None
     existing = await session.scalar(
@@ -200,6 +208,9 @@ async def register_message(
         existing.related_id = related_id
         existing.text = text
         existing.reads_as = kept
+        existing.passing_seconds = passing_seconds
+        if displayed_at is not None:
+            existing.displayed_at = displayed_at
         if event_id is not None:
             existing.event_id = event_id
     else:
@@ -212,6 +223,8 @@ async def register_message(
             related_id=related_id,
             text=text,
             reads_as=kept,
+            passing_seconds=passing_seconds,
+            displayed_at=displayed_at,
         )
         if at is not None:
             row.created_at = at
@@ -241,3 +254,14 @@ class TelegramHistorySource(ChatWindow):
             timezone=timezone,
         )
         self.sessions = sessions
+        self.access_boundaries = False
+
+    async def recent(self, chat_id: int, **options: Any):
+        if self.access_boundaries and options.get("stop_at_edge", True):
+            from .access.model import ChatClearBoundary
+
+            async with self.sessions() as session:
+                boundary = await session.get(ChatClearBoundary, chat_id)
+                if boundary is not None:
+                    options["after_message_id"] = boundary.through_message_id
+        return await super().recent(chat_id, **options)

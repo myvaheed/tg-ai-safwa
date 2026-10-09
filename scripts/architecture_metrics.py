@@ -71,6 +71,7 @@ UNREGISTERED_PACKAGES = frozenset({"advisor"})
 PROCESS_PACKAGES = (
     "tg_agent_shell/turn/", "tg_agent_shell/cues/", "tg_agent_shell/proposals/",
     "tg_agent_shell/usage/",
+    "tg_agent_shell/access/",
 )
 
 # Rule E: how deep into a feature a door reaches, and how deep a module is allowed to reach.

@@ -261,10 +261,21 @@ async def send_prose(
     event_id: str | None = None,
     replace: bool | None = None,
     reads_as: Sequence[Mapping[str, Any]] | None = None,
+    related_id: int | None = None,
 ) -> Message:
+    related = {"related_id": related_id} if related_id is not None else {}
     return await services.chat.send_parts(
-        message, text, kind=kind.value, event_id=event_id, replace=replace, reads_as=reads_as
+        message, text, kind=kind.value, event_id=event_id, replace=replace, reads_as=reads_as,
+        **related,
     )
+
+
+async def publish_prose(message: Message, services: Services, text: str, *, kind: MessageKind) -> None:
+    """Publish a background line, or keep it until the owner unlocks access."""
+    access = getattr(services, "access", None)
+    if access is not None and await access.defer(message, {"text": text, "kind": kind.value}):
+        return
+    await send_prose(message, services, text, kind=kind, replace=False)
 
 
 async def send_owner_turn(message: Message, services: Services, text: str) -> Message:

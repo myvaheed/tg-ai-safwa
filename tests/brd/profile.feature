@@ -142,3 +142,12 @@ Feature: Profile
     And seconds are rounded down to whole minutes, with ~0m below one minute
     And it is a read-only value independent of Time tracking and Effort Points
     And the setting persists when Safwa restarts
+
+  Scenario: PS-SECRET-023 — Secret word is an exact private setting, with off as its exception
+    When the owner edits Secret word in Profile
+    Then any text, even one character, whitespace, an emoji or a command, is accepted exactly
+    And off, without surrounding whitespace and ignoring case, disables protection
+    And there is no separate disable button
+    And the Profile and its prompt show only set or off, never the word
+    And only its salted verifier is stored, outside the Profile subagent's readable fields
+    And setting or changing it keeps the current access open until automatic clearing

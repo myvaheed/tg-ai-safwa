@@ -54,7 +54,9 @@ answers to a spying program are the two under "Stronger protection".
 
 ## How it works
 
-There is one secret: **your passphrase**. Everything else can be copied anywhere.
+The database key is protected by **your passphrase**. Everything else needed to move the
+encrypted database can be copied. The optional Telegram **Secret word** is a separate chat
+access setting, stored as a salted verifier; see [CHAT_ACCESS.md](CHAT_ACCESS.md).
 
 - **The database key** — 32 random bytes that lock `data/safwa.db`. It is never written anywhere
   as it is, and it is replaced by a new one every time you change your passphrase.

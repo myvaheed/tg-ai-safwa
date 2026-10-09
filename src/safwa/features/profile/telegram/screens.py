@@ -40,7 +40,7 @@ from ..model import (
     ProfileField,
     UserProfile,
 )
-from ..use_cases import profile_field, set_profile_field
+from ..use_cases import profile_field, set_profile_field, set_secret_word
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,6 +177,7 @@ def profile_text(profile: UserProfile, timezone: str, *, usage: int = 0) -> str:
         lines.append(f"{field.title}: {html.escape(field.show(getattr(profile, name)))}")
     lines.append(f"Timezone: {html.escape(timezone)}")
     lines.append(f"Usage time: {usage_label(usage)}")
+    lines.append(f"Secret word: {'set' if profile.secret_word_hash else 'off'}")
     lines.append(
         f"Effort Points: {'on' if profile.effort_tracking else 'off'} — optional estimates "
         "of Action load, a Sprint's capacity and Today overload warnings."
@@ -212,6 +213,9 @@ async def command_profile(
         usage = await services.usage.seconds(session) if services.usage is not None else 0
         rendered = profile_text(profile, workspace.timezone, usage=usage)
         rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
+        rows.append([await token_button(
+            session, services.owner_id, "🔐 Secret word", "profile_secret_word", {},
+        )])
         rows.append([
             await token_button(
                 session, services.owner_id, _time_tracking_label(profile),
@@ -300,6 +304,39 @@ TEXT_INPUT = TextInputFlow(
     apply=_apply_field,
     render=_render_profile,
 )
+
+
+async def _apply_secret_word(session: AsyncSession, services: Any, state: Mapping[str, Any], value: str) -> None:
+    await set_secret_word(session, value)
+
+
+async def _render_secret_word(message: Any, services: Any, state: Mapping[str, Any], value: Any) -> None:
+    await command_profile(
+        message, services, notice="Secret word updated.",
+        replace_message_id=int(state["text_input"]["message_id"]),
+    )
+
+
+SECRET_WORD_INPUT = TextInputFlow(
+    name="secret_word", validator=lambda state: None,
+    apply=_apply_secret_word, render=_render_secret_word, raw=True,
+)
+
+
+async def _on_secret_word(context: CallbackContext) -> None:
+    async with context.sessions() as session:
+        profile = await session.get(UserProfile, 1)
+        current = "set" if profile is not None and profile.secret_word_hash else "off"
+    await render_text_input(
+        context.message, context.services,
+        screen=TextInputScreen(
+            title="Secret word", current_value=current,
+            instruction="Send any secret word, even one character. Whitespace and case matter. "
+                        "Send off to disable it. Access locks after automatic clearing; /clear does not lock it.",
+            back=Place("profile_back"),
+        ),
+        state={"flow": "secret_word"},
+    )
 
 
 async def _on_edit(context: CallbackContext) -> None:
@@ -432,6 +469,7 @@ async def _on_effort_tracking(context: CallbackContext) -> None:
 
 
 PROFILE_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
+    "profile_secret_word": _on_secret_word,
     "profile_edit": _on_edit,
     "profile_hooks": _on_hooks,
     "profile_hook": _on_hook,

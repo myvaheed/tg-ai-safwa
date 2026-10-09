@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from telegram_llm import ChatHost, Transcriber
 
+from ..access.contracts import ChatAccess
 from ..foundation.clock import utcnow
 from ..foundation.screens import ScreenCatalogue
 from ..history import TelegramHistorySource
@@ -34,6 +35,7 @@ from .contributions import ScreenCommand, StartLink, TextInputFlow
 from .place import Place
 
 if TYPE_CHECKING:
+
     # Only the type: an application that never searches never creates the index's tables.
     from ..search.index import SearchIndex
 
@@ -106,9 +108,13 @@ class Services:
     usage: UsageRecorder | None = None
     # The owner's last message or press, in this process: starting counts as one.
     owner_acted_at: datetime = field(default_factory=utcnow)
+    access: ChatAccess | None = None
 
 
 class OwnerAndWritingMiddleware(BaseMiddleware):
+    def __init__(self, raw_input: Callable[[Message, Services], Awaitable[bool]] | None = None) -> None:
+        self.raw_input = raw_input
+
     async def __call__(
         self,
         handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
@@ -121,6 +127,9 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
             getattr(event, "message", None), "chat", None
         )
         if user is None or user.id != services.owner_id or (chat and chat.type != "private"):
+            return None
+        access = getattr(services, "access", None)
+        if access is not None and await access.intercept(event):
             return None
         services.owner_acted_at = utcnow()
         edited = isinstance(event, Message) and event.edit_date is not None
@@ -147,6 +156,9 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
                 await services.usage.activity(event_key, at=services.usage.clock.now())
         if edited:
             return await handler(event, data)
+        if self.raw_input is not None and isinstance(event, Message) and event.text is not None and not services.turn.active:
+            if await self.raw_input(event, services):
+                return None
 
         async def dispatch() -> Any:
             if services.usage is not None and event_key:

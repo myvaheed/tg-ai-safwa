@@ -17,6 +17,7 @@ from tg_agent_shell.telegram import (
     Services,
     claimed_link,
     clear_draw_home,
+    dismiss_prior_ui,
     home_markup,
     open_citation,
     render_citations,
@@ -101,3 +102,16 @@ async def command_clear(message: Message, services: Services) -> None:
     if drawn is not None and words is None:
         home, body = drawn
         _put_words_in(home, services, body, MessageKind.HOME, home_markup())
+
+
+async def render_unlocked_home(message: Message, services: Services) -> None:
+    await dismiss_prior_ui(message, services)
+    words = services.features.motivator.fresh()
+    async with services.sessions() as session:
+        body = await _dashboard(session, services, words or {})
+    # The clear boundary precedes restored hooks; this screen must not reset them away.
+    home = await send_registered(
+        message, services, body, kind=MessageKind.DASHBOARD, markup=home_markup(), replace=False,
+    )
+    if words is None:
+        _put_words_in(home, services, body, MessageKind.DASHBOARD, home_markup())

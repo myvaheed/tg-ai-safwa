@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from llm_gateway import OpenAICompatibleProvider
 from telegram_llm import ChatHost
+from tg_agent_shell.access.manager import AccessManager
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from tg_agent_shell.asr import build_transcriber
 from tg_agent_shell.cues.initiatives import bind_committed, hand_on_start
@@ -28,6 +29,7 @@ from tg_agent_shell.telegram import (
     SHELL_COMMANDS,
     Services,
     discard_stale_messages,
+    owner_anchor,
     sync_bot_commands,
 )
 from tg_agent_shell.telegram.manifest import AgentContext
@@ -39,9 +41,11 @@ from ..config import Settings
 from ..features.advisor.agent import ADVISOR_ROW_LIMITS, ADVISOR_VIEWS
 from ..features.diagnostics.module import SHOW_ANSWER_SOURCE
 from ..features.home.motivation import Motivator
+from ..features.home.telegram import render_unlocked_home
 from ..features.memory.absorb import PatternReviewer
 from ..features.memory.use_cases import BackgroundRunner, MemoryReader
 from ..features.planning.key_actions import KeyActions
+from ..features.profile.api import secret_word_verifier
 from ..features.profile.model import UserProfile
 from ..features.retro.analysis import SprintAnalyst
 from ..features.saved_requests.use_cases import seed_default_requests, seed_inbox_request
@@ -231,6 +235,9 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
 
     # Before the advisor: a subagent's read tool may send pictures to the chat itself.
     chat = ChatHost(TelegramNotes(database.sessions), spawn=spawn)
+
+    async def publish_photos(anchor, photos, *, kind):
+        await services.access.photos(anchor, photos, kind=kind)
     # The advisor is built after the history source because a subagent reads through it.
     advisor = REGISTRY.root_session(
         database.sessions,
@@ -254,6 +261,7 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
                 switches=REGISTRY.hooks.agent_related,
                 chat=chat,
                 bot=bot,
+                publish_photos=publish_photos,
             )
         ),
         helpers=REGISTRY.helper_ports(provider, query_runner),
@@ -316,12 +324,14 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
         media=media,
         usage=UsageRecorder(database.sessions, settings.telegram_owner_id),
     )
+    services.access = AccessManager(services, secret_word_verifier, render_unlocked_home)
     # A commit's facts reach the hooks from here on, with the features a Run reaches for;
     # what the start ends — a Sprint whose midnight Safwa slept through — is handed on too.
     committed = bind_committed(database.sessions, REGISTRY.hooks, resources=services.features)
     async with database.sessions() as session:
         await recover_startup(session)
         await session.commit()
+    await services.access.initialize(owner_anchor(bot, settings.telegram_owner_id))
     await hand_on_start(REGISTRY.hooks, database.sessions, resources=services.features)
     dispatcher = Dispatcher()
     dispatcher.include_router(build_router(commands))

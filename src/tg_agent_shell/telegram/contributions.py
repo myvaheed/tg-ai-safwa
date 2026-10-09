@@ -66,3 +66,5 @@ class TextInputFlow:
     # (message, services, state, value) -> the value `apply` writes. Runs before the write opens a
     # transaction, so it may wait on a model; a DomainError or ValueError is the refusal.
     prepare: Callable[..., Awaitable[Any]] | None = None
+    # An exact operational value, including whitespace and a leading slash.
+    raw: bool = False

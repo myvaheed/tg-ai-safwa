@@ -10,7 +10,7 @@ from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.hooks.contracts import ChatState, HookSpec, OnTick, Run, RunContext, Tick
 
 from ...foundation.workspace import require_workspace
-from ..profile.api import home_after_minutes
+from ..profile.api import home_after_minutes, secret_word_verifier
 from .dashboard import dashboard_text
 
 # How often the chat is looked at, so the quiet time is kept to within this much.
@@ -28,6 +28,11 @@ async def clear_when_quiet(chat: ChatState, context: RunContext) -> None:
         quiet = timedelta(minutes=await home_after_minutes(session))
         tz = ZoneInfo((await require_workspace(session)).timezone)
     if not chat.free or now - chat.owner_acted_at < quiet or not _owed(chat, now, tz):
+        return
+    async with context.sessions() as session:
+        secured = await secret_word_verifier(session) is not None
+    if secured:
+        await context.publish("", MessageKind.HOME.value)
         return
     words = await context.resources.motivator.write(context.sessions)
     if not context.still_current():

@@ -8,10 +8,12 @@ each caller has to be trusted to fill correctly.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import time
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tg_agent_shell.access.credentials import hash_secret_word
 from tg_agent_shell.foundation.errors import DomainError
 
 from ...foundation.workspace import bump_workspace
@@ -76,3 +78,11 @@ async def set_profile_field(
     setattr(profile, field.value, validated)
     await bump_workspace(session)
     return profile
+
+
+async def set_secret_word(session: AsyncSession, raw: str) -> None:
+    profile = await require_profile(session)
+    profile.secret_word_hash = (
+        None if raw.lower() == "off" else await asyncio.to_thread(hash_secret_word, raw)
+    )
+    await bump_workspace(session)

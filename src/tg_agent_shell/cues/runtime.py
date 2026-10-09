@@ -25,9 +25,10 @@ from ..foundation.clock import utcnow
 from ..foundation.kinds import MessageKind
 from ..history import TelegramMessage
 from ..hooks.contracts import BeforeTurn, Shown
+from ..proposals.model import BatchDecision
 from ..proposals.telegram import render_ai_outcome
-from ..telegram import Services, expire_review, owner_anchor, render_citations, send_prose
-from ..telegram.chat import clear_draw_home
+from ..telegram import Services, expire_review, owner_anchor, render_citations
+from ..telegram.chat import clear_draw_home, publish_prose
 from ..telegram.dialogue import run_before_turn
 from ..turn import own_cancellation
 from .initiatives import TickChat
@@ -67,14 +68,20 @@ async def speak_on_schedule(
     """
     if not still_current() or not await chat_is_free(services):
         return
+    access = getattr(services, "access", None)
+    if access is not None and (access.unlocking or (kind == MessageKind.HOME.value and access.blocked)):
+        return
 
     async def say(current: Callable[[], bool]) -> None:
         if not (current() and still_current()):
             return
         if kind != MessageKind.HOME.value:
-            await send_prose(
-                anchor, services, html.escape(text), kind=MessageKind(kind), replace=False
+            await publish_prose(
+                anchor, services, html.escape(text), kind=MessageKind(kind)
             )
+            return
+        if access is not None and await access.enabled():
+            await access.lock(anchor)
             return
         async with services.sessions() as session:
             body = await render_citations(session, services, markdown_to_telegram_html(text))
@@ -88,6 +95,9 @@ def tick_chat(services: Services, anchor: Message) -> TickChat:
     """The owner's chat, for the checks on a schedule; `anchor` stands for the owner in it."""
 
     async def newest() -> tuple[str, datetime | None] | None:
+        access = getattr(services, "access", None)
+        if access is not None and access.blocked:
+            return MessageKind.HOME.value, utcnow()
         notes = await services.chat.notes.messages(anchor.chat.id, limit=1)
         return (notes[0].kind, notes[0].at) if notes else None
 
@@ -130,6 +140,9 @@ class CueRuntime:
     async def can_speak(self) -> bool:
         """Whether the Advisor is free enough to be handed an unsolicited request, with
         the lease taken for it when it is."""
+        access = getattr(self.services, "access", None)
+        if access is not None and access.unlocking:
+            return False
         if not await chat_is_free(self.services):
             return False
         if not self.services.turn.try_begin_background():
@@ -157,6 +170,9 @@ class CueRuntime:
     async def delivered(self, event_id: str) -> bool:
         """Whether the turn under this id reached the chat: its message was registered,
         even if the process stopped before the rows it said were settled."""
+        access = getattr(self.services, "access", None)
+        if access is not None and await access.accepted(event_id):
+            return True
         async with self.services.sessions() as session:
             found = await session.scalar(
                 select(TelegramMessage.id).where(
@@ -205,6 +221,25 @@ class CueRuntime:
             # CUE keeps the answer in dialogue while marking it as something the model
             # volunteered, not a reply to a message that is not there.
             kind = MessageKind.CUE if passing is None else MessageKind.PASSING_CUE
+            access = getattr(self.services, "access", None)
+            if access is not None and access.blocked:
+                while outcome.proposal_id is not None:
+                    self.services.root.reviews.end_proposal(outcome.proposal_id)
+                    outcome = await self.services.root.resolve_approval(
+                        outcome.proposal_id, decision=BatchDecision.DISCARDED,
+                        result={"message": "The proposed change was discarded because the chat is locked."},
+                    )
+                    if outcome is None or not self.still_current():
+                        return False
+                async with self.services.sessions() as session:
+                    body = await render_citations(session, self.services, markdown_to_telegram_html(outcome.message))
+                if await access.defer(self._anchor(), {
+                    "text": body, "kind": kind.value if outcome.turn else MessageKind.EVENT.value,
+                    "reads_as": list(outcome.turn) or None,
+                    "open_item": outcome.open_item,
+                    "passing_seconds": passing.total_seconds() if passing is not None else None,
+                }, event_id=event_id):
+                    return True
             await render_ai_outcome(
                 self._anchor(), self.services, outcome, kind=kind, event_id=event_id
             )

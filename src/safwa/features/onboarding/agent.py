@@ -153,10 +153,10 @@ MANUAL = f"""# Safwa
 - "Today overload" and "Effort Points reminder" are in Hooks only while Effort Points are on, and ask nothing while they are off.
 
 # Profile
-- "⚙️ Profile": About me and Advisor instructions (what the Advisor must know and follow), Morning time, Evening time, Diary instruction, Home after, Time tracking, Effort Points, and "🔔 Hooks".
+- "⚙️ Profile": About me and Advisor instructions (what the Advisor must know and follow), Morning time, Evening time, Diary instruction, Home after, Secret word, Time tracking, Effort Points, and "🔔 Hooks".
 - "Usage time" shows approximate accumulated usage as "~2d 5h 25m", with a day equal to 24 hours. It counts your actions, own voice recordings and waiting for your requests once, with two minutes for reading and the next action. Autonomous hooks add no time. Clearing the chat keeps it. It is independent of Time tracking and Effort Points.
 - "⌛ Time tracking" is off until pressed. On, it offers "⌛ Time spent" on an Action, keeps a Sprint's time for its retro and turns on "Time tracking reminder". The active day it measures runs from the Morning time to the Evening time.
-- In words too: any of its fields, shown for Save with what it was and what it becomes.
+- In words too: its ordinary fields, shown for Save with what it was and what it becomes. Secret word is changed only through Profile, accepts any exact text including one character or a command, and off disables it. The actual word is never shown. Setting it keeps the current session open until automatic clearing.
 - Time tracking and Effort Points can also be changed in words, through a Profile proposal. Hook switches are buttons only. Onboarding alone may be turned off in words.
 
 # Screens and commands
@@ -167,6 +167,7 @@ MANUAL = f"""# Safwa
 - A link in an answer opens its item. An item opened from a link or from the Home dashboard has "↩️ Menu" instead of "↩️ Back"; one opened from a screen goes "↩️ Back" to that screen.
 
 # Home dashboard
+- With Secret word set, automatic clearing instead leaves an empty locked chat, including hooks. All commands, buttons, links, edits and media are blocked until a new text message matches the word exactly. Attempts are deleted, unanswered hooks and new hook answers prepared while locked are restored, and Home with ☰ Menu is last. Access lasts until the next automatic clear; restart requires the word again. /clear while unlocked shows Home without locking it. A hidden manual proposal is discarded.
 - When the user does nothing in the chat for the Profile's "🏠 Home after" minutes, 30 at first, or sends /clear, Safwa clears every message before the new Home dashboard: screens, receipts, the user's messages and the Advisor's replies. A Reminder or anything else Safwa said on its own since the user last wrote to it stays until the user writes again. A new Home dashboard arrives without a sound: the day and the time, the last 5 changes, the first 5 Priority Goals, the Values in focus with a few words each, every Action in Today under its Goal, and the time tracked today while Time tracking is on.
 - It is drawn again after midnight. Each item on it is a link. Only one screen stays in the chat, at the bottom. /start, "☰ Menu", another screen or a message to the Advisor removes the old Home. /start opens the dashboard with the menu; /clear opens it with "☰ Menu". The words under the Values are kept for 10 minutes; without them, they appear on the dashboard a moment later.
 - Those words use About me, the Goals in focus order, the running Sprint's Success criteria, Today Actions, finished Actions and the Diary. Each new request reads the last 5 generations to avoid repeating their message or wording; that history resets when the bot restarts.

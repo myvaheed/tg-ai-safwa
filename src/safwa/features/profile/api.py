@@ -73,6 +73,11 @@ async def home_after_minutes(session: AsyncSession) -> int:
     return profile.home_after_minutes if profile is not None else HOME_AFTER_MINUTES_DEFAULT
 
 
+async def secret_word_verifier(session: AsyncSession) -> str | None:
+    profile = await session.get(UserProfile, 1)
+    return profile.secret_word_hash if profile is not None else None
+
+
 async def active_day_minutes(session: AsyncSession) -> int:
     """How long the owner's active day is: from the Morning time to the Evening time.
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tg_agent_shell.access.module import MODULE as ACCESS_FEATURE
 from tg_agent_shell.ai.sql import view_catalogue
 from tg_agent_shell.media.module import MODULE as MEDIA_FEATURE
 from tg_agent_shell.proposals.api import World
@@ -85,6 +86,7 @@ from ..foundation.workspace import require_workspace
 # Order is what the routing rules follow, so it is fixed rather than incidental: the
 # Advisor's prompt lists the subagents in this order every run.
 MODULES: tuple[FeatureModule, ...] = (
+    ACCESS_FEATURE,
     HOME,
     WORKSPACE_MUTATOR,
     CARDS,

@@ -45,6 +45,18 @@ class TurnManager:
     def __init__(self) -> None:
         self._state: TurnState = Idle()
         self.dialogue_revision = 0
+        self._idle = asyncio.Event()
+        self._idle.set()
+
+    def _set_state(self, state: TurnState) -> None:
+        self._state = state
+        if isinstance(state, Idle):
+            self._idle.set()
+        else:
+            self._idle.clear()
+
+    async def wait_idle(self) -> None:
+        await self._idle.wait()
 
     @property
     def active(self) -> bool:
@@ -66,7 +78,7 @@ class TurnManager:
             raise RuntimeError("Another answer is already being written")
         if isinstance(self._state, BackgroundWork):
             raise RuntimeError("Background work still holds the turn")
-        self._state = Answering(source_message_id, task=_current_task())
+        self._set_state(Answering(source_message_id, task=_current_task()))
 
     def try_begin(self, source_message_id: int) -> bool:
         """Take the turn unless another answer holds it, and say whether this caller now
@@ -75,7 +87,7 @@ class TurnManager:
             return self._state.source_message_id == source_message_id
         if isinstance(self._state, BackgroundWork):
             self.cancel()
-        self._state = Answering(source_message_id, task=_current_task())
+        self._set_state(Answering(source_message_id, task=_current_task()))
         return True
 
     def try_begin_background(self) -> bool:
@@ -86,7 +98,7 @@ class TurnManager:
         """
         if not isinstance(self._state, Idle):
             return False
-        self._state = BackgroundWork(revision=self.dialogue_revision)
+        self._set_state(BackgroundWork(revision=self.dialogue_revision))
         return True
 
     def start_background(self, work: Coroutine[Any, Any, R]) -> asyncio.Task[R]:
@@ -97,7 +109,7 @@ class TurnManager:
         """
         task = asyncio.create_task(work)
         if isinstance(self._state, BackgroundWork):
-            self._state = replace(self._state, task=task)
+            self._set_state(replace(self._state, task=task))
         return task
 
     def notice_shown(self, source_message_id: int, notice_message_id: int) -> None:
@@ -105,7 +117,7 @@ class TurnManager:
         if isinstance(self._state, Answering) and (
             self._state.source_message_id == source_message_id
         ):
-            self._state = replace(self._state, notice=notice_message_id)
+            self._set_state(replace(self._state, notice=notice_message_id))
 
     def end(self, source_message_id: int | None = None) -> int | None:
         """Give the turn back, and hand over the notice still standing in the chat.
@@ -118,7 +130,7 @@ class TurnManager:
             not isinstance(state, Answering) or state.source_message_id != source_message_id
         ):
             return None
-        self._state = Idle()
+        self._set_state(Idle())
         return state.notice if isinstance(state, Answering) else None
 
     def end_background(self, revision: int) -> None:
@@ -130,7 +142,7 @@ class TurnManager:
         """
         state = self._state
         if isinstance(state, BackgroundWork) and state.revision == revision:
-            self._state = Idle()
+            self._set_state(Idle())
 
     def cancel(self) -> int | None:
         """Stop whatever is being written, and hand over its notice to be taken back.
@@ -141,7 +153,7 @@ class TurnManager:
         """
         state = self._state
         self.dialogue_revision += 1
-        self._state = Idle()
+        self._set_state(Idle())
         if isinstance(state, Idle):
             return None
         task = state.task
