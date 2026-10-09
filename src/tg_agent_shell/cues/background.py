@@ -36,6 +36,7 @@ Expiry = Callable[[], Awaitable[None]]
 Preparer = Callable[[str, list[Any]], Awaitable[str | Shown | None]]
 # How long a message saying a hook's request stays in the chat, or None to keep it.
 Passing = Callable[[str], timedelta | None]
+HookGate = Callable[[], bool]
 
 # What the Advisor reads after a request whose block opens its answer.
 BLOCK_SHOWN = "Its block is already shown to the user above your words. Do not repeat it."
@@ -96,6 +97,7 @@ async def tick(
     expire: Expiry = _nothing_expires,
     prepare: Preparer = _no_words,
     passing: Passing = _kept,
+    allow_hooks: HookGate = lambda: True,
 ) -> bool:
     """One poll. Returns whether a turn was delivered.
 
@@ -127,7 +129,10 @@ async def tick(
             for event_id, reached in landed.items():
                 await (settle if reached else unstamp)(session, event_id)
             await session.commit()
-    requests = _requests(row for row in rows if not landed.get(row[1]))
+    hooks_allowed = allow_hooks()
+    requests = _requests(
+        row for row in rows if not landed.get(row[1]) and (hooks_allowed or row[3] is None)
+    )
     if not requests:
         return False
     if not await gate():
@@ -189,6 +194,7 @@ async def run_cue_queue(
     expire: Expiry = _nothing_expires,
     prepare: Preparer = _no_words,
     passing: Passing = _kept,
+    allow_hooks: HookGate = lambda: True,
     poll_seconds: float,
 ) -> None:
     await run_poll(
@@ -201,6 +207,7 @@ async def run_cue_queue(
             expire=expire,
             prepare=prepare,
             passing=passing,
+            allow_hooks=allow_hooks,
         ),
         poll_seconds=poll_seconds,
         name="The Cue poll",

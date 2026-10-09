@@ -133,12 +133,13 @@ Feature: Home
     Given changes, open Goals, Values in focus, Actions in Today, and Time tracking on
     Then the dashboard reads, top to bottom: the day and the time it was drawn, the last changes, the Priority Goals, the Values in focus, Today, and the time tracked today
 
-  Scenario: HM-LOCK-015 — Automatic clearing leaves a protected chat empty until the word is entered
+  Scenario: HM-LOCK-015 — Automatic clearing protects access while Reminders remain visible
     Given Secret word is set in Profile
     When Home after elapses and the chat is free
     Then every deletable message is removed, including unanswered hooks, and no Home is sent
-    And unanswered hooks are stored to be returned, while new hook answers are prepared unseen
+    And unanswered hooks are stored to be returned, while new hook requests wait without generating answers
+    And Schedule Remind and Reminder answers reach the locked chat without clickable links or item screens
     When the correct word is entered
-    Then attempts and prompts are deleted, the stored hooks appear in order and Home is last
+    Then attempts and prompts are deleted, stored messages are restored with links, waiting hooks run and Home is last
     And access remains open until the next automatic clear
     But /clear while access is open still draws Home and does not lock access

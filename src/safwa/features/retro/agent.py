@@ -19,6 +19,7 @@ from datetime import date
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from aiogram.enums import ChatAction
 from aiogram.types import BufferedInputFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,7 +30,6 @@ from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import owner_anchor
 from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec
-from tg_agent_shell.telegram.output import publish_agent_photos
 
 from ...constants import WEEKDAY_NAMES
 from ...foundation.workspace import require_workspace
@@ -335,6 +335,7 @@ def _retro_read_tools(context: AgentContext) -> tuple[ReadToolSpec, ...]:
             ]
             effort_tracking = await effort_tracking_on(session)
         anchor = owner_anchor(bot, context.owner_id)
+        await bot.send_chat_action(anchor.chat.id, ChatAction.UPLOAD_PHOTO)
         pictures = await asyncio.to_thread(render_charts, sprints, effort_tracking=effort_tracking)
         if chart is not None:
             drawn = [name for name, _ in pictures]
@@ -346,8 +347,8 @@ def _retro_read_tools(context: AgentContext) -> tuple[ReadToolSpec, ...]:
                 )
         # Not a screen kind, so they stay in the chat like a message when the next screen
         # comes; and not a conversation kind, so the model reads no words for them.
-        await publish_agent_photos(
-            context, anchor,
+        await chat.send_photos(
+            anchor,
             [BufferedInputFile(png, filename=f"{name}.png") for name, png in pictures],
             kind=MessageKind.RECEIPT.value,
         )

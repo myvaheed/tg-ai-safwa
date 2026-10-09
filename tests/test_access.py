@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock
 import pytest
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.methods import DeleteMessage, SendMessage
-from aiogram.types import BufferedInputFile, Chat, Message, User
+from aiogram.types import Chat, Message, User
 from sqlalchemy import select
 from telegram_fakes import QueueTestMessage
 from ui_harness import FakeBot, FakeMessage, history_source, press, services_for
@@ -76,6 +76,42 @@ def incoming(parent, text, message_id=2000):
     )
 
 
+async def notification(services, anchor, text, *, event_id=None):
+    await services.chat.send_parts(
+        anchor, text, kind="cue", event_id=event_id, replace=False, links=False
+    )
+
+
+@pytest.mark.parametrize(
+    "literal",
+    [
+        "https://example.com/a?x=1&amp;y=2",
+        "tg://user?id=1",
+        "example.com",
+        "пример.рф",
+        "name@example.com",
+        "@example",
+    ],
+)
+async def test_locked_notification_disables_automatic_links_but_keeps_original_words(
+    sessions, literal
+):
+    """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
+    await set_word(sessions)
+    services = protected_services(sessions)
+    anchor = QueueTestMessage(answer_as_new=True)
+    await services.access.lock(anchor)
+    text = f'<b>Reminder</b>: <a href="https://t.me/bot?start=card-1">Action</a> · {literal}'
+    await notification(services, anchor, text)
+    shown = anchor.rendered[-1]
+    assert "<a " not in shown and shown.startswith("<pre>Reminder: Action")
+    assert anchor.markups[-1] is None and services.access.blocked
+    note = (await TelegramNotes(sessions).outgoing(700, kinds={"cue"}))[0]
+    assert note.text == text
+    await services.access.intercept(incoming(anchor, "x"))
+    assert anchor.rendered[-2] == text and "🏠" in anchor.rendered[-1]
+
+
 @pytest.mark.parametrize("word", ["x", "🔑", "/clear", " a\n ", " "])
 async def test_secret_word_is_exact_salted_text_and_profile_input_is_not_dialogue(sessions, word):
     """PS-SECRET-023 — tests/brd/profile.feature"""
@@ -127,18 +163,16 @@ async def test_lock_clears_hooks_then_unlock_restores_only_unanswered_hooks_befo
     await services.access.intercept(wrong)
     assert services.access.blocked
     assert wrong.rendered == [ENTER_SECRET_WORD]
-    assert await services.access.defer(
-        anchor, {"text": "New hook", "kind": "cue"}, event_id="a" * 32
-    )
+    await notification(services, anchor, "New Reminder", event_id="a" * 32)
     correct = incoming(anchor, "/clear", 2000)
     await services.access.intercept(correct)
     assert not services.access.blocked
-    assert correct.rendered[-3:-1] == ["Unanswered hook", "New hook"]
+    assert correct.rendered[-3:-1] == ["Unanswered hook", "New Reminder"]
     assert "🏠" in correct.rendered[-1]
     assert 100 in anchor.bot.deleted and 2000 in anchor.bot.deleted
     assert wrong.sent[0].message_id in anchor.bot.deleted
     dialogue = await services.history.dialogue(700)
-    assert [item.content for item in dialogue] == ["Unanswered hook", "New hook"]
+    assert [item.content for item in dialogue] == ["Unanswered hook", "New Reminder"]
     async with sessions() as session:
         assert list(await session.scalars(select(DeferredDelivery))) == []
         assert (
@@ -231,19 +265,19 @@ async def test_clear_still_draws_home_and_automatic_home_locks_without_drawing(s
     assert services.access.blocked and len(anchor.rendered) == shown
 
 
-async def test_restart_keeps_prepared_deliveries_and_requires_word_again(sessions):
+async def test_restart_keeps_notification_words_and_requires_word_again(sessions):
     """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
     await set_word(sessions)
     services = protected_services(sessions)
     anchor = QueueTestMessage(answer_as_new=True)
     await services.access.lock(anchor)
-    await services.access.defer(anchor, {"text": "Prepared once", "kind": "cue"}, event_id="b" * 32)
+    await notification(services, anchor, "Reminder arrived", event_id="b" * 32)
     restarted = protected_services(sessions)
     await restarted.access.initialize(anchor)
-    assert restarted.access.blocked and await restarted.access.accepted("b" * 32)
+    assert restarted.access.blocked
     await restarted.access.intercept(incoming(anchor, "x"))
     assert not restarted.access.blocked
-    assert anchor.rendered.count("Prepared once") == 1
+    assert anchor.rendered.count("Reminder arrived") == 2
     again = protected_services(sessions)
     await again.access.initialize(anchor)
     assert again.access.blocked
@@ -257,8 +291,8 @@ async def test_failed_delivery_keeps_access_closed_and_retry_keeps_one_logical_t
     services = protected_services(sessions)
     anchor = QueueTestMessage(answer_as_new=True)
     await keep(sessions, 1, "First hook")
+    await keep(sessions, 2, "Second hook")
     await services.access.lock(anchor)
-    await services.access.defer(anchor, {"text": "Second hook", "kind": "cue"}, event_id="c" * 32)
     original = services.access._deliver
 
     async def failing(message, row):
@@ -269,7 +303,8 @@ async def test_failed_delivery_keeps_access_closed_and_retry_keeps_one_logical_t
     monkeypatch.setattr(services.access, "_deliver", failing)
     await services.access.intercept(incoming(anchor, "x"))
     assert services.access.blocked
-    assert await services.access.accepted("c" * 32)
+    async with sessions() as session:
+        assert len(list(await session.scalars(select(DeferredDelivery)))) == 2
     monkeypatch.setattr(services.access, "_deliver", original)
     await services.access.intercept(incoming(anchor, "x", 4000))
     assert not services.access.blocked
@@ -281,7 +316,7 @@ async def test_failed_delivery_keeps_access_closed_and_retry_keeps_one_logical_t
 
 
 @pytest.mark.parametrize("restart", [False, True])
-@pytest.mark.parametrize("kind", ["cue", "event"])
+@pytest.mark.parametrize("kind", ["cue", "passing_cue"])
 async def test_partial_long_delivery_recovers_without_a_second_logical_copy(
     sessions, monkeypatch, restart, kind
 ):
@@ -289,9 +324,9 @@ async def test_partial_long_delivery_recovers_without_a_second_logical_copy(
     await set_word(sessions)
     services = protected_services(sessions)
     anchor = QueueTestMessage(answer_as_new=True)
-    await services.access.lock(anchor)
     body = "A long hook line.\n" * 400
-    await services.access.defer(anchor, {"text": body, "kind": kind}, event_id="d" * 32)
+    await keep(sessions, 1, body, MessageKind(kind))
+    await services.access.lock(anchor)
     first = incoming(anchor, "x")
     answer = first.answer
     parts = 0
@@ -319,7 +354,7 @@ async def test_partial_long_delivery_recovers_without_a_second_logical_copy(
         assert list(await session.scalars(select(DeferredDelivery))) == []
 
 
-async def test_unlock_waits_for_running_background_work_and_publishes_its_result(sessions):
+async def test_unlock_waits_for_running_reminder_and_restores_its_words(sessions):
     """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
     await set_word(sessions)
     services = protected_services(sessions)
@@ -333,37 +368,25 @@ async def test_unlock_waits_for_running_background_work_and_publishes_its_result
             break
         await asyncio.sleep(0.005)
     assert services.access.unlocking and anchor.rendered == []
-    await services.access.defer(anchor, {"text": "Finished during entry", "kind": "cue"})
+    await notification(services, anchor, "Finished during entry")
     services.turn.end_background(revision)
     await asyncio.wait_for(unlocking, 5)
     assert anchor.rendered[0] == "Finished during entry"
     assert "🏠" in anchor.rendered[-1]
 
 
-async def test_images_are_kept_without_telegram_and_sent_before_home(sessions):
-    """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
-    await set_word(sessions)
-    services = protected_services(sessions)
-    anchor = QueueTestMessage(answer_as_new=True)
-    await services.access.lock(anchor)
-    await services.access.photos(
-        anchor, [BufferedInputFile(b"private-png", filename="chart.png")], kind="receipt"
-    )
-    assert anchor.bot.photos_sent == [] and anchor.bot.typing_calls == 0
-    await services.access.intercept(incoming(anchor, "x"))
-    assert anchor.bot.photos_sent[0][0].data == b"private-png"
-    assert "🏠" in anchor.bot.drawn[-1]
-
-
 @pytest.mark.parametrize("when", ["before", "after", "after_error"])
-async def test_run_hook_publications_and_errors_wait_for_unlock(sessions, when):
+async def test_turn_hooks_are_not_evaluated_while_locked(sessions, when):
     """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
     await set_word(sessions)
     services = protected_services(sessions)
     anchor = QueueTestMessage(answer_as_new=True)
     await services.access.lock(anchor)
+
+    evaluated = []
 
     async def evaluate(event):
+        evaluated.append(event)
         return (True,)
 
     async def publish(payload, context):
@@ -390,10 +413,14 @@ async def test_run_hook_publications_and_errors_wait_for_unlock(sessions, when):
         await run_before_turn(anchor, services, BeforeTurn(42, 700, 0, "system"), lambda: True)
     else:
         await run_after_turn(anchor, services, AfterTurn(42, 700, 1, 0, "system"))
-    assert anchor.rendered == []
+    assert anchor.rendered == [] and evaluated == []
     await services.access.intercept(incoming(anchor, "x"))
+    if when == "before":
+        await run_before_turn(anchor, services, BeforeTurn(42, 700, 0, "system"), lambda: True)
+    else:
+        await run_after_turn(anchor, services, AfterTurn(42, 700, 1, 0, "system"))
     expected = "Private failure detail" if when == "after_error" else "Private hook words"
-    assert expected in anchor.rendered[-2] and "🏠" in anchor.rendered[-1]
+    assert expected in anchor.rendered[-1] and len(evaluated) == 1
 
 
 @pytest.mark.parametrize("wrong_first", [False, True])

@@ -54,7 +54,6 @@ class AgentContext:
     # does, and a tool that would is not handed out.
     chat: ChatHost | None = None
     bot: Bot | None = None
-    publish_photos: Callable[..., Awaitable[None]] | None = None
 
 
 @dataclass(frozen=True, slots=True)

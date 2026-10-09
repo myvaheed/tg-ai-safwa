@@ -240,10 +240,12 @@ Feature: The conversation in Telegram
     Then messages, commands, callbacks, deep links, edits and media cannot reach their handlers
     And an attempted input asks for Secret word without changing the dialogue or cancelling a hook
     And only an exact new text message containing the word unlocks access
-    And a restart requires the word again and retains prepared deliveries
-    And a hidden proposal is resolved as Discard and its continuation is stored
+    And a restart requires the word again and retains hidden messages and pending hook requests
+    And Reminder words are delivered without clickable links, separately from pending hook requests
+    And hooks are not prepared or generated while access is locked
+    And a hidden Reminder proposal is resolved as Discard and its continuation reaches the chat without links
     When the owner unlocks access
-    Then running background work finishes first, attempts are cleared and stored messages precede Home
+    Then running background work finishes first, attempts are cleared, messages are restored and pending hooks precede Home
     And restored hooks are readable by the Advisor, with one logical copy in a day read
     And failed delivery leaves access closed and the queue available for retry
     But applications without protection keep their ordinary behavior

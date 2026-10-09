@@ -21,9 +21,11 @@ async def test_a_second_bot_can_lock_and_restore_its_own_home_without_safwa(wall
 
     access = AccessManager(running.services, read_verifier, home)
     running.services.access = access
+    await running.services.chat.send_parts(
+        running.message, "A wallet notification", kind="cue", replace=False
+    )
     await access.initialize(running.message)
     assert access.blocked
-    await access.defer(running.message, {"text": "A wallet notification", "kind": "cue"})
     word = QueueTestMessage(
         message_id=2000,
         text="🔑",
@@ -33,4 +35,4 @@ async def test_a_second_bot_can_lock_and_restore_its_own_home_without_safwa(wall
     )
     await access.intercept(word)
     assert not access.blocked
-    assert running.chat == ["A wallet notification", "Wallet home"]
+    assert running.chat[-2:] == ["A wallet notification", "Wallet home"]

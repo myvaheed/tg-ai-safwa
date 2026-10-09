@@ -16,23 +16,32 @@ media cannot invoke their handlers. A new text message matching the word exactly
 other inputs receive “Сначала введите Secret word.” Attempts retain only operational message
 identifiers, never their text, and do not cancel background work or enter conversation history.
 
-Hooks keep evaluating, and Cue turns keep generating answers. The shell stores completed
-text and pictures in `deferred_deliveries` instead of sending them. A durable queued answer
-counts as accepted by the Cue poll, so restart between storage and Cue settlement does not
-regenerate it. A hidden manual proposal is Discarded through the existing approval continuation.
-Scheduled publication and the agent picture tools use the same access gate.
+Reminders, including Remind on a Schedule, keep firing and their answers reach the chat
+while locked. The existing Cue queue distinguishes their text rows from hook rows. Filtering
+before preparation leaves hook rows waiting without generating their requests or answers.
+Turn hooks also wait for authenticated access. A Reminder's hidden manual proposal is
+Discarded through the existing approval continuation; no review or item screen is opened.
+
+`ChatHost.send_parts(links=False)` removes anchors while keeping their labels. Literal URLs,
+domains and mentions are displayed as a code block so Telegram cannot make them clickable.
+The note keeps the original text, including citations, for history and restoration after entry.
+The usual message event id acknowledges delivery; no second acknowledgement queue is needed.
 
 Unlocking stops new Cue turns and scheduled publications, waits for the current turn,
-clears attempts and prompts, and publishes stored deliveries oldest first. Home with Menu
+clears attempts and prompts, restores hidden messages, and runs the waiting Cue requests. Home with Menu
 is drawn last, as a dashboard rather than a conversation reset. Access then opens and the
 Home after timer restarts. An error leaves access closed and the queue retained for retry.
+
+`deferred_deliveries` contains only snapshots of previously shown unanswered Cues, including
+Reminders received while locked. It holds no newly generated hidden answers or pictures.
+The `event_id`, `created_at` and `updated_at` columns used by the old result queue are removed.
 
 `chat_clear_boundaries` stores the message id through which the conversation was cleared;
 it is independent of the Home screen. The Advisor reads restored hooks beyond that boundary.
 Replaying a previously shown Cue moves its existing logical record to its new Telegram id,
 keeping its original timestamp, so a Diary day read still contains it only once.
 Its new display time determines Telegram's deletion window.
-Every part of a deferred text delivery carries its queue id in the note's `related_id`.
+Every part of a restored text delivery carries its snapshot id in the note's `related_id`.
 After a partial send or restart, that association restores one logical record rather than
 capturing the already sent part as another hook. Temporary hooks start their lifetime when
 shown again.

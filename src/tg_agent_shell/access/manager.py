@@ -3,18 +3,17 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import logging
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
-from aiogram.enums import ChatAction
-from aiogram.types import BufferedInputFile, Message
+from aiogram.types import Message
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..cues.runtime import resume_cues
 from ..foundation.clock import utcnow
 from ..foundation.kinds import MessageKind
 from ..history import CONVERSATION_KINDS, TelegramMessage, register_message
@@ -38,7 +37,6 @@ class AccessManager:
         self.home = home
         self._state: AccessState = Open()
         self._transition = asyncio.Lock()
-        self._delivery = asyncio.Lock()
 
     @property
     def blocked(self) -> bool:
@@ -62,9 +60,8 @@ class AccessManager:
             if self.blocked:
                 return
             self._state = Locked()
-            async with self._delivery:
-                await self._capture_unanswered(anchor.chat.id)
-                await self._clear(anchor)
+            await self._capture_unanswered(anchor.chat.id)
+            await self._clear(anchor)
 
     async def _capture_unanswered(self, chat_id: int) -> None:
         async with self.services.sessions() as session:
@@ -82,7 +79,7 @@ class AccessManager:
                 .where(
                     TelegramMessage.chat_id == chat_id,
                     TelegramMessage.direction == "out",
-                    TelegramMessage.kind.in_(UNASKED_KINDS | {MessageKind.EVENT.value}),
+                    TelegramMessage.kind.in_(UNASKED_KINDS),
                     TelegramMessage.message_id > last_user,
                     TelegramMessage.text.is_not(None),
                 )
@@ -105,13 +102,8 @@ class AccessManager:
                         and tagged.chat_id == chat_id
                         and tagged.payload.get("text") == note.text
                     ):
-                        if tagged.source_note_id is None:
-                            tagged.source_note_id = note.id
-                        else:
-                            note.text = None
-                            note.reads_as = None
-                        continue
-                    if note.kind not in UNASKED_KINDS:
+                        note.text = None
+                        note.reads_as = None
                         continue
                     session.add(
                         DeferredDelivery(
@@ -206,82 +198,33 @@ class AccessManager:
             )
         return True
 
-    async def defer(
-        self, anchor: Message, payload: dict[str, Any], *, event_id: str | None = None
-    ) -> bool:
-        async with self._delivery:
-            if not self.blocked:
-                return False
-            async with self.services.sessions() as session:
-                if (
-                    event_id is None
-                    or await session.scalar(
-                        select(DeferredDelivery.id).where(
-                            DeferredDelivery.event_id == event_id,
-                        )
-                    )
-                    is None
-                ):
-                    session.add(
-                        DeferredDelivery(chat_id=anchor.chat.id, event_id=event_id, payload=payload)
-                    )
-                    await session.commit()
-            return True
-
-    async def accepted(self, event_id: str) -> bool:
-        async with self.services.sessions() as session:
-            return (
-                await session.scalar(
-                    select(DeferredDelivery.id).where(
-                        DeferredDelivery.event_id == event_id,
-                    )
-                )
-                is not None
-            )
-
-    async def photos(
-        self, anchor: Message, pictures: Sequence[BufferedInputFile], *, kind: str
-    ) -> None:
-        payload = {
-            "kind": kind,
-            "photos": [
-                {"data": base64.b64encode(photo.data).decode("ascii"), "filename": photo.filename}
-                for photo in pictures
-            ],
-        }
-        if not await self.defer(anchor, payload):
-            await anchor.bot.send_chat_action(anchor.chat.id, ChatAction.UPLOAD_PHOTO)
-            await self.services.chat.send_photos(anchor, pictures, kind=kind)
-
     async def _unlock(self, anchor: Message) -> None:
         self._state = Unlocking()
         try:
             await self.services.turn.wait_idle()
-            async with self._delivery:
-                await self._capture_unanswered(anchor.chat.id)
-                await self._clear(anchor, anchor.message_id)
-                async with self.services.sessions() as session:
-                    rows = list(
-                        await session.scalars(
-                            select(DeferredDelivery)
-                            .where(
-                                DeferredDelivery.chat_id == anchor.chat.id,
-                            )
-                            .order_by(DeferredDelivery.id)
-                        )
+            await self._capture_unanswered(anchor.chat.id)
+            await self._clear(anchor, anchor.message_id)
+            async with self.services.sessions() as session:
+                rows = list(
+                    await session.scalars(
+                        select(DeferredDelivery)
+                        .where(DeferredDelivery.chat_id == anchor.chat.id)
+                        .order_by(DeferredDelivery.id)
                     )
-                for row in rows:
-                    await self._deliver(anchor, row)
-                self.services.owner_acted_at = utcnow()
-                await self.home(anchor, self.services)
-                async with self.services.sessions() as session:
-                    await session.execute(
-                        delete(DeferredDelivery).where(
-                            DeferredDelivery.id.in_([row.id for row in rows]),
-                        )
+                )
+            for row in rows:
+                await self._deliver(anchor, row)
+            await resume_cues(self.services, anchor)
+            self.services.owner_acted_at = utcnow()
+            await self.home(anchor, self.services)
+            async with self.services.sessions() as session:
+                await session.execute(
+                    delete(DeferredDelivery).where(
+                        DeferredDelivery.id.in_([row.id for row in rows]),
                     )
-                    await session.commit()
-                self._state = Open()
+                )
+                await session.commit()
+            self._state = Open()
         except Exception:
             logger.exception("Could not finish unlocking the chat")
         finally:
@@ -290,73 +233,52 @@ class AccessManager:
 
     async def _deliver(self, anchor: Message, row: DeferredDelivery) -> None:
         services, payload = self.services, row.payload
-        if payload.get("photos"):
-            await services.chat.send_photos(
-                anchor,
-                [
-                    BufferedInputFile(base64.b64decode(photo["data"]), filename=photo["filename"])
-                    for photo in payload["photos"]
-                ],
-                kind=payload["kind"],
-            )
-        else:
-            async with services.sessions() as session:
-                before = (
-                    await session.scalar(
-                        select(func.max(TelegramMessage.message_id)).where(
-                            TelegramMessage.chat_id == anchor.chat.id,
-                        )
-                    )
-                    or 0
-                )
-            delivery_id = row.event_id if row.source_note_id is None else None
-            delivery_id = delivery_id or uuid4().hex
-            sent = await send_prose(
-                anchor,
-                services,
-                payload["text"],
-                kind=MessageKind(payload["kind"]),
-                event_id=delivery_id,
-                replace=False,
-                reads_as=payload.get("reads_as"),
-                related_id=row.id,
-            )
-            async with services.sessions() as session:
-                source = (
-                    await session.get(TelegramMessage, row.source_note_id)
-                    if row.source_note_id is not None
-                    else None
-                )
-                first = await session.scalar(
-                    select(TelegramMessage)
-                    .where(
+        async with services.sessions() as session:
+            before = (
+                await session.scalar(
+                    select(func.max(TelegramMessage.message_id)).where(
                         TelegramMessage.chat_id == anchor.chat.id,
-                        TelegramMessage.message_id > before,
-                        TelegramMessage.message_id <= sent.message_id,
-                        TelegramMessage.text.is_not(None),
                     )
-                    .order_by(TelegramMessage.message_id)
                 )
-                if first is not None:
-                    if source is not None:
-                        message_id = first.message_id
-                        source.displayed_at = first.displayed_at or first.created_at
-                        await session.delete(first)
-                        await session.flush()
-                        source.message_id = message_id
-                    else:
-                        if payload.get("at"):
-                            first.created_at = datetime.fromisoformat(payload["at"])
-                        stored = await session.get(DeferredDelivery, row.id)
-                        stored.source_note_id = first.id
-                await session.commit()
-            if payload.get("passing_seconds") is not None:
-                await services.chat.let_pass(
-                    anchor,
-                    kind=payload["kind"],
-                    seconds=payload["passing_seconds"],
+                or 0
+            )
+        sent = await send_prose(
+            anchor,
+            services,
+            payload["text"],
+            kind=MessageKind(payload["kind"]),
+            event_id=uuid4().hex,
+            replace=False,
+            reads_as=payload.get("reads_as"),
+            related_id=row.id,
+        )
+        async with services.sessions() as session:
+            source = await session.get(TelegramMessage, row.source_note_id)
+            first = await session.scalar(
+                select(TelegramMessage)
+                .where(
+                    TelegramMessage.chat_id == anchor.chat.id,
+                    TelegramMessage.message_id > before,
+                    TelegramMessage.message_id <= sent.message_id,
+                    TelegramMessage.text.is_not(None),
                 )
-            if payload.get("open_item"):
-                from ..telegram import open_citation
-
-                await open_citation(anchor, services, payload["open_item"])
+                .order_by(TelegramMessage.message_id)
+            )
+            if first is not None:
+                if source is not None:
+                    message_id = first.message_id
+                    source.displayed_at = first.displayed_at or first.created_at
+                    await session.delete(first)
+                    await session.flush()
+                    source.message_id = message_id
+                else:
+                    first.created_at = datetime.fromisoformat(payload["at"])
+                    stored = await session.get(DeferredDelivery, row.id)
+                    stored.source_note_id = first.id
+            await session.commit()
+        if payload.get("passing_seconds") is not None:
+            await services.chat.let_pass(
+                anchor,
+                kind=payload["kind"],
+                seconds=payload["passing_seconds"],
+            )

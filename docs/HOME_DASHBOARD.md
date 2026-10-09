@@ -12,9 +12,9 @@ shell's, TG-HOME-023 in [telegram_history.feature](../tests/brd/tg_agent_shell/t
 and the check that draws it is a hook on a schedule, AG-HOOK-049 and AG-HOOK-050 in
 [agents.feature](../tests/brd/tg_agent_shell/agents.feature).
 
-With Secret word set, automatic clearing instead locks access and leaves the chat empty,
-including its unanswered hooks. Those hooks and new answers prepared while locked are stored;
-entering the word deletes attempts, restores the hooks and draws Home last. That Home is a
+With Secret word set, automatic clearing instead locks access and hides its unanswered hooks.
+Reminder and Schedule Remind answers still reach the chat without links; new hook requests wait.
+Entering the word deletes attempts, restores messages with links, runs waiting hooks and draws Home last. That Home is a
 dashboard without a reset: the conversation boundary precedes the restored hooks.
 The access gate and durable delivery are described in [CHAT_ACCESS.md](CHAT_ACCESS.md).
 

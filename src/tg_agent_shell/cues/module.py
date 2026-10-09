@@ -53,6 +53,7 @@ async def _poll_cues(context: BackgroundContext) -> None:
         release=runtime.release,
         expire=runtime.expire_review,
         prepare=runtime.prepare,
+        allow_hooks=runtime.allow_hooks,
         passing=context.services.hooks.passing,
         poll_seconds=context.poll_seconds,
     )

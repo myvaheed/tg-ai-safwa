@@ -106,6 +106,15 @@ def split_telegram_text(text: str, limit: int = TELEGRAM_TEXT_LIMIT) -> list[str
     return chunks
 
 
+def without_links(text: str) -> str:
+    """Keep link labels; literal URLs cannot become automatic Telegram links either."""
+    text = re.sub(r"</?a\b[^>]*>", "", text, flags=re.IGNORECASE)
+    plain = telegram_html_to_text(text, ())
+    if re.search(r"\w+://|\b(?:[\w-]+\.)+\w{2,}\b|@\w+", plain):
+        return f"<pre>{html.escape(plain)}</pre>"
+    return text
+
+
 def _open_tags(text: str) -> list[tuple[str, str]]:
     """The tags still open at the end of `text`, outermost first, with their own markup."""
     stack: list[tuple[str, str]] = []

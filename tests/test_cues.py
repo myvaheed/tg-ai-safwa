@@ -134,6 +134,31 @@ async def remaining(sessions) -> list[str]:
         return [cue.text for cue in await session.scalars(select(Cue).order_by(Cue.id))]
 
 
+async def test_locked_hook_queue_lets_reminder_words_through_without_preparing_hooks(sessions):
+    """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
+    async with sessions() as session:
+        await add_hook_cue(session, hook="test.hook", items=[1])
+        await add_cue(session, text="A Reminder triggered.")
+        await add_hook_cue(session, hook="test.hook", items=[2])
+        await session.commit()
+    recorder = Recorder()
+    prepared = []
+
+    async def prepare(hook, items):
+        prepared.append((hook, items))
+        return "The hook is ready after unlock."
+
+    assert await tick(sessions, **_hooks(recorder), prepare=prepare, allow_hooks=lambda: False)
+    assert recorder.said == ["A Reminder triggered."] and prepared == []
+    async with sessions() as session:
+        waiting = await waiting_cues(session)
+        assert len(waiting) == 2 and all(row.event_id is None for row in waiting)
+    assert await tick(sessions, **_hooks(recorder), prepare=prepare)
+    assert prepared == [("test.hook", [1, 2])]
+    assert recorder.said[-1] == "The hook is ready after unlock."
+    assert await remaining(sessions) == []
+
+
 async def test_ag_cue_029_a_waiting_cue_is_said_once_and_then_gone(sessions):
     """AG-CUE-029 — tests/brd/tg_agent_shell/agents.feature"""
     await write(sessions, "Sprint 1 is over.")

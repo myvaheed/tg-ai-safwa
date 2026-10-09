@@ -21,8 +21,8 @@ from .chat import (
     end_turn,
     keep_typing,
     open_turn_notice,
-    publish_prose,
     send_owner_turn,
+    send_prose,
     send_registered,
 )
 from .model import UiSession
@@ -146,11 +146,14 @@ async def run_before_turn(
     """
     if not services.hooks.listens(BeforeTurn):
         return
+    access = getattr(services, "access", None)
+    if access is not None and access.blocked and not access.unlocking:
+        return
 
     async def publish(text: str, kind: str) -> None:
         if still_current():
-            await publish_prose(
-                message, services, html.escape(text), kind=MessageKind(kind)
+            await send_prose(
+                message, services, html.escape(text), kind=MessageKind(kind), replace=False
             )
 
     context = RunContext(
@@ -187,6 +190,9 @@ async def run_after_turn(message: Message, services: Services, event: AfterTurn)
     """
     if services.usage is not None:
         await services.usage.finish()
+    access = getattr(services, "access", None)
+    if access is not None and access.blocked and not access.unlocking:
+        return
 
     async def run(still_current: Callable[[], bool]) -> None:
         if services.turn.dialogue_revision != event.dialogue_revision:
@@ -194,8 +200,8 @@ async def run_after_turn(message: Message, services: Services, event: AfterTurn)
 
         async def publish(text: str, kind: str) -> None:
             if still_current():
-                await publish_prose(
-                    message, services, html.escape(text), kind=MessageKind(kind)
+                await send_prose(
+                    message, services, html.escape(text), kind=MessageKind(kind), replace=False
                 )
 
         async for checked in services.hooks.evaluate(event, services.sessions):
@@ -222,7 +228,7 @@ async def run_after_turn(message: Message, services: Services, event: AfterTurn)
                 name = checked.spec.name
                 logger.error("The after-turn hook %s failed: %s", name, error)
                 try:
-                    await publish_prose(
+                    await send_registered(
                         message, services,
                         f"{html.escape(name)}, which runs after the answer, failed: "
                         f"{html.escape(str(error))}\nYour answer above stands.",

@@ -32,7 +32,7 @@ from aiogram.types import (
 )
 
 from .notes import Note, NoteStore
-from .text import split_telegram_text
+from .text import split_telegram_text, without_links
 from .window import SCAN_LIMIT
 
 logger = logging.getLogger(__name__)
@@ -219,6 +219,7 @@ class ChatHost:
         replace: bool | None = None,
         reads_as: Sequence[Mapping[str, Any]] | None = None,
         related_id: int | None = None,
+        links: bool = True,
     ) -> Message:
         """Put words in the chat in as many messages as Telegram needs, and return the last.
 
@@ -238,7 +239,7 @@ class ChatHost:
             first, last = index == 0, index == len(parts) - 1
             sent, delivery = await self._draw(
                 message,
-                part,
+                part if links else without_links(part),
                 event_id=event_id if last else None,
                 replace=replace if first else False,
             )

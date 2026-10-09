@@ -27,10 +27,11 @@ from ..history import TelegramMessage
 from ..hooks.contracts import BeforeTurn, Shown
 from ..proposals.model import BatchDecision
 from ..proposals.telegram import render_ai_outcome
-from ..telegram import Services, expire_review, owner_anchor, render_citations
-from ..telegram.chat import clear_draw_home, publish_prose
+from ..telegram import Services, expire_review, owner_anchor, render_citations, send_prose
+from ..telegram.chat import clear_draw_home
 from ..telegram.dialogue import run_before_turn
 from ..turn import own_cancellation
+from .background import tick
 from .initiatives import TickChat
 
 logger = logging.getLogger(__name__)
@@ -69,15 +70,15 @@ async def speak_on_schedule(
     if not still_current() or not await chat_is_free(services):
         return
     access = getattr(services, "access", None)
-    if access is not None and (access.unlocking or (kind == MessageKind.HOME.value and access.blocked)):
+    if access is not None and access.blocked:
         return
 
     async def say(current: Callable[[], bool]) -> None:
         if not (current() and still_current()):
             return
         if kind != MessageKind.HOME.value:
-            await publish_prose(
-                anchor, services, html.escape(text), kind=MessageKind(kind)
+            await send_prose(
+                anchor, services, html.escape(text), kind=MessageKind(kind), replace=False
             )
             return
         if access is not None and await access.enabled():
@@ -115,10 +116,11 @@ def tick_chat(services: Services, anchor: Message) -> TickChat:
 class CueRuntime:
     """The hooks a poll needs to speak to the owner, bound to the bot and the Advisor."""
 
-    def __init__(self, services: Services, bot: Bot, *, owner_id: int) -> None:
+    def __init__(self, services: Services, bot: Bot, *, owner_id: int, anchor: Message | None = None) -> None:
         self.services = services
         self.bot = bot
         self.owner_id = owner_id
+        self.anchor = anchor
         self._lease_revision: int | None = None
 
     async def expire_review(self) -> None:
@@ -137,11 +139,11 @@ class CueRuntime:
         finally:
             self.services.turn.end_background(revision)
 
-    async def can_speak(self) -> bool:
+    async def can_speak(self, *, restoring: bool = False) -> bool:
         """Whether the Advisor is free enough to be handed an unsolicited request, with
         the lease taken for it when it is."""
         access = getattr(self.services, "access", None)
-        if access is not None and access.unlocking:
+        if access is not None and access.unlocking and not restoring:
             return False
         if not await chat_is_free(self.services):
             return False
@@ -149,6 +151,10 @@ class CueRuntime:
             return False
         self._lease_revision = self.services.turn.dialogue_revision
         return True
+
+    def allow_hooks(self) -> bool:
+        access = getattr(self.services, "access", None)
+        return access is None or not access.blocked
 
     def still_current(self) -> bool:
         return (
@@ -170,9 +176,6 @@ class CueRuntime:
     async def delivered(self, event_id: str) -> bool:
         """Whether the turn under this id reached the chat: its message was registered,
         even if the process stopped before the rows it said were settled."""
-        access = getattr(self.services, "access", None)
-        if access is not None and await access.accepted(event_id):
-            return True
         async with self.services.sessions() as session:
             found = await session.scalar(
                 select(TelegramMessage.id).where(
@@ -233,16 +236,15 @@ class CueRuntime:
                         return False
                 async with self.services.sessions() as session:
                     body = await render_citations(session, self.services, markdown_to_telegram_html(outcome.message))
-                if await access.defer(self._anchor(), {
-                    "text": body, "kind": kind.value if outcome.turn else MessageKind.EVENT.value,
-                    "reads_as": list(outcome.turn) or None,
-                    "open_item": outcome.open_item,
-                    "passing_seconds": passing.total_seconds() if passing is not None else None,
-                }, event_id=event_id):
-                    return True
-            await render_ai_outcome(
-                self._anchor(), self.services, outcome, kind=kind, event_id=event_id
-            )
+                await send_prose(
+                    self._anchor(), self.services, body,
+                    kind=kind if outcome.turn else MessageKind.EVENT,
+                    event_id=event_id, replace=False, reads_as=outcome.turn or None, links=access.unlocking,
+                )
+            else:
+                await render_ai_outcome(
+                    self._anchor(), self.services, outcome, kind=kind, event_id=event_id
+                )
             if passing is not None:
                 await self.services.chat.let_pass(
                     self._anchor(), kind=kind.value, seconds=passing.total_seconds()
@@ -286,4 +288,18 @@ class CueRuntime:
 
     def _anchor(self) -> Message:
         """A stand-in for the message that would normally have started this turn."""
-        return owner_anchor(self.bot, self.owner_id)
+        return self.anchor if self.anchor is not None else owner_anchor(self.bot, self.owner_id)
+
+
+async def resume_cues(services: Services, anchor: Message) -> None:
+    """Say the requests waiting at entry before Home, while new owner updates stay gated."""
+    runtime = CueRuntime(services, anchor.bot, owner_id=anchor.chat.id, anchor=anchor)
+    await tick(
+        services.sessions,
+        gate=lambda: runtime.can_speak(restoring=True),
+        speak=runtime.speak,
+        delivered=runtime.delivered,
+        release=runtime.release,
+        prepare=runtime.prepare,
+        passing=services.hooks.passing,
+    )

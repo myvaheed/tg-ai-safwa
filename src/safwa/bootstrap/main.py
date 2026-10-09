@@ -235,9 +235,6 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
 
     # Before the advisor: a subagent's read tool may send pictures to the chat itself.
     chat = ChatHost(TelegramNotes(database.sessions), spawn=spawn)
-
-    async def publish_photos(anchor, photos, *, kind):
-        await services.access.photos(anchor, photos, kind=kind)
     # The advisor is built after the history source because a subagent reads through it.
     advisor = REGISTRY.root_session(
         database.sessions,
@@ -261,7 +258,6 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
                 switches=REGISTRY.hooks.agent_related,
                 chat=chat,
                 bot=bot,
-                publish_photos=publish_photos,
             )
         ),
         helpers=REGISTRY.helper_ports(provider, query_runner),
