@@ -46,7 +46,6 @@ from .use_cases import (
     create_card,
     delete_subtree,
     finish_card,
-    holds_subgoals,
     move_card,
     reopen_card,
     require_finished_actions,
@@ -54,6 +53,7 @@ from .use_cases import (
     toggle_card_category,
     toggle_card_energy_type,
     update_card_fields,
+    validate_parent,
 )
 
 PARENT_HINT = (
@@ -76,17 +76,8 @@ CARD_SCALAR_FIELDS = frozenset(
 )
 
 
-def allows_parent(child_kind: str | None, parent_kind: str | None) -> bool:
-    # A Goal given a parent is the Subgoal it becomes.
-    if child_kind in {CardKind.GOAL.value, CardKind.SUBGOAL.value}:
-        return parent_kind == CardKind.GOAL.value
-    if child_kind == CardKind.ACTION.value:
-        return parent_kind in {CardKind.GOAL.value, CardKind.SUBGOAL.value}
-    return False
-
-
 async def _resolve_parent_reference(
-    context: PreparationContext, values: dict[str, Any], child_kind: str | None
+    context: PreparationContext, values: dict[str, Any], card_id: int | None,
 ) -> None:
     """Turn `parent`, an id or an exact title, into the `parent_id` Save writes."""
     session = context.session
@@ -127,27 +118,21 @@ async def _resolve_parent_reference(
     if "parent_id" not in values:
         return
     parent_id = values["parent_id"]
-    if parent_id is None:
-        if child_kind == CardKind.SUBGOAL.value:
-            raise ToolPreparationError(
-                "parent_required",
-                "A Subgoal is always under a Goal.",
-                "Keep its parent, or name another Goal as parent.",
-            )
-        return
-    parent = await session.get(Card, int(parent_id))
-    if parent is None or parent.archived_at is not None:
+    parent = await session.get(Card, int(parent_id)) if parent_id is not None else None
+    if parent_id is not None and (parent is None or parent.archived_at is not None):
         raise ToolPreparationError(
             "reference_not_found",
             f"Parent Card #{parent_id} does not exist or is archived.",
             PARENT_HINT,
         )
-    if not allows_parent(child_kind, parent.kind):
+    try:
+        await validate_parent(session, parent_id, card_id=card_id)
+    except DomainError as error:
         raise ToolPreparationError(
-            "invalid_parent_kind",
-            f"A {child_kind or 'Card'} cannot have a {parent.kind} parent.",
-            "Choose a parent this Card may hang under, or drop the parent and leave it root-level.",
-        )
+            "invalid_parent",
+            str(error),
+            "Choose a Goal outside this branch within the depth limit, or leave the Card root-level.",
+        ) from error
 
 
 def _refuse_wrong_tool(card: Card, addressed: str | None) -> None:
@@ -279,16 +264,7 @@ class CardProposalHandler:
             and card is not None
         ):
             await require_finished_actions(context.session, card.id)
-        await _resolve_parent_reference(context, values, str(proposed_kind))
-        if card is not None and card.kind == CardKind.GOAL.value and values.get("parent_id"):
-            if await holds_subgoals(context.session, card.id):
-                raise ToolPreparationError(
-                    "invalid_parent_kind",
-                    f"Goal “{card.title}” has Subgoals under it and cannot become a Subgoal.",
-                    "Leave it root-level, or move its Subgoals elsewhere first.",
-                )
-            # What Save will do, so the review screen and the receipt say it.
-            values["kind"] = CardKind.SUBGOAL.value
+        await _resolve_parent_reference(context, values, card.id if card else None)
         for spec in CARD_REFERENCE_SPECS:
             await validate_named_references(context.session, values, spec)
         await _guard_pending_checks(context.session, change)

@@ -31,7 +31,7 @@ from ...tags.model import CardTag, Tag
 from ...values.model import CardValue, Value
 from ..hierarchy import card_progress
 from ..model import Card, CardCategory, CardEnergyType, CardKind, CardStage
-from .presentation import card_overview_text, card_title_marks
+from .presentation import card_nesting, card_overview_text, card_title_marks
 
 
 async def render_card(
@@ -178,7 +178,7 @@ async def render_card(
                     )
                 ]
             )
-        if card.kind in {CardKind.GOAL.value, CardKind.SUBGOAL.value}:
+        if card.kind == CardKind.GOAL.value:
             relationship_rows.append(
                 [
                     await place_button(
@@ -200,7 +200,7 @@ async def render_card(
                 )
                 for value in direct_values
             ]
-            if full or card.kind == CardKind.GOAL.value
+            if full or (card.kind == CardKind.GOAL.value and card.parent_id is None)
             else []
         )
         relationship_rows.extend(
@@ -350,11 +350,14 @@ async def render_card(
         ]
         closed_at = card.completed_at
         summary = await schedule_summary(session, card)
+        nesting = await card_nesting(session, card.parent_id) if card.kind == CardKind.GOAL.value else 0
         await session.commit()
     text = with_notice(
         card_overview_text(
             {
                 "kind": card.kind,
+                "parent_id": card.parent_id,
+                "nesting": nesting,
                 "title": card.title + card_marks,
                 "parent_name": parent.title if parent else None,
                 "stage": card.effective_stage,

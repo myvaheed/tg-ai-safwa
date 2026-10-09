@@ -39,7 +39,7 @@ async def test_finished_actions_ask_once_and_the_owners_choice_closes_only_the_g
     async with sessions() as session:
         await set_hook_switch(session, ONBOARDING_HOOK.name, on=False)
         goal = await create_card(session, kind="goal", title="Learn Spanish")
-        subgoal = await create_card(session, kind="subgoal", title="Read a book", parent_id=goal.id)
+        subgoal = await create_card(session, kind="goal", title="Read a book", parent_id=goal.id)
         first = await create_card(
             session, kind="action", title="Buy the book", effort_points=1, parent_id=subgoal.id
         )

@@ -270,7 +270,7 @@ async def test_cd_time_040_a_goal_shows_the_time_of_the_actions_under_it(session
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Move house")
         empty = await create_card(session, kind="goal", title="Learn Spanish")
-        subgoal = await create_card(session, kind="subgoal", title="Pack", parent_id=goal.id)
+        subgoal = await create_card(session, kind="goal", title="Pack", parent_id=goal.id)
         books, kitchen, _ = [
             await create_card(
                 session, kind="action", title=title, effort_points=1, parent_id=subgoal.id

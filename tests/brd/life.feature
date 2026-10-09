@@ -63,7 +63,7 @@ Feature: Life in weeks
     Then each week takes the colour of the one most of its finished Actions carried, a Category
       and an Energy type in their colours of RT-CHART-020, and the close-up stacks each week's
       mix
-    And an Action serves a Value it carries, or one its Goal or Subgoal carries
+    And an Action serves a Value it carries, or one any of its ancestor Goals carries
     And an Action carrying two counts for both, and a week whose finished Actions carry none of
       them is pale
     And below the album: "All", then a button for each Category or Energy type the finished

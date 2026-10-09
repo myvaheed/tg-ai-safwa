@@ -576,7 +576,7 @@ async def test_ob_return_007_actions_stand_under_their_goal_and_subgoal(sessions
     """OB-RETURN-007 — tests/brd/onboarding.feature"""
     async with sessions() as session:
         health = await create_card(session, kind="goal", title="Health")
-        sleep = await create_card(session, kind="subgoal", title="Sleep", parent_id=health.id)
+        sleep = await create_card(session, kind="goal", title="Sleep", parent_id=health.id)
         bed = await create_card(
             session, kind="action", title="Bed at ten", stage="today", effort_points=1,
             parent_id=sleep.id,
@@ -615,6 +615,23 @@ async def test_ob_return_007_actions_stand_under_their_goal_and_subgoal(sessions
             "matter to them. No Sprint is running: offer to start a new one."
         ),
     )
+
+
+async def test_ob_return_007_every_ancestor_of_a_deep_action_is_cited(sessions):
+    """OB-RETURN-007 — tests/brd/onboarding.feature"""
+    async with sessions() as session:
+        goals = []
+        for level in range(6):
+            goals.append(await create_card(
+                session, kind="goal", title=f"Level {level + 1}",
+                parent_id=goals[-1].id if goals else None,
+            ))
+        action = await create_card(session, kind="action", title="Work", stage="today", parent_id=goals[-1].id)
+        said = await return_request(session, [20])
+        lines = said.block.splitlines()
+        for depth, goal in enumerate(goals):
+            assert "    " * depth + f"[{goal.title}](card:{goal.id})" in lines
+        assert "    " * len(goals) + f"[Work](card:{action.id}) — Today" in lines
 
 
 async def test_ob_return_007_many_actions_are_listed_up_to_30_today_first(sessions):

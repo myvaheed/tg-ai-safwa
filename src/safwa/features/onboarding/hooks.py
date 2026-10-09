@@ -32,7 +32,7 @@ from tg_agent_shell.hooks.contracts import (
 
 from ...constants import INBOX_TAG_NAME
 from ..cards.api import CardStage, planned_actions
-from ..cards.model import Card, CardCheck, CardKind
+from ..cards.model import Card, CardCheck, CardKind, card_kind_name
 from ..cards.use_cases import CARD_CREATED, CARD_DONE, CARD_TODAY
 from ..checks.model import CHECK_OUTCOME_LABELS, Check
 from ..checks.use_cases import CHECK_ANSWERED, CHECK_CREATED, check_card_id
@@ -94,13 +94,6 @@ ONBOARDING_NOTICE = (
     "onboarding, say so and it stops."
 )
 
-_KIND_NAMES = {
-    CardKind.GOAL.value: "a Goal",
-    CardKind.SUBGOAL.value: "a Subgoal",
-    CardKind.ACTION.value: "an Action",
-}
-
-
 async def what_changed(event: Committed) -> tuple[tuple[str, int], ...]:
     return ((event.kind, event.subject_id),)
 
@@ -116,7 +109,8 @@ async def _card_state(session: AsyncSession, card: Card) -> str:
     values = await session.scalar(
         select(func.count()).select_from(CardValue).where(CardValue.card_id == card.id)
     )
-    parts = [f"{_KIND_NAMES.get(card.kind, 'a Card')} in {card.effective_stage.title()}"]
+    article = "an" if card.kind == CardKind.ACTION.value else "a"
+    parts = [f"{article} {card_kind_name(card.kind, card.parent_id)} in {card.effective_stage.title()}"]
     if card.schedule:
         parts.append("has a Schedule")
     parts += [_count(checks or 0, "Check"), _count(values or 0, "Value")]
@@ -333,32 +327,37 @@ def _cited(card: Card) -> str:
 
 
 async def _tree(session: AsyncSession, actions: Sequence[Card]) -> list[str]:
-    """Each Action under its Goal, and under its Subgoal when it has one, Goals in the order
-    they were made, and the Actions with no Goal last, in a group of their own."""
-    parents: dict[int, Card] = {}
-    groups: dict[int | None, dict[int | None, list[Card]]] = {}
+    """The selected Actions under every ancestor, with rootless Actions last."""
+    parents: set[int] = set()
+    children: dict[int | None, list[Card]] = {}
     for action in actions:
-        goal = await session.get(Card, action.parent_id) if action.parent_id else None
-        subgoal = None
-        if goal is not None and goal.kind == CardKind.SUBGOAL.value:
-            subgoal = goal
-            goal = await session.get(Card, subgoal.parent_id) if subgoal.parent_id else None
-        parents.update({card.id: card for card in (goal, subgoal) if card is not None})
-        under_goal = groups.setdefault(goal.id if goal else None, {})
-        under_goal.setdefault(subgoal.id if subgoal else None, []).append(action)
+        children.setdefault(action.parent_id, []).append(action)
+        parent_id = action.parent_id
+        while parent_id is not None and parent_id not in parents:
+            parent = await session.get(Card, parent_id)
+            assert parent is not None
+            parents.add(parent.id)
+            children.setdefault(parent.parent_id, []).append(parent)
+            parent_id = parent.parent_id
     lines: list[str] = []
-    for goal_id in sorted(groups, key=lambda key: (key is None, key or 0)):
-        lines.append(_cited(parents[goal_id]) if goal_id is not None else "No Goal")
-        under_goal = groups[goal_id]
-        for subgoal_id in sorted(under_goal, key=lambda key: (key is not None, key or 0)):
-            indent = _INDENT
-            if subgoal_id is not None:
-                lines.append(_INDENT + _cited(parents[subgoal_id]))
-                indent = _INDENT * 2
-            lines += [
-                f"{indent}{_cited(action)} — {action.effective_stage.title()}"
-                for action in under_goal[subgoal_id]
-            ]
+
+    def branch(parent_id: int | None, depth: int) -> None:
+        group = children.get(parent_id, [])
+        for action in group:
+            if action.kind == CardKind.ACTION.value:
+                lines.append(f"{_INDENT * depth}{_cited(action)} — {action.effective_stage.title()}")
+        for goal in sorted((card for card in group if card.kind == CardKind.GOAL.value), key=lambda card: card.id):
+            lines.append(_INDENT * depth + _cited(goal))
+            branch(goal.id, depth + 1)
+
+    roots = children.get(None, [])
+    for goal in sorted((card for card in roots if card.kind == CardKind.GOAL.value), key=lambda card: card.id):
+        lines.append(_cited(goal))
+        branch(goal.id, 1)
+    independent = [card for card in roots if card.kind == CardKind.ACTION.value]
+    if independent:
+        lines.append("No Goal")
+        lines.extend(f"{_INDENT}{_cited(action)} — {action.effective_stage.title()}" for action in independent)
     return lines
 
 

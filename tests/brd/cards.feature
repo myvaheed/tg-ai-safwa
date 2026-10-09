@@ -1,40 +1,40 @@
 Feature: Cards
-  A Card is one thing the owner means to do. It is a Goal, a Subgoal or an Action, and those three
-  form a strict tree: a Goal at the root, Subgoals under it, Actions at the bottom doing the work.
-  What a Card may carry depends on which of the three it is.
+  A Card is one thing the owner means to do. Its kind is Goal or Action.
+  Goals form a tree; a Goal with a parent is displayed as a Subgoal, and Actions are its leaves.
+  What a Card may carry depends on its kind.
 
   Numbers below name the constant they come from; the tests read the constant.
 
   Background:
     Given a workspace where a Card can be written by the owner or proposed by Safwa
 
-  Scenario: CD-KIND-001 — A Card is a Goal, a Subgoal or an Action, and it stays the one it was created as
-    Given a Card exists as a Subgoal
+  Scenario: CD-KIND-001 — A Card is a Goal or an Action, and its kind never changes
+    Given a Card exists as a Goal with a parent, displayed as a Subgoal
     When the owner or Safwa tries to make it an Action
-    Then the change is refused and the Card is still a Subgoal
+    Then the change is refused and the Card is still a Goal displayed as a Subgoal
     And the only way to have an Action instead is to create one
-    And the kinds that change without being asked to are a Subgoal whose Goal was deleted on
-      its own, by CD-DELETE-025, and a Goal placed under a Goal, by CD-TREE-002
+    And changing or removing its parent never changes its kind
 
-  Scenario: CD-TREE-002 — A Goal is created root-level, and one placed under a Goal becomes a Subgoal
+  Scenario: CD-TREE-002 — A Goal with a parent is displayed as a Subgoal
     Given the owner has Goals "Health" and "Life"
     When a Goal is proposed with a parent
-    Then it is created as a Subgoal under that parent
+    Then it is created as a Goal and displayed as a Subgoal under that parent
     When "Health" is placed under "Life"
-    Then "Health" is a Subgoal under "Life", and its history records the change of kind
-    And the review screen showed the kind changing before Save
+    Then "Health" is displayed as a Subgoal under "Life", and its history records the change of parent
+    And the review screen showed the new parent and the Subgoal label before Save, without a change of kind
     When a Goal with a Subgoal under it is placed under a Goal
-    Then it is refused, and the refusal says a Goal with Subgoals under it cannot become a Subgoal
-    And a Goal placed under a Subgoal or an Action is refused as a Subgoal would be
+    Then its whole branch moves with it, within the depth limit (CD-TREE-049)
+    And a Goal may be placed under another Subgoal, but never under an Action or its own descendant
 
-  Scenario: CD-TREE-003 — A Subgoal belongs to a Goal
+  Scenario: CD-TREE-003 — Nested Goals can have children or become root-level
     Given a Goal "Health" and a Subgoal "Sleep better"
     When "Sleep better" is placed under "Health"
     Then it is placed there
     When another Subgoal is placed under "Sleep better"
-    Then it is refused, and the refusal says a Subgoal may only be placed under a Goal
-    And taking a Subgoal's parent away is refused the same way
-    And no screen offers Subgoal as a kind, because no screen sets a parent
+    Then it is accepted within the depth limit
+    When a Subgoal's parent is removed
+    Then it is root-level, displayed as a Goal, with its children still attached
+    And no screen offers Subgoal as a separate kind
 
   Scenario: CD-TREE-004 — An Action belongs to a Goal, a Subgoal or no one, and nothing belongs to an Action
     Given a Goal, a Subgoal under it, and an Action "Buy a pillow"
@@ -252,8 +252,10 @@ Feature: Cards
     When the owner asks for the Goal to be deleted
     Then they are offered both: the branch, and the Goal alone
     And deleting the branch leaves nothing of it, open or closed, archived or not
-    And deleting the Goal alone keeps what was under it: a Subgoal becomes a Goal, because a
-      Subgoal cannot stand without one, and an Action is left under no one
+    And deleting one Card alone gives its direct children its parent, if it has one
+    And without a parent its direct children become root-level
+    And the children's descendants stay attached, their kinds stay the same, and history records the new parents
+    And the remaining ancestors still show the effort, time and stages of the surviving Actions
     And a Card with nothing under it is deleted without the choice, the two being the same
     And a Check that was on a deleted Card is deleted with it, answered or Pending
     And a Check that carries a Value stays instead, with no Card
@@ -413,5 +415,20 @@ Feature: Cards
 
   Scenario: CD-BUTTON-048 — A Card on a button is named by emoji, never by the word for its kind
     Given a Card shown as a button among others of several stages, such as a Goal's children or a Request's Cards
-    Then the button shows its kind as 🎯, 🧩 or ⭐️ and its stage as 📚, 🏃, ☀️ or ✅, and no word for either
+    Then the button shows a Goal as 🎯, ↳🎯 with one ancestor, ↳↳🎯 with two, or ↳(n)🎯 with three or more, and an Action as ⭐️
+    And its stage is 📚, 🏃, ☀️ or ✅, and no word names either its kind or stage
+    And the same Goal marker is shown in its screen, lists, citations and proposal preview, counting the current or proposed ancestors
     And a list of one stage, such as the Backlog, does not name that stage at all
+
+  Scenario: CD-TREE-049 — The tree has at most seven levels, including Actions
+    Given a Card tree, counting a root Card as level 1
+    When a Goal or Action is created at level 7 (CARD_TREE_DEPTH_MAX = 7)
+    Then it is accepted
+    When a Card would be created below level 7, or moving a branch would put any descendant below it
+    Then it is refused before review and again on Save, without changing the branch
+    And a branch moved within the limit keeps its children and repairs both its previous and new ancestors
+
+  Scenario: CD-TREE-050 — A Card cannot be placed under itself or any descendant
+    Given a Goal with several nested Goals under it
+    When the Goal is proposed as its own parent, or moved under any of its descendants
+    Then it is refused before review and again on Save, without changing any parent or version

@@ -200,7 +200,7 @@ open item has: a `fixed` rule that is not all-day, or a Deadline with a time, wi
 set to the open instance's moment, and nothing for a one-time moment already past. While it
 has one, or Remind is on, the "⏱ Schedule" or "⏰ Deadline" button opens a screen with how the
 Schedule was read, `🔔 Remind: Off|On`, `✏️ Edit` and `↩️ Back`; otherwise it opens the editor
-at once. Every kind is offered it alike: Action, Goal, Subgoal and independent Check.
+at once. Every kind is offered it alike: Action, Goal (including nested Goals) and independent Check.
 
 Remind On is an ordinary Reminder, fired by the Reminders' tick, with the words of
 `REMIND_TEXT` naming the item by `#id` and title. Its `item_type` and `item_id` name the item.

@@ -79,7 +79,7 @@ Feature: Onboarding
     Then Safwa answers that message first
     And once the chat is free, one more message comes that opens with how many days it has been
       and the Actions in Today and in the Sprint, each marked Today or Sprint, under its Goal,
-      and under its Subgoal when it has one, every Card cited
+      and under every nested Goal between them, every Card cited
     And Actions with no Goal stand in a group of their own
     And below the list the Advisor is asked to find out which of them still matter, and to offer
       a new Sprint when none is running

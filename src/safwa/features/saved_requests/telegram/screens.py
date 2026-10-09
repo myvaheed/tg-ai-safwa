@@ -111,7 +111,7 @@ async def render_saved_request(
                 await place_button(
                     session,
                     services.owner_id,
-                    item_button_label(card),
+                    await item_button_label(session, card),
                     here.child("card_view", id=card.id),
                 )
             ]

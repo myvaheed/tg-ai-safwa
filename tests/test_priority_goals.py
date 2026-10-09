@@ -44,7 +44,7 @@ async def test_priority_goals_are_open_root_goals_of_every_priority(sessions, go
             await _goal(session, f"Filler {index}", priority="low")
         closed = await _goal(session, "Closed", priority="critical")
         await finish_card(session, closed.id)
-        await create_card(session, kind="subgoal", title="Subgoal", parent_id=low.id)
+        await create_card(session, kind="goal", title="Subgoal", parent_id=low.id)
         await create_card(session, kind="action", title="Action", priority="critical")
         await session.commit()
         context = await state.workspace_context(session)
@@ -90,7 +90,7 @@ async def test_goals_with_planned_work_through_subgoals_come_before_other_equal_
     async with sessions() as session:
         await _goal(session, "Earlier deadline", deadline=near)
         planned = await _goal(session, "Planned", deadline=near + timedelta(days=1))
-        subgoal = await create_card(session, kind="subgoal", title="Milestone", parent_id=planned.id)
+        subgoal = await create_card(session, kind="goal", title="Milestone", parent_id=planned.id)
         await create_card(
             session, kind="action", title="Next step", parent_id=subgoal.id, stage=stage
         )

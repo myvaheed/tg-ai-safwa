@@ -40,10 +40,11 @@ from ..model import (
     CardKind,
     CardStage,
     Priority,
+    card_kind_name,
     minutes_label,
 )
 from ..references import CARD_REFERENCE_SPECS
-from .presentation import card_overview_text, category_expression, energy_expression
+from .presentation import card_nesting, card_overview_text, category_expression, energy_expression
 
 CARD_DETAIL_FIELDS = (
     "kind",
@@ -86,6 +87,8 @@ def normalized_card_details(values: dict[str, Any], *, creating: bool) -> dict[s
         if fields.get("kind") == CardKind.ACTION.value:
             fields.setdefault("categories", [])
             fields.setdefault("energy_types", [])
+    if "kind" in fields:
+        fields["kind"] = card_kind_name(fields["kind"], values.get("parent_id", values.get("parent"))).lower()
     for spec in CARD_REFERENCE_SPECS:
         if referenced := reference_details(values, spec):
             fields[spec.field] = referenced
@@ -101,7 +104,7 @@ def _detail(field: str, value: Any) -> str:
 
 async def _card_detail_snapshot(session: AsyncSession, card: Card) -> dict[str, Any]:
     return {
-        "kind": card.kind,
+        "kind": card_kind_name(card.kind, card.parent_id).lower(),
         "title": card.title,
         "note": card.note,
         "stage": card.effective_stage,
@@ -219,14 +222,12 @@ async def _card_display_state(
         )
     parent = await session.get(Card, state.get("parent_id")) if state.get("parent_id") else None
     display["parent_name"] = parent.title if parent else None
+    display["nesting"] = await card_nesting(session, state.get("parent_id")) if state.get("kind") == CardKind.GOAL.value else 0
     for spec in CARD_REFERENCE_SPECS:
         display[f"{spec.key}_names"] = await reference_names(
             session, spec, state.get(spec.field)
         )
-    if display.get("id") and display.get("kind") in {
-        CardKind.GOAL.value,
-        CardKind.SUBGOAL.value,
-    }:
+    if display.get("id") and display.get("kind") == CardKind.GOAL.value:
         display.update(await card_progress(session, int(display["id"])))
     return display
 
@@ -330,7 +331,7 @@ class CardProposalPresenter:
         elif change.action is ChangeAction.REOPEN:
             proposed = {"stage": values.get("stage", CardStage.BACKLOG.value)}
         elif change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}:
-            return [f"Card: {card.kind.title()} #{card.id} “{card.title}”"]
+            return [f"Card: {card_kind_name(card.kind, card.parent_id)} #{card.id} “{card.title}”"]
         return [
             f"{detail_label(field, CARD_LABELS)}: "
             f"{_detail(field, before.get(field))} → {_detail(field, value)}"
@@ -351,7 +352,9 @@ class CardProposalPresenter:
         )
         title = result_value(values.get("title") or (card.title if card else ""))
         kind = str(values.get("kind") or (card.kind if card else "") or "card")
-        head = f"{kind.title()} “{title}”" if title else f"Card #{change.entity_id}"
+        parent_id = values.get("parent_id", card.parent_id if card else None)
+        name = card_kind_name(kind, parent_id)
+        head = f"{name} “{title}”" if title else f"Card #{change.entity_id}"
         parent = (
             await session.get(Card, int(values["parent_id"]))
             if values.get("parent_id")
@@ -391,7 +394,7 @@ class CardProposalPresenter:
         elif action is ChangeAction.UPDATE:
             parts.extend(detail for detail in details if not detail.startswith("Parent ID:"))
         if parent is not None:
-            head += f" under {parent.kind.title()} “{result_value(parent.title)}”"
+            head += f" under {card_kind_name(parent.kind, parent.parent_id)} “{result_value(parent.title)}”"
         return f"{verb} {head}" + (f" ({' · '.join(parts)})" if parts else "")
 
     async def screen(

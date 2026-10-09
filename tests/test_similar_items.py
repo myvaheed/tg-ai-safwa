@@ -124,7 +124,7 @@ async def test_pr_similar_030_a_new_card_lists_open_cards_of_any_kind_closest_fi
     """PR-SIMILAR-030 — tests/brd/tg_agent_shell/proposals.feature"""
     async with sessions() as session:
         family = await create_card(session, kind="goal", title="Family")
-        mother = await create_card(session, kind="subgoal", title="Mother", parent_id=family.id)
+        mother = await create_card(session, kind="goal", title="Mother", parent_id=family.id)
         phone = await create_card(
             session, kind="action", title="Phone mother", stage="sprint", effort_points=1,
             parent_id=mother.id,

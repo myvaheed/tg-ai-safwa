@@ -34,7 +34,7 @@ def test_a_goal_and_an_action_are_two_tools_over_one_card():
     subgoal = PROPOSALS.change_from_tool(
         "goal", {"mode": "create", "title": "Sleep better", "parent": "Be healthy"}
     )
-    assert subgoal.values["kind"] == "subgoal"
+    assert subgoal.values["kind"] == "goal"
     # A Goal's Schedule is its Deadline.
     dated = PROPOSALS.change_from_tool("goal", {"mode": "update", "id": 7, "deadline": "by May"})
     assert dated.values == {"schedule": "by May", "kind": "goal"}

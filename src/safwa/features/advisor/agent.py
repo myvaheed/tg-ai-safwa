@@ -28,12 +28,12 @@ Write in the user's language.
 # them: two copies of a definition drift apart. Filled into `{items}`.
 ITEMS = f"""# Safwa items
 - Goal: a specific, verifiable result taking more than one day, attainable with the user's resources and meaningful to them. Deadline optional.
-- Subgoal: a Goal under a Goal, whose result contributes to its parent's result.
+- A Goal may be root-level or under another Goal. With a parent it is displayed as a Subgoal and contributes to its parent's result.
 - For a new or reframed Goal or Subgoal, put the result in `title` and an observable completion criterion in `note`.
 - Never invent targets, resources or deadlines.
 - Ongoing practice is a repeating Action, not a Goal.
 - Action: work that fits in one day. It may repeat on a Schedule, at most {ACTION_DAILY_EXECUTIONS_MAX} times a day.
-- Goals, Subgoals and Actions are Cards.
+- Goals and Actions are Cards.
 - Check: a yes/no observation with no duration, on one Card or on none. Anything more than {ACTION_DAILY_EXECUTIONS_MAX} times a day is a Check.
 - Value: a direction with no deadline. It is never Done.
 - Tag: a free label for finding things.

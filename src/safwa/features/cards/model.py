@@ -30,8 +30,14 @@ from ...foundation.models import Base, TimestampMixin, UtcDateTime
 
 class CardKind(StrEnum):
     GOAL = "goal"
-    SUBGOAL = "subgoal"
     ACTION = "action"
+
+
+CARD_TREE_DEPTH_MAX = 7
+
+
+def card_kind_name(kind: CardKind | str, parent_id: int | None = None) -> str:
+    return "Subgoal" if kind == CardKind.GOAL.value and parent_id is not None else str(kind).title()
 
 
 # What one rung costs: how the owner will be able to carry on afterwards, and what

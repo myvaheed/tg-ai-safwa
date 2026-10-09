@@ -47,7 +47,7 @@ async def render_children(
                 await place_button(
                     session,
                     services.owner_id,
-                    item_button_label(child),
+                    await item_button_label(session, child),
                     here.child("card_view", id=child.id),
                 )
             ]

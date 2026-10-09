@@ -32,7 +32,7 @@ from ...profile.api import effort_tracking_on
 from ...schedules.api import appointment_label, workspace_zone
 from ..api import list_order
 from ..model import Card, CardKind, CardStage, Priority, effort_label
-from .presentation import STAGE_EMOJIS, card_title_marks, kind_emoji
+from .presentation import STAGE_EMOJIS, card_emoji, card_title_marks
 
 # How many Cards of each stage the Dashboard shows, and how many a Backlog page lists.
 BOARD_ROWS = 10
@@ -44,7 +44,7 @@ _COLUMNS = (CardStage.BACKLOG, CardStage.SPRINT, CardStage.TODAY, CardStage.DONE
 # shown apart from the Actions rather than mixed in with them.
 _KINDS = {
     "actions": ("⭐️ Actions", (CardKind.ACTION.value,)),
-    "goals": ("🎯 Goals", (CardKind.GOAL.value, CardKind.SUBGOAL.value)),
+    "goals": ("🎯 Goals", (CardKind.GOAL.value,)),
 }
 
 
@@ -76,7 +76,7 @@ async def _title_link(session: AsyncSession, services: Services, here: Place, ca
     return await place_link(
         session,
         services,
-        f"{kind_emoji(card.kind)} {html.escape(title)}",
+        f"{await card_emoji(session, card)} {html.escape(title)}",
         here.child("card_view", id=card.id),
     )
 

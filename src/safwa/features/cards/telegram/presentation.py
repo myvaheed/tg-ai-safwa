@@ -22,15 +22,10 @@ from ..model import (
     CardStage,
     Category,
     EnergyType,
+    card_kind_name,
     effort_label,
     minutes_label,
 )
-
-_KIND_EMOJIS = {
-    CardKind.GOAL.value: "🎯",
-    CardKind.SUBGOAL.value: "🧩",
-    CardKind.ACTION.value: "⭐️",
-}
 
 STAGE_EMOJIS = {
     CardStage.BACKLOG.value: "📚",
@@ -43,12 +38,13 @@ STAGE_EMOJIS = {
 ITEM_BUTTON_LIMIT = 60
 
 
-def item_button_label(card: Card) -> str:
+async def item_button_label(session: AsyncSession, card: Card) -> str:
     """A Card on a button in a list of several stages: its kind and its stage as emoji, which
     say both without a word (CD-BUTTON-048)."""
     stage = STAGE_EMOJIS[card.effective_stage]
-    title = card.title[: ITEM_BUTTON_LIMIT - len(stage) - 6]
-    return f"{_KIND_EMOJIS[card.kind]} {title} · {stage}"
+    marker = await card_emoji(session, card)
+    title = card.title[: ITEM_BUTTON_LIMIT - len(stage) - len(marker) - 4]
+    return f"{marker} {title} · {stage}"
 
 
 CATEGORY_EMOJIS = {
@@ -98,11 +94,13 @@ def _typed_expression(values: Any, emojis: dict[str, str]) -> str:
     return ", ".join(labels) or "—"
 
 
-def kind_label(value: Any) -> str:
-    return typed_label(value, _KIND_EMOJIS)
+def kind_label(value: Any, parent_id: int | None = None, *, nesting: int = 0) -> str:
+    name = card_kind_name(str(getattr(value, "value", value)), parent_id)
+    emoji = kind_emoji(value, nesting)
+    return f"{emoji} {name}" if emoji else name
 
 
-def values_expression(kind: Any, names: list[str]) -> str:
+def values_expression(kind: Any, names: list[str], parent_id: int | None = None) -> str:
     """Name the Values on a Card, and say plainly when a Goal is carrying none.
 
     A Goal is where a Value is what says why the work is there, so an empty list is
@@ -111,12 +109,34 @@ def values_expression(kind: Any, names: list[str]) -> str:
     """
     if names:
         return ", ".join(names)
-    return "⚠️ None" if str(getattr(kind, "value", kind)) == CardKind.GOAL.value else "—"
+    return "⚠️ None" if kind == CardKind.GOAL.value and parent_id is None else "—"
 
 
-def kind_emoji(value: Any) -> str:
+def kind_emoji(value: Any, nesting: int = 0) -> str:
     """Return the compact Card-kind marker without repeating its text label."""
-    return _KIND_EMOJIS.get(str(getattr(value, "value", value)).strip().casefold(), "")
+    kind = str(getattr(value, "value", value))
+    if kind == CardKind.ACTION.value:
+        return "⭐️"
+    if kind == CardKind.GOAL.value:
+        prefix = "↳" * nesting if nesting < 3 else f"↳({nesting})"
+        return prefix + "🎯"
+    return ""
+
+
+async def card_nesting(session: AsyncSession, parent_id: int | None) -> int:
+    nesting = 0
+    while parent_id is not None:
+        parent = await session.get(Card, parent_id)
+        if parent is None:
+            break
+        nesting += 1
+        parent_id = parent.parent_id
+    return nesting
+
+
+async def card_emoji(session: AsyncSession, card: Card) -> str:
+    nesting = await card_nesting(session, card.parent_id) if card.kind == CardKind.GOAL.value else 0
+    return kind_emoji(card.kind, nesting)
 
 
 def category_expression(values: Any) -> str:
@@ -145,8 +165,9 @@ def card_overview_text(
     that Goal is there. Everything else is one button away.
     """
     kind = str(state.get("kind") or "")
+    parent_id = state.get("parent_id")
     lines = [
-        f"Kind: {html.escape(kind_label(kind))}",
+        f"Kind: {html.escape(kind_label(kind, parent_id, nesting=state.get('nesting', 0)))}",
         f"Title: <b>{html.escape(str(state.get('title') or '—'))}</b>",
     ]
     if state.get("parent_name"):
@@ -199,14 +220,14 @@ def card_overview_text(
     if compact:
         # A Goal keeps its Values even here: an empty list is what the compact view
         # exists to put in front of the owner, not what it hides.
-        if kind == CardKind.GOAL.value:
+        if kind == CardKind.GOAL.value and parent_id is None:
             lines.append(
                 f"Values: {html.escape(values_expression(kind, state.get('value_names', [])))}"
             )
         return f"<b>{html.escape(heading)}</b>\n" + "\n".join(lines)
     lines.extend(
         [
-            f"Values: {html.escape(values_expression(kind, state.get('value_names', [])))}",
+            f"Values: {html.escape(values_expression(kind, state.get('value_names', []), parent_id))}",
             f"Tags: {html.escape(', '.join(state.get('tag_names', [])) or '—')}",
         ]
     )
@@ -237,8 +258,8 @@ async def card_citation_label(session: AsyncSession, services: Any, card: Card) 
     """A Card is named by its own metadata, so a citation never restates what Safwa knows."""
     marker = await card_title_marks(session, card)
     effort_tracking = await effort_tracking_on(session)
-    leading = f"{kind_emoji(card.kind)} {short_citation_title(card.title)}{marker}"
-    if card.kind in {CardKind.GOAL.value, CardKind.SUBGOAL.value}:
+    leading = f"{await card_emoji(session, card)} {short_citation_title(card.title)}{marker}"
+    if card.kind == CardKind.GOAL.value:
         progress = await card_progress(session, card.id)
         if not effort_tracking:
             return with_citation_fields(

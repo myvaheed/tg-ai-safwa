@@ -104,10 +104,10 @@ async def actions_on_stages(session: AsyncSession, *stages: CardStage) -> list[C
 
 
 async def goal_of(session: AsyncSession, action: Card) -> Card | None:
-    """The Goal an Action is under, past a Subgoal between them, or None."""
+    """The root Goal an Action serves, through every nested Goal, or None."""
     parent = await session.get(Card, action.parent_id) if action.parent_id else None
-    if parent is not None and parent.kind == CardKind.SUBGOAL.value:
-        return await session.get(Card, parent.parent_id) if parent.parent_id else None
+    while parent is not None and parent.parent_id is not None:
+        parent = await session.get(Card, parent.parent_id)
     return parent
 
 

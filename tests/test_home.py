@@ -85,10 +85,13 @@ async def test_the_dashboard_shows_every_action_in_today(sessions) -> None:
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Launch the blog")
         subgoal = await create_card(
-            session, kind="subgoal", title="Write posts", parent_id=goal.id
+            session, kind="goal", title="Write posts", parent_id=goal.id
         )
+        nested = [subgoal]
+        for level in range(4):
+            nested.append(await create_card(session, kind="goal", title=f"Part {level}", parent_id=nested[-1].id))
         plain = await _action(session, "Pay rent", stage="today")
-        post = await _action(session, "Write the first post", stage="today", parent_id=subgoal.id)
+        post = await _action(session, "Write the first post", stage="today", parent_id=nested[-1].id)
         critical = await _action(session, "Call the bank", stage="today", priority="critical")
         domain = await _action(session, "Pick a domain", stage="today", parent_id=goal.id)
         extra = [await _action(session, f"Extra {n}", stage="today") for n in range(3)]
@@ -103,7 +106,7 @@ async def test_the_dashboard_shows_every_action_in_today(sessions) -> None:
     # Actions with no Goal follow in Today's order: Critical first.
     body = "\n".join(lines[1:])
     assert body.index(_link("card", goal.id)) < body.index(_link("card", post.id))
-    assert _link("card", subgoal.id) not in body
+    assert all(_link("card", card.id) not in body for card in nested)
     assert body.index(_link("card", domain.id)) < body.index(_link("card", critical.id))
     assert body.index(_link("card", critical.id)) < body.index(_link("card", plain.id))
     assert lines[1] == f"Planned: {total} Actions"

@@ -130,13 +130,7 @@ NAMED_CHOICE_FIELDS = frozenset({"values", "tags"})
 async def _choice_options(session: AsyncSession, field: str) -> list[tuple[str, Any]]:
     """The selectable options for one Card field, shared by draft and committed screens."""
     if field == "kind":
-        # A Subgoal is always under a Goal, and no screen sets a parent, so a Subgoal
-        # is created by a proposal alone.
-        return [
-            (kind_label(kind), kind.value)
-            for kind in CardKind
-            if kind is not CardKind.SUBGOAL
-        ]
+        return [(kind_label(kind), kind.value) for kind in CardKind]
     if field == "stage":
         return [
             (stage.value.title(), stage.value)

@@ -60,7 +60,7 @@ Feature: Home
     Then every one of them is on the dashboard, in Today's order (PL-KEY-025), each a link that opens it
     And the heading says Today, and how many Card rows it holds
     And Today shows planned execution counts, and EP load while enabled, including repeats (PL-REPEAT-031, PL-REPEAT-033)
-    And an Action under a Goal is shown under that Goal, and a Subgoal between them is not shown
+    And an Action under a Goal is shown under its root Goal, skipping every nested Goal between them
     And the Goals come in the order of their first Action, and the Actions with no Goal after them
     When Today holds none
     Then the dashboard says nothing is planned for today, and no Sprint or Backlog is shown in its place

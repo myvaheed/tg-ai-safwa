@@ -292,8 +292,8 @@ async def _on_delete_prompt(context: CallbackContext) -> None:
     text = "<b>Final confirmation</b>\nThis removes the tree and its historical contribution."
     if children:
         text += (
-            "\nDeleting this Card alone keeps what is under it: a Subgoal becomes a Goal, "
-            "and an Action is left under no one."
+            "\nDeleting this Card alone gives its children its parent. "
+            "If it has no parent, its children become root-level."
         )
     await send_registered(
         context.message,

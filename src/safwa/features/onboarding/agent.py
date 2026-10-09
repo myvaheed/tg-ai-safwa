@@ -10,7 +10,13 @@ from __future__ import annotations
 from tg_agent_shell.telegram.manifest import AgentSpec
 
 from ...constants import INBOX_TAG_NAME
-from ..cards.model import CATEGORY_MEANINGS, EFFORT_RUNGS, ENERGY_MEANINGS, effort_label
+from ..cards.model import (
+    CARD_TREE_DEPTH_MAX,
+    CATEGORY_MEANINGS,
+    EFFORT_RUNGS,
+    ENERGY_MEANINGS,
+    effort_label,
+)
 from ..schedules.api import ACTION_DAILY_EXECUTIONS_MAX
 
 # Enough of the conversation to see its own recent tips.
@@ -38,7 +44,9 @@ MANUAL = f"""# Safwa
 - With buttons: a screen saves at once, through the same operations as Save.
 
 # Cards
-- A Card is a Goal, a Subgoal or an Action. A Goal stands at the root. A Subgoal stands under a Goal. An Action stands under either, or alone, and is the only work.
+- A Card is a Goal or an Action. A Goal may be root-level or under another Goal; with a parent it is displayed as a Subgoal. An Action may stand under any Goal or alone and has no children.
+- Goal markers count parents: 🎯 at the root, ↳🎯 with one parent, ↳↳🎯 with two, ↳(3)🎯 with three and ↳(n)🎯 for deeper Goals.
+- The tree has at most {CARD_TREE_DEPTH_MAX} levels, counting the root as 1 and including Actions. A Card cannot be placed under itself or its descendants.
 - Goals name a specific, attainable, meaningful result, with a verifiable completion criterion in Note; Deadline is optional. A Subgoal contributes to its parent's result. Unclear results or criteria are clarified before proposing. Directions are Values; ongoing practices are repeating Actions.
 - An Action has a stage: Backlog, Sprint, Today, Done. It goes to Sprint or Today when the user takes it on; it need not pass every stage. An open Goal shows its children's live stage. Goals and Subgoals close only by an explicit Done or approved proposal after their Actions are finished; an open Action reopens them.
 - After all Actions under a Goal or Subgoal are Done, the Advisor asks whether to close it too or create a new Action. Goal completion follow-up in Profile → Hooks switches this question off or on.
@@ -59,6 +67,7 @@ MANUAL = f"""# Safwa
 - A repeating Action makes its next copy when it is finished.
 - A Done Card is archived two Sprints later, or by hand. It still counts.
 - In words: create, change, move, finish, place under another Card, delete.
+- Deleting a Card with children offers its whole tree or only that Card. Deleting only it gives its children its parent; without a parent, the children become root-level.
 - With buttons: "➕ Add" creates a Goal or an Action. "🗂 Dashboard" shows Backlog, Sprint, Today and Done side by side, the 10 changed last in each, for Actions or for Goals; its "📚 Backlog" lists the Backlog 10 to a page. Each title there is a link that opens its Card. On a Card: "✅ Done", "📍 Stage", "☑️ Checks", and "✏️ Full editing" for every field, its Values and Tags, "Archive" and "Delete".
 - Not with buttons: placing a Card under another Card, or making a Subgoal. Ask the Advisor.
 - Not at all: moving an Action straight to Done. Finish it with "✅ Done".

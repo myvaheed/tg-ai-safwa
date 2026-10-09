@@ -56,7 +56,7 @@ AI_CARDS = SqlView(
                c.created_at, c.updated_at, relevance('card', c.id) AS relevance
         FROM cards c LEFT JOIN schedules s ON s.id=c.schedule_id""",
     doc="""- `ai_cards(id, title, note, kind, stage, priority, schedule, blocked_description, effort_points, tracked_mins, parent_id, series_id, categories, energy_types, direct_values, direct_tags, created_at, updated_at, relevance)`
-  - `kind` goal | subgoal | action
+  - `kind` goal | action; a goal with `parent_id` is displayed as a Subgoal
   - `stage` backlog | sprint | today | done
   - `priority` critical | medium | low
   - `effort_points` 0.5 | 1 | 2 | 3 | 5 | 8 | 13, cost of one execution; NULL when unestimated or Effort Points are off

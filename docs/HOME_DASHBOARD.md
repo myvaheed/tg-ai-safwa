@@ -52,7 +52,7 @@ The day and the time it was drawn head it (HM-ORDER-014), then:
 - **Values in focus**, by name, each with the words written for it, or its name alone when
   none could be written.
 - **Today**, every Action in it, in its own order (`today_actions`). An Action under a Goal
-  stands under it (`goal_of` skips a Subgoal between them); Goals come in the order of their
+  stands under its root Goal (`goal_of` walks through every nested Goal); Goals come in the order of their
   first Action, Actions with no Goal after them. The heading counts its Card rows; the line under
   it gives the planned executions of the local day and, with EP on, their load; repeating rows
   show × quantity. With Today empty it says so, and no other list stands in for it: the Sprint and

@@ -217,7 +217,7 @@ async def test_ai_goal_with_a_parent_named_by_title_is_proposed_as_a_subgoal(e2e
 
     assert outcome.kind is AIOutcomeKind.PROPOSAL
     change = e2e_harness.reviews.proposal(outcome.proposal_id).changes[0]
-    assert (change.values["kind"], change.values["parent_id"]) == ("subgoal", parent.id)
+    assert (change.values["kind"], change.values["parent_id"]) == ("goal", parent.id)
     assert "parent" not in change.values
 
 

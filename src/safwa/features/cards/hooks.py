@@ -52,6 +52,7 @@ from .model import (
     EnergyType,
     Priority,
     TodayDay,
+    card_kind_name,
     effort_label,
 )
 from .use_cases import (
@@ -192,7 +193,7 @@ async def parent_completion_request(session: AsyncSession, items: Sequence[int])
     parents = await session.scalars(
         select(Card).where(
             Card.id.in_(items),
-            Card.kind.in_([CardKind.GOAL.value, CardKind.SUBGOAL.value]),
+            Card.kind == CardKind.GOAL.value,
             Card.effective_stage != CardStage.DONE.value,
             Card.archived_at.is_(None),
         ).order_by(Card.id)
@@ -201,7 +202,7 @@ async def parent_completion_request(session: AsyncSession, items: Sequence[int])
     for parent in parents:
         actions = await branch_actions(session, parent.id)
         if actions and all(action.effective_stage == CardStage.DONE.value for action in actions):
-            lines.append(f"- #{parent.id} «{parent.title}» ({parent.kind})")
+            lines.append(f"- #{parent.id} «{parent.title}» ({card_kind_name(parent.kind, parent.parent_id)})")
     if not lines:
         return None
     return (
@@ -442,7 +443,7 @@ async def empty_parents_request(
     parents = await session.scalars(
         select(Card)
         .where(
-            Card.kind.in_([CardKind.GOAL.value, CardKind.SUBGOAL.value]),
+            Card.kind == CardKind.GOAL.value,
             Card.archived_at.is_(None),
             Card.created_at <= cutoff,
             ~select(CardTag.card_id)
@@ -456,7 +457,7 @@ async def empty_parents_request(
     if not empty:
         return None
     lines = "\n".join(
-        f"- #{card.id} «{card.title}» ({card.kind.capitalize()})" for card in empty
+        f"- #{card.id} «{card.title}» ({card_kind_name(card.kind, card.parent_id)})" for card in empty
     )
     return EMPTY_PARENTS_REQUEST.format(cards=lines)
 

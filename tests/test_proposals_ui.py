@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
+import pytest
 from schedule_helpers import create_card, create_check, rule_for
 from sqlalchemy import select
 from ui_harness import (
@@ -107,12 +108,16 @@ async def test_card_proposal_uses_full_card_editor_with_human_diffs(sessions, ef
     assert "↩️ Back" not in buttons
 
 
-async def test_cd_tree_002_the_review_screen_shows_the_goal_becoming_a_subgoal(sessions) -> None:
+@pytest.mark.parametrize("parent_nesting, marker", [(0, "↳🎯"), (1, "↳↳🎯"), (2, "↳(3)🎯"), (5, "↳(6)🎯")])
+async def test_cd_tree_002_the_review_screen_shows_the_goal_becoming_a_subgoal(sessions, parent_nesting, marker) -> None:
     """CD-TREE-002 — tests/brd/cards.feature"""
     store = ProposalStore()
     async with sessions() as session:
         health = await create_card(session, kind="goal", title="Health")
-        life = await create_card(session, kind="goal", title="Life")
+        ancestor = None
+        for level in range(parent_nesting):
+            ancestor = await create_card(session, kind="goal", title=f"Ancestor {level}", parent_id=ancestor.id if ancestor else None)
+        life = await create_card(session, kind="goal", title="Life", parent_id=ancestor.id if ancestor else None)
         workspace = await session.get(Workspace, 1)
         proposal = store.open_proposal(
             message="Put Health under Life",
@@ -123,7 +128,7 @@ async def test_cd_tree_002_the_review_screen_shows_the_goal_becoming_a_subgoal(s
                     action=ChangeAction.UPDATE,
                     entity_id=health.id,
                     expected_version=health.version,
-                    values={"parent_id": life.id, "kind": "subgoal"},
+                    values={"parent_id": life.id},
                 )
             ],
         )
@@ -134,7 +139,8 @@ async def test_cd_tree_002_the_review_screen_shows_the_goal_becoming_a_subgoal(s
     message = FakeMessage(62, bot_message=True)
     await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
     text, _markup = message.edits[-1]
-    assert "Kind: Goal → Subgoal" in text
+    assert f"Kind: {marker} Subgoal" in text
+    assert "Kind: Goal → Subgoal" not in text
     assert "Parent: Root → Life" in text
 
     async with sessions() as session:
@@ -142,7 +148,7 @@ async def test_cd_tree_002_the_review_screen_shows_the_goal_becoming_a_subgoal(s
         await session.commit()
     async with sessions() as session:
         health = await session.get(Card, health_id)
-        assert (health.kind, health.parent_id) == ("subgoal", life_id)
+        assert (health.kind, health.parent_id) == ("goal", life_id)
 
 
 async def test_card_check_link_proposal_shows_the_check_in_overview_and_diff(sessions) -> None:

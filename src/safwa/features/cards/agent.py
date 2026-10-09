@@ -11,7 +11,12 @@ from tg_agent_shell.ai.autoapproval import RELATIONSHIP_LINK, SCALAR_UPDATE, Aut
 from tg_agent_shell.ai.contracts import AgentChange, Reference, ToolInput
 from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
 
-from .model import CATEGORY_MEANINGS, ENERGY_MEANINGS, TRACKED_MINS_MAX, CardKind
+from .model import (
+    CATEGORY_MEANINGS,
+    ENERGY_MEANINGS,
+    TRACKED_MINS_MAX,
+    CardKind,
+)
 
 LINK_FIELDS = frozenset({"values", "tags", "checks"})
 
@@ -79,7 +84,10 @@ class GoalToolInput(ToolInput):
     checks: Reference | list[Reference] | None = Field(
         default=None, description=CHECKS_DESCRIPTION
     )
-    parent: Reference | None = Field(default=None, description="A Goal, by exact title or id.")
+    parent: Reference | None = Field(
+        default=None,
+        description="A Goal, by exact title or id. On update, null makes it root-level.",
+    )
 
     @model_validator(mode="after")
     def validate_target(self) -> GoalToolInput:
@@ -155,9 +163,7 @@ class ActionToolInput(ToolInput):
     )
     parent: Reference | None = Field(
         default=None,
-        description=(
-            "A Goal or a Subgoal, by exact title or id. On update, null makes it root-level."
-        ),
+        description="A Goal, by exact title or id. On update, null makes it root-level.",
     )
 
     @model_validator(mode="after")
@@ -174,7 +180,7 @@ class ActionToolInput(ToolInput):
         return self
 
 
-def _card_change(kind: Callable[[AgentChange], str]) -> Callable[[BaseModel], AgentChange]:
+def _card_change(kind: CardKind) -> Callable[[BaseModel], AgentChange]:
     """The ordinary conversion, plus the kind of Card the call addresses.
 
     Preparation refuses a call on a Card of another kind before anything reaches review.
@@ -187,17 +193,10 @@ def _card_change(kind: Callable[[AgentChange], str]) -> Callable[[BaseModel], Ag
         # A Goal's Schedule is its Deadline.
         if "deadline" in values:
             values["schedule"] = values.pop("deadline")
-        values["kind"] = kind(change)
+        values["kind"] = kind.value
         return change.model_copy(update={"values": values})
 
     return to_change
-
-
-def _goal_kind(change: AgentChange) -> str:
-    # A new Goal under a Goal is the Subgoal it becomes.
-    if change.action == "create" and change.values.get("parent") is not None:
-        return CardKind.SUBGOAL.value
-    return CardKind.GOAL.value
 
 
 def _has_explicit_tool_value(value: Any) -> bool:
@@ -266,16 +265,16 @@ GOAL_TOOL = MutationToolSpec(
     name="goal",
     input_model=GoalToolInput,
     description=(
-        "Propose one Goal or Subgoal as defined under Safwa items. "
-        "With a Goal as `parent` it is a Subgoal."
+        "Propose one Goal as defined under Safwa items. "
+        "A Goal with a parent is displayed as a Subgoal."
     ),
-    to_change=_card_change(_goal_kind),
+    to_change=_card_change(CardKind.GOAL),
     repair=_repair(GoalToolInput),
 )
 ACTION_TOOL = MutationToolSpec(
     name="action",
     input_model=ActionToolInput,
     description="Propose one Action: work that fits in one day.",
-    to_change=_card_change(lambda _change: CardKind.ACTION.value),
+    to_change=_card_change(CardKind.ACTION),
     repair=_repair(ActionToolInput),
 )

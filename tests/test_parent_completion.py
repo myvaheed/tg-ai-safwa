@@ -45,7 +45,7 @@ async def test_explicit_completion_and_reopen_keep_checks_and_child_state(sessio
     """CD-STAGE-015 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
-        subgoal = await create_card(session, kind="subgoal", title="Move", parent_id=goal.id)
+        subgoal = await create_card(session, kind="goal", title="Move", parent_id=goal.id)
         action = await create_card(
             session, kind="action", title="Walk", effort_points=1, parent_id=subgoal.id
         )

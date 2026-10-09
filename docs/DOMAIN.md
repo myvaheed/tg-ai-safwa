@@ -33,13 +33,19 @@ or reframed Goal is proposed; targets, resources and deadlines are never invente
 works backward from results to Actions and assesses progress toward results, not Action counts.
 These are agent instructions, not restrictions on manual Card editing or ordinary updates.
 
-- A Goal is created root-level, and a Goal placed under a Goal becomes a Subgoal; a Subgoal is
-  always under a Goal; an Action may be root or under Goal/Subgoal and has no children. **Live stage**, effort, time spent, categories, energy and **Blocked** belong to an
+- The two Card kinds are Goal and Action. A Goal may be root-level or under any Goal;
+  a Goal with a parent is displayed as a Subgoal, without changing its kind. An Action may
+  be root-level or under any Goal and has no children. The tree has at most 7 levels
+  (`CARD_TREE_DEPTH_MAX`), counting the root as 1 and including Actions. Creating and moving
+  a branch checks that limit for its deepest Card and refuses self-parenting or a parent
+  anywhere inside the branch. **Live stage**, effort, time spent, categories, energy and **Blocked** belong to an
   Action alone. The model writes a Goal or a Subgoal with the `goal` tool, which has none of
   them, and an Action with the `action` tool, whose call on a Goal or a Subgoal is refused before
-  review; the domain strips them from a Goal or a Subgoal. A Goal proposed with a parent is the
-  Subgoal it becomes. A Card's parent is set by proposal only; no screen offers the control,
-  which is why no screen offers Subgoal as a kind either.
+  review; the domain strips them from a Goal. A Card's parent is set by proposal only;
+  no screen offers the control or a separate Subgoal kind.
+- A Goal's marker counts its ancestors: `🎯` at the root, `↳🎯` with one ancestor,
+  `↳↳🎯` with two, then `↳(3)🎯`, `↳(4)🎯` and so on. Screens, lists, citations
+  and proposal previews read the current or proposed parent chain without storing a depth.
 - **Schedule** is plain-language timing on an Action or independent Check, and the
   **Deadline** of a Goal or Subgoal: one date, never repeating, never gating Done and never
   planned. Its compiled revisions live in `schedules`; instances retain their revision and
@@ -138,10 +144,10 @@ Priority, derived stage and compiled Deadline. The Advisor starts advice and pla
   apart from the finished ones at a glance. That is the one mark SQL does not mirror: the model
   is told the open one by its plain title, so `cards.telegram` writes it and nothing else does.
 - **Deleting a Card is the whole branch or that Card alone**, and the owner chooses on the
-  confirmation screen; Safwa only ever proposes the branch. Deleting one Card alone leaves its
-  children standing where the tree allows, which makes a Subgoal a Goal. That and a Goal placed
-  under a Goal are the two places a kind changes without being asked to; `delete_one_card` and
-  `set_card_parent` each write an `edit_kind` event saying so.
+  confirmation screen; Safwa only ever proposes the branch. Deleting one Card alone gives its
+  direct children its parent, or leaves them root-level if it had none. Their descendants stay
+  attached. A Card's kind never changes; `delete_one_card` and `set_card_parent` record parent
+  changes as `set_parent` events and repair the ancestors' derived values.
 
 ## Links
 
