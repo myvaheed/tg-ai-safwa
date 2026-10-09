@@ -1,13 +1,13 @@
 # Secret word
 
 Profile → Secret word accepts exact text, including one character, whitespace, Unicode and
-a leading slash. `off` (case insensitive, without surrounding whitespace) disables it.
+a leading slash. `off` is a valid word too; Remove secret word disables protection.
 The screen shows `set` or `off`; the word is stored only as a salted scrypt verifier and
 is never exposed to the Profile subagent. Setting or changing it leaves the current session open.
 
 When Home after elapses in a free chat, protection locks access before deleting messages.
-Unlike ordinary clearing, this includes unanswered Cues and leaves no Home. Only the Cues
-ordinary clearing would spare are saved for restoration: those after the last user dialogue.
+Every clear includes unanswered Cues and leaves no Home. Only unanswered Cues after the last
+user dialogue are saved for restoration. An unprotected clear restores these on /start.
 Telegram's existing 48-hour deletion window still applies.
 
 Every owner update reaches the shell's access gate before command parsing, editor handling,
@@ -28,8 +28,8 @@ The note keeps the original text, including citations, for history and restorati
 The usual message event id acknowledges delivery; no second acknowledgement queue is needed.
 
 Unlocking stops new Cue turns and scheduled publications, waits for the current turn,
-clears attempts and prompts, restores hidden messages, and runs the waiting Cue requests. Home with Menu
-is drawn last, as a dashboard rather than a conversation reset. Access then opens and the
+clears attempts and prompts, restores hidden messages, and runs the waiting Cue requests.
+Access then opens without a Home dashboard and the
 Home after timer restarts. An error leaves access closed and the queue retained for retry.
 
 `deferred_deliveries` contains only snapshots of previously shown unanswered Cues, including
@@ -48,10 +48,17 @@ shown again.
 
 Startup initializes protection before starting background tasks or accepting updates.
 When a word is set, it clears and locks the chat again, retaining queued deliveries.
-An unlocked `/clear` retains its existing behavior and displays Home; a locked `/clear`
+An unlocked `/clear` empties the chat without locking access; a locked `/clear`
 is just an attempted input. An application includes the shell's access `MODULE` to register
-its tables and supplies the verifier reader and Home renderer to `AccessManager`. Other bots
+its tables and supplies the verifier reader to `AccessManager`. An optional unlock renderer
+lets other applications draw their own screen after entry. Safwa opens Home only on `/start`,
+with one Menu button; Menu unfolds the dashboard's navigation. Other bots
 can omit that module and `Services.access` and retain ordinary behavior.
+
+The existing columns are `user_profile.secret_word_hash` (text, NULL means off),
+`telegram_messages.passing_seconds` (nullable float) and `telegram_messages.displayed_at`
+(nullable UTC timestamp). Fresh databases declare NULL as the secret verifier's server default.
+This change adds no new tables or columns and contains no migration code.
 
 The rules are PS-SECRET-023, HM-LOCK-015 and TG-LOCK-031 in
 [profile.feature](../tests/brd/profile.feature), [home.feature](../tests/brd/home.feature) and

@@ -41,7 +41,6 @@ from ..config import Settings
 from ..features.advisor.agent import ADVISOR_ROW_LIMITS, ADVISOR_VIEWS
 from ..features.diagnostics.module import SHOW_ANSWER_SOURCE
 from ..features.home.motivation import Motivator
-from ..features.home.telegram import render_unlocked_home
 from ..features.memory.absorb import PatternReviewer
 from ..features.memory.use_cases import BackgroundRunner, MemoryReader
 from ..features.planning.key_actions import KeyActions
@@ -320,7 +319,7 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
         media=media,
         usage=UsageRecorder(database.sessions, settings.telegram_owner_id),
     )
-    services.access = AccessManager(services, secret_word_verifier, render_unlocked_home)
+    services.access = AccessManager(services, secret_word_verifier)
     # A commit's facts reach the hooks from here on, with the features a Run reaches for;
     # what the start ends — a Sprint whose midnight Safwa slept through — is handed on too.
     committed = bind_committed(database.sessions, REGISTRY.hooks, resources=services.features)

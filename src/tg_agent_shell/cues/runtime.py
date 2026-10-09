@@ -19,6 +19,7 @@ from sqlalchemy import func, select
 
 from telegram_llm import DialogueMessage, markdown_to_telegram_html
 
+from ..access.model import ChatClearBoundary
 from ..ai.outcome import AIOutcome
 from ..ai.runs import AgentRun
 from ..foundation.clock import utcnow
@@ -64,8 +65,7 @@ async def speak_on_schedule(
     """Put the message of a check on a schedule in the chat, while the chat is free.
 
     The lease is taken for the sending alone, so the owner acting stops it, and the work
-    before it runs on. Home clears what came before it but what was said unasked since the
-    owner last wrote to the Advisor.
+    before it runs on. The Home hook empties the chat without publishing a dashboard.
     """
     if not still_current() or not await chat_is_free(services):
         return
@@ -84,10 +84,14 @@ async def speak_on_schedule(
         if access is not None and await access.enabled():
             await access.lock(anchor)
             return
-        async with services.sessions() as session:
-            body = await render_citations(session, services, markdown_to_telegram_html(text))
         if current() and still_current():
-            await clear_draw_home(anchor, services, body)
+            if access is not None:
+                await access.clear(anchor)
+            else:
+                async with services.sessions() as session:
+                    body = await render_citations(session, services, markdown_to_telegram_html(text))
+                if current() and still_current():
+                    await clear_draw_home(anchor, services, body)
 
     await services.turn.run_background(say)
 
@@ -97,15 +101,21 @@ def tick_chat(services: Services, anchor: Message) -> TickChat:
 
     async def newest() -> tuple[str, datetime | None] | None:
         access = getattr(services, "access", None)
-        if access is not None and access.blocked:
-            return MessageKind.HOME.value, utcnow()
         notes = await services.chat.notes.messages(anchor.chat.id, limit=1)
+        if access is not None and notes:
+            async with services.sessions() as session:
+                boundary = await session.get(ChatClearBoundary, anchor.chat.id)
+            if boundary is not None and notes[0].message_id <= boundary.through_message_id:
+                return None
         return (notes[0].kind, notes[0].at) if notes else None
 
     async def speak(text: str, kind: str, still_current: Callable[[], bool]) -> None:
         await speak_on_schedule(services, anchor, text, kind, still_current)
 
     async def free() -> bool:
+        access = getattr(services, "access", None)
+        if access is not None and access.blocked:
+            return False
         return await chat_is_free(services)
 
     return TickChat(

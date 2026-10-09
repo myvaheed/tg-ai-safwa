@@ -1,8 +1,6 @@
-"""Home: the dashboard with the menu under it, the deep link that opens an item instead, and
-the command that clears the chat down to Home at once.
+"""Home: the dashboard, its menu, item links, and a command that empties the chat.
 
-Both draw at once, with the words under the Values when fresh ones are kept, and otherwise
-ask for them and put them in when they come."""
+Home draws at once with fresh words under Values, otherwise requesting them in the background."""
 
 from __future__ import annotations
 
@@ -16,8 +14,6 @@ from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import (
     Services,
     claimed_link,
-    clear_draw_home,
-    dismiss_prior_ui,
     home_markup,
     open_citation,
     render_citations,
@@ -69,7 +65,7 @@ def _put_words_in(
 
 
 async def render_home(message: Message, services: Services) -> None:
-    """Home with its menu unfolded: on /start, on `↩️ Menu`, and on Home's own `☰ Menu`."""
+    """/start draws a compact Home; navigation unfolds its menu."""
     payload = start_payload(message.text)
     if payload is not None:
         link = claimed_link(services, payload)
@@ -78,8 +74,11 @@ async def render_home(message: Message, services: Services) -> None:
         else:
             await open_citation(message, services, payload)
         return
+    access = getattr(services, "access", None)
+    if access is not None:
+        await access.restore(message)
     words = services.features.motivator.fresh()
-    markup = menu_markup(services.commands)
+    markup = home_markup() if (message.text or "").startswith("/start") else menu_markup(services.commands)
     async with services.sessions() as session:
         body = await _dashboard(session, services, words or {})
     home = await send_registered(message, services, body, kind=MessageKind.DASHBOARD, markup=markup)
@@ -88,30 +87,10 @@ async def render_home(message: Message, services: Services) -> None:
 
 
 async def command_clear(message: Message, services: Services) -> None:
-    """Clear the chat down to Home now, as a quiet chat is cleared. The owner acting stops it."""
-    words = services.features.motivator.fresh()
+    """Empty the chat without locking the open session or drawing Home."""
 
-    async def clear(still_current: Callable[[], bool]) -> tuple[Message, str] | None:
-        async with services.sessions() as session:
-            body = await _dashboard(session, services, words or {})
-        if not still_current():
-            return None
-        return await clear_draw_home(message, services, body), body
+    async def clear(still_current: Callable[[], bool]) -> None:
+        if still_current():
+            await services.access.clear(message)
 
-    drawn = await services.turn.run_background(clear)
-    if drawn is not None and words is None:
-        home, body = drawn
-        _put_words_in(home, services, body, MessageKind.HOME, home_markup())
-
-
-async def render_unlocked_home(message: Message, services: Services) -> None:
-    await dismiss_prior_ui(message, services)
-    words = services.features.motivator.fresh()
-    async with services.sessions() as session:
-        body = await _dashboard(session, services, words or {})
-    # The clear boundary precedes restored hooks; this screen must not reset them away.
-    home = await send_registered(
-        message, services, body, kind=MessageKind.DASHBOARD, markup=home_markup(), replace=False,
-    )
-    if words is None:
-        _put_words_in(home, services, body, MessageKind.DASHBOARD, home_markup())
+    await services.turn.run_background(clear)

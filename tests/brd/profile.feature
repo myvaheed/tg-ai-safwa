@@ -102,7 +102,7 @@ Feature: Profile
     And the Profile says the active day it measures runs from the Morning time to the Evening time, 09:00 to 21:00 in a new workspace (MORNING_TIME_DEFAULT = "09:00", EVENING_TIME_DEFAULT = "21:00")
     And pressing it again turns it off
 
-  Scenario: PS-HOME-018 — The quiet time before the Home dashboard is set in the Profile
+  Scenario: PS-HOME-018 — The quiet time before chat cleanup is set in the Profile
     Given a new workspace, whose quiet time is 30 minutes (HOME_AFTER_MINUTES_DEFAULT = 30)
     Then it is on the Profile, edited as a whole number of minutes from 5 through 1440 (HOME_AFTER_MINUTES_MIN = 5, HOME_AFTER_MINUTES_MAX = 1440)
     But anything else is refused, and the field keeps what it had
@@ -143,11 +143,11 @@ Feature: Profile
     And it is a read-only value independent of Time tracking and Effort Points
     And the setting persists when Safwa restarts
 
-  Scenario: PS-SECRET-023 — Secret word is an exact private setting, with off as its exception
+  Scenario: PS-SECRET-023 — Secret word is an unrestricted exact private setting
     When the owner edits Secret word in Profile
     Then any text, even one character, whitespace, an emoji or a command, is accepted exactly
-    And off, without surrounding whitespace and ignoring case, disables protection
-    And there is no separate disable button
+    And off is accepted as a secret word too, with no reserved input
+    And Remove secret word disables protection through its own button
     And the Profile and its prompt show only set or off, never the word
     And only its salted verifier is stored, outside the Profile subagent's readable fields
     And setting or changing it keeps the current access open until automatic clearing

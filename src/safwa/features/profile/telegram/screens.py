@@ -20,6 +20,7 @@ from tg_agent_shell.telegram import (
     CallbackHandler,
     Place,
     Services,
+    TextInputAction,
     TextInputScreen,
     edit_registered_message,
     menu_row,
@@ -124,7 +125,7 @@ PROFILE_FIELDS: dict[str, EditableField] = {
         label="🏠 Home after",
         instruction=(
             f"Send how many minutes you may leave the chat, from {HOME_AFTER_MINUTES_MIN} to "
-            f"{HOME_AFTER_MINUTES_MAX}, before Safwa clears it down to the Home dashboard."
+            f"{HOME_AFTER_MINUTES_MAX}, before Safwa empties the chat."
         ),
         parse=_parse_home_after,
         show=lambda value: f"{value} min",
@@ -332,10 +333,23 @@ async def _on_secret_word(context: CallbackContext) -> None:
         screen=TextInputScreen(
             title="Secret word", current_value=current,
             instruction="Send any secret word, even one character. Whitespace and case matter. "
-                        "Send off to disable it. Access locks after automatic clearing; /clear does not lock it.",
+                        "Use Remove secret word to disable it. Access locks after automatic clearing; /clear does not lock it.",
             back=Place("profile_back"),
+            extra_actions=(TextInputAction("Remove secret word", Place("profile_secret_word_clear")),)
+            if current == "set" else (),
         ),
         state={"flow": "secret_word"},
+    )
+
+
+async def _on_secret_word_clear(context: CallbackContext) -> None:
+    async with context.sessions() as session:
+        await set_secret_word(session, None)
+        await session.execute(delete(UiSession).where(UiSession.owner_id == context.owner_id))
+        await session.commit()
+    await command_profile(
+        context.message, context.services, notice="Secret word removed.",
+        replace_message_id=context.message.message_id,
     )
 
 
@@ -470,6 +484,7 @@ async def _on_effort_tracking(context: CallbackContext) -> None:
 
 PROFILE_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "profile_secret_word": _on_secret_word,
+    "profile_secret_word_clear": _on_secret_word_clear,
     "profile_edit": _on_edit,
     "profile_hooks": _on_hooks,
     "profile_hook": _on_hook,

@@ -43,7 +43,7 @@ def validated_profile_value(field: ProfileField, value: ProfileValue) -> Profile
                 or not HOME_AFTER_MINUTES_MIN <= value <= HOME_AFTER_MINUTES_MAX
             ):
                 raise DomainError(
-                    f"The quiet time before the Home dashboard must be between "
+                    f"The quiet time before chat cleanup must be between "
                     f"{HOME_AFTER_MINUTES_MIN} and {HOME_AFTER_MINUTES_MAX} minutes"
                 )
         case ProfileField.TIME_TRACKING:
@@ -80,9 +80,9 @@ async def set_profile_field(
     return profile
 
 
-async def set_secret_word(session: AsyncSession, raw: str) -> None:
+async def set_secret_word(session: AsyncSession, raw: str | None) -> None:
     profile = await require_profile(session)
     profile.secret_word_hash = (
-        None if raw.lower() == "off" else await asyncio.to_thread(hash_secret_word, raw)
+        None if raw is None else await asyncio.to_thread(hash_secret_word, raw)
     )
     await bump_workspace(session)

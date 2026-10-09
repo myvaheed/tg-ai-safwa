@@ -24,7 +24,7 @@ _DEFAULT_TTL = timedelta(minutes=30)
 
 @dataclass(frozen=True, slots=True)
 class TextInputAction:
-    """An optional non-mutating route available beside the universal Back button."""
+    """An optional action available beside the universal Back button."""
 
     text: str
     place: Place

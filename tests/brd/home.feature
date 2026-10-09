@@ -1,7 +1,7 @@
 Feature: Home
   Home is the way in. It keeps no item of its own: it is the dashboard with the menu every
   other screen is offered from, the door a link Safwa wrote comes back through, and what a
-  cleared chat is left with.
+  owner opens explicitly with /start.
 
   Numbers below name the constant they come from; the tests read the constant.
 
@@ -25,27 +25,26 @@ Feature: Home
     When the link names something that is not one of Safwa's items
     Then Safwa says so
 
-  Scenario: HM-QUIET-003 — A quiet chat with Secret word off is cleared down to Home and what Safwa said unasked since
+  Scenario: HM-QUIET-003 — A quiet chat is emptied without drawing Home
     Given the owner has not written, spoken, sent a photo or pressed a button for 30 minutes (HOME_AFTER_MINUTES_DEFAULT = 30)
     And the chat is free: no answer is being written and no review is waiting
-    Then the Home dashboard is drawn once its words are written (HM-VALUES-007), and every message before it is cleared: screens, receipts, the owner's messages and the Advisor's replies (TG-HOME-023)
-    But a Reminder or anything else Safwa said unasked after the owner last wrote to the Advisor stays
-    And it stays through later clears until the owner sends another message to the Advisor
+    Then every deletable message is removed: screens, receipts, the owner's messages, replies and unanswered hooks
+    And no Home is drawn and no words for Values are requested
+    And unanswered hooks after the last user dialogue are kept for restoration on /start or protected entry
     When a review is waiting
     Then nothing is cleared until it is answered or closes by itself
     When the owner acts while the chat is being cleared
     Then the clearing stops, and what they did is taken up
-    When nothing came into the chat and the owner did nothing since the dashboard was drawn
-    Then it is left as it is
+    When nothing came into the empty chat
+    Then it stays empty, and protected access still locks after the quiet time
 
-  Scenario: HM-QUIET-004 — A dashboard drawn on an earlier day is drawn again
+  Scenario: HM-QUIET-004 — A dashboard drawn on an earlier day is removed by cleanup
     Given the dashboard in the chat was drawn on an earlier day
     When the owner is quiet and the chat is free
-    Then a new dashboard is drawn and the old one is taken out, as by HM-QUIET-003
-    And a day is the workspace's local day
+    Then the old dashboard is taken out and no new dashboard is drawn, as by HM-QUIET-003
 
   Scenario: HM-STAYS-005 — Home follows the same one-screen rule as every other screen
-    Given the dashboard a clear drew is in the chat
+    Given the dashboard /start drew is in the chat
     Then it carries one button, ☰ Menu
     When the owner presses it
     Then Home is taken out and the dashboard with the menu opens as the only screen
@@ -95,14 +94,17 @@ Feature: Home
     And an item that still exists is a link that opens it
 
   Scenario: HM-HISTORY-010 — After a clear Safwa starts the conversation over
-    Given the chat was cleared through the last message to the Advisor and the dashboard was drawn
-    Then the conversation Safwa reads begins after the dashboard (TG-HOME-023)
+    Given the chat was emptied through its latest message
+    Then the conversation Safwa reads begins after the stored clear boundary
     And the Diary still reads everything said that day, before the clear as much as after it (DI-READ-016)
 
-  Scenario: HM-START-011 — /start opens Home at once: the dashboard with its menu unfolded
-    When the owner sends /start, or presses ↩️ Menu on a screen
+  Scenario: HM-START-011 — /start opens Home at once with a Menu button
+    When the owner sends /start
     Then Home arrives at once as a screen: the dashboard of HM-ACTIONS-006 to HM-LOG-009 with
-      every menu button under it (HM-MENU-001)
+      one ☰ Menu button under it
+    And messages held by an earlier clear are restored before Home
+    When the owner presses ☰ Menu or ↩️ Menu on a screen
+    Then Home shows every menu button under it (HM-MENU-001)
     And ↩️ Menu redraws its screen as Home in place
     And each Value in focus carries the words written within the last 10 minutes (HM-VALUES-007)
     When no such words are kept
@@ -113,14 +115,13 @@ Feature: Home
     When the owner sends /start again while the words are written
     Then one request is made, and only the last Home is redrawn with its words
     And earlier screens are removed, while what was said stays and the conversation Safwa reads goes on
-    And the dashboard with ☰ Menu alone is drawn only by a clear (HM-QUIET-003, HM-CLEAR-012)
+    And automatic clearing, /clear and protected entry do not draw Home
 
   Scenario: HM-CLEAR-012 — /clear clears the chat at once, as a quiet chat is cleared
     When the owner sends /clear
-    Then the chat is cleared and the dashboard drawn as by HM-QUIET-003 at once, without waiting
-      for the quiet time or for the words
-    And its words come as on /start (HM-START-011), under its one ☰ Menu
-    When the owner acts while the dashboard is being drawn
+    Then the chat is emptied as by HM-QUIET-003 at once, without waiting for the quiet time
+    And no dashboard is drawn and the current session stays open
+    When the owner acts while the chat is being cleared
     Then the clearing stops, and what they did is taken up
 
   Scenario: HM-GOALS-013 — The dashboard names the first 5 Priority Goals
@@ -140,6 +141,7 @@ Feature: Home
     And unanswered hooks are stored to be returned, while new hook requests wait without generating answers
     And Schedule Remind and Reminder answers reach the locked chat without clickable links or item screens
     When the correct word is entered
-    Then attempts and prompts are deleted, stored messages are restored with links, waiting hooks run and Home is last
+    Then attempts and prompts are deleted, stored messages are restored with links and waiting hooks run
+    And Home appears only after /start, with one ☰ Menu button
     And access remains open until the next automatic clear
-    But /clear while access is open still draws Home and does not lock access
+    But /clear while access is open empties the chat and does not lock access

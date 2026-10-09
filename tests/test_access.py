@@ -16,7 +16,7 @@ from sqlalchemy import select
 from telegram_fakes import QueueTestMessage
 from ui_harness import FakeBot, FakeMessage, history_source, press, services_for
 
-from safwa.features.home.telegram import command_clear, render_unlocked_home
+from safwa.features.home.telegram import command_clear, render_home
 from safwa.features.profile.api import secret_word_verifier
 from safwa.features.profile.model import UserProfile
 from safwa.features.profile.telegram import command_profile
@@ -46,7 +46,7 @@ def protected_services(sessions):
     services = services_for(sessions)
     services.history = history_source(sessions)
     services.owner_acted_at = utcnow() - timedelta(hours=1)
-    services.access = AccessManager(services, secret_word_verifier, render_unlocked_home)
+    services.access = AccessManager(services, secret_word_verifier)
     services.history.access_boundaries = True
     return services
 
@@ -109,10 +109,11 @@ async def test_locked_notification_disables_automatic_links_but_keeps_original_w
     note = (await TelegramNotes(sessions).outgoing(700, kinds={"cue"}))[0]
     assert note.text == text
     await services.access.intercept(incoming(anchor, "x"))
-    assert anchor.rendered[-2] == text and "🏠" in anchor.rendered[-1]
+    assert anchor.rendered[-1] == text
+    assert not any("🏠" in shown for shown in anchor.rendered)
 
 
-@pytest.mark.parametrize("word", ["x", "🔑", "/clear", " a\n ", " "])
+@pytest.mark.parametrize("word", ["x", "🔑", "/clear", " a\n ", " ", "off", "OFF"])
 async def test_secret_word_is_exact_salted_text_and_profile_input_is_not_dialogue(sessions, word):
     """PS-SECRET-023 — tests/brd/profile.feature"""
     first, second = hash_secret_word(word), hash_secret_word(word)
@@ -135,18 +136,22 @@ async def test_secret_word_is_exact_salted_text_and_profile_input_is_not_dialogu
     assert await services.history.dialogue(700) == []
 
 
-async def test_off_disables_the_secret_without_an_extra_button(sessions):
+async def test_remove_button_disables_the_secret_and_off_is_an_exact_word(sessions):
     """PS-SECRET-023 — tests/brd/profile.feature"""
-    await set_word(sessions)
     await set_word(sessions, "OFF")
     async with sessions() as session:
-        assert (await session.get(UserProfile, 1)).secret_word_hash is None
-    await set_word(sessions, " off ")
+        assert matches_secret_word("OFF", (await session.get(UserProfile, 1)).secret_word_hash)
+    services = protected_services(sessions)
+    message = FakeMessage(900, bot_message=True, answer_as_new=True)
+    await command_profile(message, services)
+    await press(services, message, message.edits[-1][1], "🔐 Secret word")
+    await press(services, message, message.bot.edits[-1][2], "Remove secret word")
     async with sessions() as session:
-        assert matches_secret_word(" off ", (await session.get(UserProfile, 1)).secret_word_hash)
+        assert (await session.get(UserProfile, 1)).secret_word_hash is None
+    assert "Secret word: off" in message.bot.edits[-1][1]
 
 
-async def test_lock_clears_hooks_then_unlock_restores_only_unanswered_hooks_before_home(sessions):
+async def test_lock_clears_hooks_then_unlock_restores_only_unanswered_hooks_without_home(sessions):
     """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
     await set_word(sessions, "/clear")
     services = protected_services(sessions)
@@ -167,8 +172,7 @@ async def test_lock_clears_hooks_then_unlock_restores_only_unanswered_hooks_befo
     correct = incoming(anchor, "/clear", 2000)
     await services.access.intercept(correct)
     assert not services.access.blocked
-    assert correct.rendered[-3:-1] == ["Unanswered hook", "New Reminder"]
-    assert "🏠" in correct.rendered[-1]
+    assert correct.rendered[-2:] == ["Unanswered hook", "New Reminder"]
     assert 100 in anchor.bot.deleted and 2000 in anchor.bot.deleted
     assert wrong.sent[0].message_id in anchor.bot.deleted
     dialogue = await services.history.dialogue(700)
@@ -252,17 +256,22 @@ async def test_locked_edit_does_not_overwrite_the_archived_owner_message(session
     assert services.access.blocked
 
 
-async def test_clear_still_draws_home_and_automatic_home_locks_without_drawing(sessions):
+async def test_clear_leaves_access_open_and_automatic_clear_locks_without_drawing(sessions):
     """HM-LOCK-015 — tests/brd/home.feature"""
     await set_word(sessions)
     services = protected_services(sessions)
     anchor = QueueTestMessage(answer_as_new=True)
     await keep(sessions, 1, "Old dialogue", MessageKind.DIALOGUE_USER)
     await command_clear(anchor, services)
-    assert not services.access.blocked and "🏠" in anchor.rendered[-1]
+    assert not services.access.blocked and anchor.rendered == []
     shown = len(anchor.rendered)
     await speak_on_schedule(services, anchor, "", "home", lambda: True)
     assert services.access.blocked and len(anchor.rendered) == shown
+    await services.access.intercept(incoming(anchor, "x"))
+    assert not services.access.blocked and anchor.rendered == []
+    await render_home(incoming(anchor, "/start", 3000), services)
+    assert "🏠" in anchor.rendered[-1]
+    assert [button.text for row in anchor.markups[-1].inline_keyboard for button in row] == ["☰ Menu"]
 
 
 async def test_restart_keeps_notification_words_and_requires_word_again(sessions):
@@ -372,7 +381,7 @@ async def test_unlock_waits_for_running_reminder_and_restores_its_words(sessions
     services.turn.end_background(revision)
     await asyncio.wait_for(unlocking, 5)
     assert anchor.rendered[0] == "Finished during entry"
-    assert "🏠" in anchor.rendered[-1]
+    assert anchor.rendered[-1] == "Finished during entry"
 
 
 @pytest.mark.parametrize("when", ["before", "after", "after_error"])
@@ -523,16 +532,12 @@ async def test_replayed_old_hook_uses_its_new_display_time_for_cleanup(sessions)
         )
         assert hook.created_at == original and hook.displayed_at >= now
         shown_id = hook.message_id
-        # The word is already outside 48 hours; the replay and Home are still deletable.
+        # The word is outside 48 hours; the replay is still deletable.
         hook.displayed_at = now - timedelta(hours=47, minutes=55)
         word = await session.scalar(
             select(TelegramMessage).where(TelegramMessage.kind == MessageKind.UI_INPUT.value)
         )
         word.created_at = now - timedelta(hours=48, minutes=5)
-        home = await session.scalar(
-            select(TelegramMessage).where(TelegramMessage.kind == MessageKind.DASHBOARD.value)
-        )
-        home.created_at = home.displayed_at = now - timedelta(hours=47, minutes=50)
         await session.commit()
     anchor.bot.deleted.clear()
     restarted = protected_services(sessions)
@@ -581,5 +586,5 @@ async def test_real_telegram_middleware_accepts_a_command_as_setting_and_unlock_
     await services.access.lock(screen)
     event = event.model_copy(update={"message_id": 4000}).as_(bot)
     await middleware(handler, event, {"services": services})
-    assert not services.access.blocked and "🏠" in bot.sent[-1]
+    assert not services.access.blocked and bot.sent == []
     handler.assert_not_called()

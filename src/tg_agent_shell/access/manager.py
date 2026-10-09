@@ -31,7 +31,7 @@ Home = Callable[[Message, Services], Awaitable[None]]
 
 
 class AccessManager:
-    def __init__(self, services: Services, verifier: Verifier, home: Home) -> None:
+    def __init__(self, services: Services, verifier: Verifier, home: Home | None = None) -> None:
         self.services = services
         self.verifier = verifier
         self.home = home
@@ -62,6 +62,31 @@ class AccessManager:
             self._state = Locked()
             await self._capture_unanswered(anchor.chat.id)
             await self._clear(anchor)
+
+    async def clear(self, anchor: Message) -> None:
+        """Leave the chat empty while keeping unanswered messages for the next Home."""
+        async with self._transition:
+            await self._capture_unanswered(anchor.chat.id)
+            await self._clear(anchor, anchor.message_id)
+
+    async def restore(self, anchor: Message) -> None:
+        async with self._transition:
+            await self._restore(anchor)
+
+    async def _restore(self, anchor: Message) -> None:
+        async with self.services.sessions() as session:
+            rows = list(await session.scalars(
+                select(DeferredDelivery)
+                .where(DeferredDelivery.chat_id == anchor.chat.id)
+                .order_by(DeferredDelivery.id)
+            ))
+        for row in rows:
+            await self._deliver(anchor, row)
+        async with self.services.sessions() as session:
+            await session.execute(delete(DeferredDelivery).where(
+                DeferredDelivery.id.in_([row.id for row in rows]),
+            ))
+            await session.commit()
 
     async def _capture_unanswered(self, chat_id: int) -> None:
         async with self.services.sessions() as session:
@@ -204,26 +229,11 @@ class AccessManager:
             await self.services.turn.wait_idle()
             await self._capture_unanswered(anchor.chat.id)
             await self._clear(anchor, anchor.message_id)
-            async with self.services.sessions() as session:
-                rows = list(
-                    await session.scalars(
-                        select(DeferredDelivery)
-                        .where(DeferredDelivery.chat_id == anchor.chat.id)
-                        .order_by(DeferredDelivery.id)
-                    )
-                )
-            for row in rows:
-                await self._deliver(anchor, row)
+            await self._restore(anchor)
             await resume_cues(self.services, anchor)
             self.services.owner_acted_at = utcnow()
-            await self.home(anchor, self.services)
-            async with self.services.sessions() as session:
-                await session.execute(
-                    delete(DeferredDelivery).where(
-                        DeferredDelivery.id.in_([row.id for row in rows]),
-                    )
-                )
-                await session.commit()
+            if self.home is not None:
+                await self.home(anchor, self.services)
             self._state = Open()
         except Exception:
             logger.exception("Could not finish unlocking the chat")

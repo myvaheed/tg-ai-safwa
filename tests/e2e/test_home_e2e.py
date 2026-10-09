@@ -1,4 +1,4 @@
-"""A quiet chat cleared through the last user message, with a new Home dashboard.
+"""A quiet chat is empty until /start explicitly opens Home.
 
 The real database, the real notes, the real tick poll and the real hook; Telegram is the
 queue fake and the model a script, each at its network boundary.
@@ -17,15 +17,15 @@ from ui_harness import history_source
 
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
 from safwa.bootstrap.modules import FEATURE_CALLBACK_ACTIONS, FEATURE_COMMANDS, SCREENS
-from safwa.features.home import telegram as home_telegram
 from safwa.features.home.api import menu_markup
-from safwa.features.home.dashboard import dashboard_text
 from safwa.features.home.hooks import HOME_HOOK, HOME_LOOK_EVERY
 from safwa.features.home.motivation import Motivator
 from safwa.features.home.telegram import command_clear, render_home
+from safwa.features.profile.api import secret_word_verifier
 from safwa.features.profile.model import HOME_AFTER_MINUTES_DEFAULT
 from safwa.features.values.use_cases import create_value
 from telegram_llm import ChatHost, Note
+from tg_agent_shell.access.manager import AccessManager
 from tg_agent_shell.cues.initiatives import TickPoll
 from tg_agent_shell.cues.runtime import tick_chat
 from tg_agent_shell.foundation.clock import utcnow
@@ -74,7 +74,7 @@ def _services(harness, model: Model, *, busy: bool = False) -> SimpleNamespace:
         spawned.append(task)
         return task
 
-    return SimpleNamespace(
+    services = SimpleNamespace(
         sessions=harness.sessions,
         owner_id=42,
         turn=TurnManager(),
@@ -89,6 +89,10 @@ def _services(harness, model: Model, *, busy: bool = False) -> SimpleNamespace:
         features=SimpleNamespace(motivator=Motivator(model, spawn=spawn_timer)),
         owner_acted_at=utcnow() - timedelta(minutes=HOME_AFTER_MINUTES_DEFAULT + 1),
     )
+    services.history = history_source(harness.sessions)
+    services.history.access_boundaries = True
+    services.access = AccessManager(services, secret_word_verifier)
+    return services
 
 
 async def _settled(services: SimpleNamespace) -> None:
@@ -163,7 +167,7 @@ async def _a_chat(harness) -> None:
     await _keep(harness, 1099, MessageKind.DASHBOARD, "<b>Today</b>")
 
 
-async def test_a_quiet_chat_keeps_only_what_safwa_said_unasked_since_the_owner_wrote(
+async def test_a_quiet_chat_is_empty_and_unanswered_hooks_wait_for_start(
     e2e_harness,
 ) -> None:
     """HM-QUIET-003 — tests/brd/home.feature"""
@@ -174,34 +178,34 @@ async def test_a_quiet_chat_keeps_only_what_safwa_said_unasked_since_the_owner_w
 
     await looks.next()
 
-    [dashboard] = anchor.sent
-    assert dashboard.message_id == 1150
-    assert anchor.bot.silent == [dashboard.text]
-    assert "<b>💎 Values in focus</b>" in dashboard.text and WORDS in dashboard.text
-    # Everything before it goes, the Advisor's reply included; three days old is too old.
-    assert anchor.bot.deleted == list(range(1099, 1150))
+    assert anchor.sent == [] and services.features.motivator.fresh() is None
+    # The physical chat is cleared while its conversation stays available to the Diary.
+    assert anchor.bot.deleted == list(range(1099, 1102))
     # What was said is still kept; the screen is gone with its message.
     assert await _kinds(e2e_harness) == {
         1000: MessageKind.DIALOGUE_USER.value,
         1100: MessageKind.DIALOGUE_USER.value,
         1101: MessageKind.DIALOGUE_ASSISTANT.value,
-        1150: MessageKind.HOME.value,
     }
 
-    # Nothing came and the owner did nothing: the dashboard is left as it is.
+    # Nothing new has come into the empty chat.
+    deleted = list(anchor.bot.deleted)
     await looks.next()
-    assert len(anchor.sent) == 1
+    assert anchor.sent == [] and anchor.bot.deleted == deleted
 
-    # A Reminder said while the owner was away stays through repeated Home draws.
+    # An unanswered hook is hidden by the next clear and restored before /start's Home.
     await _keep(e2e_harness, 1151, MessageKind.CUE, "Time to stretch.")
     anchor.message_id = 160
     deleted = len(anchor.bot.deleted)
     await looks.next()
-    assert len(anchor.sent) == 2
-    assert 1150 in anchor.bot.deleted[deleted:] and 1151 not in anchor.bot.deleted
+    assert anchor.sent == [] and 1151 in anchor.bot.deleted[deleted:]
     assert (await _kinds(e2e_harness))[1151] == MessageKind.CUE.value
     await looks.next()
-    assert len(anchor.sent) == 2
+    assert anchor.sent == []
+    start = QueueTestMessage(message_id=2000, text="/start", is_bot=False, answer_as_new=True, parent=anchor)
+    await render_home(start, services)
+    await _settled(services)
+    assert anchor.rendered[0] == "Time to stretch." and "🏠" in anchor.rendered[-1]
 
 
 async def test_a_waiting_review_or_a_short_quiet_clears_nothing(e2e_harness) -> None:
@@ -220,26 +224,35 @@ async def test_a_waiting_review_or_a_short_quiet_clears_nothing(e2e_harness) -> 
     assert model.calls == 0
 
 
-async def test_the_owner_acting_stops_the_clearing(e2e_harness) -> None:
+async def test_the_owner_acting_stops_the_clearing(e2e_harness, monkeypatch) -> None:
     """HM-QUIET-003 — tests/brd/home.feature"""
     await _a_chat(e2e_harness)
-    model = Model(hold=True)
+    model = Model()
     services = _services(e2e_harness, model)
     anchor = QueueTestMessage(message_id=150, is_bot=False, answer_as_new=True)
 
+    reached, go = asyncio.Event(), asyncio.Event()
+    capture = services.access._capture_unanswered
+
+    async def paused_capture(chat_id):
+        reached.set()
+        await go.wait()
+        await capture(chat_id)
+
+    monkeypatch.setattr(services.access, "_capture_unanswered", paused_capture)
     clearing = asyncio.create_task(Looks(services, anchor).next())
-    await asyncio.wait_for(model.reached.wait(), timeout=5)
+    await asyncio.wait_for(reached.wait(), timeout=5)
     # What the middleware does when the owner's message or press arrives.
     services.owner_acted_at = utcnow()
     services.turn.cancel()
-    model.go.set()
+    go.set()
     await asyncio.wait_for(clearing, timeout=5)
 
     assert anchor.sent == [] and anchor.bot.deleted == []
     assert services.turn.active is False
 
 
-async def test_a_dashboard_from_an_earlier_day_is_drawn_again(e2e_harness) -> None:
+async def test_a_dashboard_from_an_earlier_day_is_removed_without_drawing_another(e2e_harness) -> None:
     """HM-QUIET-004 — tests/brd/home.feature"""
     yesterday = datetime.now(UTC) - timedelta(days=1, hours=1)
     await _keep(e2e_harness, 1140, MessageKind.HOME, "<b>🏠 Yesterday</b>", at=yesterday)
@@ -249,9 +262,9 @@ async def test_a_dashboard_from_an_earlier_day_is_drawn_again(e2e_harness) -> No
 
     await Looks(services, anchor).next()
 
-    assert [message.message_id for message in anchor.sent] == [1150]
+    assert anchor.sent == []
     assert 1140 in anchor.bot.deleted
-    assert (await _kinds(e2e_harness)) == {1150: MessageKind.HOME.value}
+    assert await _kinds(e2e_harness) == {}
 
 
 @pytest.mark.parametrize("opened", ("/start", "/tags", "/start value-1", "place", "home", "tags"))
@@ -263,6 +276,8 @@ async def test_the_dashboard_is_the_only_ui_until_the_owner_opens_another(
     services = _services(e2e_harness, Model())
     anchor = QueueTestMessage(message_id=150, is_bot=False, answer_as_new=True)
     await Looks(services, anchor).next()
+    await render_home(QueueTestMessage(message_id=170, text="/start", is_bot=False, answer_as_new=True, parent=anchor), services)
+    await _settled(services)
     [dashboard] = anchor.sent
     assert _labels(anchor.markups[-1]) == ["☰ Menu"]
     if opened == "place":
@@ -285,14 +300,15 @@ async def test_the_dashboard_is_the_only_ui_until_the_owner_opens_another(
     else:
         await navigation(_Press(opened, dashboard), services)
 
-    assert dashboard.message_id in anchor.bot.deleted
+    replaced_in_place = opened in ("home", "tags") or opened.startswith("/start go-")
+    assert (dashboard.message_id in anchor.bot.deleted) is not replaced_in_place
     live = await services.chat.notes.outgoing(CHAT_ID, kinds=SCREEN_KINDS)
     assert [note.message_id for note in live] == [anchor.sent[-1].message_id]
-    assert len(anchor.sent) == 2
+    assert len(anchor.sent) == (1 if replaced_in_place else 2)
     if opened in ("/start", "home"):
-        assert _labels(anchor.markups[-1]) == MENU
+        assert _labels(anchor.markups[-1]) == (["☰ Menu"] if opened == "/start" else MENU)
     # Removing a screen must not restore the conversation the clear ended.
-    source = history_source(e2e_harness.sessions)
+    source = services.history
     assert await source.recent(CHAT_ID) == []
     day = await source.day_transcript(
         CHAT_ID, start=utcnow() - timedelta(hours=1), end=utcnow() + timedelta(hours=1),
@@ -307,6 +323,8 @@ async def test_writing_to_the_advisor_removes_home_without_restoring_old_history
     services = _services(e2e_harness, Model())
     anchor = QueueTestMessage(message_id=150, is_bot=False, answer_as_new=True)
     await Looks(services, anchor).next()
+    await render_home(QueueTestMessage(message_id=170, text="/start", is_bot=False, answer_as_new=True, parent=anchor), services)
+    await _settled(services)
     [dashboard] = anchor.sent
     owner = QueueTestMessage(message_id=1160, text="Hello again", is_bot=False, parent=anchor)
 
@@ -314,7 +332,7 @@ async def test_writing_to_the_advisor_removes_home_without_restoring_old_history
     await _keep(e2e_harness, owner.message_id, MessageKind.DIALOGUE_USER, owner.text)
 
     assert dashboard.message_id in anchor.bot.deleted
-    assert [entry.text for entry in await history_source(e2e_harness.sessions).recent(CHAT_ID)] == [
+    assert [entry.text for entry in await services.history.recent(CHAT_ID)] == [
         "Hello again"
     ]
     deleted = list(anchor.bot.deleted)
@@ -338,7 +356,7 @@ async def test_start_opens_home_at_once_and_puts_the_words_in_when_they_come(
     [home] = owner.sent
     assert home.text.startswith("<b>🏠 ")
     assert "<b>💎 Values in focus</b>" in home.text and WORDS not in home.text
-    assert _labels(owner.markups[-1]) == MENU
+    assert _labels(owner.markups[-1]) == ["☰ Menu"]
     assert owner.bot.deleted == [] and owner.bot.silent == []
     kinds = await _kinds(e2e_harness)
     assert kinds[home.message_id] == MessageKind.DASHBOARD.value
@@ -347,7 +365,7 @@ async def test_start_opens_home_at_once_and_puts_the_words_in_when_they_come(
     model.go.set()
     await _settled(services)
     [(edited, markup)] = owner.bot.edited
-    assert edited == home.message_id and _labels(markup) == MENU
+    assert edited == home.message_id and _labels(markup) == ["☰ Menu"]
     assert WORDS in owner.bot.edits[-1]
     note = await TelegramNotes(e2e_harness.sessions).note(CHAT_ID, home.message_id)
     assert note.kind == MessageKind.DASHBOARD.value and WORDS in note.text
@@ -395,35 +413,25 @@ async def test_starts_in_a_row_make_one_request_and_only_the_last_home_gets_the_
     assert WORDS in first.bot.edits[-1]
 
 
-async def test_clear_clears_the_chat_at_once_and_puts_the_words_in_after(e2e_harness) -> None:
+async def test_clear_empties_the_chat_without_drawing_or_requesting_words(e2e_harness) -> None:
     """HM-CLEAR-012 — tests/brd/home.feature"""
     await _a_chat(e2e_harness)
-    model = Model(hold=True)
+    model = Model()
     services = _services(e2e_harness, model)
     # The /clear itself: no quiet time has passed.
     services.owner_acted_at = utcnow()
     owner = QueueTestMessage(message_id=150, text="/clear", is_bot=False, answer_as_new=True)
 
     await command_clear(owner, services)
-    await asyncio.wait_for(model.reached.wait(), timeout=5)
-
-    [dashboard] = owner.sent
-    assert owner.bot.silent == [dashboard.text]
-    assert WORDS not in dashboard.text and _labels(owner.markups[-1]) == ["☰ Menu"]
-    assert owner.bot.deleted == list(range(1099, dashboard.message_id))
+    assert owner.sent == [] and model.calls == 0 and services.spawned == []
+    assert owner.bot.deleted == list(range(1099, 1102))
     assert await _kinds(e2e_harness) == {
         1000: MessageKind.DIALOGUE_USER.value,
         1100: MessageKind.DIALOGUE_USER.value,
         1101: MessageKind.DIALOGUE_ASSISTANT.value,
-        dashboard.message_id: MessageKind.HOME.value,
     }
 
-    model.go.set()
-    await _settled(services)
-    [(edited, markup)] = owner.bot.edited
-    assert edited == dashboard.message_id and _labels(markup) == ["☰ Menu"]
-    assert WORDS in owner.bot.edits[-1]
-    assert (await _kinds(e2e_harness))[dashboard.message_id] == MessageKind.HOME.value
+    assert await services.history.dialogue(CHAT_ID) == []
 
 
 async def test_words_that_come_after_the_owner_acted_wait_for_the_next_home(
@@ -433,8 +441,8 @@ async def test_words_that_come_after_the_owner_acted_wait_for_the_next_home(
     await _a_chat(e2e_harness)
     model = Model(hold=True)
     services = _services(e2e_harness, model)
-    owner = QueueTestMessage(message_id=150, text="/clear", is_bot=False, answer_as_new=True)
-    await command_clear(owner, services)
+    owner = QueueTestMessage(message_id=150, text="/start", is_bot=False, answer_as_new=True)
+    await render_home(owner, services)
     await asyncio.wait_for(model.reached.wait(), timeout=5)
 
     # The owner presses ☰ Menu before the words come.
@@ -476,12 +484,14 @@ async def test_the_owner_acting_stops_a_clear_they_asked_for(e2e_harness, monkey
     owner = QueueTestMessage(message_id=150, text="/clear", is_bot=False, answer_as_new=True)
     reached, go = asyncio.Event(), asyncio.Event()
 
-    async def drawing(session, words, **kwargs):
+    capture = services.access._capture_unanswered
+
+    async def paused_capture(chat_id):
         reached.set()
         await go.wait()
-        return await dashboard_text(session, words, **kwargs)
+        await capture(chat_id)
 
-    monkeypatch.setattr(home_telegram, "dashboard_text", drawing)
+    monkeypatch.setattr(services.access, "_capture_unanswered", paused_capture)
     clearing = asyncio.create_task(command_clear(owner, services))
     await asyncio.wait_for(reached.wait(), timeout=5)
     # What the middleware does when the owner's message or press arrives.

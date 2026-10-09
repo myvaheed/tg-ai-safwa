@@ -32,7 +32,7 @@ Answer a question about the Profile from that message.
 - Write one short line naming what you propose, in the same response. The review screen shows the rest.
 
 # What you cannot do
-- Change or reveal Secret word: it is managed only through Profile → Secret word. Its value is never read here; off in that editor disables it.
+- Change or reveal Secret word: it is managed only through Profile → Secret word. Its value is never read here; Remove secret word disables it.
 - Switch an automatic reaction on or off, except stopping onboarding: say whether it is on now, and that its switch is on its own screen through ⚙️ Profile → 🔔 Hooks. Propose nothing.
 - Change the timezone.
 
@@ -109,7 +109,7 @@ class ProfileToolInput(ToolInput):
     )
     home_after_minutes: int | None = Field(
         default=None,
-        description="Minutes of quiet before the chat is cleared down to the Home dashboard.",
+        description="Minutes of quiet before the chat is emptied.",
     )
     time_tracking: bool | None = Field(
         default=None, description="Whether the user records the time an Action took."

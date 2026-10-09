@@ -33,6 +33,27 @@ from tg_agent_shell.hooks.registry import HookRegistry
 pytestmark = pytest.mark.e2e
 
 
+async def test_an_empty_protected_session_locks_again_after_the_next_quiet_period(e2e_harness):
+    """HM-LOCK-015 — tests/brd/home.feature"""
+    sessions = e2e_harness.sessions
+    await set_word(sessions, "off")
+    services = protected_services(sessions)
+    anchor = QueueTestMessage(answer_as_new=True)
+    moment = utcnow()
+    poll = TickPoll(
+        HookRegistry.of((HOME_HOOK,), owners=frozenset({"home"})), sessions,
+        resources=services.features, timezone="Europe/Istanbul", now=moment,
+        chat=tick_chat(services, anchor),
+    )
+    await poll.look(moment + HOME_LOOK_EVERY)
+    assert services.access.blocked and anchor.rendered == []
+    await services.access.intercept(incoming(anchor, "off"))
+    assert not services.access.blocked and anchor.rendered == []
+    services.owner_acted_at = utcnow() - timedelta(hours=1)
+    await poll.look(moment + HOME_LOOK_EVERY * 2)
+    assert services.access.blocked and anchor.rendered == []
+
+
 async def queued_turn(sessions, runtime):
     return await tick(
         sessions,
@@ -137,10 +158,10 @@ async def test_locked_reminders_arrive_without_links_and_hooks_wait_until_entry(
     await services.access.intercept(incoming(anchor, "wrong"))
     await services.access.intercept(incoming(anchor, "🔑", 4000))
     assert not services.access.blocked
-    assert anchor.rendered[-4] == "Unanswered old hook"
-    assert "Stretch" in anchor.rendered[-3] and '<a href="' in anchor.rendered[-3]
-    assert anchor.rendered[-2] == "New hook answer."
-    assert "🏠" in anchor.rendered[-1] and len(provider.calls) == 2
+    assert anchor.rendered[-3] == "Unanswered old hook"
+    assert "Stretch" in anchor.rendered[-2] and '<a href="' in anchor.rendered[-2]
+    assert anchor.rendered[-1] == "New hook answer." and len(provider.calls) == 2
+    assert not any("🏠" in shown for shown in anchor.rendered)
     assert prepared == [[1]]
     async with sessions() as session:
         assert list(await session.scalars(select(Cue))) == []
@@ -207,7 +228,6 @@ async def test_locked_delivery_discards_a_proposal_without_an_unanswerable_revie
         assert (await session.get(UserProfile, 1)).about_me == ""
         assert len(list(await session.scalars(select(Cue)))) == (source == "hook")
     await services.access.intercept(incoming(anchor, "x"))
-    assert "No changes were saved." in anchor.rendered[-2]
-    assert "🏠" in anchor.rendered[-1]
+    assert "No changes were saved." in anchor.rendered[-1]
     assert any("discarded" in str(call) for call in provider.calls)
     assert not services.root.reviews.busy

@@ -44,8 +44,8 @@ In a private chat Telegram numbers both sides' messages in one sequence, so the 
 order of the chat. [`telegram_llm/window.py`](../src/telegram_llm/window.py) walks the kept messages
 newest first and stops at the first of: `SUMMARY_TRIGGER_TOKENS = 6000` spent, the newest Summary
 (`SummaryEdge`, plus up to `EDGE_CONTEXT_MESSAGE_LIMIT = 20` messages before it, as their words
-alone), the newest clear boundary (`MessageKind.HOME` while visible, `MessageKind.CHAT_RESET` after
-the screen is removed, which the vocabulary `resets`: nothing older
+alone), the newest clear boundary (Safwa's persistent `chat_clear_boundaries` message id,
+or a legacy `MessageKind.HOME` / `MessageKind.CHAT_RESET` note, which the vocabulary resets: nothing older
 is read, a Summary neither — [HOME_DASHBOARD.md](HOME_DASHBOARD.md)), or `SCAN_LIMIT = 2000`
 messages. A period read — the Diary's day — goes past both. The budget counts everything a message puts in front of
 the model, an answer's calls and their results included, and an answer is taken whole or not at

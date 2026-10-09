@@ -68,7 +68,7 @@ async def about_me(session: AsyncSession) -> str:
 
 
 async def home_after_minutes(session: AsyncSession) -> int:
-    """How long the owner may leave the chat before it is cleared down to the Home dashboard."""
+    """How long the owner may leave the chat before it is emptied."""
     profile = await session.get(UserProfile, 1)
     return profile.home_after_minutes if profile is not None else HOME_AFTER_MINUTES_DEFAULT
 

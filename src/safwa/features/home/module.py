@@ -1,4 +1,4 @@
-"""Home: the dashboard, its menu, and the clear that draws it. No entity of its own."""
+"""Home: the dashboard, its menu, and the command that empties the chat."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ MODULE = FeatureModule(
             handler=render_home, command="start", description="Open Safwa", nav="home"
         ),
         ScreenCommand(
-            handler=command_clear, command="clear", description="Clear the chat down to Home"
+            handler=command_clear, command="clear", description="Empty the chat"
         ),
     ),
 )

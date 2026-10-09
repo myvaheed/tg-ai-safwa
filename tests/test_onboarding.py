@@ -739,7 +739,7 @@ def test_ob_manual_006_the_manual_names_only_what_the_application_registers():
     routes = {agent.name for agent in AGENTS}
 
     named_commands = set(re.findall(r"(?<![\w/])/([a-z_]+)\b", MANUAL))
-    menu = next(line for line in MANUAL.splitlines() if line.startswith("- The menu, /start:"))
+    menu = next(line for line in MANUAL.splitlines() if line.startswith("- /start opens Home"))
     named_switches = next(
         line for line in MANUAL.splitlines() if line.startswith("- Hooks:")
     )

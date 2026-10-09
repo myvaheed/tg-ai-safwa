@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import time
 from enum import StrEnum
 
-from sqlalchemy import JSON, Boolean, Integer, Text, Time
+from sqlalchemy import JSON, Boolean, Integer, Text, Time, null
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...foundation.models import Base, TimestampMixin
@@ -14,8 +14,7 @@ from ...foundation.models import Base, TimestampMixin
 # evening the Diary nudge and the daily summary. Never off: each hook has a switch of its own.
 MORNING_TIME_DEFAULT = "09:00"
 EVENING_TIME_DEFAULT = "21:00"
-# How many minutes the owner may leave the chat before it is cleared down to the Home
-# dashboard, out of the box, and what the Profile accepts.
+# How many minutes the owner may leave the chat before it is emptied.
 HOME_AFTER_MINUTES_DEFAULT = 30
 HOME_AFTER_MINUTES_MIN = 5
 HOME_AFTER_MINUTES_MAX = 1440
@@ -38,7 +37,7 @@ class UserProfile(Base, TimestampMixin):
     time_tracking: Mapped[bool] = mapped_column(Boolean, default=False)
     effort_tracking: Mapped[bool] = mapped_column(Boolean, default=False)
     home_after_minutes: Mapped[int] = mapped_column(Integer, default=HOME_AFTER_MINUTES_DEFAULT)
-    secret_word_hash: Mapped[str | None] = mapped_column(Text)
+    secret_word_hash: Mapped[str | None] = mapped_column(Text, server_default=null())
     # The automatic reactions the owner turned off, by hook name. A hook that is not
     # here is on, so a new hook needs no column of its own.
     disabled_hooks: Mapped[list[str]] = mapped_column(JSON, default=list)
