@@ -767,7 +767,7 @@ async def test_card_overview_uses_derived_progress_and_relationship_navigation(s
         replace_message_id=goal_message.message_id,
     )
     goal_text, goal_markup = bot.edits[-1][1:]
-    assert "Kind: 🎯 Goal" in goal_text
+    assert "Kind: 🎯₁ Goal" in goal_text
     assert "Stage: Backlog" in goal_text
     assert "Effort: 3/8 EP" in goal_text
     assert "Children: 0/2 completed" in goal_text
@@ -778,7 +778,7 @@ async def test_card_overview_uses_derived_progress_and_relationship_navigation(s
     children_message = FakeMessage(73, bot_message=True)
     await render_children(children_message, services_for(sessions), goal.id)
     children_texts = button_texts(children_message.edits[-1][1])
-    assert "↳🎯 Prepare release · 📚" in children_texts
+    assert "🎯 Prepare release · 📚" in children_texts
     assert any(text.startswith("⭐️ Write announcement · ") for text in children_texts)
     assert not any("Publish build" in text for text in children_texts)
 
@@ -808,7 +808,7 @@ async def test_a_card_on_a_button_is_named_by_emoji(sessions) -> None:
     await render_children(message, services_for(sessions), goal.id)
 
     labels = [label for label in button_texts(message.edits[-1][1]) if label != "↩️ Menu"]
-    assert sorted(labels) == ["↳🎯 Sleep better · 📚", "⭐️ Run · 🏃"]
+    assert sorted(labels) == ["⭐️ Run · 🏃", "🎯 Sleep better · 📚"]
     words = ("Goal", "Subgoal", "Action", "Backlog", "Sprint", "Today", "Done")
     assert not any(word in label for label in labels for word in words)
 
@@ -825,7 +825,7 @@ async def test_cd_tree_002_the_parent_controls_the_label_and_root_values(session
     message = FakeMessage(75, bot_message=True)
     await render_card(message, services, nested_id)
     text, _ = message.edits[-1]
-    assert "Kind: ↳🎯 Subgoal" in text and "Parent: Health" in text
+    assert "Kind: 🎯 Subgoal" in text and "Parent: Health" in text
     assert "Values:" not in text
     await render_card(message, services, nested_id, full=True)
     assert "Values: —" in message.edits[-1][0]

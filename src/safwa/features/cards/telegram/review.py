@@ -44,7 +44,7 @@ from ..model import (
     minutes_label,
 )
 from ..references import CARD_REFERENCE_SPECS
-from .presentation import card_nesting, card_overview_text, category_expression, energy_expression
+from .presentation import card_overview_text, category_expression, energy_expression, subgoal_depth
 
 CARD_DETAIL_FIELDS = (
     "kind",
@@ -222,7 +222,9 @@ async def _card_display_state(
         )
     parent = await session.get(Card, state.get("parent_id")) if state.get("parent_id") else None
     display["parent_name"] = parent.title if parent else None
-    display["nesting"] = await card_nesting(session, state.get("parent_id")) if state.get("kind") == CardKind.GOAL.value else 0
+    display["subgoal_depth"] = (
+        await subgoal_depth(session, state.get("id")) if state.get("kind") == CardKind.GOAL.value else 0
+    )
     for spec in CARD_REFERENCE_SPECS:
         display[f"{spec.key}_names"] = await reference_names(
             session, spec, state.get(spec.field)

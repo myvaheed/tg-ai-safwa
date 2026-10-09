@@ -43,9 +43,9 @@ These are agent instructions, not restrictions on manual Card editing or ordinar
   them, and an Action with the `action` tool, whose call on a Goal or a Subgoal is refused before
   review; the domain strips them from a Goal. A Card's parent is set by proposal only;
   no screen offers the control or a separate Subgoal kind.
-- A Goal's marker counts its ancestors: `🎯` at the root, `↳🎯` with one ancestor,
-  `↳↳🎯` with two, then `↳(3)🎯`, `↳(4)🎯` and so on. Screens, lists, citations
-  and proposal previews read the current or proposed parent chain without storing a depth.
+- A Goal's marker shows the deepest Subgoal chain inside it: `🎯` without Subgoals,
+  `🎯₁` with one level, `🎯₂` with two, and so on. Actions do not count. Screens,
+  lists, citations and proposal previews read the subtree without storing a depth.
 - **Schedule** is plain-language timing on an Action or independent Check, and the
   **Deadline** of a Goal or Subgoal: one date, never repeating, never gating Done and never
   planned. Its compiled revisions live in `schedules`; instances retain their revision and

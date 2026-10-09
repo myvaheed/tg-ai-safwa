@@ -17,35 +17,34 @@ from safwa.features.saved_requests.use_cases import create_saved_request
 
 
 @pytest.mark.parametrize(
-    "nesting, marker",
+    "depth, marker, child_marker",
     [
-        (0, "🎯"),
-        (1, "↳🎯"),
-        (2, "↳↳🎯"),
-        (3, "↳(3)🎯"),
-        (4, "↳(4)🎯"),
-        (5, "↳(5)🎯"),
-        (6, "↳(6)🎯"),
+        (0, "🎯", None),
+        (1, "🎯₁", "🎯"),
+        (2, "🎯₂", "🎯₁"),
+        (3, "🎯₃", "🎯₂"),
+        (4, "🎯₄", "🎯₃"),
+        (5, "🎯₅", "🎯₄"),
+        (6, "🎯₆", "🎯₅"),
     ],
 )
-async def test_cd_button_048_goal_markers_count_parents_on_every_surface(sessions, nesting, marker):
+async def test_cd_button_048_goal_markers_show_subgoal_depth_on_every_surface(sessions, depth, marker, child_marker):
     """CD-BUTTON-048 — tests/brd/cards.feature"""
     services = services_for(sessions)
     async with sessions() as session:
-        parent = None
-        for level in range(nesting):
-            parent = await create_card(
+        goal = await create_card(session, kind="goal", title="Target " + "X" * 100)
+        leaf = goal
+        for level in range(depth):
+            leaf = await create_card(
                 session,
                 kind="goal",
-                title=f"Ancestor {level}",
-                parent_id=parent.id if parent else None,
+                title=f"Child {level}",
+                parent_id=leaf.id,
             )
-        goal = await create_card(
-            session,
-            kind="goal",
-            title="Target " + "X" * 100,
-            parent_id=parent.id if parent else None,
-        )
+        if depth:
+            await create_card(session, kind="goal", title="Sibling", parent_id=goal.id)
+        await create_card(session, kind="action", title="Work", parent_id=goal.id)
+        assert await card_emoji(session, leaf) == "🎯"
         label = await item_button_label(session, goal)
         assert label.startswith(marker + " ") and len(label) == ITEM_BUTTON_LIMIT
         citation = await card_citation_label(session, services, goal)
@@ -57,29 +56,39 @@ async def test_cd_button_048_goal_markers_count_parents_on_every_surface(session
             views=services.views,
         )
         await session.commit()
-        goal_id, parent_id, request_id = goal.id, goal.parent_id, request.id
+        goal_id, leaf_id, request_id = goal.id, leaf.id, request.id
 
     message = FakeMessage(80, bot_message=True)
     await render_card(message, services, goal_id)
-    name = "Subgoal" if nesting else "Goal"
-    assert f"Kind: {marker} {name}" in message.edits[-1][0]
+    assert f"Kind: {marker} Goal" in message.edits[-1][0]
     await render_backlog(message, services, kinds="goals")
     assert marker + " Target " in message.edits[-1][0]
     await render_saved_request(message, services, request_id)
     assert label in button_texts(message.edits[-1][1])
-    if parent_id is not None:
-        await render_children(message, services, parent_id)
-        assert label in button_texts(message.edits[-1][1])
+    await render_children(message, services, goal_id)
+    assert "⭐️ Work · 📚" in button_texts(message.edits[-1][1])
+    if depth:
+        assert f"{child_marker} Child 0 · 📚" in button_texts(message.edits[-1][1])
+        assert "🎯 Sibling · 📚" in button_texts(message.edits[-1][1])
+        await render_card(message, services, leaf_id)
+        assert "Kind: 🎯 Subgoal" in message.edits[-1][0]
 
 
-async def test_cd_button_048_markers_follow_changes_to_ancestors(sessions):
+async def test_cd_button_048_markers_follow_moves_and_single_card_deletion(sessions):
     """CD-BUTTON-048 — tests/brd/cards.feature"""
     async with sessions() as session:
         root = await create_card(session, kind="goal", title="Root")
         parent = await create_card(session, kind="goal", title="Parent", parent_id=root.id)
         goal = await create_card(session, kind="goal", title="Child", parent_id=parent.id)
-        assert await card_emoji(session, goal) == "↳↳🎯"
+        assert await card_emoji(session, root) == "🎯₂"
+        assert await card_emoji(session, parent) == "🎯₁"
+        assert await card_emoji(session, goal) == "🎯"
         await set_card_parent(session, parent.id, None)
-        assert await card_emoji(session, goal) == "↳🎯"
+        assert await card_emoji(session, root) == "🎯"
+        assert await card_emoji(session, parent) == "🎯₁"
+        assert await card_emoji(session, goal) == "🎯"
+        await set_card_parent(session, parent.id, root.id)
+        assert await card_emoji(session, root) == "🎯₂"
         await delete_one_card(session, parent.id)
+        assert await card_emoji(session, root) == "🎯₁"
         assert await card_emoji(session, goal) == "🎯"

@@ -108,14 +108,20 @@ async def test_card_proposal_uses_full_card_editor_with_human_diffs(sessions, ef
     assert "↩️ Back" not in buttons
 
 
-@pytest.mark.parametrize("parent_nesting, marker", [(0, "↳🎯"), (1, "↳↳🎯"), (2, "↳(3)🎯"), (5, "↳(6)🎯")])
-async def test_cd_tree_002_the_review_screen_shows_the_goal_becoming_a_subgoal(sessions, parent_nesting, marker) -> None:
+@pytest.mark.parametrize(
+    "parent_depth, depth, marker",
+    [(0, 0, "🎯"), (1, 0, "🎯"), (2, 0, "🎯"), (5, 0, "🎯"), (0, 1, "🎯₁"), (0, 3, "🎯₃")],
+)
+async def test_cd_tree_002_the_review_screen_shows_the_goal_becoming_a_subgoal(sessions, parent_depth, depth, marker) -> None:
     """CD-TREE-002 — tests/brd/cards.feature"""
     store = ProposalStore()
     async with sessions() as session:
         health = await create_card(session, kind="goal", title="Health")
+        leaf = health
+        for level in range(depth):
+            leaf = await create_card(session, kind="goal", title=f"Child {level}", parent_id=leaf.id)
         ancestor = None
-        for level in range(parent_nesting):
+        for level in range(parent_depth):
             ancestor = await create_card(session, kind="goal", title=f"Ancestor {level}", parent_id=ancestor.id if ancestor else None)
         life = await create_card(session, kind="goal", title="Life", parent_id=ancestor.id if ancestor else None)
         workspace = await session.get(Workspace, 1)

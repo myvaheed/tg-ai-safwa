@@ -31,7 +31,7 @@ from ...tags.model import CardTag, Tag
 from ...values.model import CardValue, Value
 from ..hierarchy import card_progress
 from ..model import Card, CardCategory, CardEnergyType, CardKind, CardStage
-from .presentation import card_nesting, card_overview_text, card_title_marks
+from .presentation import card_overview_text, card_title_marks, subgoal_depth
 
 
 async def render_card(
@@ -350,14 +350,14 @@ async def render_card(
         ]
         closed_at = card.completed_at
         summary = await schedule_summary(session, card)
-        nesting = await card_nesting(session, card.parent_id) if card.kind == CardKind.GOAL.value else 0
+        depth = await subgoal_depth(session, card.id) if card.kind == CardKind.GOAL.value else 0
         await session.commit()
     text = with_notice(
         card_overview_text(
             {
                 "kind": card.kind,
                 "parent_id": card.parent_id,
-                "nesting": nesting,
+                "subgoal_depth": depth,
                 "title": card.title + card_marks,
                 "parent_name": parent.title if parent else None,
                 "stage": card.effective_stage,

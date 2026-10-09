@@ -45,7 +45,7 @@ MANUAL = f"""# Safwa
 
 # Cards
 - A Card is a Goal or an Action. A Goal may be root-level or under another Goal; with a parent it is displayed as a Subgoal. An Action may stand under any Goal or alone and has no children.
-- Goal markers count parents: 🎯 at the root, ↳🎯 with one parent, ↳↳🎯 with two, ↳(3)🎯 with three and ↳(n)🎯 for deeper Goals.
+- Goal markers show the deepest Subgoal chain inside: 🎯 without Subgoals, 🎯₁ with one level, 🎯₂ with two, and so on. Actions do not count.
 - The tree has at most {CARD_TREE_DEPTH_MAX} levels, counting the root as 1 and including Actions. A Card cannot be placed under itself or its descendants.
 - Goals name a specific, attainable, meaningful result, with a verifiable completion criterion in Note; Deadline is optional. A Subgoal contributes to its parent's result. Unclear results or criteria are clarified before proposing. Directions are Values; ongoing practices are repeating Actions.
 - An Action has a stage: Backlog, Sprint, Today, Done. It goes to Sprint or Today when the user takes it on; it need not pass every stage. An open Goal shows its children's live stage. Goals and Subgoals close only by an explicit Done or approved proposal after their Actions are finished; an open Action reopens them.

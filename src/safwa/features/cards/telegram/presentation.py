@@ -94,9 +94,9 @@ def _typed_expression(values: Any, emojis: dict[str, str]) -> str:
     return ", ".join(labels) or "—"
 
 
-def kind_label(value: Any, parent_id: int | None = None, *, nesting: int = 0) -> str:
+def kind_label(value: Any, parent_id: int | None = None, *, subgoal_depth: int = 0) -> str:
     name = card_kind_name(str(getattr(value, "value", value)), parent_id)
-    emoji = kind_emoji(value, nesting)
+    emoji = kind_emoji(value, subgoal_depth)
     return f"{emoji} {name}" if emoji else name
 
 
@@ -112,31 +112,33 @@ def values_expression(kind: Any, names: list[str], parent_id: int | None = None)
     return "⚠️ None" if kind == CardKind.GOAL.value and parent_id is None else "—"
 
 
-def kind_emoji(value: Any, nesting: int = 0) -> str:
+def kind_emoji(value: Any, subgoal_depth: int = 0) -> str:
     """Return the compact Card-kind marker without repeating its text label."""
     kind = str(getattr(value, "value", value))
     if kind == CardKind.ACTION.value:
         return "⭐️"
     if kind == CardKind.GOAL.value:
-        prefix = "↳" * nesting if nesting < 3 else f"↳({nesting})"
-        return prefix + "🎯"
+        suffix = (
+            str(subgoal_depth).translate(str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉"))
+            if subgoal_depth else ""
+        )
+        return "🎯" + suffix
     return ""
 
 
-async def card_nesting(session: AsyncSession, parent_id: int | None) -> int:
-    nesting = 0
-    while parent_id is not None:
-        parent = await session.get(Card, parent_id)
-        if parent is None:
-            break
-        nesting += 1
-        parent_id = parent.parent_id
-    return nesting
+async def subgoal_depth(session: AsyncSession, card_id: int | None) -> int:
+    if card_id is None:
+        return 0
+    children = await session.scalars(
+        select(Card.id).where(Card.parent_id == card_id, Card.kind == CardKind.GOAL.value)
+    )
+    depths = [1 + await subgoal_depth(session, child_id) for child_id in children]
+    return max(depths, default=0)
 
 
 async def card_emoji(session: AsyncSession, card: Card) -> str:
-    nesting = await card_nesting(session, card.parent_id) if card.kind == CardKind.GOAL.value else 0
-    return kind_emoji(card.kind, nesting)
+    depth = await subgoal_depth(session, card.id) if card.kind == CardKind.GOAL.value else 0
+    return kind_emoji(card.kind, depth)
 
 
 def category_expression(values: Any) -> str:
@@ -167,7 +169,7 @@ def card_overview_text(
     kind = str(state.get("kind") or "")
     parent_id = state.get("parent_id")
     lines = [
-        f"Kind: {html.escape(kind_label(kind, parent_id, nesting=state.get('nesting', 0)))}",
+        f"Kind: {html.escape(kind_label(kind, parent_id, subgoal_depth=state.get('subgoal_depth', 0)))}",
         f"Title: <b>{html.escape(str(state.get('title') or '—'))}</b>",
     ]
     if state.get("parent_name"):
