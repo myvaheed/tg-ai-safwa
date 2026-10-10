@@ -20,12 +20,12 @@ from safwa.features.saved_requests.use_cases import create_saved_request
     "depth, marker, child_marker",
     [
         (0, "🎯", None),
-        (1, "🎯", "🎯"),
-        (2, "🎯²", "🎯"),
-        (3, "🎯³", "🎯²"),
-        (4, "🎯⁴", "🎯³"),
-        (5, "🎯⁵", "🎯⁴"),
-        (6, "🎯⁶", "🎯⁵"),
+        (1, "🎯²", "🎯"),
+        (2, "🎯³", "🎯²"),
+        (3, "🎯⁴", "🎯³"),
+        (4, "🎯⁵", "🎯⁴"),
+        (5, "🎯⁶", "🎯⁵"),
+        (6, "🎯⁷", "🎯⁶"),
     ],
 )
 async def test_cd_button_048_goal_markers_show_subgoal_depth_on_every_surface(sessions, depth, marker, child_marker):
@@ -80,15 +80,26 @@ async def test_cd_button_048_markers_follow_moves_and_single_card_deletion(sessi
         root = await create_card(session, kind="goal", title="Root")
         parent = await create_card(session, kind="goal", title="Parent", parent_id=root.id)
         goal = await create_card(session, kind="goal", title="Child", parent_id=parent.id)
-        assert await card_emoji(session, root) == "🎯²"
-        assert await card_emoji(session, parent) == "🎯"
+        assert await card_emoji(session, root) == "🎯³"
+        assert await card_emoji(session, parent) == "🎯²"
         assert await card_emoji(session, goal) == "🎯"
         await set_card_parent(session, parent.id, None)
         assert await card_emoji(session, root) == "🎯"
-        assert await card_emoji(session, parent) == "🎯"
+        assert await card_emoji(session, parent) == "🎯²"
         assert await card_emoji(session, goal) == "🎯"
         await set_card_parent(session, parent.id, root.id)
-        assert await card_emoji(session, root) == "🎯²"
+        assert await card_emoji(session, root) == "🎯³"
         await delete_one_card(session, parent.id)
-        assert await card_emoji(session, root) == "🎯"
+        assert await card_emoji(session, root) == "🎯²"
         assert await card_emoji(session, goal) == "🎯"
+
+
+async def test_cd_button_048_goal_subgoal_action_chain_counts_only_goal_levels(sessions):
+    """CD-BUTTON-048 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        goal = await create_card(session, kind="goal", title="Goal")
+        subgoal = await create_card(session, kind="goal", title="Subgoal", parent_id=goal.id)
+        action = await create_card(session, kind="action", title="Action", parent_id=subgoal.id)
+        assert await card_emoji(session, goal) == "🎯²"
+        assert await card_emoji(session, subgoal) == "🎯"
+        assert await card_emoji(session, action) == "⭐️"
