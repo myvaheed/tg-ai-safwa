@@ -60,7 +60,9 @@ class CheckProposalPresenter:
             verb = change.action.title()
             groups = await reference_groups(session, values, (CHECK_VALUE_REFERENCE,))
             return [f"{verb}: {group}" for group in groups]
-        proposed = {name: values[name] for name in ("title", "schedule") if name in values}
+        proposed = {
+            name: values[name] for name in ("title", "note", "schedule") if name in values
+        }
         if change.action in CHECK_ANSWER_ACTIONS:
             proposed["outcome"] = CHECK_OUTCOME_LABELS[CHECK_ANSWER_ACTIONS[change.action]]
         check = (
@@ -74,6 +76,7 @@ class CheckProposalPresenter:
             return [f"Check: #{check.id} “{result_value(check.title)}”"]
         before = {
             "title": check.title,
+            "note": check.note,
             "schedule": check.schedule,
             "outcome": CHECK_OUTCOME_LABELS[check.status],
         }
@@ -111,6 +114,7 @@ class CheckProposalPresenter:
                 linked = set(await check_value_ids(session, check.id))
                 proposed = {
                     "title": check.title,
+                    "note": check.note,
                     "schedule": check.schedule,
                     "status": CHECK_OUTCOME_LABELS[check.status],
                     "values": await _value_names(session, list(linked)),
@@ -157,6 +161,7 @@ class CheckProposalPresenter:
             item="Check",
             blocks=(
                 f"Title: {html.escape(display_diff_value(proposed.get('title')))}\n"
+                f"Note: {html.escape(display_diff_value(proposed.get('note')))}\n"
                 f"Status: {html.escape(display_diff_value(proposed.get('status')))}\n"
                 f"Schedule: "
                 f"{html.escape(display_diff_value(proposed.get('schedule')))}{reading}\n"

@@ -42,6 +42,7 @@ class Check(Base, TimestampMixin):
     __tablename__ = "checks"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String(500))
+    note: Mapped[str] = mapped_column(Text, default="")
     schedule: Mapped[str | None] = mapped_column(Text)
     schedule_id: Mapped[int | None] = mapped_column(ForeignKey("schedules.id"), index=True)
     period_start: Mapped[datetime | None] = mapped_column(UtcDateTime)

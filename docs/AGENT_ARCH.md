@@ -97,8 +97,9 @@ A `Run` after a turn uses one background lease and a publication port that check
 a `Run` on a tick has a publication port too, which sends only while the chat is free and the
 owner has not acted since the look that ran it, taking the lease for the sending alone
 (`speak_on_schedule`), and work on a tick that must wait for the chat takes the lease itself;
-a `Run` on a commit or at the start has the session factory and no chat, and says anything
-it has to say through a recorded fact and an Advise hook. Work at the start that fails stops
+a `Run` on a commit or at the start has the session factory and no chat. It can queue a text
+request directly with `add_cue`, or record a fact for an Advise hook when delivery needs its
+own preparation and switch. Work at the start that fails stops
 the start. Summary retains its own window threshold and
 history comparison; its manual command calls the same writer directly. The current hook contract
 is [HOOK_ARCH.md](HOOK_ARCH.md).
@@ -615,7 +616,7 @@ interrupts mid-turn all lose nothing: the row is still there, and the next poll 
   those rows are deleted once it landed (`settle`). A turn registered in the chat but not
   settled when the process stopped is settled by the next poll without a word
   (`CueRuntime.delivered`); one whose message never landed loses its stamp and waits again.
-- A hook's Cue carries no words. `hook` and `payload` name the hook and what it refers to, one
+- An Advise Cue carries no words. `hook` and `payload` name the hook and what it refers to, one
   row per finding, and `HookRegistry.prepare` asks that hook's feature for the words of all its
   rows at once, each item once, once the gate is open — after checking the switch is still on,
   and never while the chat is busy. Words that cannot be made leave the rows for the next poll.
@@ -625,6 +626,8 @@ interrupts mid-turn all lose nothing: the row is still there, and the next poll 
   A row written while the turn ran carries no stamp and is the next request. Switching the hook
   off in the Profile drops its rows (`drop_hook_cue`), and switching it on drops whatever a late
   hand-on wrote while it was off.
+- A Run can write a ready request with `add_cue`. Its text reaches the Advisor through the
+  same queue, without `HookRegistry.prepare` or a second hook.
 - The Cue reaches the Advisor as an ordinary request from the system, answered the way the owner's
   own would be. A fired Reminder is the one that names items: the prompt tells the Advisor to read
   their current state with `query_data` before repeating an instruction that may no longer apply.

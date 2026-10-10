@@ -52,6 +52,7 @@ from ..features.schedules.module import ScheduleCompiler, scheduled_tool
 from ..features.summary.summary import DialogueSummary
 from ..features.summary.window import SummaryEdge
 from ..features.tags.use_cases import seed_inbox_tag
+from ..features.values.link_review import ValueLinkReviewer
 from ..features.workspace_mutator.state import workspace_context
 from ..foundation.models import Base
 from ..foundation.tokens import estimate_tokens
@@ -88,6 +89,7 @@ class SafwaFeatures:
     summary: DialogueSummary
     memory_reviewer: PatternReviewer
     key_actions: KeyActions
+    value_link_reviewer: ValueLinkReviewer
     analyst: SprintAnalyst
     motivator: Motivator
     # The turn's lease, for work on a tick that must wait for the chat to be free: a tick's
@@ -308,6 +310,7 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
             summary=summary,
             memory_reviewer=PatternReviewer(provider),
             key_actions=KeyActions(provider),
+            value_link_reviewer=ValueLinkReviewer(provider),
             analyst=SprintAnalyst(provider),
             motivator=Motivator(provider, spawn=spawn),
             run_background=turn.run_background,

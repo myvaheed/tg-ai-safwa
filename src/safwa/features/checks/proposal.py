@@ -63,6 +63,7 @@ class CheckProposalHandler:
             created = await create_check(
                 session,
                 title=str(values["title"]),
+                note=values.get("note") or "",
                 schedule=values.get("schedule"),
                 schedule_rule=values.get("schedule_rule"),
                 actor=ActorType.AI,

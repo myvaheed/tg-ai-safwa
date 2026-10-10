@@ -52,7 +52,7 @@ from ..schedules.api import (
 from ..schedules.use_cases import drop_reminders, follow_remind
 from ..tags.api import Tag, attach_tags, unlinkable_tag_id
 from ..tags.model import CardTag
-from ..values.api import Value, attach_values, unlinkable_value_id
+from ..values.api import CARD_VALUE_LINKED, Value, attach_values, unlinkable_value_id
 from ..values.model import CardValue
 from .hierarchy import branch_actions, card_children, propagate_ancestors, settle_archive
 from .model import (
@@ -306,6 +306,7 @@ async def toggle_card_value(
     before = snapshot(card)
     if link is None:
         session.add(CardValue(card_id=card_id, value_id=value_id))
+        record_change(session, CARD_VALUE_LINKED, card_id, data={"value_id": value_id})
         operation, linked = "link_value", True
     else:
         await session.delete(link)

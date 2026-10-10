@@ -37,7 +37,7 @@ AI_CHECKS = SqlView(
                               {_LIVE_TAIL})
                          ELSE '' END
                  || CASE WHEN k.archived_at IS NULL THEN '' ELSE '{ARCHIVE_MARKER}' END AS title,
-               k.schedule,
+               k.note, k.schedule,
                COALESCE(k.outcome, '{PENDING}') AS status,
                k.resolved_at,
                COALESCE(k.series_id, k.id) AS series_id,
@@ -49,13 +49,13 @@ AI_CHECKS = SqlView(
                 JOIN "values" v ON v.id=cv.value_id WHERE cv.check_id=k.id) AS direct_values,
                k.created_at, k.updated_at, relevance('check', k.id) AS relevance
         FROM checks k""",
-    doc="""- `ai_checks(id, title, schedule, status, resolved_at, series_id, card_id, card_series_id, direct_values, created_at, updated_at, relevance)`
+    doc="""- `ai_checks(id, title, note, schedule, status, resolved_at, series_id, card_id, card_series_id, direct_values, created_at, updated_at, relevance)`
   - `status` pending | passed | missed
   - `schedule` is the original timing text, not computed dates or counts
   - a Check with its own Schedule is independent; `card_id` is the one Card a plain Check hangs on, or NULL; `direct_values` is comma-joined
   - `series_id` is the whole series of this check; `card_series_id` is the series of its card: count answers across all copies of a repeating action by it
   - `direct_values` are the Values this Check measures; they are its own, not the Values of its Cards""",
-    searchable=Searchable("check", "checks", ("title",)),
+    searchable=Searchable("check", "checks", ("title", "note")),
 )
 
 

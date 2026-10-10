@@ -10,13 +10,13 @@ Feature: Checks
 
   Scenario: CH-WRITE-001 — A Check is an observation, not a task
     Given the owner wants to record whether something held
-    Then a Check carries a title and an optional plain-language Schedule
+    Then a Check carries a title, an optional Note and an optional plain-language Schedule
     And it has no effort, no stage, no priority, and never counts towards a Sprint
 
   Scenario: CH-WRITE-002 — Safwa writes a Check, and either of them answers it
     Given a Check that exists
     Then writing one, renaming one and linking one to a Card are proposals the owner saved
-    And its own screen answers it and edits its Schedule when independent, and offers nothing else
+    And its own screen answers it, edits Note and edits its Schedule when independent
     And Safwa may propose the answer too, and it reaches the owner as a screen to save
     And a Check title that is empty, or nothing but spaces, is refused
 
@@ -27,6 +27,13 @@ Feature: Checks
     And moving it to another Card is done by taking it off the first one
     And a Check linked to no Card is allowed
     And it carries as many Values as the owner likes
+
+  Scenario: CH-WRITE-018 — Note explains the Check and stays with its repeats
+    Given a Check with a Note explaining how its observation supports a Value
+    Then Safwa can create and edit Note by proposal and read it in ai_checks
+    And its screen shows Note and lets the owner edit it
+    And a repeated Check copies Note to its successor
+    And an archived Check shows Note without an edit button
 
   Scenario: CH-ANSWER-004 — A Check with no answer is Pending
     Given a new Check

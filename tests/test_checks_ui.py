@@ -65,6 +65,35 @@ async def test_an_independent_check_schedule_is_compiled_in_its_text_editor(sess
     assert [target for _, target in compiler.calls] == ["check", "check"]
 
 
+async def test_note_is_edited_from_the_check_screen(sessions):
+    """CH-WRITE-018 — tests/brd/checks.feature"""
+    async with sessions() as session:
+        check = await create_check(session, title="Slept?", note="Original explanation")
+        check_id = check.id
+        await session.commit()
+    services = services_for(sessions)
+    message = FakeMessage(595, bot_message=True)
+    await render_check(message, services, check_id)
+    assert "Note: Original explanation" in message.edits[-1][0]
+    button = _button(message, "📝 Note")
+    await callback_token_handler(
+        FakeCallback(button.callback_data.split(":", 1)[1], message), services
+    )
+    typed = FakeMessage(596, text="Sleep <restores> health", bot_message=False, bot=message.bot)
+    await ordinary_text(typed, services)
+    assert typed.was_deleted
+    async with sessions() as session:
+        check = await session.get(Check, check_id)
+        assert check.note == "Sleep <restores> health"
+        await resolve_check(session, check_id, CheckOutcome.PASSED)
+        await archive_check(session, check_id)
+        await session.commit()
+    assert "Sleep &lt;restores&gt; health" in message.bot.edits[-1][1]
+    await render_check(message, services, check_id)
+    assert "Sleep &lt;restores&gt; health" in message.edits[-1][0]
+    assert "📝 Note" not in button_texts(message.edits[-1][1])
+
+
 async def test_ch_archive_016_an_archived_check_keeps_its_answer(sessions) -> None:
     """CH-ARCHIVE-016 — tests/brd/checks.feature"""
     async with sessions() as session:

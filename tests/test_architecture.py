@@ -38,6 +38,7 @@ from safwa.features.schedules.agent import (
     SCHEDULE_PARSER_PROMPT,
     scheduled_tool,
 )
+from safwa.features.values.link_review import VALUE_LINK_PROMPT, VALUE_LINK_TERMINAL
 from safwa.foundation.models import Base
 from scripts.architecture_metrics import (
     BUSINESS_FILES,
@@ -266,6 +267,7 @@ def _tool_schemas() -> dict[str, dict]:
         # The schema names no photo, so it is read without a library to read one from.
         "relook": relook_tool(None).schema,
         "get_scheduled": scheduled_tool(None).schema,
+        "value_link_review": VALUE_LINK_TERMINAL.schema(),
     }
     tools.update({name: tool.schema() for name, tool in PROPOSALS.tools.items()})
     return tools
@@ -282,6 +284,7 @@ def test_rule_i_prompt_prefix_is_byte_stable(request):
         "HEAVY_ANALYZER_PROMPT": _digest(HELPERS["heavy_analyzer"].instructions),
         "SCHEDULE_PARSER_PROMPT": _digest(SCHEDULE_PARSER_PROMPT),
         "DEADLINE_PARSER_PROMPT": _digest(DEADLINE_PARSER_PROMPT),
+        "VALUE_LINK_PROMPT": _digest(VALUE_LINK_PROMPT),
     }
     # The instructions as assembled, not as written: `{views}` is filled in at import
     # time, so the raw constant is not what any subagent reads.

@@ -15,7 +15,7 @@ ANSWER_MODES = {"passed": ChangeAction.COMPLETE, "missed": ChangeAction.CANCEL}
 
 
 class CheckToolInput(ToolInput):
-    content_fields = frozenset({"title", "schedule"})
+    content_fields = frozenset({"title", "note", "schedule"})
     semantic_null_fields = frozenset({"schedule"})
 
     mode: Literal["create", "update", "passed", "missed", "link", "unlink"] = Field(
@@ -26,6 +26,7 @@ class CheckToolInput(ToolInput):
     )
     id: PositiveInt | None = None
     title: str | None = None
+    note: str | None = None
     schedule: str | None = Field(
         default=None,
         description=(
@@ -49,13 +50,13 @@ class CheckToolInput(ToolInput):
                 raise ValueError("a new Check must not include an id")
             if not (self.title or "").strip():
                 raise ValueError("a new Check needs a title")
-            if supplied - {"title", "schedule"}:
-                raise ValueError("a new Check accepts only title and schedule")
+            if supplied - {"title", "note", "schedule"}:
+                raise ValueError("a new Check accepts only title, note and schedule")
             return self
         if self.id is None:
             raise ValueError(f"check mode '{self.mode}' needs an id")
         if self.mode == "update":
-            editable = {"title", "schedule"}
+            editable = {"title", "note", "schedule"}
             if not supplied:
                 raise ValueError("an updated Check needs at least one proposed field")
             if unsupported := supplied - editable:
@@ -84,7 +85,9 @@ def _check_change(call: BaseModel) -> AgentChange:
 
 
 CHECK_AUTOAPPROVALS = {
-    "update": AutoApprovalRule(SCALAR_UPDATE, frozenset({"title", "schedule", "schedule_rule"}))
+    "update": AutoApprovalRule(
+        SCALAR_UPDATE, frozenset({"title", "note", "schedule", "schedule_rule"})
+    )
 }
 
 CHECK_TOOL = MutationToolSpec(

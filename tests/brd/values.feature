@@ -8,6 +8,28 @@ Feature: Values
   Background:
     Given a workspace where a Value can be written by the owner or proposed by Safwa
 
+  Scenario: VL-LINK-018 — A link means the item supports the Value
+    Given Advisor, Mutator and Onboarding explain Value links
+    Then a Goal, Action or Check is linked for supporting the Value, not for needing it
+    And earning $4k supports Freedom through more choices
+    And earning $4k supports Health only when the money maintains health
+    And needing Health or Perseverance to earn it is not a supporting link
+    And the owner's own clear supporting explanation can establish a different connection
+    And a link is unclear when supporting and reversed meanings are both plausible and no context resolves them
+
+  Scenario: VL-LINK-019 — A saved direct link gets one small check before any question
+    Given a Value is newly linked to a Goal, Action or Check, manually or by a saved proposal
+    When the change commits
+    Then one mini session reads only that pair's title, Note and Value description
+    And an obvious supporting link produces no question or change
+    And an unclear or reversed link asks to clarify Note
+    And the Advisor may suggest a possible supporting explanation and ask whether it matches the owner's meaning
+    And a suggestion is not treated as the owner's reason, and nothing changes before the owner answers
+    And a rollback, unlink or copied repeat starts no review
+    And one Run hook checks the pair and writes the clarification request directly into Cue
+    And a link removed or changed during review produces no queued request
+    And the queued request tells the Advisor to read current data before asking
+
   Scenario: VL-FOCUS-001 — A Value carries a focus, and the owner turns it on and off
     Given a Value the owner has written down
     Then it also carries a focus, which is on or off

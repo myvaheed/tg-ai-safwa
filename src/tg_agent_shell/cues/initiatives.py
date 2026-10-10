@@ -97,7 +97,7 @@ async def queue_advice(
 
 
 async def _no_chat(text: str, kind: str) -> None:
-    raise RuntimeError("A hook off the dialogue has no chat to publish to: record a change, and let an Advise hook say it")
+    raise RuntimeError("A hook off the dialogue has no chat to publish to: queue a Cue request directly or through an Advise hook")
 
 
 async def hand_on_start(

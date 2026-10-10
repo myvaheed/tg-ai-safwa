@@ -8,7 +8,9 @@ is written once, where the change is made, and never guessed from a tool name or
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,11 +23,14 @@ class Committed:
 
     kind: str
     subject_id: int
+    data: Mapping[str, Any] | None = None
 
 
-def record_change(session: AsyncSession, kind: str, subject_id: int) -> None:
+def record_change(
+    session: AsyncSession, kind: str, subject_id: int, *, data: Mapping[str, Any] | None = None
+) -> None:
     """Note a change for whoever listens after this transaction commits."""
-    session.info.setdefault(CHANGES, []).append(Committed(kind, subject_id))
+    session.info.setdefault(CHANGES, []).append(Committed(kind, subject_id, data))
 
 
 def take_changes(info: dict) -> list[Committed]:

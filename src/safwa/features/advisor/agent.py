@@ -10,6 +10,7 @@ from __future__ import annotations
 from ...constants import INBOX_TAG_NAME
 from ...foundation.log_events import LOG_EVENTS_SHOWN
 from ..schedules.api import ACTION_DAILY_EXECUTIONS_MAX
+from ..values.api import VALUE_LINK_MEANING
 
 # Voice, language and citations are one block for every routed subagent: three copies of
 # these rules would drift into three dialects of Safwa.
@@ -36,6 +37,7 @@ ITEMS = f"""# Safwa items
 - Goals and Actions are Cards.
 - Check: a yes/no observation with no duration, on one Card or on none. Anything more than {ACTION_DAILY_EXECUTIONS_MAX} times a day is a Check.
 - Value: a direction with no deadline. It is never Done.
+- {VALUE_LINK_MEANING} If unclear, ask how it supports the Value; explain in `note`.
 - Tag: a free label for finding things.
 - Request: a saved Card query the user reruns.
 - Reminder: a message at a set time, not work.

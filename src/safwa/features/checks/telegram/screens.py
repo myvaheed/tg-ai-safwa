@@ -209,6 +209,12 @@ async def render_check(
                     await place_button(
                         session,
                         services.owner_id,
+                        "📝 Note",
+                        Place("check_edit_note", {"id": check.id}, back),
+                    ),
+                    await place_button(
+                        session,
+                        services.owner_id,
                         "💎 Values",
                         Place("check_choose_values", {"id": check.id}, back),
                     )
@@ -244,6 +250,7 @@ async def render_check(
     body = "\n".join(
         [
             f"<b>Check</b>: {html.escape(check.title + check_marks)}",
+            f"Note: {html.escape(check.note or '—')}",
             f"Status: {CHECK_STATUS_EMOJIS[check.status]} {CHECK_OUTCOME_LABELS[check.status]}",
             f"Schedule: {html.escape(check.schedule or '—')}",
             f"Card: {html.escape(', '.join(card_titles)) or '—'}",

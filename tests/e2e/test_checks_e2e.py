@@ -491,7 +491,7 @@ async def _live_actions(harness) -> set[str]:
         )
 
 
-async def test_manual_check_screens_only_repeat_and_answer(e2e_harness):
+async def test_manual_check_screens_answer_and_edit_note(e2e_harness):
     card_id, check_ids = await _market_card_with_checks(e2e_harness)
     advisor, _provider = e2e_harness.advisor([])
     message = _TestMessage()
@@ -501,7 +501,7 @@ async def test_manual_check_screens_only_repeat_and_answer(e2e_harness):
 
     back = Place("card_view", {"id": card_id})
     await render_checks(message, services, card_id, back=back)
-    # The manual screens answer a Check; every other Check action is proposal-only.
+    # The list opens a Check; its screen answers it and edits Note.
     listed = await _live_actions(e2e_harness)
     assert listed == {"check_view", "card_view"}
 
@@ -511,10 +511,11 @@ async def test_manual_check_screens_only_repeat_and_answer(e2e_harness):
     assert (await _live_actions(e2e_harness)) - listed == {
         "check_set_status",
         "check_choose_values",
+        "check_edit_note",
         "check_list",
         "check_delete_prompt",
     }
-    assert "Note" not in message.rendered[-1]
+    assert "Note: —" in message.rendered[-1]
 
     await _claim(
         e2e_harness, "check_set_status", message, services, id=check_ids[0], outcome="passed"

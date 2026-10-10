@@ -18,6 +18,7 @@ from ..cards.model import (
     effort_label,
 )
 from ..schedules.api import ACTION_DAILY_EXECUTIONS_MAX
+from ..values.api import VALUE_LINK_MEANING
 
 # Enough of the conversation to see its own recent tips.
 ONBOARDING_HISTORY_MESSAGES = 30
@@ -93,11 +94,13 @@ MANUAL = f"""# Safwa
 - A Check with its own Schedule stays independent. Its next copy opens when answered. Checks on an Action follow that Action's cycle.
 - A Card is Done only when each Check on it has an answer; "✅ Done" asks for them.
 - In words: create, rename, put on a Card, answer, delete.
-- With buttons: "☑️ Checks" on its Card, counting answered of all; on the Check, "✅ Yes" answers Passed and "❌ No" answers Missed, "⏱ Schedule", "💎 Values", "🗑 Delete".
+- With buttons: "☑️ Checks" on its Card, counting answered of all; on the Check, "✅ Yes" answers Passed and "❌ No" answers Missed, "📝 Note", "⏱ Schedule", "💎 Values", "🗑 Delete".
 - Not with buttons: creating a Check, or putting it on a Card. Ask the Advisor.
 
 # Values and Tags
 - A Value is what the user cares about: "Health". A Value in focus is one the Advisor weighs in every answer. A Card carries a Value when it serves it; a Check carries one when it shows how well it is held.
+- {VALUE_LINK_MEANING} Explain unclear links in Note.
+- After linking a Value, Safwa silently checks this direction. If unclear or reversed, it asks the user to clarify Note. It may suggest a possible explanation for the user to confirm.
 - A Tag is a free label on Cards, to find them together later.
 - In words: create, rename, put on a Card, delete.
 - With buttons: "💎 Values" or /values, and "🏷 Tags" or /tags: "➕ Add Value", "➕ Add Tag", rename, delete, and "💎 Focus" on a Value. On a Card, "✏️ Full editing" puts them on.

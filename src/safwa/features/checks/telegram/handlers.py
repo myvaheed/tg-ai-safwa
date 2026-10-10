@@ -108,6 +108,31 @@ async def _on_edit_schedule(context: CallbackContext) -> None:
     )
 
 
+async def _on_edit_note(context: CallbackContext) -> None:
+    async with context.sessions() as session:
+        check = await session.get(Check, int(context.payload["id"]))
+        if check is None or check.archived_at is not None:
+            raise DomainError("Check does not exist or is archived")
+        current = check.note
+    await render_text_input(
+        context.message,
+        context.services,
+        screen=TextInputScreen(
+            title="Edit Check Note",
+            current_value=current,
+            instruction="Explain what this Check observes and how it supports its Values.",
+            back=_check(context),
+        ),
+        state={"flow": "check_note", "id": int(context.payload["id"])},
+    )
+
+
+async def _apply_note(
+    session: AsyncSession, services: Services, state: Mapping[str, Any], value: str
+) -> None:
+    await update_check_fields(session, int(state["id"]), {"note": value})
+
+
 async def _prepare_schedule(
     message: Message, services: Services, state: Mapping[str, Any], value: str
 ) -> dict[str, Any]:
@@ -122,8 +147,8 @@ async def _apply_schedule(
     )
 
 
-async def _render_schedule(
-    message: Message, services: Services, state: Mapping[str, Any], value: dict[str, Any]
+async def _render_check(
+    message: Message, services: Services, state: Mapping[str, Any], value: Any
 ) -> None:
     await render_check(
         message,
@@ -136,10 +161,16 @@ async def _render_schedule(
 
 CHECK_TEXT_INPUTS = (
     TextInputFlow(
+        name="check_note",
+        validator=lambda state: None,
+        apply=_apply_note,
+        render=_render_check,
+    ),
+    TextInputFlow(
         name="check_schedule",
         validator=lambda state: None,
         apply=_apply_schedule,
-        render=_render_schedule,
+        render=_render_check,
         prepare=_prepare_schedule,
     ),
 )
@@ -201,6 +232,7 @@ CHECK_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "check_view": _on_view,
     "check_open_schedule": _on_open_schedule,
     "check_edit_schedule": _on_edit_schedule,
+    "check_edit_note": _on_edit_note,
     "check_set_status": _on_set_status,
     "check_delete_prompt": _on_delete_prompt,
     "check_delete_confirm": _on_delete_confirm,

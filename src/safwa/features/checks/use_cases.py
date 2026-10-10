@@ -27,7 +27,7 @@ from ..schedules.api import (
     successor_slot,
 )
 from ..schedules.use_cases import drop_reminders, follow_remind
-from ..values.api import Value
+from ..values.api import CHECK_VALUE_LINKED, Value
 from ..values.model import CheckValue
 from .model import Check, CheckOutcome
 
@@ -86,6 +86,7 @@ async def toggle_check_value(
     before = snapshot(check)
     if link is None:
         session.add(CheckValue(check_id=check_id, value_id=value_id))
+        record_change(session, CHECK_VALUE_LINKED, check_id, data={"value_id": value_id})
         operation, linked = "link_value", True
     else:
         await session.delete(link)
@@ -100,6 +101,7 @@ async def create_check(
     session: AsyncSession,
     *,
     title: str,
+    note: str = "",
     schedule: str | None = None,
     schedule_rule: dict[str, Any] | None = None,
     actor: ActorType = ActorType.USER_UI,
@@ -116,7 +118,7 @@ async def create_check(
         raise DomainError("Check title cannot be empty")
     # `series_id` stays null until a second instance exists: a Check that never repeated
     # is its own series, and `COALESCE(series_id, id)` is what says so, everywhere.
-    check = Check(title=clean_title)
+    check = Check(title=clean_title, note=note.strip())
     session.add(check)
     await session.flush()
     await set_schedule(session, check, schedule, schedule_rule)
@@ -136,7 +138,7 @@ async def update_check_fields(
     check = await session.get(Check, check_id)
     if check is None or check.archived_at is not None:
         raise DomainError("Check does not exist or is archived")
-    unknown = set(fields) - {"title", "schedule", "schedule_rule"}
+    unknown = set(fields) - {"title", "note", "schedule", "schedule_rule"}
     if unknown:
         raise DomainError("Unsupported Check fields: " + ", ".join(sorted(unknown)))
     before = snapshot(check)
@@ -145,6 +147,8 @@ async def update_check_fields(
         if not title:
             raise DomainError("Check title cannot be empty")
         check.title = title
+    if "note" in fields:
+        check.note = str(fields["note"]).strip()
     if "schedule" in fields:
         text = fields["schedule"]
         if text and await check_card_id(session, check.id) is not None:
@@ -209,6 +213,7 @@ async def _copy_check(
     source.series_id = series_id
     successor = Check(
         title=source.title,
+        note=source.note,
         schedule=source.schedule,
         schedule_record=source.schedule_record,
         period_start=source.period_start,

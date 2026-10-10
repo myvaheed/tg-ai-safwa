@@ -167,6 +167,22 @@ An Action **serves** the Values it carries and those its Goal and Subgoal carry:
 says why the work under it is there. `every_finished_action` in the Cards door is where that is
 worked out, and Life in weeks counts a Value's Actions by it.
 
+A Value link runs from the Goal, Action or Check to the Value it supports, never merely from
+a needed Value to the work. Earning $4k supports Freedom through more choices; it supports
+Health if the money maintains health, but needing health to earn it is the reverse direction.
+Needing Perseverance to earn it does not make earning support Perseverance. The owner's own
+clear supporting explanation can establish a different connection. If supporting and reversed
+meanings are both plausible and the supplied text does not resolve them, the link is unclear.
+Unclear reasons belong in Note on both Cards and Checks. A Check keeps its Note when copied.
+
+After a new direct link is saved, a one-call mini session checks that pair using its title,
+Note and the Value's description. An obvious supporting link says nothing; an
+unclear or reversed link queues a request to clarify Note. One Run hook does both the check and
+the direct Cue write. It rechecks the pair before queuing; its request tells the Advisor to
+read current data before asking. The Advisor may suggest a possible supporting explanation and
+ask whether it fits the owner's meaning; it never treats that suggestion as the owner's reason.
+Nothing changes before the owner answers. The hook edits or removes no link.
+
 ## Versions, and what invalidates what
 
 Entities carry a `version`, and `workspace.revision` is what a pending proposal is checked against
