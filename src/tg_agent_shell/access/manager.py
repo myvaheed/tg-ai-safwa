@@ -179,8 +179,11 @@ class AccessManager:
     async def intercept(self, event: Any) -> bool:
         if not self.blocked:
             return False
+        authenticated = self.unlocking
         async with self._transition:
             if not self.blocked:
+                if authenticated:
+                    return False
                 if hasattr(event, "message_id"):
                     await event.delete()
                 else:

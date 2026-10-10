@@ -235,7 +235,7 @@ class CueRuntime:
             # volunteered, not a reply to a message that is not there.
             kind = MessageKind.CUE if passing is None else MessageKind.PASSING_CUE
             access = getattr(self.services, "access", None)
-            if access is not None and access.blocked:
+            if access is not None and access.blocked and not access.unlocking:
                 while outcome.proposal_id is not None:
                     self.services.root.reviews.end_proposal(outcome.proposal_id)
                     outcome = await self.services.root.resolve_approval(
@@ -249,7 +249,7 @@ class CueRuntime:
                 await send_prose(
                     self._anchor(), self.services, body,
                     kind=kind if outcome.turn else MessageKind.EVENT,
-                    event_id=event_id, replace=False, reads_as=outcome.turn or None, links=access.unlocking,
+                    event_id=event_id, replace=False, reads_as=outcome.turn or None, links=False,
                 )
             else:
                 await render_ai_outcome(
@@ -302,7 +302,7 @@ class CueRuntime:
 
 
 async def resume_cues(services: Services, anchor: Message) -> None:
-    """Say the requests waiting at entry before Home, while new owner updates stay gated."""
+    """Say requests after authenticated entry, before owner updates resume."""
     runtime = CueRuntime(services, anchor.bot, owner_id=anchor.chat.id, anchor=anchor)
     await tick(
         services.sessions,

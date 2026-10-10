@@ -31,6 +31,10 @@ Unlocking stops new Cue turns and scheduled publications, waits for the current 
 clears attempts and prompts, restores hidden messages, and runs the waiting Cue requests.
 Access then opens without a Home dashboard and the
 Home after timer restarts. An error leaves access closed and the queue retained for retry.
+Commands and item links arriving after the secret has matched wait for restoration, then
+reach their handlers when access opens. Inputs received before verification remain attempts.
+Pending hooks may open screens and reviews during authenticated restoration; only Reminder
+proposals generated while the chat is still locked are discarded.
 
 `deferred_deliveries` contains only snapshots of previously shown unanswered Cues, including
 Reminders received while locked. It holds no newly generated hidden answers or pictures.

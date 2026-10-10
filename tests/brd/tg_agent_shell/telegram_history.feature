@@ -247,6 +247,9 @@ Feature: The conversation in Telegram
     When the owner unlocks access
     Then running background work finishes first, attempts are cleared, messages are restored and pending hooks run
     And Home is shown only if the application supplies an unlock renderer
+    And commands and item links received after verification wait for restoration and then reach their handlers
+    And requests received before verification remain attempted inputs
+    And pending hooks may open their normal screens and reviews after verification
     And restored hooks are readable by the Advisor, with one logical copy in a day read
     And failed delivery leaves access closed and the queue available for retry
     But applications without protection keep their ordinary behavior

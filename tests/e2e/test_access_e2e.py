@@ -171,7 +171,7 @@ async def test_locked_reminders_arrive_without_links_and_hooks_wait_until_entry(
 
 
 @pytest.mark.parametrize("source", ["reminder", "hook"])
-async def test_locked_delivery_discards_a_proposal_without_an_unanswerable_review(
+async def test_locked_reminder_proposals_are_discarded_and_authenticated_hook_proposals_open(
     e2e_harness, monkeypatch, source
 ):
     """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
@@ -228,6 +228,12 @@ async def test_locked_delivery_discards_a_proposal_without_an_unanswerable_revie
         assert (await session.get(UserProfile, 1)).about_me == ""
         assert len(list(await session.scalars(select(Cue)))) == (source == "hook")
     await services.access.intercept(incoming(anchor, "x"))
-    assert "No changes were saved." in anchor.rendered[-1]
-    assert any("discarded" in str(call) for call in provider.calls)
-    assert not services.root.reviews.busy
+    assert not services.access.blocked
+    if source == "reminder":
+        assert "No changes were saved." in anchor.rendered[-1]
+        assert any("discarded" in str(call) for call in provider.calls)
+        assert not services.root.reviews.busy
+    else:
+        assert services.root.reviews.busy
+        assert any("Save" in button.text for row in anchor.markups[-1].inline_keyboard for button in row)
+        assert not any("discarded" in str(call) for call in provider.calls)
