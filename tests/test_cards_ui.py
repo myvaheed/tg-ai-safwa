@@ -767,7 +767,7 @@ async def test_card_overview_uses_derived_progress_and_relationship_navigation(s
         replace_message_id=goal_message.message_id,
     )
     goal_text, goal_markup = bot.edits[-1][1:]
-    assert "Kind: 🎯₁ Goal" in goal_text
+    assert "Kind: 🎯 Goal" in goal_text
     assert "Stage: Backlog" in goal_text
     assert "Effort: 3/8 EP" in goal_text
     assert "Children: 0/2 completed" in goal_text

@@ -20,12 +20,12 @@ from safwa.features.saved_requests.use_cases import create_saved_request
     "depth, marker, child_marker",
     [
         (0, "🎯", None),
-        (1, "🎯₁", "🎯"),
-        (2, "🎯₂", "🎯₁"),
-        (3, "🎯₃", "🎯₂"),
-        (4, "🎯₄", "🎯₃"),
-        (5, "🎯₅", "🎯₄"),
-        (6, "🎯₆", "🎯₅"),
+        (1, "🎯", "🎯"),
+        (2, "🎯²", "🎯"),
+        (3, "🎯³", "🎯²"),
+        (4, "🎯⁴", "🎯³"),
+        (5, "🎯⁵", "🎯⁴"),
+        (6, "🎯⁶", "🎯⁵"),
     ],
 )
 async def test_cd_button_048_goal_markers_show_subgoal_depth_on_every_surface(sessions, depth, marker, child_marker):
@@ -80,15 +80,15 @@ async def test_cd_button_048_markers_follow_moves_and_single_card_deletion(sessi
         root = await create_card(session, kind="goal", title="Root")
         parent = await create_card(session, kind="goal", title="Parent", parent_id=root.id)
         goal = await create_card(session, kind="goal", title="Child", parent_id=parent.id)
-        assert await card_emoji(session, root) == "🎯₂"
-        assert await card_emoji(session, parent) == "🎯₁"
+        assert await card_emoji(session, root) == "🎯²"
+        assert await card_emoji(session, parent) == "🎯"
         assert await card_emoji(session, goal) == "🎯"
         await set_card_parent(session, parent.id, None)
         assert await card_emoji(session, root) == "🎯"
-        assert await card_emoji(session, parent) == "🎯₁"
+        assert await card_emoji(session, parent) == "🎯"
         assert await card_emoji(session, goal) == "🎯"
         await set_card_parent(session, parent.id, root.id)
-        assert await card_emoji(session, root) == "🎯₂"
+        assert await card_emoji(session, root) == "🎯²"
         await delete_one_card(session, parent.id)
-        assert await card_emoji(session, root) == "🎯₁"
+        assert await card_emoji(session, root) == "🎯"
         assert await card_emoji(session, goal) == "🎯"

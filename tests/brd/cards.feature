@@ -415,7 +415,7 @@ Feature: Cards
 
   Scenario: CD-BUTTON-048 — A Card on a button is named by emoji, never by the word for its kind
     Given a Card shown as a button among others of several stages, such as a Goal's children or a Request's Cards
-    Then the button shows a Goal as 🎯 without Subgoals, 🎯₁ with one level of Subgoals inside, 🎯₂ with two, and so on, and an Action as ⭐️
+    Then the button shows a Goal as 🎯 with zero or one level of Subgoals inside, 🎯² with two, 🎯³ with three, and so on, and an Action as ⭐️
     And the index follows the deepest Subgoal chain, regardless of the number of siblings, and ignores Actions
     And its stage is 📚, 🏃, ☀️ or ✅, and no word names either its kind or stage
     And the same Goal marker is shown in its screen, lists, citations and proposal preview, following moves and deletions in its subtree

@@ -119,8 +119,8 @@ def kind_emoji(value: Any, subgoal_depth: int = 0) -> str:
         return "⭐️"
     if kind == CardKind.GOAL.value:
         suffix = (
-            str(subgoal_depth).translate(str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉"))
-            if subgoal_depth else ""
+            str(subgoal_depth).translate(str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹"))
+            if subgoal_depth > 1 else ""
         )
         return "🎯" + suffix
     return ""

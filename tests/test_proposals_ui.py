@@ -110,7 +110,7 @@ async def test_card_proposal_uses_full_card_editor_with_human_diffs(sessions, ef
 
 @pytest.mark.parametrize(
     "parent_depth, depth, marker",
-    [(0, 0, "🎯"), (1, 0, "🎯"), (2, 0, "🎯"), (5, 0, "🎯"), (0, 1, "🎯₁"), (0, 3, "🎯₃")],
+    [(0, 0, "🎯"), (1, 0, "🎯"), (2, 0, "🎯"), (5, 0, "🎯"), (0, 1, "🎯"), (0, 3, "🎯³")],
 )
 async def test_cd_tree_002_the_review_screen_shows_the_goal_becoming_a_subgoal(sessions, parent_depth, depth, marker) -> None:
     """CD-TREE-002 — tests/brd/cards.feature"""
