@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections import deque
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -31,6 +30,7 @@ from ..planning.model import Sprint
 from ..profile.api import about_me
 from ..values.api import values_in_focus
 from ..workspace_mutator.api import priority_goals
+from .dashboard import HOME_GOALS_SHOWN
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +42,6 @@ MOTIVATION_DIARY_ENTRIES = 2
 MOTIVATION_MAX_CHARS = 200
 # How long written words are shown again before they are asked for anew.
 MOTIVATION_FRESH_MINUTES = 10
-# Successful generations kept as context after the displayed words expire.
-MOTIVATION_HISTORY_SIZE = 5
 
 MOTIVATION_PROMPT = (
     "Write a few words for each Value that move the user to live by it today.\n"
@@ -85,7 +83,7 @@ async def owner_context(session: AsyncSession) -> str:
     """What the session reads before the Values."""
     workspace = await require_workspace(session)
     local_now = utcnow().astimezone(ZoneInfo(workspace.timezone))
-    goals = await priority_goals(session, local_now)
+    goals = (await priority_goals(session, local_now))[:HOME_GOALS_SHOWN]
     sprint = (
         await session.get(Sprint, workspace.active_sprint_id)
         if workspace.active_sprint_id else None
@@ -128,7 +126,6 @@ class Motivator:
         self.provider = provider
         self.spawn = spawn
         self._kept: tuple[datetime, dict[int, str]] | None = None
-        self._history: deque[dict[int, str]] = deque(maxlen=MOTIVATION_HISTORY_SIZE)
         self._writing: asyncio.Task[None] | None = None
 
     def fresh(self) -> dict[int, str] | None:
@@ -159,10 +156,10 @@ class Motivator:
             words = await self._ask(sessions)
         finally:
             self._writing = None
-        # Words that failed are not kept: the next Home asks again.
+        # Words that failed are not kept: the next Home asks again, against the last words
+        # that were written.
         if words:
             self._kept = (utcnow(), words)
-            self._history.append(words.copy())
 
     async def _ask(self, sessions: async_sessionmaker[AsyncSession]) -> dict[int, str]:
         async with sessions() as session:
@@ -177,11 +174,11 @@ class Motivator:
             f"{number}. {name}" + (f" — {about}" if about else "")
             for number, (_, name, about) in enumerate(values, start=1)
         ]
+        last = self._kept[1] if self._kept else {}
         previous = [
-            f"- Value {number}: {words[value_id]}"
-            for words in reversed(self._history)
+            f"- Value {number}: {last[value_id]}"
             for number, (value_id, _, _) in enumerate(values, start=1)
-            if value_id in words
+            if value_id in last
         ]
         try:
             result = await run_mini_session(
@@ -189,7 +186,7 @@ class Motivator:
                 system_prompt=MOTIVATION_PROMPT,
                 context="\n".join(
                     [
-                        shared, "", "Previous motivation, newest first:",
+                        shared, "", "Previous motivation:",
                         *(previous or ["None."]), "", "Values, numbered:", *listed,
                     ]
                 ),

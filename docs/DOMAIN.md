@@ -174,9 +174,11 @@ Needing Perseverance to earn it does not make earning support Perseverance. The 
 clear supporting explanation can establish a different connection. If supporting and reversed
 meanings are both plausible and the supplied text does not resolve them, the link is unclear.
 Unclear reasons belong in Note on both Cards and Checks. A Check keeps its Note when copied.
+A Goal's Note holds its completion criterion and its reasons at once, and an update replaces a
+Note whole, so the Card and Check tools tell the model to write what it holds, then the new words.
 
-After a new direct link is saved, a one-call mini session checks that pair using its title,
-Note and the Value's description. An obvious supporting link says nothing; an
+After a new direct link is saved, a mini session checks that pair using its title, Note and the
+Value's description, with one repair of a malformed answer and no more. An obvious supporting link says nothing; an
 unclear or reversed link is kept by the same hook, and one request asks to clarify Note for
 every pair still linked. The check rechecks the pair before keeping it, and the request waits
 behind the Cue gate like any hook's and tells the Advisor to read current data before asking.

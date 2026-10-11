@@ -10,6 +10,8 @@ from tg_agent_shell.ai.autoapproval import SCALAR_UPDATE, AutoApprovalRule
 from tg_agent_shell.ai.contracts import AgentChange, Reference, ToolInput
 from tg_agent_shell.proposals.api import ChangeAction, MutationToolSpec
 
+from ...constants import NOTE_REPLACED_WHOLE
+
 # The answers are the Card lifecycle verbs underneath: Passed completes, Missed cancels.
 ANSWER_MODES = {"passed": ChangeAction.COMPLETE, "missed": ChangeAction.CANCEL}
 
@@ -26,7 +28,10 @@ class CheckToolInput(ToolInput):
     )
     id: PositiveInt | None = None
     title: str | None = None
-    note: str | None = None
+    note: str | None = Field(
+        default=None,
+        description="What it observes, and how that supports its Values. " + NOTE_REPLACED_WHOLE,
+    )
     schedule: str | None = Field(
         default=None,
         description=(

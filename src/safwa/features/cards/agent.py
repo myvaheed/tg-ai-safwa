@@ -11,6 +11,7 @@ from tg_agent_shell.ai.autoapproval import RELATIONSHIP_LINK, SCALAR_UPDATE, Aut
 from tg_agent_shell.ai.contracts import AgentChange, Reference, ToolInput
 from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
 
+from ...constants import NOTE_REPLACED_WHOLE
 from .model import (
     CATEGORY_MEANINGS,
     ENERGY_MEANINGS,
@@ -70,7 +71,13 @@ class GoalToolInput(ToolInput):
     )
     id: PositiveInt | None = None
     title: str | None = None
-    note: str | None = None
+    note: str | None = Field(
+        default=None,
+        description=(
+            "Its observable completion criterion, and how it supports its Values. "
+            + NOTE_REPLACED_WHOLE
+        ),
+    )
     priority: Literal["critical", "medium", "low"] | None = None
     deadline: str | None = Field(
         default=None,
@@ -110,7 +117,13 @@ class ActionToolInput(ToolInput):
     )
     id: PositiveInt | None = None
     title: str | None = None
-    note: str | None = None
+    note: str | None = Field(
+        default=None,
+        description=(
+            "Details, a captured idea or a draft, and how it supports its Values. "
+            + NOTE_REPLACED_WHOLE
+        ),
+    )
     stage: Literal["backlog", "sprint", "today"] | None = None
     priority: Literal["critical", "medium", "low"] | None = None
     schedule: str | None = Field(

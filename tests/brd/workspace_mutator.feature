@@ -48,6 +48,8 @@ Feature: The workspace
     And so pointing the owner at one is quoting what Safwa was handed, never building a link out
       of an id it read somewhere else
     And each active Value and each available Tag is on its own line with its description
+    And a description arrives as one line of at most 120 characters (CONTEXT_DESCRIPTION_MAX_CHARS = 120)
+    And an item with no description is its link alone, and a list with nothing in it has no heading
     And the Advisor and the part that changes the workspace receive those descriptions
 
   Scenario: WS-CONTEXT-007 — Safwa is told what time it is where the owner is, and told it last

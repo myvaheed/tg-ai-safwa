@@ -34,7 +34,10 @@ from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.use_cases import create_value
 from safwa.features.workspace_mutator.agent import MUTATOR_AGENT
 from safwa.features.workspace_mutator.remove import ARCHIVABLE, RemoveToolInput
-from safwa.features.workspace_mutator.state import workspace_context
+from safwa.features.workspace_mutator.state import (
+    CONTEXT_DESCRIPTION_MAX_CHARS,
+    workspace_context,
+)
 from tg_agent_shell.ai.messages import ContextBuilder, StateBlocks
 from tg_agent_shell.ai.subagents import RoutedSubagent
 
@@ -163,7 +166,7 @@ async def test_ws_context_006_everything_named_in_the_state_is_a_citation(sessio
     assert named == {("value", value.id), ("tag", tag.id), ("tag", empty.id), ("card", card.id)}
     assert f"- [Health](value:{value.id}): Sleep and exercise" in state.splitlines()
     assert f"- [Family](tag:{tag.id}): Time with my family" in state.splitlines()
-    assert f"- [Empty](tag:{empty.id}): " in state.splitlines()
+    assert f"- [Empty](tag:{empty.id})" in state.splitlines()
     assert "Inactive description" not in state
     builder = _builder(state)
     turn = [{"role": "user", "content": "What should I do?"}]
@@ -173,6 +176,22 @@ async def test_ws_context_006_everything_named_in_the_state_is_a_citation(sessio
     ):
         assert "Sleep and exercise" in json.dumps(messages)
         assert "Time with my family" in json.dumps(messages)
+
+
+async def test_ws_context_006_a_description_is_one_short_line_and_no_heading_is_empty(sessions):
+    """WS-CONTEXT-006 — tests/brd/workspace_mutator.feature"""
+    long = "Two lines:\n" + "word " * CONTEXT_DESCRIPTION_MAX_CHARS
+    async with sessions() as session:
+        nothing = (await workspace_context(session)).state
+        tag = await create_tag(session, "Family", description=long)
+        await session.commit()
+        state = (await workspace_context(session)).state
+
+    assert "Active Values:" not in nothing and "Priority Goals:" not in nothing
+    [line] = [line for line in state.splitlines() if f"(tag:{tag.id})" in line]
+    about = line.split(": ", 1)[1]
+    assert about.startswith("Two lines: word word")
+    assert about.endswith("…") and len(about) <= CONTEXT_DESCRIPTION_MAX_CHARS
 
 
 

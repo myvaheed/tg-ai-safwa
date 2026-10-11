@@ -288,7 +288,7 @@ async def test_rollback_and_repeat_copies_start_no_review(sessions):
         await sink.close()
 
 
-async def test_a_malformed_answer_is_not_an_unclear_link_or_a_retry_loop(sessions):
+async def test_a_malformed_answer_is_repaired_once_and_never_read_as_unclear(sessions):
     """VL-LINK-019 — tests/brd/values.feature"""
     provider = ReviewProvider(malformed=True)
     reviewer = ValueLinkReviewer(provider)
@@ -297,7 +297,7 @@ async def test_a_malformed_answer_is_not_an_unclear_link_or_a_retry_loop(session
             "kind": "goal", "title": "Earn $4k", "note": "", "value": "Health",
             "value_description": "",
         })
-    assert len(provider.calls) == 1
+    assert len(provider.calls) == 2
 
 
 async def test_check_note_survives_repetition_and_is_readable(read_views):

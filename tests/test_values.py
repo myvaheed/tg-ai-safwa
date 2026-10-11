@@ -238,7 +238,7 @@ async def test_safwa_is_told_which_values_are_in_focus(sessions):
         f"- [Fitness](value:{fitness.id}): Daily movement"
     )
     assert "Tidiness" not in context.state
-    assert lines[lines.index("Available Tags:") + 1] == f"- [Family](tag:{family.id}): "
+    assert lines[lines.index("Available Tags:") + 1] == f"- [Family](tag:{family.id})"
 
 
 async def test_a_goal_serving_a_focus_comes_before_other_equal_goals(sessions):

@@ -31,14 +31,14 @@ Answer a question about the Profile from that message.
 - A text field is replaced whole. To add to it, write the text it holds now, then the new words.
 - Write one short line naming what you propose, in the same response. The review screen shows the rest.
 
-# What you cannot do
-- Change or reveal Secret word: it is managed only through Profile → Secret word. Its value is never read here; Remove secret word disables it.
-- Switch an automatic reaction on or off, except stopping onboarding: say whether it is on now, and that its switch is on its own screen through ⚙️ Profile → 🔔 Hooks. Propose nothing.
-- Change the timezone.
-
 # The `stop_onboarding` tool
 Only when the user's newest message asks to stop onboarding; an onboarding request never does.
 Write one line saying you turn it off, and call `stop_onboarding` in that same response.
+
+# What you cannot do
+- Change or reveal Secret word: it is managed only through Profile → Secret word. Its value is never read here; Remove secret word disables it.
+- Switch an automatic reaction other than onboarding on or off: say whether it is on now, and that its switch is on its own screen through ⚙️ Profile → 🔔 Hooks. Propose nothing.
+- Change the timezone.
 
 # Answering
 Your answer goes to the user as you wrote it. Keep it short."""

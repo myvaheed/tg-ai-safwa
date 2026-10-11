@@ -13,6 +13,10 @@ INBOX_TAG_NAME = "Inbox"
 # Weekday tokens as stored in `reminders.weekdays`, indexed by `date.weekday()`.
 # Mirrored by the Literal in `reminders/agent.py`.
 WEEKDAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+# How the Card and the Check tools write a Note, which holds more than one thing at once.
+NOTE_REPLACED_WHOLE = (
+    "On update, it replaces the whole Note: write what it holds now, then the new words."
+)
 # How many rows one page of a Card or a Check selector lists.
 SELECTOR_PAGE_SIZE = 10
 # The advisor window is a token budget rather than a message count: a Summary of at most

@@ -33,10 +33,26 @@ from ..values.model import Value
 from .api import priority_goals
 
 CONTEXT_PRIORITY_GOAL_LIMIT = 10
+# Every turn carries each Value's and Tag's description, so each is one short line.
+CONTEXT_DESCRIPTION_MAX_CHARS = 120
+
 
 def citation(name: str, kind: str, item_id: int) -> str:
     """The one shape an item takes in context, ready for the model to reuse in a reply."""
     return f"[{name}]({kind}:{item_id})"
+
+
+def described(name: str, kind: str, item_id: int, description: str) -> str:
+    """A listed item and its description on one line, cut to `CONTEXT_DESCRIPTION_MAX_CHARS`."""
+    about = " ".join(description.split())
+    if len(about) > CONTEXT_DESCRIPTION_MAX_CHARS:
+        about = about[: CONTEXT_DESCRIPTION_MAX_CHARS - 1].rstrip() + "…"
+    return f"- {citation(name, kind, item_id)}" + (f": {about}" if about else "")
+
+
+def section(heading: str, items: list[str]) -> list[str]:
+    # An empty heading would read the owner's next line as its first item.
+    return [heading, *items] if items else []
 
 
 async def workspace_context(session: AsyncSession) -> StateBlocks:
@@ -66,10 +82,13 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
         f"About me: {(profile.about_me if profile else '').strip()}",
         f"Advisor instructions: {(profile.advisor_instructions if profile else '').strip()}",
         f"Effort Points: {'on' if effort_on else 'off'}",
-        "Active Values:",
-        *(f"- {citation(value.name, 'value', value.id)}: {value.description}" for value in active_values),
-        "Available Tags:",
-        *(f"- {citation(tag.name, 'tag', tag.id)}: {tag.description}" for tag in tags),
+        *section(
+            "Active Values:",
+            [described(value.name, "value", value.id, value.description) for value in active_values],
+        ),
+        *section(
+            "Available Tags:", [described(tag.name, "tag", tag.id, tag.description) for tag in tags]
+        ),
     ]
     if sprint is not None:
         # The day is counted here, not by the model: a small model misreads date arithmetic.
@@ -99,10 +118,9 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
         if (capacity := await capacity_effort_points(session)) is not None:
             lines.append(f"Next Sprint's capacity: {effort_label(capacity)} EP.")
     goals = (await priority_goals(session, local_now))[:CONTEXT_PRIORITY_GOAL_LIMIT]
-    # An empty heading would read the owner's next line as its first item.
-    if goals:
-        lines.append("Priority Goals:")
-        lines.extend(
+    lines += section(
+        "Priority Goals:",
+        [
             f"- {citation(goal.title, 'card', goal.id)} priority={goal.priority} "
             f"stage={goal.effective_stage}"
             + (
@@ -110,7 +128,8 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
                 if goal.deadline_at else ""
             )
             for goal in goals
-        )
+        ],
+    )
     today = await today_actions(session)
     load = await plan_load(session, today, start_date=local_day, end_date=local_day)
     lines.append("Today Actions:")

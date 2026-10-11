@@ -26,8 +26,10 @@ VALUE_LINK_PROMPT = (
     "The same link can be VALID or INVALID depending on the user's meaning.\n"
     "Use the title, Note and Value description.\n"
     "An obvious benefit needs no written explanation.\n"
-    "Call value_link_review with clear=true if support is sufficiently clear.\n"
-    "Call value_link_review with clear=false if support is unclear or the meaning is reversed."
+    "Call value_link_review with clear=false when the item needs the Value instead of supporting it.\n"
+    "Call value_link_review with clear=false when it could either support or need the Value, "
+    "and the title, Note and Value description do not say which.\n"
+    "Otherwise call value_link_review with clear=true."
 )
 
 
@@ -49,7 +51,7 @@ class ValueLinkReviewer:
             context=json.dumps(link, ensure_ascii=False),
             terminals=(VALUE_LINK_TERMINAL,),
             max_tool_calls=1,
-            max_repairs=0,
+            max_repairs=1,
             reasoning_effort="none",
         )
         return answer.payload.clear

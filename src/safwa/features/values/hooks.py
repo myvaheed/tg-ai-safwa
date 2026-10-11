@@ -26,11 +26,7 @@ CLARIFY_REQUEST = (
     "{links}\n"
     "Read the current items and Values first.\n"
     "If a link is gone or its Note already makes the supporting direction clear, skip it.\n"
-    "Briefly ask how each item supports its Value and help clarify Note.\n\n"
-    'Example Goal "Earn $4k" linked to Health:\n'
-    "- VALID: money pays for healthcare.\n"
-    "- INVALID: health is needed to earn money.\n"
-    "- UNCLEAR: no context shows which meaning the user intends.\n\n"
+    "Briefly ask how each item supports its Value and help clarify Note.\n"
     "If you have a useful possible explanation, suggest it briefly and ask "
     "whether it fits the user's meaning.\n"
     "Present it as a possibility, not as the user's reason.\n"
