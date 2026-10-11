@@ -53,6 +53,7 @@ from scripts.architecture_metrics import (
     process_modules,
     readers,
     unregistered_packages,
+    words_cues,
 )
 from tg_agent_shell.ai.contracts import (
     CALL_HELPER_TOOL,
@@ -188,6 +189,23 @@ def test_rule_s_leaves_the_driver_to_the_database_module():
     module = _example("tg_agent_shell/foundation/database.py", source)
 
     assert database_openings(module) == []
+
+
+@pytest.mark.parametrize(
+    "rel, source, caught",
+    [
+        ("safwa/features/values/hooks.py", "from tg_agent_shell.cues.queue import add_cue", True),
+        ("safwa/features/values/hooks.py", "from tg_agent_shell.cues.queue import add_cue as say", True),
+        ("safwa/features/values/hooks.py", "import tg_agent_shell.cues.queue as q\nq.add_cue(s, text='Hi')", True),
+        ("tg_agent_shell/cues/runtime.py", "from .queue import add_cue", True),
+        ("safwa/features/values/hooks.py", "from tg_agent_shell.cues.queue import add_hook_cue", False),
+        ("safwa/features/reminders/firing.py", "from tg_agent_shell.cues.queue import add_cue", False),
+    ],
+)
+def test_rule_t_leaves_words_in_the_queue_to_reminders(rel: str, source: str, caught: bool):
+    found = words_cues(_example(rel, source))
+
+    assert bool(found) is caught, found
 
 
 def test_a_second_operations_module_is_under_the_business_rules_too():

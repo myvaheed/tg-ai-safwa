@@ -1,9 +1,9 @@
 # Home dashboard
 
 `/start` draws Home with one `☰ Menu` button. Pressing it or `↩️ Menu` opens the dashboard with
-the whole menu (HM-START-011). Automatic cleanup and `/clear` leave the chat empty, without
-requesting the Values' words or drawing Home. Unanswered hooks after the last user dialogue
-are held for restoration before the next `/start` dashboard. The conversation Safwa reads
+the whole menu (HM-START-011). Automatic cleanup and `/clear` empty the chat without
+requesting the Values' words or drawing Home. The automatic cleanup spares the hooks said
+after the owner last wrote to the Advisor; `/clear` removes them. The conversation Safwa reads
 starts after the persistent clear boundary. The rules are HM-QUIET-003 to HM-CLEAR-012
 in [home.feature](../tests/brd/home.feature) and PS-HOME-018 in
 [profile.feature](../tests/brd/profile.feature); what a Home message does to the chat is the
@@ -106,9 +106,10 @@ enabled, otherwise `AccessManager.clear`. `ChatHost.clear` deletes every id thro
 boundary in `TELEGRAM_DELETE_BATCH = 100` a call. Both sides
 share one id sequence in a private chat, so the range takes the owner's messages and commands,
 the Advisor's replies, receipts, every screen and the previous Home dashboard alike, and no
-editor session is left. It captures `UNASKED_KINDS` — Cues, which is how a Reminder or a hook's
-question reaches the chat — sent after the last `MessageKind.DIALOGUE_USER`, then removes
-their visible messages too. They are restored on protected entry or before the next `/start`.
+editor session is left. `UNASKED_KINDS` — Cues, which is how a Reminder or a hook's question
+reaches the chat — sent after the last `MessageKind.DIALOGUE_USER` are spared: the owner may
+not have seen them. The lock captures them instead and removes their messages, and entry
+restores them.
 The range starts no earlier than the oldest
 message kept in the last `TELEGRAM_DELETE_WINDOW` of 48 hours: Telegram lets a bot delete nothing
 older.

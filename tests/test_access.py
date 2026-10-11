@@ -21,6 +21,7 @@ from safwa.features.profile.api import secret_word_verifier
 from safwa.features.profile.model import UserProfile
 from safwa.features.profile.telegram import command_profile
 from safwa.features.profile.use_cases import set_secret_word
+from tg_agent_shell.access import manager
 from tg_agent_shell.access.credentials import hash_secret_word, matches_secret_word
 from tg_agent_shell.access.manager import ENTER_SECRET_WORD, AccessManager
 from tg_agent_shell.access.model import DeferredDelivery
@@ -37,9 +38,8 @@ from tg_agent_shell.hooks.contracts import (
     Run,
 )
 from tg_agent_shell.hooks.registry import HookRegistry
-from tg_agent_shell.telegram.dialogue import run_after_turn, run_before_turn
+from tg_agent_shell.telegram.dialogue import ordinary_text, run_after_turn, run_before_turn
 from tg_agent_shell.telegram.services import OwnerAndWritingMiddleware
-from tg_agent_shell.telegram.text_input import handle_raw_text_input
 
 
 def protected_services(sessions):
@@ -113,7 +113,22 @@ async def test_locked_notification_disables_automatic_links_but_keeps_original_w
     assert not any("🏠" in shown for shown in anchor.rendered)
 
 
-@pytest.mark.parametrize("word", ["x", "🔑", "/clear", " a\n ", " ", "off", "OFF"])
+async def typed_into_profile(services, message, *words):
+    entries = [
+        FakeMessage(901 + index, text=word, bot_message=False, bot=message.bot)
+        for index, word in enumerate(words)
+    ]
+    for entry in entries:
+        await ordinary_text(entry, services)
+    return entries
+
+
+async def stored_verifier(sessions):
+    async with sessions() as session:
+        return (await session.get(UserProfile, 1)).secret_word_hash
+
+
+@pytest.mark.parametrize("word", ["x", "🔑", " a\n ", " ", "off", "OFF"])
 async def test_secret_word_is_exact_salted_text_and_profile_input_is_not_dialogue(sessions, word):
     """PS-SECRET-023 — tests/brd/profile.feature"""
     first, second = hash_secret_word(word), hash_secret_word(word)
@@ -124,9 +139,11 @@ async def test_secret_word_is_exact_salted_text_and_profile_input_is_not_dialogu
     message = FakeMessage(900, bot_message=True, answer_as_new=True)
     await command_profile(message, services)
     await press(services, message, message.edits[-1][1], "🔐 Secret word")
-    answer = FakeMessage(901, text=word, bot_message=False, bot=message.bot)
-    assert await handle_raw_text_input(answer, services)
-    assert answer.was_deleted
+    [once] = await typed_into_profile(services, message, word)
+    assert await stored_verifier(sessions) is None
+    assert "Send the same Secret word again" in message.bot.edits[-1][1]
+    [twice] = await typed_into_profile(services, message, word)
+    assert once.was_deleted and twice.was_deleted
     assert not services.access.blocked
     assert not any(word == note.text for note in await TelegramNotes(sessions).outgoing(700))
     async with sessions() as session:
@@ -134,6 +151,27 @@ async def test_secret_word_is_exact_salted_text_and_profile_input_is_not_dialogu
         assert matches_secret_word(word, profile.secret_word_hash)
     assert "Secret word: set" in message.bot.edits[-1][1]
     assert await services.history.dialogue(700) == []
+
+
+async def test_secret_word_is_saved_only_when_sent_twice_the_same_and_never_as_a_command(
+    sessions,
+):
+    """PS-SECRET-023 — tests/brd/profile.feature"""
+    services = protected_services(sessions)
+    message = FakeMessage(900, bot_message=True, answer_as_new=True)
+    await command_profile(message, services)
+    await press(services, message, message.edits[-1][1], "🔐 Secret word")
+    await typed_into_profile(services, message, " /start")
+    assert "A command cannot be the Secret word." in message.bot.edits[-1][1]
+    await typed_into_profile(services, message, "first", "second")
+    assert "The two entries differ" in message.bot.edits[-1][1]
+    assert await stored_verifier(sessions) is None
+    # A difference starts over: the next entry is a first one again.
+    await typed_into_profile(services, message, "second")
+    assert await stored_verifier(sessions) is None
+    await typed_into_profile(services, message, "second")
+    assert matches_secret_word("second", await stored_verifier(sessions))
+    assert "Secret word updated." in message.bot.edits[-1][1]
 
 
 async def test_remove_button_disables_the_secret_and_off_is_an_exact_word(sessions):
@@ -153,7 +191,7 @@ async def test_remove_button_disables_the_secret_and_off_is_an_exact_word(sessio
 
 async def test_lock_clears_hooks_then_unlock_restores_only_unanswered_hooks_without_home(sessions):
     """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
-    await set_word(sessions, "/clear")
+    await set_word(sessions, "Sesame")
     services = protected_services(sessions)
     anchor = QueueTestMessage(message_id=10, answer_as_new=True)
     await keep(sessions, 1, "Answered hook")
@@ -169,7 +207,7 @@ async def test_lock_clears_hooks_then_unlock_restores_only_unanswered_hooks_with
     assert services.access.blocked
     assert wrong.rendered == [ENTER_SECRET_WORD]
     await notification(services, anchor, "New Reminder", event_id="a" * 32)
-    correct = incoming(anchor, "/clear", 2000)
+    correct = incoming(anchor, "Sesame", 2000)
     await services.access.intercept(correct)
     assert not services.access.blocked
     assert correct.rendered[-2:] == ["Unanswered hook", "New Reminder"]
@@ -272,6 +310,40 @@ async def test_clear_leaves_access_open_and_automatic_clear_locks_without_drawin
     await render_home(incoming(anchor, "/start", 3000), services)
     assert "🏠" in anchor.rendered[-1]
     assert [button.text for row in anchor.markups[-1].inline_keyboard for button in row] == ["☰ Menu"]
+
+
+async def test_a_clear_telegram_refuses_keeps_access_locked_and_is_tried_again(
+    sessions, monkeypatch
+):
+    """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
+    await set_word(sessions)
+    services = protected_services(sessions)
+    retries: list[asyncio.Task] = []
+
+    def spawn(work, name):
+        retries.append(asyncio.create_task(work, name=name))
+        return retries[-1]
+
+    services.chat = replace(services.chat, spawn=spawn)
+    monkeypatch.setattr(manager, "CLEAR_RETRY_SECONDS", 0)
+    anchor = QueueTestMessage(answer_as_new=True)
+    await keep(sessions, 1, "Private words", MessageKind.DIALOGUE_USER)
+    refusals = 2
+    delete_messages = anchor.bot.delete_messages
+
+    async def flaky(**options):
+        nonlocal refusals
+        if refusals:
+            refusals -= 1
+            raise TelegramBadRequest(method=None, message="Temporary failure")
+        await delete_messages(**options)
+
+    monkeypatch.setattr(anchor.bot, "delete_messages", flaky)
+    # Startup locks too: a refusal there must not stop the bot.
+    await services.access.initialize(anchor)
+    assert services.access.blocked and anchor.bot.deleted == []
+    await asyncio.wait_for(asyncio.gather(*retries), 5)
+    assert services.access.blocked and anchor.bot.deleted == [1] and refusals == 0
 
 
 async def test_restart_keeps_notification_words_and_requires_word_again(sessions):
@@ -545,7 +617,7 @@ async def test_replayed_old_hook_uses_its_new_display_time_for_cleanup(sessions)
     assert shown_id in anchor.bot.deleted
 
 
-async def test_real_telegram_middleware_accepts_a_command_as_setting_and_unlock_word(sessions):
+async def test_a_command_sent_to_the_secret_word_editor_is_a_command(sessions):
     """PS-SECRET-023 — tests/brd/profile.feature"""
 
     class InputBot(FakeBot):
@@ -577,14 +649,6 @@ async def test_real_telegram_middleware_accepts_a_command_as_setting_and_unlock_
         text="/clear",
     ).as_(bot)
     handler = AsyncMock()
-    middleware = OwnerAndWritingMiddleware(raw_input=handle_raw_text_input)
-    await middleware(handler, event, {"services": services})
-    handler.assert_not_called()
-    assert 1000 in bot.deleted and not services.access.blocked
-    async with sessions() as session:
-        assert matches_secret_word("/clear", (await session.get(UserProfile, 1)).secret_word_hash)
-    await services.access.lock(screen)
-    event = event.model_copy(update={"message_id": 4000}).as_(bot)
-    await middleware(handler, event, {"services": services})
-    assert not services.access.blocked and bot.sent == []
-    handler.assert_not_called()
+    await OwnerAndWritingMiddleware()(handler, event, {"services": services})
+    handler.assert_awaited_once()
+    assert 1000 in bot.deleted and await stored_verifier(sessions) is None

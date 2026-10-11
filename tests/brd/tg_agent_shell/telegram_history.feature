@@ -241,6 +241,7 @@ Feature: The conversation in Telegram
     And an attempted input asks for Secret word without changing the dialogue or cancelling a hook
     And only an exact new text message containing the word unlocks access
     And a restart requires the word again and retains hidden messages and pending hook requests
+    And a clear Telegram refuses leaves access locked and is tried again until the messages are gone
     And Reminder words are delivered without clickable links, separately from pending hook requests
     And hooks are not prepared or generated while access is locked
     And a hidden Reminder proposal is resolved as Discard and its continuation reaches the chat without links

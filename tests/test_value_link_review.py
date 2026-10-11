@@ -14,6 +14,7 @@ from safwa.features.cards.use_cases import finish_action, toggle_card_value, upd
 from safwa.features.checks.model import Check
 from safwa.features.checks.use_cases import resolve_check, toggle_check_value, update_check_fields
 from safwa.features.onboarding.agent import MANUAL
+from safwa.features.profile.api import hook_switched_on, set_hook_switch
 from safwa.features.values.api import VALUE_LINK_MEANING
 from safwa.features.values.hooks import VALUE_LINK_HOOK
 from safwa.features.values.link_review import ValueLinkReviewer
@@ -23,7 +24,7 @@ from tg_agent_shell.ai.mini import MiniSessionError
 from tg_agent_shell.cues.background import tick
 from tg_agent_shell.cues.initiatives import bind_committed
 from tg_agent_shell.cues.model import Cue
-from tg_agent_shell.hooks.contracts import Run
+from tg_agent_shell.hooks.contracts import RunAndAdvise
 from tg_agent_shell.hooks.registry import HookRegistry
 
 
@@ -55,7 +56,35 @@ def hooks():
     return HookRegistry.of(
         (VALUE_LINK_HOOK,),
         owners=frozenset({"values"}),
+        policy=hook_switched_on,
     )
+
+
+async def say_waiting(sessions, registry, *, hooks_allowed=True):
+    said = []
+
+    async def speak(event_id, text, shown=(), passing=None):
+        said.append(text)
+        return True
+
+    async def free():
+        return True
+
+    async def delivered(event_id):
+        return False
+
+    async def prepare(hook, items):
+        return await registry.prepare(sessions, hook, items)
+
+    await tick(
+        sessions,
+        gate=free,
+        speak=speak,
+        delivered=delivered,
+        prepare=prepare,
+        allow_hooks=lambda: hooks_allowed,
+    )
+    return said
 
 
 async def pending(sessions):
@@ -86,11 +115,11 @@ def test_all_three_prompts_teach_the_same_supporting_direction():
     assert VALUE_LINK_MEANING in MANUAL
 
 
-def test_value_links_have_one_run_hook():
+def test_one_hook_checks_the_link_and_asks_under_its_own_switch():
     """VL-LINK-019 — tests/brd/values.feature"""
     assert [spec for spec in REGISTRY.hooks.specs if spec.owner == "values"] == [VALUE_LINK_HOOK]
-    assert isinstance(VALUE_LINK_HOOK.effect, Run)
-    assert not VALUE_LINK_HOOK.agent_related
+    assert isinstance(VALUE_LINK_HOOK.effect, RunAndAdvise)
+    assert VALUE_LINK_HOOK.agent_related and VALUE_LINK_HOOK.switch is None
 
 
 @pytest.mark.parametrize("kind", ["goal", "action", "check"])
@@ -120,11 +149,11 @@ async def test_saved_link_reviews_only_the_pair_and_asks_only_when_unclear(sessi
         cues = await pending(sessions)
         assert len(cues) == (0 if clear else 1)
         if not clear:
-            assert cues[0].hook is None
-            words = cues[0].text
+            assert cues[0].hook == VALUE_LINK_HOOK.name and cues[0].text is None
+            [words] = await say_waiting(sessions, registry)
             assert "Note" in words
             assert f"value:{value_id}" in words
-            assert "Read the current item and Value first" in words
+            assert "Read the current items and Values first" in words
             assert "Change nothing until they answer" in words
     finally:
         await sink.close()
@@ -162,7 +191,7 @@ async def test_pair_changed_during_review_produces_no_cue(sessions, kind, change
         await sink.close()
 
 
-async def test_multiple_direct_cues_reach_the_next_advisor_turn_together(sessions):
+async def test_unclear_links_are_asked_together_in_one_request(sessions):
     """VL-LINK-019 — tests/brd/values.feature"""
     item_id, first_id = await pair(sessions, "goal")
     provider = ReviewProvider()
@@ -183,24 +212,44 @@ async def test_multiple_direct_cues_reach_the_next_advisor_turn_together(session
         await sink.drain()
         cues = await pending(sessions)
         assert len(cues) == len(provider.calls) == 2
-        said = []
-
-        async def speak(event_id, text, shown=(), passing=None):
-            said.append(text)
-            return True
-
-        async def free():
-            return True
-
-        async def delivered(event_id):
-            return False
-
-        # Plain Cue text reaches the Advisor without a hook prepare callback.
-        assert await tick(sessions, gate=free, speak=speak, delivered=delivered)
+        said = await say_waiting(sessions, registry)
         assert len(said) == 1
         assert said[0].count(f"value:{first_id}") == 1
         assert said[0].count(f"value:{second_id}") == 1
         assert await pending(sessions) == []
+    finally:
+        await sink.close()
+
+
+async def test_the_request_waits_while_hooks_are_held_and_its_switch_drops_it(sessions):
+    """VL-LINK-019 — tests/brd/values.feature"""
+    item_id, value_id = await pair(sessions, "goal")
+    provider = ReviewProvider()
+    registry = hooks()
+    sink = bind_committed(sessions, registry, resources=SimpleNamespace(
+        value_link_reviewer=ValueLinkReviewer(provider)
+    ))
+    try:
+        async with sessions() as session:
+            await link(session, "goal", item_id, value_id)
+            await session.commit()
+        await sink.drain()
+        # A locked chat holds hook requests: nothing is worded or said.
+        assert await say_waiting(sessions, registry, hooks_allowed=False) == []
+        assert len(await pending(sessions)) == 1
+        async with sessions() as session:
+            await set_hook_switch(
+                session, VALUE_LINK_HOOK.name, on=False,
+                followers=registry.followers(VALUE_LINK_HOOK.name),
+            )
+            await session.commit()
+        assert await pending(sessions) == []
+        async with sessions() as session:
+            await link(session, "goal", item_id, value_id)
+            await link(session, "goal", item_id, value_id)
+            await session.commit()
+        await sink.drain()
+        assert len(provider.calls) == 1 and await pending(sessions) == []
     finally:
         await sink.close()
 

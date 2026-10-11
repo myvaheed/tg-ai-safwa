@@ -26,9 +26,11 @@ Feature: Values
     And the Advisor may suggest a possible supporting explanation and ask whether it matches the owner's meaning
     And a suggestion is not treated as the owner's reason, and nothing changes before the owner answers
     And a rollback, unlink or copied repeat starts no review
-    And one Run hook checks the pair and writes the clarification request directly into Cue
+    And one hook does the check and keeps an unclear pair, and one request asks about every pair still linked
     And a link removed or changed during review produces no queued request
     And the queued request tells the Advisor to read current data before asking
+    And the request waits like any hook request while access is locked
+    And switching Value link clarification off in Profile → Hooks stops the check and drops what is pending
 
   Scenario: VL-FOCUS-001 — A Value carries a focus, and the owner turns it on and off
     Given a Value the owner has written down

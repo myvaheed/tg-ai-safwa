@@ -27,8 +27,10 @@ from tg_agent_shell.hooks.contracts import (
     ChatState,
     HookSpec,
     OnCommitted,
+    OnStarted,
     OnTick,
     Run,
+    RunAndAdvise,
     Tick,
 )
 from tg_agent_shell.hooks.registry import HookRegistry
@@ -677,3 +679,92 @@ async def test_ag_hook_050_a_message_on_a_schedule_goes_only_while_the_chat_is_f
     assert said.text == "Free &lt;now&gt;."
     assert (await TelegramNotes(sessions).note(700, said.message_id)).kind == "event"
     assert services.turn.active is False
+
+
+async def found_odd(payload, context) -> tuple[int, ...]:
+    """The work of a RunAndAdvise hook: odd things are worth asking about, 7 breaks it."""
+    if payload == 7:
+        raise RuntimeError("the model did not answer")
+    return (payload,) if payload % 2 else ()
+
+
+FOUND = HookSpec(
+    name="test.found", owner="test", on=(OnCommitted(kind=KIND),),
+    evaluate=subject, effect=RunAndAdvise(run=found_odd, prepare=words),
+    title="Found", description="Looks at a changed thing, and asks when it is odd.",
+)
+
+
+async def test_ag_hook_061_work_on_a_commit_keeps_only_what_it_found_as_the_request(sessions, caplog):
+    """AG-HOOK-061 — tests/brd/tg_agent_shell/agents.feature"""
+    hooks = catalogue(FOUND)
+    sink = bind_committed(sessions, hooks)
+    for thing in (3, 4, 7, 5):
+        async with sessions() as session:
+            await session.execute(text("SELECT 1"))
+            record_change(session, KIND, thing)
+            await session.commit()
+    await sink.drain()
+    # Nothing found and a failure leave no row; the failure is logged by the hook's name.
+    assert await pending(sessions) == [("test.found", None, [3]), ("test.found", None, [5])]
+    assert "The work of the hook test.found failed" in caplog.text
+    recorder = Recorder()
+
+    async def prepare(hook, payload):
+        return await hooks.prepare(sessions, hook, payload)
+
+    assert await tick(sessions, gate=recorder.gate, delivered=recorder.delivered, speak=recorder.speak, prepare=prepare) is True
+    assert recorder.said == ["About 3, 5."]
+    assert await pending(sessions) == []
+
+
+async def test_ag_hook_061_a_switched_off_hook_neither_checks_nor_works(sessions):
+    """AG-HOOK-061 — tests/brd/tg_agent_shell/agents.feature"""
+    checked: list[int] = []
+
+    async def counted(event: Committed) -> tuple[int, ...]:
+        checked.append(event.subject_id)
+        return (event.subject_id,)
+
+    async def off(session, name):
+        return False
+
+    hook = HookSpec(
+        name="test.found", owner="test", on=(OnCommitted(kind=KIND),),
+        evaluate=counted, effect=RunAndAdvise(run=found_odd, prepare=words),
+        title="Found", description="Looks at a changed thing, and asks when it is odd.",
+    )
+    hooks = catalogue(hook, policy=off)
+    assert hooks.agent_related == (hook,)
+    sink = bind_committed(sessions, hooks)
+    async with sessions() as session:
+        await session.execute(text("SELECT 1"))
+        record_change(session, KIND, 7)
+        await session.commit()
+    await sink.drain()
+    assert checked == []
+    assert await pending(sessions) == []
+
+
+async def test_ag_hook_061_work_on_a_schedule_keeps_what_it_found_and_none_runs_at_the_start(sessions):
+    """AG-HOOK-061 — tests/brd/tg_agent_shell/agents.feature"""
+
+    async def nine(event: Tick) -> tuple[int, ...]:
+        return (9,)
+
+    daily = HookSpec(
+        name="test.found", owner="test", on=(OnTick(at=at_nine),),
+        evaluate=nine, effect=RunAndAdvise(run=found_odd, prepare=words),
+        title="Found", description="Looks every morning, and asks when it is odd.",
+    )
+    poll = TickPoll(catalogue(daily), sessions, resources=None, timezone="Europe/Istanbul", now=local(16, 8, 0))
+    await poll.look(local(16, 9, 0))
+    assert await pending(sessions) == [("test.found", None, [9])]
+
+    at_start = HookSpec(
+        name="test.start", owner="test", on=(OnStarted(),),
+        evaluate=nine, effect=RunAndAdvise(run=found_odd, prepare=words),
+        title="Start", description="Would look at the start.",
+    )
+    with pytest.raises(RuntimeError, match="incompatible subscription/effect"):
+        catalogue(at_start)

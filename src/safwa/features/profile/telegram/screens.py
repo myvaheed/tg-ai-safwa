@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import html
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -12,6 +13,7 @@ from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tg_agent_shell.access.credentials import hash_secret_word, matches_secret_word
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.hooks.contracts import HookSpec
@@ -307,19 +309,64 @@ TEXT_INPUT = TextInputFlow(
 )
 
 
-async def _apply_secret_word(session: AsyncSession, services: Any, state: Mapping[str, Any], value: str) -> None:
-    await set_secret_word(session, value)
+def _secret_word_screen(current: str, *, again: bool) -> TextInputScreen:
+    return TextInputScreen(
+        title="Secret word", current_value=current,
+        instruction=(
+            "Send the same Secret word again to save it."
+            if again
+            else "Send any secret word, even one character, but not a command. Whitespace "
+            "and case matter. You send it twice. Use Remove secret word to disable it. "
+            "Access locks after automatic clearing; /clear does not lock it."
+        ),
+        back=Place("profile_back"),
+        extra_actions=(TextInputAction("Remove secret word", Place("profile_secret_word_clear")),)
+        if current == "set" else (),
+    )
 
 
-async def _render_secret_word(message: Any, services: Any, state: Mapping[str, Any], value: Any) -> None:
-    await command_profile(
-        message, services, notice="Secret word updated.",
-        replace_message_id=int(state["text_input"]["message_id"]),
+async def _check_secret_word(
+    message: Any, services: Any, state: Mapping[str, Any], value: str
+) -> tuple[str, str]:
+    """The first entry becomes a verifier to compare with; the second is saved if it matches."""
+    if value.lstrip().startswith("/"):
+        raise ValueError("A command cannot be the Secret word.")
+    if "first" not in state:
+        return "first", await asyncio.to_thread(hash_secret_word, value)
+    if await asyncio.to_thread(matches_secret_word, value, state["first"]):
+        return "same", value
+    return "different", ""
+
+
+async def _apply_secret_word(
+    session: AsyncSession, services: Any, state: Mapping[str, Any], value: tuple[str, str]
+) -> None:
+    step, word = value
+    if step == "same":
+        await set_secret_word(session, word)
+
+
+async def _render_secret_word(
+    message: Any, services: Any, state: Mapping[str, Any], value: tuple[str, str]
+) -> None:
+    step, verifier = value
+    if step == "same":
+        await command_profile(
+            message, services, notice="Secret word updated.",
+            replace_message_id=int(state["text_input"]["message_id"]),
+        )
+        return
+    started = {key: item for key, item in state.items() if key != "first"}
+    await render_text_input(
+        message, services,
+        screen=_secret_word_screen(state["current"], again=step == "first"),
+        state={**started, "first": verifier} if step == "first" else started,
+        notice=None if step == "first" else "The two entries differ. Send the Secret word again.",
     )
 
 
 SECRET_WORD_INPUT = TextInputFlow(
-    name="secret_word", validator=lambda state: None,
+    name="secret_word", validator=lambda state: None, prepare=_check_secret_word,
     apply=_apply_secret_word, render=_render_secret_word, raw=True,
 )
 
@@ -330,15 +377,8 @@ async def _on_secret_word(context: CallbackContext) -> None:
         current = "set" if profile is not None and profile.secret_word_hash else "off"
     await render_text_input(
         context.message, context.services,
-        screen=TextInputScreen(
-            title="Secret word", current_value=current,
-            instruction="Send any secret word, even one character. Whitespace and case matter. "
-                        "Use Remove secret word to disable it. Access locks after automatic clearing; /clear does not lock it.",
-            back=Place("profile_back"),
-            extra_actions=(TextInputAction("Remove secret word", Place("profile_secret_word_clear")),)
-            if current == "set" else (),
-        ),
-        state={"flow": "secret_word"},
+        screen=_secret_word_screen(current, again=False),
+        state={"flow": "secret_word", "current": current},
     )
 
 

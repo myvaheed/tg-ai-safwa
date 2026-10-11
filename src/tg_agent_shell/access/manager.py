@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Collection
 from datetime import datetime
 from typing import Any
 from uuid import uuid4
@@ -25,9 +25,24 @@ from .model import AccessState, ChatClearBoundary, DeferredDelivery, Locked, Ope
 
 logger = logging.getLogger(__name__)
 ENTER_SECRET_WORD = "Сначала введите Secret word."
+# How long a locked chat Telegram refused to clear waits before the next try.
+CLEAR_RETRY_SECONDS = 60
 
 Verifier = Callable[[AsyncSession], Awaitable[str | None]]
 Home = Callable[[Message, Services], Awaitable[None]]
+
+
+async def _last_user_message_id(session: AsyncSession, chat_id: int) -> int:
+    """Where the owner last wrote: what Safwa said unasked after it is still unanswered."""
+    return (
+        await session.scalar(
+            select(func.max(TelegramMessage.message_id)).where(
+                TelegramMessage.chat_id == chat_id,
+                TelegramMessage.kind == MessageKind.DIALOGUE_USER.value,
+            )
+        )
+        or 0
+    )
 
 
 class AccessManager:
@@ -61,17 +76,41 @@ class AccessManager:
                 return
             self._state = Locked()
             await self._capture_unanswered(anchor.chat.id)
+            if not await self._try_clear(anchor):
+                self.services.chat.spawn(self._clear_while_locked(anchor), "access-clear")
+
+    async def _try_clear(self, anchor: Message) -> bool:
+        try:
             await self._clear(anchor)
+        except Exception:
+            logger.exception("Could not clear the locked chat")
+            return False
+        return True
 
-    async def clear(self, anchor: Message) -> None:
-        """Leave the chat empty while keeping unanswered messages for the next Home."""
-        async with self._transition:
-            await self._capture_unanswered(anchor.chat.id)
-            await self._clear(anchor, anchor.message_id)
+    async def _clear_while_locked(self, anchor: Message) -> None:
+        """Access is closed already; what is still shown is taken out once Telegram allows."""
+        while True:
+            await asyncio.sleep(CLEAR_RETRY_SECONDS)
+            async with self._transition:
+                if not isinstance(self._state, Locked) or await self._try_clear(anchor):
+                    return
 
-    async def restore(self, anchor: Message) -> None:
+    async def clear(self, anchor: Message, *, keep_unanswered: bool = False) -> None:
+        """Empty the chat; an automatic clear leaves what the owner has not answered in it."""
         async with self._transition:
-            await self._restore(anchor)
+            spare: list[int] = []
+            if keep_unanswered:
+                async with self.services.sessions() as session:
+                    last_user = await _last_user_message_id(session, anchor.chat.id)
+                    spare = list(await session.scalars(
+                        select(TelegramMessage.message_id).where(
+                            TelegramMessage.chat_id == anchor.chat.id,
+                            TelegramMessage.direction == "out",
+                            TelegramMessage.kind.in_(UNASKED_KINDS),
+                            TelegramMessage.message_id > last_user,
+                        )
+                    ))
+            await self._clear(anchor, anchor.message_id, spare=spare)
 
     async def _restore(self, anchor: Message) -> None:
         async with self.services.sessions() as session:
@@ -90,15 +129,7 @@ class AccessManager:
 
     async def _capture_unanswered(self, chat_id: int) -> None:
         async with self.services.sessions() as session:
-            last_user = (
-                await session.scalar(
-                    select(func.max(TelegramMessage.message_id)).where(
-                        TelegramMessage.chat_id == chat_id,
-                        TelegramMessage.kind == MessageKind.DIALOGUE_USER.value,
-                    )
-                )
-                or 0
-            )
+            last_user = await _last_user_message_id(session, chat_id)
             rows = await session.scalars(
                 select(TelegramMessage)
                 .where(
@@ -145,7 +176,9 @@ class AccessManager:
                     )
             await session.commit()
 
-    async def _clear(self, anchor: Message, through: int = 0) -> None:
+    async def _clear(
+        self, anchor: Message, through: int = 0, *, spare: Collection[int] = ()
+    ) -> None:
         services = self.services
         async with services.sessions() as session:
             last = max(
@@ -173,6 +206,7 @@ class AccessManager:
             anchor.chat.id,
             last,
             keep=CONVERSATION_KINDS | UNASKED_KINDS,
+            spare=spare,
             strict=True,
         )
 

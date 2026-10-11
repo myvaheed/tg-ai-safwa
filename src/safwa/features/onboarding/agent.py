@@ -100,7 +100,7 @@ MANUAL = f"""# Safwa
 # Values and Tags
 - A Value is what the user cares about: "Health". A Value in focus is one the Advisor weighs in every answer. A Card carries a Value when it serves it; a Check carries one when it shows how well it is held.
 - {VALUE_LINK_MEANING} Explain unclear links in Note.
-- After linking a Value, Safwa silently checks this direction. If unclear or reversed, it asks the user to clarify Note. It may suggest a possible explanation for the user to confirm.
+- After linking a Value, Safwa silently checks this direction. If unclear or reversed, it asks the user to clarify Note. It may suggest a possible explanation for the user to confirm. Value link clarification in Profile → Hooks switches this off or on.
 - A Tag is a free label on Cards, to find them together later.
 - In words: create, rename, put on a Card, delete.
 - With buttons: "💎 Values" or /values, and "🏷 Tags" or /tags: "➕ Add Value", "➕ Add Tag", rename, delete, and "💎 Focus" on a Value. On a Card, "✏️ Full editing" puts them on.
@@ -151,7 +151,7 @@ MANUAL = f"""# Safwa
 - Safwa speaks first on its own: about a blocked Action, an Action finished without its time or effort estimate, a day holding too much, Goals with no Action, scheduled Actions the plan does not hold, energy and rest in the Sprint, an Action stuck in Today, a Check Missed again and again, the Diary, the day's summary, a Sprint's end, a Success criterion out of reach, a read too heavy for the Advisor, what stands in Today and the Sprint when the user writes after 14 days or more away, and these onboarding tips.
 - An onboarding tip leaves the chat a minute after it comes. A message that says something else too stays.
 - Open "⚙️ Profile" → "🔔 Hooks" to list the reactions by title and state. Choose one to read its description and switch it off or on on its own screen.
-- Hooks: "Helper offer", "Blocker follow-up", "Time tracking reminder", "Effort Points reminder", "Goal completion follow-up", "Today overload", "Goals without Actions", "Schedule outside the plan", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Diary nudge", "Daily summary", "Sprint end warning", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
+- Hooks: "Helper offer", "Blocker follow-up", "Time tracking reminder", "Effort Points reminder", "Goal completion follow-up", "Today overload", "Goals without Actions", "Schedule outside the plan", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Value link clarification", "Diary nudge", "Daily summary", "Sprint end warning", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
 - "Time tracking reminder" is in Hooks only while Time tracking is on, and asks nothing while it is off.
 - "Today overload" and "Effort Points reminder" are in Hooks only while Effort Points are on, and ask nothing while they are off.
 
@@ -159,7 +159,7 @@ MANUAL = f"""# Safwa
 - "⚙️ Profile": About me and Advisor instructions (what the Advisor must know and follow), Morning time, Evening time, Diary instruction, Home after, Secret word, Time tracking, Effort Points, and "🔔 Hooks".
 - "Usage time" shows approximate accumulated usage as "~2d 5h 25m", with a day equal to 24 hours. It counts your actions, own voice recordings and waiting for your requests once, with two minutes for reading and the next action. Autonomous hooks add no time. Clearing the chat keeps it. It is independent of Time tracking and Effort Points.
 - "⌛ Time tracking" is off until pressed. On, it offers "⌛ Time spent" on an Action, keeps a Sprint's time for its retro and turns on "Time tracking reminder". The active day it measures runs from the Morning time to the Evening time.
-- In words too: its ordinary fields, shown for Save with what it was and what it becomes. Secret word is changed only through Profile and accepts any exact text, including one character, off or a command. Remove secret word disables it. The actual word is never shown. Setting it keeps the current session open until automatic clearing.
+- In words too: its ordinary fields, shown for Save with what it was and what it becomes. Secret word is changed only through Profile and accepts any exact text, including one character or off, but not a command. It is sent twice and saved when both match. Remove secret word disables it. The actual word is never shown. Setting it keeps the current session open until automatic clearing.
 - Time tracking and Effort Points can also be changed in words, through a Profile proposal. Hook switches are buttons only. Onboarding alone may be turned off in words.
 
 # Screens and commands
@@ -171,7 +171,7 @@ MANUAL = f"""# Safwa
 
 # Home dashboard
 - With Secret word set, automatic clearing removes every deletable message and locks access. Schedule Remind and Reminder answers still arrive, without clickable links or item screens. New hook requests wait without generating answers. All commands, buttons, edits and media are blocked until a new text message matches the word exactly. Attempts are deleted, unanswered messages are restored with links and waiting hooks run. Access lasts until the next automatic clear; restart requires the word again. /clear while unlocked empties the chat without locking it. A hidden Reminder proposal is discarded.
-- When the user does nothing in the chat for the Profile's "🏠 Home after" minutes, 30 at first, or sends /clear, Safwa empties the chat: screens, receipts, the user's messages, replies and unanswered hooks. No Home appears. Unanswered hooks after the last user dialogue are held for restoration on protected entry or /start.
+- When the user does nothing in the chat for the Profile's "🏠 Home after" minutes, 30 at first, or sends /clear, Safwa empties the chat: screens, receipts, the user's messages and replies. No Home appears. Automatic clearing leaves what Safwa said on its own after the user last wrote to it; /clear removes that too.
 - /start opens the Home dashboard with ☰ Menu: the day and the time, the last 5 changes, the first 5 Priority Goals, the Values in focus, every Action in Today under its Goal and today's tracked time when enabled. Each item is a link. Only one screen stays at the bottom. ☰ Menu unfolds navigation; another screen or a message to the Advisor replaces or removes Home. The words under Values are kept for 10 minutes; without them, they appear on Home a moment later.
 - Those words use About me, the Goals in focus order, the running Sprint's Success criteria, Today Actions, finished Actions and the Diary. Each new request reads the last 5 generations to avoid repeating their message or wording; that history resets when the bot restarts.
 - After a clear the conversation starts over. The Diary still reads the whole day."""

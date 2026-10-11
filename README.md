@@ -194,8 +194,10 @@ and restart behavior are described in [USAGE_TIME.md](docs/USAGE_TIME.md).
 
 Profile → **Secret word** optionally locks chat access after automatic clearing and after
 restart. Entering it removes attempts and restores unanswered and deferred hooks without Home.
-Any exact text, including `off`, is accepted; Remove secret word disables protection.
-Automatic clearing and `/clear` leave the chat empty. `/start` opens Home with one Menu button.
+Any exact text but a command, including `off`, is accepted when sent twice the same; Remove
+secret word disables protection.
+Automatic clearing leaves only the hooks you have not answered; `/clear` empties the chat.
+`/start` opens Home with one Menu button.
 See [CHAT_ACCESS.md](docs/CHAT_ACCESS.md).
 
 Use `/start`, `/sprint`, `/values`, `/tags`, `/requests`, `/reminders`, `/memory`,

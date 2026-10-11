@@ -1,14 +1,20 @@
 # Secret word
 
-Profile → Secret word accepts exact text, including one character, whitespace, Unicode and
-a leading slash. `off` is a valid word too; Remove secret word disables protection.
+Profile → Secret word accepts exact text, including one character, whitespace and Unicode,
+sent twice: it is saved only when the second entry matches the first, and a different one
+starts over. A text starting with `/` is a command and never becomes the word. `off` is a
+valid word too; Remove secret word disables protection.
 The screen shows `set` or `off`; the word is stored only as a salted scrypt verifier and
 is never exposed to the Profile subagent. Setting or changing it leaves the current session open.
 
 When Home after elapses in a free chat, protection locks access before deleting messages.
-Every clear includes unanswered Cues and leaves no Home. Only unanswered Cues after the last
-user dialogue are saved for restoration. An unprotected clear restores these on /start.
-Telegram's existing 48-hour deletion window still applies.
+A deletion Telegram refuses leaves access locked and is retried every
+`CLEAR_RETRY_SECONDS = 60` until it succeeds or the word is entered; a refusal at startup
+does not stop the bot.
+The lock removes unanswered Cues too; the ones after the last user dialogue are saved for
+restoration on entry. Without a Secret word, the automatic clear leaves those Cues in the
+chat, and `/clear` removes them. No clear leaves a Home. Telegram's existing 48-hour
+deletion window still applies.
 
 Every owner update reaches the shell's access gate before command parsing, editor handling,
 media download or background cancellation. Locked commands, callbacks, links, edits and

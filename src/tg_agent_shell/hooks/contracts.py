@@ -8,11 +8,12 @@ since the look. On a commit and at the start there is no chat, and words go thro
 Advise hook.
 Advise keeps what a check returned as
 the hook's one pending request and asks the feature for the words just before they are
-said, so what is said is what is still there.
+said, so what is said is what is still there. RunAndAdvise first does work of its own and
+keeps what that work returned the same way.
 
 A hook whose effect reaches the agent — a helper offered to its session, a call refused, a
 request handed to the Advisor — is the owner's to turn off; whether it is on is the application's policy,
-read where the hook is about to work. A hook that runs work of its own is always on, unless it
+read where the hook is about to work. A hook that only runs work of its own is always on, unless it
 names another hook as its switch: then it is on exactly when that one is. A check on the
 model's own work — a response sent back, an answer held, a proposal saved unseen — has no
 switch either: the application registers it or leaves it out.
@@ -347,6 +348,22 @@ class Advise[Item]:
 
 
 @dataclass(frozen=True, slots=True)
+class RunAndAdvise[Payload, Item]:
+    """Work of its own, then one request to the Advisor about what that work found.
+
+    `run` does the slow part — a model call, say — where a Run on the same event would,
+    and returns the items the request will be about, or none. They are kept and worded as
+    Advise keeps and words them, with `prepare` and `passing`. A hook whose work writes
+    something that stands without the request is a Run that records a fact, and an Advise
+    hook on that fact.
+    """
+
+    run: Callable[[Payload, RunContext], Awaitable[Sequence[Item]]]
+    prepare: Callable[[AsyncSession, Sequence[Item]], Awaitable[str | Shown | None]]
+    passing: timedelta | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ReturnProposals:
     """Before a response's calls are prepared: the check's words send every one of them back
     to the subagent, refused with `code` and those words, and the session runs again. The
@@ -398,12 +415,14 @@ class HookSpec[Event, Payload]:
     evaluate: Callable[[Event], Awaitable[Sequence[Payload]]]
     # OfferTool, RefuseTool and ReturnProposals checks return the words the model reads. Run
     # checks return operation data, HoldAnswer and SaveProposal checks what their review
-    # reads. Advise checks return the items the request will be about.
+    # reads. Advise checks return the items the request will be about, RunAndAdvise checks
+    # what its run reads.
     effect: (
         Run[Payload]
         | OfferTool
         | RefuseTool
         | Advise[Payload]
+        | RunAndAdvise[Payload, Any]
         | ReturnProposals
         | HoldAnswer[Payload]
         | SaveProposal[Payload]
@@ -420,7 +439,7 @@ class HookSpec[Event, Payload]:
         """Whether the effect hands the agent something of the owner's — a helper, a refusal,
         a request — which is what makes the hook the owner's to switch. A check on the model's
         own work is not: it is registered or left out."""
-        return isinstance(self.effect, OfferTool | RefuseTool | Advise)
+        return isinstance(self.effect, OfferTool | RefuseTool | Advise | RunAndAdvise)
 
 
 # Whether the hook of that name is on, asked only for an agent-related hook.

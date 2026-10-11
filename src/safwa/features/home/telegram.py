@@ -74,9 +74,6 @@ async def render_home(message: Message, services: Services) -> None:
         else:
             await open_citation(message, services, payload)
         return
-    access = getattr(services, "access", None)
-    if access is not None:
-        await access.restore(message)
     words = services.features.motivator.fresh()
     markup = home_markup() if (message.text or "").startswith("/start") else menu_markup(services.commands)
     async with services.sessions() as session:

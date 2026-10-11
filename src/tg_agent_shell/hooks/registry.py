@@ -39,6 +39,7 @@ from .contracts import (
     RefuseTool,
     ReturnProposals,
     Run,
+    RunAndAdvise,
     SaveProposal,
     Shown,
     Started,
@@ -129,9 +130,9 @@ class HookRegistry:
                         event_type = AfterRequest
                     case OnBeforeReview(), SaveProposal():
                         event_type = BeforeReview
-                    case OnCommitted(kind=kind), Advise() | Run() if kind.strip():
+                    case OnCommitted(kind=kind), Advise() | Run() | RunAndAdvise() if kind.strip():
                         event_type = Committed
-                    case OnTick(at=at, every=every), Advise() | Run() if callable(at) != (
+                    case OnTick(at=at, every=every), Advise() | Run() | RunAndAdvise() if callable(at) != (
                         every is not None
                     ):
                         event_type = Tick
@@ -231,7 +232,7 @@ class HookRegistry:
         not nothing to say, and the request stays owed for the poll after.
         """
         spec = next((spec for spec in self.specs if spec.name == name), None)
-        if spec is None or not isinstance(spec.effect, Advise):
+        if spec is None or not isinstance(spec.effect, Advise | RunAndAdvise):
             return None
         if not await self.switched_on(sessions, spec):
             return None
@@ -241,4 +242,6 @@ class HookRegistry:
     def passing(self, name: str) -> timedelta | None:
         """How long a message saying this hook's request stays in the chat, or None to keep it."""
         spec = next((spec for spec in self.specs if spec.name == name), None)
-        return spec.effect.passing if spec is not None and isinstance(spec.effect, Advise) else None
+        if spec is None or not isinstance(spec.effect, Advise | RunAndAdvise):
+            return None
+        return spec.effect.passing

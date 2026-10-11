@@ -177,10 +177,12 @@ Unclear reasons belong in Note on both Cards and Checks. A Check keeps its Note 
 
 After a new direct link is saved, a one-call mini session checks that pair using its title,
 Note and the Value's description. An obvious supporting link says nothing; an
-unclear or reversed link queues a request to clarify Note. One Run hook does both the check and
-the direct Cue write. It rechecks the pair before queuing; its request tells the Advisor to
-read current data before asking. The Advisor may suggest a possible supporting explanation and
-ask whether it fits the owner's meaning; it never treats that suggestion as the owner's reason.
+unclear or reversed link is kept by the same hook, and one request asks to clarify Note for
+every pair still linked. The check rechecks the pair before keeping it, and the request waits
+behind the Cue gate like any hook's and tells the Advisor to read current data before asking.
+The hook's switch is "Value link clarification" in Profile → Hooks. The
+Advisor may suggest a possible supporting explanation and ask whether it fits the owner's
+meaning; it never treats that suggestion as the owner's reason.
 Nothing changes before the owner answers. The hook edits or removes no link.
 
 ## Versions, and what invalidates what

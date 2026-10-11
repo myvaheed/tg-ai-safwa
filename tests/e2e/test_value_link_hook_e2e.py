@@ -60,8 +60,8 @@ async def test_saved_mutator_link_is_reviewed_and_note_can_be_corrected(e2e_harn
             cues = list(await session.scalars(select(Cue)))
         assert len(calls) == 1
         assert len(cues) == 1
-        assert cues[0].hook is None
-        request = cues[0].text
+        assert cues[0].hook == VALUE_LINK_HOOK.name
+        request = await registry.prepare(sessions, cues[0].hook, cues[0].payload)
         assert f"check:{check_id}" in request and "Note" in request
 
         reply = f"Clarify [{check.title}](check:{check_id}): how does it support Health?"
@@ -83,7 +83,10 @@ async def test_saved_mutator_link_is_reviewed_and_note_can_be_corrected(e2e_harn
         async def delivered(event_id):
             return False
 
-        assert await tick(sessions, gate=free, speak=speak, delivered=delivered)
+        async def prepare(hook, items):
+            return await registry.prepare(sessions, hook, items)
+
+        assert await tick(sessions, gate=free, speak=speak, delivered=delivered, prepare=prepare)
         assert said == [reply]
         async with sessions() as session:
             assert list(await session.scalars(select(Cue))) == []

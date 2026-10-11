@@ -167,7 +167,7 @@ async def _a_chat(harness) -> None:
     await _keep(harness, 1099, MessageKind.DASHBOARD, "<b>Today</b>")
 
 
-async def test_a_quiet_chat_is_empty_and_unanswered_hooks_wait_for_start(
+async def test_a_quiet_chat_is_emptied_but_what_the_owner_has_not_answered_stays(
     e2e_harness,
 ) -> None:
     """HM-QUIET-003 — tests/brd/home.feature"""
@@ -193,19 +193,25 @@ async def test_a_quiet_chat_is_empty_and_unanswered_hooks_wait_for_start(
     await looks.next()
     assert anchor.sent == [] and anchor.bot.deleted == deleted
 
-    # An unanswered hook is hidden by the next clear and restored before /start's Home.
+    # A hook the owner has not answered may not have been seen: the next clear leaves it.
     await _keep(e2e_harness, 1151, MessageKind.CUE, "Time to stretch.")
     anchor.message_id = 160
-    deleted = len(anchor.bot.deleted)
     await looks.next()
-    assert anchor.sent == [] and 1151 in anchor.bot.deleted[deleted:]
+    assert anchor.sent == [] and 1151 not in anchor.bot.deleted
     assert (await _kinds(e2e_harness))[1151] == MessageKind.CUE.value
+    deleted = list(anchor.bot.deleted)
     await looks.next()
-    assert anchor.sent == []
+    assert anchor.sent == [] and anchor.bot.deleted == deleted
     start = QueueTestMessage(message_id=2000, text="/start", is_bot=False, answer_as_new=True, parent=anchor)
     await render_home(start, services)
     await _settled(services)
-    assert anchor.rendered[0] == "Time to stretch." and "🏠" in anchor.rendered[-1]
+    assert len(anchor.rendered) == 1 and "🏠" in anchor.rendered[0]
+
+    # Once the owner has written after it, the hook was read and the next clear takes it.
+    await _keep(e2e_harness, 1170, MessageKind.DIALOGUE_USER, "Done.")
+    anchor.message_id = 180
+    await looks.next()
+    assert 1151 in anchor.bot.deleted and 1170 in anchor.bot.deleted
 
 
 async def test_a_waiting_review_or_a_short_quiet_clears_nothing(e2e_harness) -> None:
@@ -232,14 +238,14 @@ async def test_the_owner_acting_stops_the_clearing(e2e_harness, monkeypatch) -> 
     anchor = QueueTestMessage(message_id=150, is_bot=False, answer_as_new=True)
 
     reached, go = asyncio.Event(), asyncio.Event()
-    capture = services.access._capture_unanswered
+    clear = services.access._clear
 
-    async def paused_capture(chat_id):
+    async def paused_clear(anchor, *args, **options):
         reached.set()
         await go.wait()
-        await capture(chat_id)
+        await clear(anchor, *args, **options)
 
-    monkeypatch.setattr(services.access, "_capture_unanswered", paused_capture)
+    monkeypatch.setattr(services.access, "_clear", paused_clear)
     clearing = asyncio.create_task(Looks(services, anchor).next())
     await asyncio.wait_for(reached.wait(), timeout=5)
     # What the middleware does when the owner's message or press arrives.
@@ -420,15 +426,18 @@ async def test_clear_empties_the_chat_without_drawing_or_requesting_words(e2e_ha
     services = _services(e2e_harness, model)
     # The /clear itself: no quiet time has passed.
     services.owner_acted_at = utcnow()
+    # /clear is the owner's own word that what is above it was read: unanswered goes too.
+    await _keep(e2e_harness, 1102, MessageKind.CUE, "Time to stretch.")
     owner = QueueTestMessage(message_id=150, text="/clear", is_bot=False, answer_as_new=True)
 
     await command_clear(owner, services)
     assert owner.sent == [] and model.calls == 0 and services.spawned == []
-    assert owner.bot.deleted == list(range(1099, 1102))
+    assert owner.bot.deleted == list(range(1099, 1103))
     assert await _kinds(e2e_harness) == {
         1000: MessageKind.DIALOGUE_USER.value,
         1100: MessageKind.DIALOGUE_USER.value,
         1101: MessageKind.DIALOGUE_ASSISTANT.value,
+        1102: MessageKind.CUE.value,
     }
 
     assert await services.history.dialogue(CHAT_ID) == []
@@ -484,14 +493,14 @@ async def test_the_owner_acting_stops_a_clear_they_asked_for(e2e_harness, monkey
     owner = QueueTestMessage(message_id=150, text="/clear", is_bot=False, answer_as_new=True)
     reached, go = asyncio.Event(), asyncio.Event()
 
-    capture = services.access._capture_unanswered
+    clear = services.access._clear
 
-    async def paused_capture(chat_id):
+    async def paused_clear(anchor, *args, **options):
         reached.set()
         await go.wait()
-        await capture(chat_id)
+        await clear(anchor, *args, **options)
 
-    monkeypatch.setattr(services.access, "_capture_unanswered", paused_capture)
+    monkeypatch.setattr(services.access, "_clear", paused_clear)
     clearing = asyncio.create_task(command_clear(owner, services))
     await asyncio.wait_for(reached.wait(), timeout=5)
     # What the middleware does when the owner's message or press arrives.

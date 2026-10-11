@@ -112,9 +112,6 @@ class Services:
 
 
 class OwnerAndWritingMiddleware(BaseMiddleware):
-    def __init__(self, raw_input: Callable[[Message, Services], Awaitable[bool]] | None = None) -> None:
-        self.raw_input = raw_input
-
     async def __call__(
         self,
         handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
@@ -156,9 +153,6 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
                 await services.usage.activity(event_key, at=services.usage.clock.now())
         if edited:
             return await handler(event, data)
-        if self.raw_input is not None and isinstance(event, Message) and event.text is not None and not services.turn.active:
-            if await self.raw_input(event, services):
-                return None
 
         async def dispatch() -> Any:
             if services.usage is not None and event_key:

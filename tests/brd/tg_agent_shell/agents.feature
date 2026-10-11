@@ -475,6 +475,15 @@ Feature: Agents — the session, the hand-over, and what comes back
     When Safwa restarts before that time is out
     Then the message leaves the chat on start
 
+  Scenario: AG-HOOK-061 — A hook may do work of its own and ask only about what that work found
+    Given a hook on a saved change or on a schedule whose work returns what the Advisor is asked about
+    Then the work runs where work of its own runs on that event, by AG-HOOK-037 and AG-HOOK-039
+    And what it returns is kept as the hook's one pending request, by AG-HOOK-038
+    And work that returns nothing leaves no request
+    And work that fails leaves no request, and its failure is logged
+    And the hook is the owner's to switch: while it is off, neither its condition nor its work runs
+    And a hook of this kind on the start is refused before the application starts
+
   Scenario: AG-OPEN-052 — A subagent opens only the kinds of screen it declared
     Given a subagent declares that it may open one kind of screen
     When it opens an item of that kind

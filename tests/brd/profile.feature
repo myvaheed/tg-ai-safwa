@@ -143,10 +143,13 @@ Feature: Profile
     And it is a read-only value independent of Time tracking and Effort Points
     And the setting persists when Safwa restarts
 
-  Scenario: PS-SECRET-023 — Secret word is an unrestricted exact private setting
+  Scenario: PS-SECRET-023 — Secret word is an exact private setting, sent twice
     When the owner edits Secret word in Profile
-    Then any text, even one character, whitespace, an emoji or a command, is accepted exactly
-    And off is accepted as a secret word too, with no reserved input
+    Then any text, even one character, whitespace or an emoji, is accepted exactly
+    And off is accepted as a secret word too
+    And a text starting with / is a command and is never taken as the word
+    And the word is saved only when the second entry matches the first
+    And a different second entry asks for the word again from the start
     And Remove secret word disables protection through its own button
     And the Profile and its prompt show only set or off, never the word
     And only its salted verifier is stored, outside the Profile subagent's readable fields

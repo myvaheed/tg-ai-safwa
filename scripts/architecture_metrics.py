@@ -622,13 +622,42 @@ def rule_s() -> list[Violation]:
     return [item for module in modules() for item in database_openings(module)]
 
 
+# Rule T: the one writer of a Cue as words. The Cue gate lets such a Cue into a locked chat as a
+# Reminder's, and no hook words it or switches it off.
+WORDS_CUE = "add_cue"
+WORDS_CUE_MODULE = "safwa/features/reminders/firing.py"
+
+
+def words_cues(module: Module) -> list[Violation]:
+    """Each import and call of the words writer in one module, outside Reminders' firing."""
+    if module.rel == WORDS_CUE_MODULE:
+        return []
+    out = [
+        Violation("Rule T", module.rel, line, f"imports {path}")
+        for path, line in module.imported_paths()
+        if path.endswith(f".{WORDS_CUE}")
+    ]
+    for call in _calls_named(module.tree, WORDS_CUE):
+        out.append(Violation("Rule T", module.rel, call.lineno, "queues words"))
+    return out
+
+
+def rule_t() -> list[Violation]:
+    """Only a Reminder is queued as words; anything else asks through a hook.
+
+    A hook that writes its words into the queue itself has no switch over them, is not worded
+    together with its other requests, and reaches a locked chat.
+    """
+    return [item for module in modules() for item in words_cues(module)]
+
+
 @dataclass(frozen=True, slots=True)
 class Rule:
     """One rule as the report shows it: what it is called, and what answers it.
 
     The letter it is keyed by is the stable reference — it is what a `Violation` carries
     and what a document cites — so a rule is renamed freely and never re-lettered. Letters
-    A to S have all been used at some point; a new rule takes the next unused one.
+    A to T have all been used at some point; a new rule takes the next unused one.
     """
 
     name: str
@@ -648,6 +677,7 @@ RULES = {
     "Rule P": Rule("every bot message goes through the one place that keeps it", rule_p),
     "Rule R": Rule("every Safwa feature package is registered in MODULES", rule_r),
     "Rule S": Rule("the database is opened in one place", rule_s),
+    "Rule T": Rule("only a Reminder is queued as words", rule_t),
 }
 # Rules I and J are snapshots of built artefacts rather than of the source tree, so they
 # live with their baselines in `tests/test_architecture.py`.

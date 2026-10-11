@@ -16,13 +16,12 @@ from .commands import dismiss_screens_before_a_command, navigation, register_com
 from .contributions import ScreenCommand
 from .dialogue import edited_text, ordinary_text, voice_message
 from .services import OwnerAndWritingMiddleware
-from .text_input import handle_raw_text_input
 
 
 def build_router(commands: tuple[ScreenCommand, ...]) -> Router:
     """A new router with the shell's handlers and the screens the features declared."""
     router = Router(name="tg_agent_shell")
-    middleware = OwnerAndWritingMiddleware(raw_input=handle_raw_text_input)
+    middleware = OwnerAndWritingMiddleware()
     router.message.outer_middleware.register(middleware)
     router.callback_query.outer_middleware.register(middleware)
     router.edited_message.outer_middleware.register(middleware)

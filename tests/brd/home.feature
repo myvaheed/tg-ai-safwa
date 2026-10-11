@@ -28,9 +28,11 @@ Feature: Home
   Scenario: HM-QUIET-003 — A quiet chat is emptied without drawing Home
     Given the owner has not written, spoken, sent a photo or pressed a button for 30 minutes (HOME_AFTER_MINUTES_DEFAULT = 30)
     And the chat is free: no answer is being written and no review is waiting
-    Then every deletable message is removed: screens, receipts, the owner's messages, replies and unanswered hooks
+    Then every deletable message is removed: screens, receipts, the owner's messages and replies
     And no Home is drawn and no words for Values are requested
-    And unanswered hooks after the last user dialogue are kept for restoration on /start or protected entry
+    And a hook said after the owner last wrote to the Advisor stays in the chat
+    When the owner writes to the Advisor after that hook
+    Then the next clear removes it too
     When a review is waiting
     Then nothing is cleared until it is answered or closes by itself
     When the owner acts while the chat is being cleared
@@ -102,7 +104,6 @@ Feature: Home
     When the owner sends /start
     Then Home arrives at once as a screen: the dashboard of HM-ACTIONS-006 to HM-LOG-009 with
       one ☰ Menu button under it
-    And messages held by an earlier clear are restored before Home
     When the owner presses ☰ Menu or ↩️ Menu on a screen
     Then Home shows every menu button under it (HM-MENU-001)
     And ↩️ Menu redraws its screen as Home in place
@@ -120,6 +121,7 @@ Feature: Home
   Scenario: HM-CLEAR-012 — /clear clears the chat at once, as a quiet chat is cleared
     When the owner sends /clear
     Then the chat is emptied as by HM-QUIET-003 at once, without waiting for the quiet time
+    And a hook the owner has not answered is removed too
     And no dashboard is drawn and the current session stays open
     When the owner acts while the chat is being cleared
     Then the clearing stops, and what they did is taken up

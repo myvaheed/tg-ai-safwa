@@ -86,7 +86,7 @@ async def speak_on_schedule(
             return
         if current() and still_current():
             if access is not None:
-                await access.clear(anchor)
+                await access.clear(anchor, keep_unanswered=True)
             else:
                 async with services.sessions() as session:
                     body = await render_citations(session, services, markdown_to_telegram_html(text))

@@ -1,20 +1,41 @@
-"""Clarify a saved Value link only when its supporting direction is unclear."""
+"""Clarify a saved Value link only when its supporting direction is unclear.
+
+The hook's work checks each new link with a small model and keeps the unclear pair as its
+pending request; every pending pair is worded in one request, which waits behind the Cue gate
+like any hook's, and the hook's switch drops what is still pending.
+"""
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tg_agent_shell.cues.queue import add_cue
 from tg_agent_shell.foundation.changes import Committed
-from tg_agent_shell.hooks.contracts import HookSpec, OnCommitted, Run, RunContext
+from tg_agent_shell.hooks.contracts import HookSpec, OnCommitted, RunAndAdvise, RunContext
 
 from ..cards.api import Card
 from ..checks.model import Check
 from .api import CARD_VALUE_LINKED, CHECK_VALUE_LINKED
 from .link_review import ValueLinkReviewer
 from .model import CardValue, CheckValue, Value
+
+CLARIFY_REQUEST = (
+    "Saved Value links that are unclear or reversed:\n"
+    "{links}\n"
+    "Read the current items and Values first.\n"
+    "If a link is gone or its Note already makes the supporting direction clear, skip it.\n"
+    "Briefly ask how each item supports its Value and help clarify Note.\n\n"
+    'Example Goal "Earn $4k" linked to Health:\n'
+    "- VALID: money pays for healthcare.\n"
+    "- INVALID: health is needed to earn money.\n"
+    "- UNCLEAR: no context shows which meaning the user intends.\n\n"
+    "If you have a useful possible explanation, suggest it briefly and ask "
+    "whether it fits the user's meaning.\n"
+    "Present it as a possibility, not as the user's reason.\n"
+    "Change nothing until they answer."
+)
 
 
 class ValueLinkResources(Protocol):
@@ -43,37 +64,35 @@ async def _read_link(
     }
 
 
-async def review_link(event: Committed, context: RunContext[ValueLinkResources]) -> None:
+async def review_link(
+    event: Committed, context: RunContext[ValueLinkResources]
+) -> tuple[dict[str, Any], ...]:
+    """The pair to ask about when the link is unclear and still what the model read."""
     item_type = "card" if event.kind == CARD_VALUE_LINKED else "check"
     value_id = event.data["value_id"]
     async with context.sessions() as session:
         asked = await _read_link(session, item_type, event.subject_id, value_id)
     if asked is None or await context.resources.value_link_reviewer.clear(asked):
-        return
+        return ()
     async with context.sessions() as session:
         if await _read_link(session, item_type, event.subject_id, value_id) != asked:
-            return
-        await add_cue(
-            session,
-            text=(
-                f'A saved Value link is unclear or reversed: '
-                f'[{asked["title"]}]({item_type}:{event.subject_id}) → '
-                f'[{asked["value"]}](value:{value_id}).\n'
-                "Read the current item and Value first.\n"
-                "If the link is gone or Note already makes the supporting direction clear, "
-                "skip this clarification.\n"
-                "Briefly ask how the item supports the Value and help clarify Note.\n\n"
-                'Example Goal "Earn $4k" linked to Health:\n'
-                "- VALID: money pays for healthcare.\n"
-                "- INVALID: health is needed to earn money.\n"
-                "- UNCLEAR: no context shows which meaning the user intends.\n\n"
-                "If you have a useful possible explanation, suggest it briefly and ask "
-                "whether it fits the user's meaning.\n"
-                "Present it as a possibility, not as the user's reason.\n"
-                "Change nothing until they answer."
-            ),
-        )
-        await session.commit()
+            return ()
+    return ({"type": item_type, "id": event.subject_id, "value_id": value_id},)
+
+
+async def clarification_request(
+    session: AsyncSession, items: Sequence[dict[str, Any]]
+) -> str | None:
+    """One request for every pair still linked, or nothing when all are gone."""
+    links = []
+    for item in items:
+        link = await _read_link(session, item["type"], item["id"], item["value_id"])
+        if link is not None:
+            links.append(
+                f'- [{link["title"]}]({item["type"]}:{item["id"]}) → '
+                f'[{link["value"]}](value:{item["value_id"]})'
+            )
+    return CLARIFY_REQUEST.format(links="\n".join(links)) if links else None
 
 
 VALUE_LINK_HOOK = HookSpec(
@@ -81,7 +100,7 @@ VALUE_LINK_HOOK = HookSpec(
     owner="values",
     on=(OnCommitted(CARD_VALUE_LINKED), OnCommitted(CHECK_VALUE_LINKED)),
     evaluate=linked_value,
-    effect=Run(review_link),
+    effect=RunAndAdvise(run=review_link, prepare=clarification_request),
     title="Value link clarification",
     description=(
         "After linking a Value, checks whether the Goal, Action or Check supports it. "

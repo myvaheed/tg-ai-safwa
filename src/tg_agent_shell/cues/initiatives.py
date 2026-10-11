@@ -9,7 +9,9 @@ the daily hooks when the time of day their reader names passes, and to the hooks
 every so long when their interval runs out, by the same path. A Run hook does its work there
 and then: on a tick inside the poll, with the owner's chat to publish to while it is free; on
 a commit once that commit's facts are handed on, outside the order they are kept in, with no
-chat; at the start before the first message is taken, with no chat either.
+chat; at the start before the first message is taken, with no chat either. A RunAndAdvise
+hook does its work where a Run would, and what the work returns is written down as an
+Advise check's result is.
 
 The facts are handed on outside the transaction that made them: a process that dies in
 between loses one request, never the change itself.
@@ -33,7 +35,16 @@ from sqlalchemy.orm import Session
 from ..foundation.changes import CHANGES, Committed, take_changes
 from ..foundation.clock import utcnow
 from ..foundation.poll import run_poll
-from ..hooks.contracts import Advise, ChatState, OnTick, Run, RunContext, Started, Tick
+from ..hooks.contracts import (
+    Advise,
+    ChatState,
+    OnTick,
+    Run,
+    RunAndAdvise,
+    RunContext,
+    Started,
+    Tick,
+)
 from ..hooks.registry import HookEvent, HookRegistry
 from ..hooks.ticks import TickSchedule
 from .queue import add_hook_cue, forget_before
@@ -55,8 +66,8 @@ async def hand_on(
     work: RunContext | None = None,
 ) -> list[Work]:
     """Check one event against the hooks: keep each Advise result as a pending request now,
-    and hand back each Run's work — with `work`, which the adapter brings wherever the
-    registry admits a Run — for the caller to do when it is free to."""
+    and hand back each Run's and RunAndAdvise's work — with `work`, which the adapter brings
+    wherever the registry admits one — for the caller to do when it is free to."""
     jobs: list[Work] = []
     async for checked in hooks.evaluate(event, sessions):
         if checked.error is not None:
@@ -73,7 +84,23 @@ async def hand_on(
                 assert work is not None  # the registry admits a Run only where the adapter brings its context
                 for payload in checked.payloads:
                     jobs.append(partial(_guarded, run, payload, work, checked.spec.name))
+            case RunAndAdvise(run=run):
+                assert work is not None
+                advised = partial(_advised, run, sessions, checked.spec.name)
+                for payload in checked.payloads:
+                    jobs.append(partial(_guarded, advised, payload, work, checked.spec.name))
     return jobs
+
+
+async def _advised(
+    run: Any, sessions: async_sessionmaker[AsyncSession], name: str, payload: Any, work: RunContext
+) -> None:
+    """Do a RunAndAdvise hook's work, and keep what it found as the hook's pending request."""
+    items = await run(payload, work)
+    if items:
+        async with sessions() as session:
+            await add_hook_cue(session, hook=name, items=items)
+            await session.commit()
 
 
 async def _guarded(run: Any, payload: Any, work: RunContext, name: str) -> bool:
@@ -97,7 +124,7 @@ async def queue_advice(
 
 
 async def _no_chat(text: str, kind: str) -> None:
-    raise RuntimeError("A hook off the dialogue has no chat to publish to: queue a Cue request directly or through an Advise hook")
+    raise RuntimeError("A hook off the dialogue has no chat to publish to: let a RunAndAdvise hook return it, or record a change for an Advise hook")
 
 
 async def hand_on_start(
