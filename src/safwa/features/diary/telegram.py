@@ -46,6 +46,7 @@ from .use_cases import diary_entry_for
 DIARY_PAGE_SIZE = 10
 DIARY_RECENT_DAYS = 7
 
+# A month inside a date, "11 октября".
 DIARY_MONTH_NAMES = (
     "января",
     "февраля",
@@ -59,6 +60,21 @@ DIARY_MONTH_NAMES = (
     "октября",
     "ноября",
     "декабря",
+)
+# A month on its own, on its button and its screen.
+DIARY_MONTHS = (
+    "Январь",
+    "Февраль",
+    "Март",
+    "Апрель",
+    "Май",
+    "Июнь",
+    "Июль",
+    "Август",
+    "Сентябрь",
+    "Октябрь",
+    "Ноябрь",
+    "Декабрь",
 )
 FEELING_SCORE_EMOJI = {
     0: "⚫",
@@ -116,7 +132,7 @@ async def render_browser(
             heading += " · Last 7 days"
             items = [today - timedelta(days=offset) for offset in range(DIARY_RECENT_DAYS)]
         elif month is not None:
-            heading += f" · {year} · {DIARY_MONTH_NAMES[month - 1]}"
+            heading += f" · {year} · {DIARY_MONTHS[month - 1]}"
             items = sorted(scores, reverse=True)
         elif year is not None:
             heading += f" · {year}"
@@ -136,7 +152,7 @@ async def render_browser(
                 label = f"{diary_label(item, scores.get(item))} · {item.year}"
                 target = here.child("diary_day", date=item.isoformat())
             elif year is not None:
-                label = DIARY_MONTH_NAMES[item - 1]
+                label = DIARY_MONTHS[item - 1]
                 target = here.child("diary_browser", year=year, month=item)
             else:
                 label = str(item)

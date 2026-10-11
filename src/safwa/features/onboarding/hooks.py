@@ -334,8 +334,7 @@ async def _tree(session: AsyncSession, actions: Sequence[Card]) -> list[str]:
         children.setdefault(action.parent_id, []).append(action)
         parent_id = action.parent_id
         while parent_id is not None and parent_id not in parents:
-            parent = await session.get(Card, parent_id)
-            assert parent is not None
+            parent = await session.get_one(Card, parent_id)
             parents.add(parent.id)
             children.setdefault(parent.parent_id, []).append(parent)
             parent_id = parent.parent_id

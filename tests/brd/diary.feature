@@ -183,6 +183,7 @@ Feature: Diary
     Then the years appear newest first, 10 per page (DIARY_PAGE_SIZE = 10)
     And a year opens its months, and a month opens its saved days newest first, 10 per page
     And each screen says which year and month it shows
+    And a month stands alone as Сентябрь on its button and screen, and inside a date as 1 сентября
     And each day opens its full read-only entry, including its photos
     And Back returns to the same list and page the day came from
     And paging offers only pages that exist

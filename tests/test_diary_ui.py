@@ -10,7 +10,7 @@ from ui_harness import FakeMessage, button_texts, place_of, press, services_for
 from safwa.bootstrap.modules import FEATURE_COMMANDS
 from safwa.features.diary import telegram
 from safwa.features.diary.telegram import (
-    DIARY_MONTH_NAMES,
+    DIARY_MONTHS,
     DIARY_PAGE_SIZE,
     DIARY_RECENT_DAYS,
     command_diary,
@@ -54,14 +54,14 @@ async def test_diary_browses_years_months_and_days_and_returns_to_the_same_page(
     await press(services, message, message.edits[-1][1], "2026")
     months, markup = message.edits[-1]
     assert "2026" in months
-    assert button_texts(markup) == [*reversed(DIARY_MONTH_NAMES), "↩️ Back"]
-    await press(services, message, markup, "декабря")
+    assert button_texts(markup) == [*reversed(DIARY_MONTHS), "↩️ Back"]
+    await press(services, message, markup, "Декабрь")
     assert button_texts(message.edits[-1][1]) == ["1 декабря · 2026", "↩️ Back"]
     await press(services, message, message.edits[-1][1], "↩️ Back")
     markup = message.edits[-1][1]
-    await press(services, message, markup, "сентября")
+    await press(services, message, markup, "Сентябрь")
     days, markup = message.edits[-1]
-    assert "2026" in days and "сентября" in days
+    assert "2026 · Сентябрь" in days
     assert len(button_texts(markup)) == DIARY_PAGE_SIZE + 2
     await press(services, message, markup, "Next ▶")
     last_page, markup = message.edits[-1]
@@ -90,7 +90,7 @@ async def test_diary_browser_includes_a_photo_only_day_and_keeps_its_back_button
     message = QueueTestMessage(is_bot=True, answer_as_new=True)
     await command_diary(message, services)
     await press(services, message, message.markups[-1], "2026")
-    await press(services, message, message.markups[-1], "сентября")
+    await press(services, message, message.markups[-1], "Сентябрь")
     await press(services, message, message.markups[-1], "26 сентября · 2026")
     assert message.bot.photos_sent == [["file-cat"]]
     body, markup = message.bot.drawn[-1], message.markups[-1]
@@ -99,7 +99,7 @@ async def test_diary_browser_includes_a_photo_only_day_and_keeps_its_back_button
     album_ids = [photo.message_id for photo in message.sent[:-1]]
     await press(services, message.sent[-1], markup, "↩️ Back")
     assert set(album_ids) <= set(message.bot.deleted)
-    assert "сентября" in message.bot.drawn[-1]
+    assert "2026 · Сентябрь" in message.bot.drawn[-1]
 
 
 async def test_diary_recent_uses_the_local_day_and_opens_empty_and_saved_dates(sessions, monkeypatch):
