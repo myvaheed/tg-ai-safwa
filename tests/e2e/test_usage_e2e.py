@@ -24,7 +24,6 @@ from tg_agent_shell.telegram import callback_token_handler
 from tg_agent_shell.telegram.dialogue import ordinary_text, run_before_turn, voice_message
 from tg_agent_shell.telegram.model import CallbackToken
 from tg_agent_shell.telegram.services import OwnerAndWritingMiddleware
-from tg_agent_shell.usage.model import UsageInterval
 
 pytestmark = pytest.mark.e2e
 
@@ -61,7 +60,6 @@ async def test_voice_transcription_answer_and_profile_count_once(e2e_harness, mo
     services.history = history_source(e2e_harness.sessions)
     services.transcriber = TimedTranscriber("Tell me about today")
     message = voice_message_for(1, duration=60)
-    message.date = clock.now()
 
     async def handle(event, data):
         await voice_message(event, data["services"])
@@ -75,10 +73,6 @@ async def test_voice_transcription_answer_and_profile_count_once(e2e_harness, mo
     profile = FakeMessage(2, bot_message=True, answer_as_new=True)
     await command_profile(profile, services)
     assert "Usage time: ~7m" in profile.edits[-1][0]
-    async with e2e_harness.sessions() as session:
-        rows = list(await session.scalars(select(UsageInterval)))
-        assert len(rows) == 2
-        assert all(row.event_key.endswith("message:700:1") for row in rows)
 
 
 async def test_after_answer_hooks_and_system_requests_add_no_usage(e2e_harness, monkeypatch):
@@ -97,7 +91,6 @@ async def test_after_answer_hooks_and_system_requests_add_no_usage(e2e_harness, 
 
     services.hooks = run_hooks(long_hook)
     message = FakeMessage(3, text="Answer me", bot_message=False, answer_as_new=True)
-    message.date = clock.now()
 
     async def handle(event, data):
         await ordinary_text(event, data["services"])
@@ -117,7 +110,7 @@ async def test_after_answer_hooks_and_system_requests_add_no_usage(e2e_harness, 
     assert await total(services) == 360
 
 
-async def test_review_pause_and_resumed_subagents_are_separate_intervals(
+async def test_review_pause_and_resumed_subagents_are_separate_waits(
     e2e_harness, monkeypatch,
 ):
     """TG-PAUSE-027 — tests/brd/tg_agent_shell/telegram_history.feature"""
@@ -133,7 +126,6 @@ async def test_review_pause_and_resumed_subagents_are_separate_intervals(
     services.root = advisor
     services.history = history_source(e2e_harness.sessions)
     message = FakeMessage(4, text="Add Family tag", bot_message=False, answer_as_new=True)
-    message.date = clock.now()
     middleware = OwnerAndWritingMiddleware()
 
     async def handle(event, data):
@@ -162,4 +154,3 @@ async def test_review_pause_and_resumed_subagents_are_separate_intervals(
     assert await total(services) == 480
     async with e2e_harness.sessions() as session:
         assert (await session.scalar(select(Tag))).name == "Family"
-        assert len(list(await session.scalars(select(UsageInterval)))) == 4

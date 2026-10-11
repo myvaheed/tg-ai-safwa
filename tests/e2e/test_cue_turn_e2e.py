@@ -70,6 +70,7 @@ async def _no_dialogue(owner_id: int) -> list:
 def _cue_runtime(harness, advisor, turn: TurnManager) -> CueRuntime:
     """The real gate over the real turn and the real store; only the chat is absent."""
     services = SimpleNamespace(
+        access=None,
         sessions=harness.sessions,
         turn=turn,
         root=advisor,

@@ -32,7 +32,7 @@ from aiogram.types import (
 )
 
 from .notes import Note, NoteStore
-from .text import split_telegram_text, without_links
+from .text import split_telegram_text
 from .window import SCAN_LIMIT
 
 logger = logging.getLogger(__name__)
@@ -204,7 +204,6 @@ class ChatHost:
                 event_id=event_id,
                 text=text,
                 at=sent.date,
-                displayed_at=sent.date,
                 reads_as=tuple(reads_as) if reads_as is not None else None,
             )
         )
@@ -218,8 +217,6 @@ class ChatHost:
         event_id: str | None = None,
         replace: bool | None = None,
         reads_as: Sequence[Mapping[str, Any]] | None = None,
-        related_id: int | None = None,
-        links: bool = True,
     ) -> Message:
         """Put words in the chat in as many messages as Telegram needs, and return the last.
 
@@ -239,7 +236,7 @@ class ChatHost:
             first, last = index == 0, index == len(parts) - 1
             sent, delivery = await self._draw(
                 message,
-                part if links else without_links(part),
+                part,
                 event_id=event_id if last else None,
                 replace=replace if first else False,
             )
@@ -249,7 +246,6 @@ class ChatHost:
                 delivery,
                 text=text if first else None,
                 reads_as=reads_as if first else None,
-                related_id=related_id,
             )
         return sent
 
@@ -492,7 +488,7 @@ class ChatHost:
         deletable = [
             note.message_id
             for note in await self.notes.messages(chat_id, limit=SCAN_LIMIT)
-            if (shown := note.displayed_at or note.at) is not None and _utc(shown) >= since
+            if note.at is not None and _utc(note.at) >= since
         ]
         ids = [
             message_id
@@ -581,7 +577,6 @@ class ChatHost:
             key = (message.chat.id, note.message_id)
             if key in self.passing:
                 continue
-            await self.notes.write(replace(note, passing_seconds=seconds))
             self.passing.add(key)
             self.spawn(self._pass(message, note.message_id, seconds), "passing-expiry")
 

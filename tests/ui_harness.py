@@ -234,6 +234,7 @@ def services_for(sessions, *, root=None, reviews=None, transcriber=None):
         ),
         transcriber=transcriber,
         usage=UsageRecorder(sessions, 42),
+        access=None,
     )
 
 

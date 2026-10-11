@@ -8,7 +8,7 @@ from tg_agent_shell.access.credentials import hash_secret_word
 from tg_agent_shell.access.manager import AccessManager
 
 
-async def test_a_second_bot_can_lock_and_restore_its_own_home_without_safwa(wallet_bot):
+async def test_a_second_bot_can_lock_and_open_its_own_home_without_safwa(wallet_bot):
     """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
     running = await wallet_bot.start()
     verifier = hash_secret_word("🔑")

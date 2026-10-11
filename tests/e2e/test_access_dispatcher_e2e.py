@@ -110,14 +110,14 @@ async def test_commands_waiting_during_unlock_run_only_if_the_secret_was_already
         updates = dispatcher(services)
         await services.access.lock(owner_anchor(bot, 42))
         reached, resume, command_waiting = asyncio.Event(), asyncio.Event(), asyncio.Event()
-        held_method = "_restore" if authenticated else "_locked_input"
+        held_method = "_clear" if authenticated else "_locked_input"
         original = getattr(services.access, held_method)
         intercept = services.access.intercept
 
-        async def pause(anchor):
+        async def pause(*args, **options):
             reached.set()
             await resume.wait()
-            return await original(anchor)
+            return await original(*args, **options)
 
         async def observed_intercept(event):
             if getattr(event, "text", None) == command:

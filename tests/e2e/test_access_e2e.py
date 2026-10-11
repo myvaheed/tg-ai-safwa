@@ -18,7 +18,6 @@ from safwa.features.reminders.firing import tick as fire_reminders
 from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.use_cases import create_reminder
 from safwa.features.schedules.use_cases import set_remind
-from tg_agent_shell.access.model import DeferredDelivery
 from tg_agent_shell.cues.background import tick
 from tg_agent_shell.cues.initiatives import TickPoll
 from tg_agent_shell.cues.model import Cue
@@ -26,7 +25,6 @@ from tg_agent_shell.cues.queue import add_cue, add_hook_cue
 from tg_agent_shell.cues.runtime import CueRuntime, tick_chat
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.kinds import MessageKind
-from tg_agent_shell.history import TelegramMessage
 from tg_agent_shell.hooks.contracts import Advise, HookSpec, OnCommitted
 from tg_agent_shell.hooks.registry import HookRegistry
 
@@ -73,7 +71,7 @@ async def enqueue(sessions, text):
 
 
 @pytest.mark.parametrize("from_schedule", [False, True])
-async def test_locked_reminders_arrive_without_links_and_hooks_wait_until_entry(
+async def test_locked_reminders_arrive_and_hooks_wait_until_entry(
     e2e_harness, monkeypatch, from_schedule
 ):
     """HM-LOCK-015 — tests/brd/home.feature"""
@@ -146,20 +144,15 @@ async def test_locked_reminders_arrive_without_links_and_hooks_wait_until_entry(
     assert await fire_reminders(sessions, tz=tz, now=moment)
     assert await queued_turn(sessions, runtime)
     assert len(provider.calls) == 1 and prepared == []
-    assert "Stretch" in anchor.rendered[-1] and "<a " not in anchor.rendered[-1]
+    assert "Stretch" in anchor.rendered[-1] and '<a href="' in anchor.rendered[-1]
     assert anchor.markups[-1] is None and services.access.blocked
+    reminder = anchor.sent[-1].message_id
     async with sessions() as session:
         assert [row.hook for row in await session.scalars(select(Cue))] == ["test.waiting"]
-        assert len(list(await session.scalars(select(DeferredDelivery)))) == 1
-        notification = await session.scalar(
-            select(TelegramMessage).where(TelegramMessage.text.like("Do %"))
-        )
-        assert '<a href="' in notification.text
     await services.access.intercept(incoming(anchor, "wrong"))
     await services.access.intercept(incoming(anchor, "🔑", 4000))
     assert not services.access.blocked
-    assert anchor.rendered[-3] == "Unanswered old hook"
-    assert "Stretch" in anchor.rendered[-2] and '<a href="' in anchor.rendered[-2]
+    assert 2 not in anchor.bot.deleted and reminder not in anchor.bot.deleted
     assert anchor.rendered[-1] == "New hook answer." and len(provider.calls) == 2
     assert not any("🏠" in shown for shown in anchor.rendered)
     assert prepared == [[1]]

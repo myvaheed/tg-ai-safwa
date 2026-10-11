@@ -2,8 +2,8 @@
 
 The window itself is `telegram_llm`. This is what it has to be told — which message kinds
 are the conversation and what each cites — plus what only a running bot can supply: the
-`telegram_messages` table every message is kept in as it passes, and the message the chat
-was last cleared through, which the conversation starts after. Where the window ends
+`telegram_messages` table every message is kept in as it passes, and the message the
+conversation starts after, which the last clear set. Where the window ends
 arrives the same way, as a `WindowEdge`.
 """
 
@@ -15,7 +15,6 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
-    Float,
     Integer,
     String,
     Text,
@@ -72,14 +71,12 @@ class TelegramMessage(Base):
     text: Mapped[str | None] = mapped_column(Text)
     # What the model reads for it, in the provider's shape, when that is not its words.
     reads_as: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
-    passing_seconds: Mapped[float | None] = mapped_column(Float)
-    displayed_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, server_default=func.now())
     __table_args__ = (UniqueConstraint("chat_id", "message_id"),)
 
 
 class ChatClearBoundary(Base):
-    """The message through which the chat was last cleared: the conversation starts after it."""
+    """The message the conversation starts after: the last clear's, before what it left."""
 
     __tablename__ = "chat_clear_boundaries"
     chat_id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -87,7 +84,7 @@ class ChatClearBoundary(Base):
 
 
 async def cleared_through(session: AsyncSession, chat_id: int) -> int:
-    """The message the chat was last cleared through, or 0 when it never was."""
+    """The message the conversation starts after, or 0 when the chat was never cleared."""
     boundary = await session.get(ChatClearBoundary, chat_id)
     return boundary.through_message_id if boundary is not None else 0
 
@@ -127,8 +124,6 @@ def _note(row: TelegramMessage) -> Note:
         text=row.text,
         at=row.created_at,
         reads_as=tuple(row.reads_as) if row.reads_as is not None else None,
-        passing_seconds=row.passing_seconds,
-        displayed_at=row.displayed_at,
     )
 
 
@@ -190,8 +185,6 @@ class TelegramNotes:
                 text=note.text,
                 at=note.at,
                 reads_as=note.reads_as,
-                passing_seconds=note.passing_seconds,
-                displayed_at=note.displayed_at,
             )
             await session.commit()
 
@@ -218,8 +211,6 @@ async def register_message(
     text: str | None = None,
     at: datetime | None = None,
     reads_as: Sequence[Mapping[str, Any]] | None = None,
-    passing_seconds: float | None = None,
-    displayed_at: datetime | None = None,
 ) -> None:
     kept = [dict(message) for message in reads_as] if reads_as is not None else None
     existing = await session.scalar(
@@ -233,9 +224,6 @@ async def register_message(
         existing.related_id = related_id
         existing.text = text
         existing.reads_as = kept
-        existing.passing_seconds = passing_seconds
-        if displayed_at is not None:
-            existing.displayed_at = displayed_at
         if event_id is not None:
             existing.event_id = event_id
     else:
@@ -248,8 +236,6 @@ async def register_message(
             related_id=related_id,
             text=text,
             reads_as=kept,
-            passing_seconds=passing_seconds,
-            displayed_at=displayed_at,
         )
         if at is not None:
             row.created_at = at

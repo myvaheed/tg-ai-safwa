@@ -147,7 +147,7 @@ class TickChat:
     owner_acted_at: Callable[[], datetime]
     # Whether a message could go now.
     free: Callable[[], Awaitable[bool]]
-    # The kind and time of the newest message kept in the chat, or None while it keeps none.
+    # The kind and time of the newest message a clear would take out, or None while none is.
     newest: Callable[[], Awaitable[tuple[str, datetime | None] | None]]
     # Puts a message in the chat while it is free, and not once `still_current` turns.
     speak: Callable[[str, str, Callable[[], bool]], Awaitable[None]]

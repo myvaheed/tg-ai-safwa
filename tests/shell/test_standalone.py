@@ -19,9 +19,9 @@ SHELL_TABLES = {
     "callback_tokens",
     "chat_clear_boundaries",
     "chat_media",
+    "owner_usage",
     "telegram_messages",
     "ui_sessions",
-    "usage_intervals",
 }
 WALLET_TABLES = {"categories", "entries", "ledger", "wallets"}
 

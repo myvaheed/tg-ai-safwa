@@ -193,7 +193,7 @@ includes own voice recording time and excludes autonomous work. Its two-minute q
 and restart behavior are described in [USAGE_TIME.md](docs/USAGE_TIME.md).
 
 Profile → **Secret word** optionally locks chat access after automatic clearing and after
-restart. Entering it removes attempts and restores unanswered and deferred hooks without Home.
+restart. Entering it removes attempts and runs the hooks that waited, without Home.
 Any exact text but a command, including `off`, is accepted when sent twice the same; Remove
 secret word disables protection.
 Automatic clearing leaves only the hooks you have not answered; `/clear` empties the chat.

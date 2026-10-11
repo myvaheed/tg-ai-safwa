@@ -146,7 +146,7 @@ async def run_before_turn(
     """
     if not services.hooks.listens(BeforeTurn):
         return
-    access = getattr(services, "access", None)
+    access = services.access
     if access is not None and access.blocked and not access.unlocking:
         return
 
@@ -189,8 +189,8 @@ async def run_after_turn(message: Message, services: Services, event: AfterTurn)
     owner their request did not go through.
     """
     if services.usage is not None:
-        await services.usage.finish()
-    access = getattr(services, "access", None)
+        await services.usage.answered()
+    access = services.access
     if access is not None and access.blocked and not access.unlocking:
         return
 
@@ -275,8 +275,6 @@ async def run_dialogue_turn(
         # an autoapproved change bumps it from inside this very turn.
         if services.turn.dialogue_revision != dialogue_revision:
             logger.info("Discarding an answer the owner already moved past")
-            if services.usage is not None:
-                await services.usage.finish(reading=False)
             return
         await render_ai_outcome(message, services, outcome)
         await end_turn(message, services)

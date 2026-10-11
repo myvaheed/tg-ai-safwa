@@ -11,44 +11,40 @@ window. Only elapsed time counts. Own voice messages and video notes extend that
 backward by their duration, approximating recording time; forwarded recordings, uploaded
 audio and edits do not add recording duration.
 
-An owner event's processing is another interval: transcription, image reading, tools,
-subagents, checks required by the request and answer delivery all belong to it. Completing
-the handler adds two minutes for reading. A review screen ends that processing interval;
-the owner's decision starts new work, so a long pause before Save or Discard is excluded.
-Cancellation and an unhandled failure close the wait without a reading window. An error
-message delivered by the handler is a response the owner can read.
+The wait while an owner event is handled counts whole: transcription, image reading, tools,
+subagents, checks required by the request and answer delivery all belong to it. A delivered
+answer ends the wait and gives two more minutes for reading. A review screen ends the
+handling, so a long pause before Save or Discard is excluded; the owner's decision starts
+new work. Cancellation and an unhandled failure end the wait as an answer does.
 
-Intervals are merged before summing. A one-minute recording sent at 12:00, answered at
-12:04 with no further owner activity, eventually counts 11:59–12:06: seven minutes.
-During that interaction it counts only up to the current moment.
+Each moment counts once. A one-minute recording sent at 12:00, answered at 12:04 with no
+further owner activity, eventually counts 11:59–12:06: seven minutes. During that
+interaction it counts only up to the current moment.
 
-Autonomous hooks and Cue turns have no owner-event scope and create no usage. Work after
-the answer is explicitly outside that scope, even when the original handler awaits it.
-If the owner responds to a Cue or presses its Save button, that action and the work it
-requests count as owner activity.
+Autonomous hooks and Cue turns have no owner event and create no usage. Work after the
+answer, such as the summary, is outside the wait even when the handler awaits it. If the
+owner responds to a Cue or presses its Save button, that action and the work it requests
+count as owner activity.
 
-## Storage and lifetime
+## Storage
 
-The shell keeps the intervals in the new `usage_intervals` table, separate from
-`telegram_messages`. Clearing the conversation does not clear usage. The owner and event
-key are unique, so repeated delivery does not add the same activity or wait again; a
-voice transcript is an outgoing message, not a second owner event.
+The shell keeps one `owner_usage` row per owner: the counted `seconds` and `last_at`, the
+latest moment counted. An action or the end of a wait adds the quiet gap since `last_at`, at
+most `IDLE_WINDOW` of two minutes, and then the action's own span: the recording before it,
+or the whole wait. `last_at` only moves forward, so overlapping time is never added twice.
+Reading the total adds the open window after `last_at`, up to the current moment. Clearing
+the conversation does not clear usage.
 
-[UsageRecorder](../src/tg_agent_shell/usage/recorder.py) owns the handler's processing scope
-and its checkpoint task. It records elapsed work every 30 seconds, using a monotonic
-clock for duration and UTC timestamps for persistence. Normal completion records the end
-and cancels that task. Cancellation while opening the interval also closes it, even if
-the insert was already committed. Closing matches the owner and event key, so an insert
-rolled back by cancellation cannot close another interval that reuses its numeric ID.
-A failed checkpoint is logged and retried on the next
-30-second tick. Startup ends every interrupted interval at its last successful checkpoint,
-never at restart time; with successful checkpoints, a crash can lose up to 30 seconds of
-unconfirmed work. Database failures can leave a longer gap until the next successful tick.
+[UsageRecorder](../src/tg_agent_shell/usage/recorder.py) records owner actions and keeps the
+start of an event's wait in a context variable, so `answered` can end the wait from inside
+the handler before the work after the answer. Concurrent events write one at a time. A
+process that stops while a request runs records no wait for it, so time until the restart
+is never counted and nothing is recovered at startup.
 
-[use_cases.py](../src/tg_agent_shell/usage/use_cases.py) owns the writes and interval union.
-Its caller owns the transaction. Applications enable recording by providing a recorder
-on Services; Safwa does so in its composition root. No polling loop is needed to count
-the two-minute window, and no AI view or mutation tool is added.
+[use_cases.py](../src/tg_agent_shell/usage/use_cases.py) owns the arithmetic. Its caller owns
+the transaction. Applications enable recording by providing a recorder on Services; Safwa
+does so in its composition root. No polling loop is needed, and no AI view or mutation tool
+is added.
 
 The behavior is held by TG-USAGE-024 through TG-EVENT-030 in the
 [chat scenarios](../tests/brd/tg_agent_shell/telegram_history.feature) and PS-USAGE-022 in

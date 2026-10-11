@@ -1,3 +1,3 @@
-"""Optional chat access and durable delivery while its owner is away."""
+"""Optional chat access behind a Secret word."""
 
 from __future__ import annotations

@@ -662,6 +662,7 @@ async def test_ag_hook_050_a_message_on_a_schedule_goes_only_while_the_chat_is_f
     anchor = QueueTestMessage(message_id=150, is_bot=False, answer_as_new=True)
     busy = SimpleNamespace(busy=True)
     services = SimpleNamespace(
+        access=None,
         sessions=sessions,
         owner_id=42,
         turn=TurnManager(),

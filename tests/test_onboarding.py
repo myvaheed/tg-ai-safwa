@@ -186,6 +186,7 @@ class HeldSessions:
 
 def _cue_runtime(sessions, chat: CueChat, monkeypatch) -> CueRuntime:
     services = SimpleNamespace(
+        access=None,
         sessions=sessions, turn=services_for(sessions).turn, root=Answering(),
         hooks=onboarding_hooks(), features=None, chat=chat,
         history=SimpleNamespace(dialogue=_no_dialogue),
@@ -393,6 +394,7 @@ async def test_ob_tip_003_a_tip_waits_behind_an_open_screen(sessions):
         changes=[ProposalChange(entity="value", action=ChangeAction.UPDATE, values={"name": "X"})],
     )
     services = SimpleNamespace(
+        access=None,
         sessions=sessions, turn=services_for(sessions).turn,
         root=SimpleNamespace(reviews=reviews), hooks=REGISTRY.hooks,
     )

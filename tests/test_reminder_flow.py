@@ -430,6 +430,7 @@ async def test_reminder_advisor_receives_canonical_dialogue(sessions, monkeypatc
     advisor = Advisor()
     turn = TurnManager()
     services = SimpleNamespace(
+        access=None,
         sessions=sessions,
         history=history,
         root=advisor,
@@ -502,6 +503,7 @@ async def test_a_cue_render_failure_releases_its_pending_proposal(sessions, monk
         raise RuntimeError("Telegram unavailable")
 
     services = SimpleNamespace(
+        access=None,
         sessions=sessions,
         history=History(),
         root=Advisor(),
@@ -572,6 +574,7 @@ async def test_cancelling_a_background_lease_leaves_its_loop_running() -> None:
 
 def _gate_runtime(sessions) -> CueRuntime:
     services = SimpleNamespace(
+        access=None,
         sessions=sessions,
         history=None,
         root=SimpleNamespace(reviews=ProposalStore()),

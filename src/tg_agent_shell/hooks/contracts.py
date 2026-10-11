@@ -239,7 +239,7 @@ class ChatState:
     owner_acted_at: datetime
     # No turn, no review waiting, no session claimed: a message could go now.
     free: bool
-    # The kind and time of the newest message kept in it; None while it keeps nothing.
+    # The kind and time of the newest message a clear would take out; None while none is.
     newest_kind: str | None = None
     newest_at: datetime | None = None
 

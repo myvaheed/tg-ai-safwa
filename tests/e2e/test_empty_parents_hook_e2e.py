@@ -89,6 +89,7 @@ async def test_cd_empty_035_the_morning_question_is_said_and_read_back_on_the_ne
     chat = FakeMessage(900, bot_message=False, chat_id=OWNER_ID, answer_as_new=True)
     history = history_source(sessions)
     services = SimpleNamespace(
+        access=None,
         sessions=sessions,
         hooks=REGISTRY.hooks,
         turn=TurnManager(),

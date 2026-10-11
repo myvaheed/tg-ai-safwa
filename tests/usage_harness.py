@@ -14,17 +14,12 @@ START = datetime(2026, 10, 8, 12, tzinfo=UTC)
 class UsageClock:
     def __init__(self, at: datetime = START) -> None:
         self.at = at
-        self.elapsed = 0.0
 
     def now(self) -> datetime:
         return self.at
 
-    def ticks(self) -> float:
-        return self.elapsed
-
     def advance(self, seconds: float) -> None:
         self.at += timedelta(seconds=seconds)
-        self.elapsed += seconds
 
 
 def tracked_services(sessions, monkeypatch, *, root=None, transcriber=None):
@@ -32,7 +27,7 @@ def tracked_services(sessions, monkeypatch, *, root=None, transcriber=None):
     monkeypatch.setattr("tg_agent_shell.telegram.services.CallbackQuery", FakeCallback)
     services = services_for(sessions, root=root, transcriber=transcriber)
     clock = UsageClock()
-    services.usage = UsageRecorder(sessions, 42, clock=clock, ticks=clock.ticks)
+    services.usage = UsageRecorder(sessions, 42, clock=clock)
     return services, clock
 
 

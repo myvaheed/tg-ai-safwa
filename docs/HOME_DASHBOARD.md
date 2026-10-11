@@ -11,11 +11,10 @@ shell's, TG-CLEAR-032 in [telegram_history.feature](../tests/brd/tg_agent_shell/
 and the check that asks for it is a hook on a schedule, AG-HOOK-049 and AG-HOOK-050 in
 [agents.feature](../tests/brd/tg_agent_shell/agents.feature).
 
-With Secret word set, automatic clearing instead locks access and hides its unanswered hooks.
-Reminder and Schedule Remind answers still reach the chat without links; new hook requests wait.
-Entering the word deletes attempts, restores messages with links and runs waiting hooks.
-Home appears only on `/start`; the conversation boundary precedes the restored hooks.
-The access gate and durable delivery are described in [CHAT_ACCESS.md](CHAT_ACCESS.md).
+With Secret word set, automatic clearing also locks access; the unanswered hooks stay.
+Reminder and Schedule Remind answers still reach the chat; new hook requests wait.
+Entering the word deletes attempts and prompts and runs waiting hooks.
+Home appears only on `/start`. The access gate is described in [CHAT_ACCESS.md](CHAT_ACCESS.md).
 
 ## How it looks
 
@@ -108,8 +107,7 @@ share one id sequence in a private chat, so the range takes the owner's messages
 the Advisor's replies, receipts, every screen and the previous Home dashboard alike, and no
 editor session is left. `UNASKED_KINDS` — Cues, which is how a Reminder or a hook's question
 reaches the chat — sent after the last `MessageKind.DIALOGUE_USER` are spared: the owner may
-not have seen them. The lock captures them instead and removes their messages, and entry
-restores them.
+not have seen them. A lock and its entry spare them the same way.
 The range starts no earlier than the oldest
 message kept in the last `TELEGRAM_DELETE_WINDOW` of 48 hours: Telegram lets a bot delete nothing
 older.
@@ -120,12 +118,15 @@ The notes of `CONVERSATION_KINDS` — what was said — and held `UNASKED_KINDS`
 other operational notes in the range go with their messages. The Diary's `read_conversation`
 reads a whole day from them (DI-READ-016), past the clear.
 
-Every clear writes its boundary — the message id the chat was cleared through, one row of
+Every clear writes its boundary — the message id the conversation starts after, one row of
 `chat_clear_boundaries` per chat, through `mark_cleared` in
-[history.py](../src/tg_agent_shell/history.py). The window stops there, so the Advisor, a routed
-subagent and the Summary writer read only what came after it, an older Summary included. A
-period read — `day_transcript`, which `read_conversation` is — goes past it. The dashboard is a
-screen, and its words are never conversation.
+[history.py](../src/tg_agent_shell/history.py). It is the last id the clear took out, or the one
+just before the first Cue it spared, so a spared Cue is read when the owner answers it. The
+window stops there, so the Advisor, a routed subagent and the Summary writer read only what
+came after it, an older Summary included. A period read — `day_transcript`, which
+`read_conversation` is — goes past it. The dashboard is a screen, and its words are never
+conversation. A chat holding only spared Cues past the boundary gives the next quiet time
+nothing to clear.
 
 ## The words under a Value
 

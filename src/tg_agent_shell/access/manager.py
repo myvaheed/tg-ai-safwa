@@ -1,13 +1,11 @@
-"""One owner of chat access, clearing and delivery during a lock."""
+"""One owner of chat access and of clearing the chat."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Collection
-from datetime import datetime
+from collections.abc import Awaitable, Callable
 from typing import Any
-from uuid import uuid4
 
 from aiogram.types import Message
 from sqlalchemy import delete, func, select
@@ -16,12 +14,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..cues.runtime import resume_cues
 from ..foundation.clock import utcnow
 from ..foundation.kinds import MessageKind
-from ..history import CONVERSATION_KINDS, TelegramMessage, mark_cleared, register_message
-from ..telegram.chat import UNASKED_KINDS, send_prose
+from ..history import (
+    CONVERSATION_KINDS,
+    TelegramMessage,
+    cleared_through,
+    mark_cleared,
+    register_message,
+)
+from ..telegram.chat import UNASKED_KINDS
 from ..telegram.model import CallbackToken, UiSession
 from ..telegram.services import Services
 from .credentials import matches_secret_word
-from .model import AccessState, DeferredDelivery, Locked, Open, Unlocking
+from .model import AccessState, Locked, Open, Unlocking
 
 logger = logging.getLogger(__name__)
 ENTER_SECRET_WORD = "Сначала введите Secret word."
@@ -74,13 +78,12 @@ class AccessManager:
             if self.blocked:
                 return
             self._state = Locked()
-            await self._capture_unanswered(anchor.chat.id)
             if not await self._try_clear(anchor):
                 self.services.chat.spawn(self._clear_while_locked(anchor), "access-clear")
 
     async def _try_clear(self, anchor: Message) -> bool:
         try:
-            await self._clear(anchor)
+            await self._clear(anchor, keep_unanswered=True)
         except Exception:
             logger.exception("Could not clear the locked chat")
             return False
@@ -97,108 +100,48 @@ class AccessManager:
     async def clear(self, anchor: Message, *, keep_unanswered: bool = False) -> None:
         """Empty the chat; an automatic clear leaves what the owner has not answered in it."""
         async with self._transition:
-            spare: list[int] = []
-            if keep_unanswered:
-                async with self.services.sessions() as session:
-                    last_user = await _last_user_message_id(session, anchor.chat.id)
-                    spare = list(await session.scalars(
-                        select(TelegramMessage.message_id).where(
-                            TelegramMessage.chat_id == anchor.chat.id,
-                            TelegramMessage.direction == "out",
-                            TelegramMessage.kind.in_(UNASKED_KINDS),
-                            TelegramMessage.message_id > last_user,
-                        )
-                    ))
-            await self._clear(anchor, anchor.message_id, spare=spare)
-
-    async def _restore(self, anchor: Message) -> None:
-        async with self.services.sessions() as session:
-            rows = list(await session.scalars(
-                select(DeferredDelivery)
-                .where(DeferredDelivery.chat_id == anchor.chat.id)
-                .order_by(DeferredDelivery.id)
-            ))
-        for row in rows:
-            await self._deliver(anchor, row)
-        async with self.services.sessions() as session:
-            await session.execute(delete(DeferredDelivery).where(
-                DeferredDelivery.id.in_([row.id for row in rows]),
-            ))
-            await session.commit()
-
-    async def _capture_unanswered(self, chat_id: int) -> None:
-        async with self.services.sessions() as session:
-            last_user = await _last_user_message_id(session, chat_id)
-            rows = await session.scalars(
-                select(TelegramMessage)
-                .where(
-                    TelegramMessage.chat_id == chat_id,
-                    TelegramMessage.direction == "out",
-                    TelegramMessage.kind.in_(UNASKED_KINDS),
-                    TelegramMessage.message_id > last_user,
-                    TelegramMessage.text.is_not(None),
-                )
-                .order_by(TelegramMessage.message_id)
-            )
-            for note in rows:
-                pending = await session.scalar(
-                    select(DeferredDelivery.id).where(
-                        DeferredDelivery.source_note_id == note.id,
-                    )
-                )
-                if pending is None:
-                    tagged = (
-                        await session.get(DeferredDelivery, note.related_id)
-                        if note.related_id is not None
-                        else None
-                    )
-                    if (
-                        tagged is not None
-                        and tagged.chat_id == chat_id
-                        and tagged.payload.get("text") == note.text
-                    ):
-                        note.text = None
-                        note.reads_as = None
-                        continue
-                    session.add(
-                        DeferredDelivery(
-                            chat_id=chat_id,
-                            source_note_id=note.id,
-                            payload={
-                                "text": note.text,
-                                "kind": note.kind,
-                                "reads_as": note.reads_as,
-                                "at": note.created_at.isoformat(),
-                                "passing_seconds": note.passing_seconds,
-                            },
-                        )
-                    )
-            await session.commit()
+            await self._clear(anchor, anchor.message_id, keep_unanswered=keep_unanswered)
 
     async def _clear(
-        self, anchor: Message, through: int = 0, *, spare: Collection[int] = ()
+        self, anchor: Message, through: int = 0, *, keep_unanswered: bool = False
     ) -> None:
-        services = self.services
+        services, chat_id = self.services, anchor.chat.id
         async with services.sessions() as session:
             last = max(
                 through,
                 await session.scalar(
                     select(func.max(TelegramMessage.message_id)).where(
-                        TelegramMessage.chat_id == anchor.chat.id,
+                        TelegramMessage.chat_id == chat_id,
                     )
                 )
                 or 0,
             )
-            await mark_cleared(session, anchor.chat.id, last)
+            spare: list[int] = []
+            if keep_unanswered:
+                # Before the boundary is only what an earlier clear took out of the chat.
+                after = max(
+                    await _last_user_message_id(session, chat_id),
+                    await cleared_through(session, chat_id),
+                )
+                spare = list(await session.scalars(
+                    select(TelegramMessage.message_id).where(
+                        TelegramMessage.chat_id == chat_id,
+                        TelegramMessage.direction == "out",
+                        TelegramMessage.kind.in_(UNASKED_KINDS),
+                        TelegramMessage.message_id > after,
+                        TelegramMessage.message_id <= last,
+                    )
+                ))
+            # The conversation starts with the first message the clear leaves in the chat.
+            await mark_cleared(session, chat_id, min(spare, default=last + 1) - 1)
             await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
             await session.execute(
                 delete(CallbackToken).where(CallbackToken.owner_id == services.owner_id)
             )
             await session.commit()
-        # Keep logical conversation records, including the passing words being restored.
         await services.chat.clear(
             anchor.bot,
-            anchor.chat.id,
+            chat_id,
             last,
             keep=CONVERSATION_KINDS | UNASKED_KINDS,
             spare=spare,
@@ -259,9 +202,7 @@ class AccessManager:
         self._state = Unlocking()
         try:
             await self.services.turn.wait_idle()
-            await self._capture_unanswered(anchor.chat.id)
-            await self._clear(anchor, anchor.message_id)
-            await self._restore(anchor)
+            await self._clear(anchor, anchor.message_id, keep_unanswered=True)
             await resume_cues(self.services, anchor)
             self.services.owner_acted_at = utcnow()
             if self.home is not None:
@@ -272,55 +213,3 @@ class AccessManager:
         finally:
             if self.unlocking:
                 self._state = Locked()
-
-    async def _deliver(self, anchor: Message, row: DeferredDelivery) -> None:
-        services, payload = self.services, row.payload
-        async with services.sessions() as session:
-            before = (
-                await session.scalar(
-                    select(func.max(TelegramMessage.message_id)).where(
-                        TelegramMessage.chat_id == anchor.chat.id,
-                    )
-                )
-                or 0
-            )
-        sent = await send_prose(
-            anchor,
-            services,
-            payload["text"],
-            kind=MessageKind(payload["kind"]),
-            event_id=uuid4().hex,
-            replace=False,
-            reads_as=payload.get("reads_as"),
-            related_id=row.id,
-        )
-        async with services.sessions() as session:
-            source = await session.get(TelegramMessage, row.source_note_id)
-            first = await session.scalar(
-                select(TelegramMessage)
-                .where(
-                    TelegramMessage.chat_id == anchor.chat.id,
-                    TelegramMessage.message_id > before,
-                    TelegramMessage.message_id <= sent.message_id,
-                    TelegramMessage.text.is_not(None),
-                )
-                .order_by(TelegramMessage.message_id)
-            )
-            if first is not None:
-                if source is not None:
-                    message_id = first.message_id
-                    source.displayed_at = first.displayed_at or first.created_at
-                    await session.delete(first)
-                    await session.flush()
-                    source.message_id = message_id
-                else:
-                    first.created_at = datetime.fromisoformat(payload["at"])
-                    stored = await session.get(DeferredDelivery, row.id)
-                    stored.source_note_id = first.id
-            await session.commit()
-        if payload.get("passing_seconds") is not None:
-            await services.chat.let_pass(
-                anchor,
-                kind=payload["kind"],
-                seconds=payload["passing_seconds"],
-            )

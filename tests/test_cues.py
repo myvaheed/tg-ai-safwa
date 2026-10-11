@@ -77,7 +77,7 @@ def _hooks(recorder: Recorder) -> dict:
 def _runtime(sessions, turn: TurnManager, reviews: ProposalStore) -> CueRuntime:
     """The real gate, over the real turn and the real store; only the bot is absent."""
     services = SimpleNamespace(
-        sessions=sessions, turn=turn, root=SimpleNamespace(reviews=reviews)
+        sessions=sessions, turn=turn, root=SimpleNamespace(reviews=reviews), access=None
     )
     return CueRuntime(services, bot=None, owner_id=1)  # type: ignore[arg-type]
 
@@ -470,7 +470,7 @@ def _speaking(sessions, hooks) -> tuple[CueRuntime, CueChat, CueAdvisor]:
 
     services = SimpleNamespace(
         sessions=sessions, turn=TurnManager(), root=advisor, hooks=hooks, features=None,
-        chat=chat, history=SimpleNamespace(dialogue=no_dialogue),
+        chat=chat, history=SimpleNamespace(dialogue=no_dialogue), access=None,
     )
     return CueRuntime(services, bot=None, owner_id=1), chat, advisor  # type: ignore[arg-type]
 

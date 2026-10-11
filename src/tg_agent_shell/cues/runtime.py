@@ -28,6 +28,7 @@ from ..hooks.contracts import BeforeTurn, Shown
 from ..proposals.model import BatchDecision
 from ..proposals.telegram import render_ai_outcome
 from ..telegram import Services, expire_review, owner_anchor, render_citations, send_prose
+from ..telegram.chat import UNASKED_KINDS
 from ..telegram.dialogue import run_before_turn
 from ..turn import own_cancellation
 from .background import tick
@@ -68,7 +69,7 @@ async def speak_on_schedule(
     """
     if not still_current() or not await chat_is_free(services):
         return
-    access = getattr(services, "access", None)
+    access = services.access
     if access is not None and access.blocked:
         return
 
@@ -94,19 +95,25 @@ def tick_chat(services: Services, anchor: Message) -> TickChat:
     """The owner's chat, for the checks on a schedule; `anchor` stands for the owner in it."""
 
     async def newest() -> tuple[str, datetime | None] | None:
-        notes = await services.chat.notes.messages(anchor.chat.id, limit=1)
-        if not notes:
-            return None
+        # What was said unasked stays through a clear until answered, so it asks for none.
         async with services.sessions() as session:
-            if notes[0].message_id <= await cleared_through(session, anchor.chat.id):
-                return None
-        return (notes[0].kind, notes[0].at)
+            note = await session.scalar(
+                select(TelegramMessage)
+                .where(
+                    TelegramMessage.chat_id == anchor.chat.id,
+                    TelegramMessage.message_id > await cleared_through(session, anchor.chat.id),
+                    TelegramMessage.kind.not_in(UNASKED_KINDS),
+                )
+                .order_by(TelegramMessage.message_id.desc())
+                .limit(1)
+            )
+        return (note.kind, note.created_at) if note is not None else None
 
     async def speak(text: str, kind: str, still_current: Callable[[], bool]) -> None:
         await speak_on_schedule(services, anchor, text, kind, still_current)
 
     async def free() -> bool:
-        access = getattr(services, "access", None)
+        access = services.access
         if access is not None and access.blocked:
             return False
         return await chat_is_free(services)
@@ -145,7 +152,7 @@ class CueRuntime:
     async def can_speak(self, *, restoring: bool = False) -> bool:
         """Whether the Advisor is free enough to be handed an unsolicited request, with
         the lease taken for it when it is."""
-        access = getattr(self.services, "access", None)
+        access = self.services.access
         if access is not None and access.unlocking and not restoring:
             return False
         if not await chat_is_free(self.services):
@@ -156,7 +163,7 @@ class CueRuntime:
         return True
 
     def allow_hooks(self) -> bool:
-        access = getattr(self.services, "access", None)
+        access = self.services.access
         return access is None or not access.blocked
 
     def still_current(self) -> bool:
@@ -227,7 +234,7 @@ class CueRuntime:
             # CUE keeps the answer in dialogue while marking it as something the model
             # volunteered, not a reply to a message that is not there.
             kind = MessageKind.CUE if passing is None else MessageKind.PASSING_CUE
-            access = getattr(self.services, "access", None)
+            access = self.services.access
             if access is not None and access.blocked and not access.unlocking:
                 while outcome.proposal_id is not None:
                     self.services.root.reviews.end_proposal(outcome.proposal_id)
@@ -242,7 +249,7 @@ class CueRuntime:
                 await send_prose(
                     self._anchor(), self.services, body,
                     kind=kind if outcome.turn else MessageKind.EVENT,
-                    event_id=event_id, replace=False, reads_as=outcome.turn or None, links=False,
+                    event_id=event_id, replace=False, reads_as=outcome.turn or None,
                 )
             else:
                 await render_ai_outcome(

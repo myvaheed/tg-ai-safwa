@@ -150,6 +150,7 @@ async def test_proposal_ui_gives_up_the_turn_before_after_turn_work(sessions) ->
         features=None,
         search=None,
         usage=None,
+        access=None,
     )
     message = FakeMessage(20, text="Create a Tag VrWalk", bot_message=False)
 
@@ -432,6 +433,7 @@ async def test_typed_words_end_the_review_and_are_then_answered(sessions) -> Non
 
     bot = FakeBot()
     services = SimpleNamespace(
+        access=None,
         sessions=sessions,
         owner_id=42,
         turn=TurnManager(),

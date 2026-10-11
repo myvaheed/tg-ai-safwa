@@ -139,11 +139,11 @@ Feature: Home
   Scenario: HM-LOCK-015 — Automatic clearing protects access while Reminders remain visible
     Given Secret word is set in Profile
     When Home after elapses and the chat is free
-    Then every deletable message is removed, including unanswered hooks, and no Home is sent
-    And unanswered hooks are stored to be returned, while new hook requests wait without generating answers
-    And Schedule Remind and Reminder answers reach the locked chat without clickable links or item screens
+    Then the chat is cleared as by HM-QUIET-003: a hook said after the owner last wrote to the Advisor stays, and no Home is sent
+    And new hook requests wait without generating answers
+    And Schedule Remind and Reminder answers reach the locked chat without item screens
     When the correct word is entered
-    Then attempts and prompts are deleted, stored messages are restored with links and waiting hooks run
+    Then attempts and prompts are deleted, the hooks and Reminders said since the owner last wrote stay, and waiting hooks run
     And Home appears only after /start, with one ☰ Menu button
     And access remains open until the next automatic clear
     But /clear while access is open empties the chat and does not lock access

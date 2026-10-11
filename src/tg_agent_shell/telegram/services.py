@@ -125,38 +125,24 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
         )
         if user is None or user.id != services.owner_id or (chat and chat.type != "private"):
             return None
-        access = getattr(services, "access", None)
-        if access is not None and await access.intercept(event):
+        if services.access is not None and await services.access.intercept(event):
             return None
         services.owner_acted_at = utcnow()
         edited = isinstance(event, Message) and event.edit_date is not None
         if not edited and services.turn.background:
             # The owner outranks work nobody asked for, before any storage await too.
             services.turn.cancel()
-        event_key = ""
-        if services.usage is not None:
-            if isinstance(event, Message):
-                edited_at = event.edit_date
-                event_key = f"message:{event.chat.id}:{event.message_id}"
-                if edited_at is not None:
-                    event_key += f":edit:{edited_at.isoformat()}"
-                recording = event.voice or event.video_note
-                duration = (
-                    int(recording.duration) if recording and event.forward_origin is None
-                    and edited_at is None else 0
-                )
-                await services.usage.activity(
-                    event_key, at=edited_at or event.date, voice_seconds=duration,
-                )
-            elif isinstance(event, CallbackQuery):
-                event_key = f"callback:{event.id}"
-                await services.usage.activity(event_key, at=services.usage.clock.now())
+        usage = services.usage if isinstance(event, Message | CallbackQuery) else None
+        if usage is not None:
+            recording = (event.voice or event.video_note) if isinstance(event, Message) else None
+            own = recording is not None and event.forward_origin is None and not edited
+            await usage.acted(recording_seconds=int(recording.duration) if own else 0)
         if edited:
             return await handler(event, data)
 
         async def dispatch() -> Any:
-            if services.usage is not None and event_key:
-                async with services.usage.processing(event_key):
+            if usage is not None:
+                async with usage.waiting():
                     return await handler(event, data)
             return await handler(event, data)
 

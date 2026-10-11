@@ -258,15 +258,9 @@ async def send_prose(
     event_id: str | None = None,
     replace: bool | None = None,
     reads_as: Sequence[Mapping[str, Any]] | None = None,
-    related_id: int | None = None,
-    links: bool = True,
 ) -> Message:
-    related = {"related_id": related_id} if related_id is not None else {}
-    if not links:
-        related["links"] = False
     return await services.chat.send_parts(
-        message, text, kind=kind.value, event_id=event_id, replace=replace, reads_as=reads_as,
-        **related,
+        message, text, kind=kind.value, event_id=event_id, replace=replace, reads_as=reads_as
     )
 
 

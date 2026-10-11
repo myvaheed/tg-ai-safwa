@@ -692,7 +692,8 @@ async def test_a_clear_takes_out_everything_but_unasked_words_not_yet_answered(s
     assert await notes.note(chat_id, 1103) is not None
     async with sessions() as session:
         assert await session.scalar(select(UiSession)) is None
-    assert await source.recent(chat_id) == []
+    # The conversation starts with the Cue left in the chat.
+    assert [entry.text for entry in await source.recent(chat_id)] == ["Time to stretch."]
 
     # Another clear with no message to the Advisor since still leaves the Cue.
     await keep(sessions, chat_id, 1104, "<b>Today again</b>", MessageKind.DASHBOARD, now)
@@ -700,7 +701,9 @@ async def test_a_clear_takes_out_everything_but_unasked_words_not_yet_answered(s
     await access.clear(anchor, keep_unanswered=True)
     assert 1104 in anchor.bot.deleted[deleted:] and 1103 not in anchor.bot.deleted
     await keep(sessions, chat_id, 1105, "Hello again", MessageKind.DIALOGUE_USER, now)
-    assert [entry.text for entry in await source.recent(chat_id)] == ["Hello again"]
+    assert [entry.text for entry in await source.recent(chat_id)] == [
+        "Time to stretch.", "Hello again"
+    ]
     day = await source.day_transcript(
         chat_id, start=now - timedelta(hours=2), end=now + timedelta(hours=1), token_budget=10_000
     )
@@ -710,6 +713,7 @@ async def test_a_clear_takes_out_everything_but_unasked_words_not_yet_answered(s
     deleted = len(anchor.bot.deleted)
     await access.clear(anchor, keep_unanswered=True)
     assert {1103, 1105} <= set(anchor.bot.deleted[deleted:])
+    assert await source.recent(chat_id) == []
 
 
 async def test_a_clear_the_owner_asked_for_takes_out_unasked_words_too(sessions) -> None:

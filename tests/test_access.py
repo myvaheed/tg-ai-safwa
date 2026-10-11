@@ -1,4 +1,4 @@
-"""Access gates, exact words and replay use real storage and fake Telegram."""
+"""Access gates and exact words use real storage and fake Telegram."""
 
 from __future__ import annotations
 
@@ -24,7 +24,6 @@ from safwa.features.profile.use_cases import set_secret_word
 from tg_agent_shell.access import manager
 from tg_agent_shell.access.credentials import hash_secret_word, matches_secret_word
 from tg_agent_shell.access.manager import ENTER_SECRET_WORD, AccessManager
-from tg_agent_shell.access.model import DeferredDelivery
 from tg_agent_shell.cues.runtime import speak_on_schedule
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.kinds import MessageKind
@@ -76,40 +75,7 @@ def incoming(parent, text, message_id=2000):
 
 
 async def notification(services, anchor, text, *, event_id=None):
-    await services.chat.send_parts(
-        anchor, text, kind="cue", event_id=event_id, replace=False, links=False
-    )
-
-
-@pytest.mark.parametrize(
-    "literal",
-    [
-        "https://example.com/a?x=1&amp;y=2",
-        "tg://user?id=1",
-        "example.com",
-        "пример.рф",
-        "name@example.com",
-        "@example",
-    ],
-)
-async def test_locked_notification_disables_automatic_links_but_keeps_original_words(
-    sessions, literal
-):
-    """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
-    await set_word(sessions)
-    services = protected_services(sessions)
-    anchor = QueueTestMessage(answer_as_new=True)
-    await services.access.lock(anchor)
-    text = f'<b>Reminder</b>: <a href="https://t.me/bot?start=card-1">Action</a> · {literal}'
-    await notification(services, anchor, text)
-    shown = anchor.rendered[-1]
-    assert "<a " not in shown and shown.startswith("<pre>Reminder: Action")
-    assert anchor.markups[-1] is None and services.access.blocked
-    note = (await TelegramNotes(sessions).outgoing(700, kinds={"cue"}))[0]
-    assert note.text == text
-    await services.access.intercept(incoming(anchor, "x"))
-    assert anchor.rendered[-1] == text
-    assert not any("🏠" in shown for shown in anchor.rendered)
+    await services.chat.send_parts(anchor, text, kind="cue", event_id=event_id, replace=False)
 
 
 async def typed_into_profile(services, message, *words):
@@ -188,7 +154,7 @@ async def test_remove_button_disables_the_secret_and_off_is_an_exact_word(sessio
     assert "Secret word: off" in message.bot.edits[-1][1]
 
 
-async def test_lock_clears_hooks_then_unlock_restores_only_unanswered_hooks_without_home(sessions):
+async def test_lock_and_unlock_leave_unanswered_hooks_and_reminders_in_the_chat(sessions):
     """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
     await set_word(sessions, "Sesame")
     services = protected_services(sessions)
@@ -197,25 +163,25 @@ async def test_lock_clears_hooks_then_unlock_restores_only_unanswered_hooks_with
     await keep(sessions, 2, "My answer", MessageKind.DIALOGUE_USER)
     await keep(sessions, 3, "Unanswered hook")
     await services.access.lock(anchor)
-    assert anchor.bot.deleted == [1, 2, 3]
+    assert anchor.bot.deleted == [1, 2]
     assert anchor.bot.drawn == []
-    assert await services.history.dialogue(700) == []
+    assert [item.content for item in await services.history.dialogue(700)] == ["Unanswered hook"]
     await services.access.lock(anchor)
     wrong = incoming(anchor, "no", 100)
     await services.access.intercept(wrong)
     assert services.access.blocked
     assert wrong.rendered == [ENTER_SECRET_WORD]
     await notification(services, anchor, "New Reminder", event_id="a" * 32)
+    reminder = anchor.sent[-1].message_id
     correct = incoming(anchor, "Sesame", 2000)
     await services.access.intercept(correct)
     assert not services.access.blocked
-    assert correct.rendered[-2:] == ["Unanswered hook", "New Reminder"]
-    assert 100 in anchor.bot.deleted and 2000 in anchor.bot.deleted
-    assert wrong.sent[0].message_id in anchor.bot.deleted
+    assert correct.rendered[-2:] == [ENTER_SECRET_WORD, "New Reminder"]
+    assert {100, 2000, wrong.sent[0].message_id} <= set(anchor.bot.deleted)
+    assert 3 not in anchor.bot.deleted and reminder not in anchor.bot.deleted
     dialogue = await services.history.dialogue(700)
     assert [item.content for item in dialogue] == ["Unanswered hook", "New Reminder"]
     async with sessions() as session:
-        assert list(await session.scalars(select(DeferredDelivery))) == []
         assert (
             len(
                 list(
@@ -232,7 +198,7 @@ async def test_lock_clears_hooks_then_unlock_restores_only_unanswered_hooks_with
         end=utcnow() + timedelta(days=1),
         token_budget=10000,
     )
-    assert transcript.count("Unanswered hook") == 1
+    assert transcript.count("Unanswered hook") == 1 and transcript.count("New Reminder") == 1
     assert "My answer" in transcript and "Answered hook" in transcript
 
 
@@ -345,96 +311,49 @@ async def test_a_clear_telegram_refuses_keeps_access_locked_and_is_tried_again(
     assert services.access.blocked and anchor.bot.deleted == [1] and refusals == 0
 
 
-async def test_restart_keeps_notification_words_and_requires_word_again(sessions):
+async def test_restart_requires_the_word_again_and_leaves_reminder_words(sessions):
     """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
     await set_word(sessions)
     services = protected_services(sessions)
     anchor = QueueTestMessage(answer_as_new=True)
     await services.access.lock(anchor)
     await notification(services, anchor, "Reminder arrived", event_id="b" * 32)
+    reminder = anchor.sent[-1].message_id
     restarted = protected_services(sessions)
     await restarted.access.initialize(anchor)
     assert restarted.access.blocked
     await restarted.access.intercept(incoming(anchor, "x"))
     assert not restarted.access.blocked
-    assert anchor.rendered.count("Reminder arrived") == 2
+    assert anchor.rendered.count("Reminder arrived") == 1 and reminder not in anchor.bot.deleted
     again = protected_services(sessions)
     await again.access.initialize(anchor)
     assert again.access.blocked
 
 
-async def test_failed_delivery_keeps_access_closed_and_retry_keeps_one_logical_turn(
-    sessions, monkeypatch
-):
+async def test_a_failed_unlock_keeps_access_closed_until_the_next_entry(sessions, monkeypatch):
     """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
     await set_word(sessions)
     services = protected_services(sessions)
     anchor = QueueTestMessage(answer_as_new=True)
-    await keep(sessions, 1, "First hook")
-    await keep(sessions, 2, "Second hook")
     await services.access.lock(anchor)
-    original = services.access._deliver
+    resume = manager.resume_cues
+    failures = 1
 
-    async def failing(message, row):
-        if row.payload["text"] == "Second hook":
+    async def flaky(services, anchor):
+        nonlocal failures
+        if failures:
+            failures -= 1
             raise TelegramBadRequest(method=None, message="Temporary failure")
-        await original(message, row)
+        await resume(services, anchor)
 
-    monkeypatch.setattr(services.access, "_deliver", failing)
+    monkeypatch.setattr(manager, "resume_cues", flaky)
     await services.access.intercept(incoming(anchor, "x"))
     assert services.access.blocked
-    async with sessions() as session:
-        assert len(list(await session.scalars(select(DeferredDelivery)))) == 2
-    monkeypatch.setattr(services.access, "_deliver", original)
     await services.access.intercept(incoming(anchor, "x", 4000))
-    assert not services.access.blocked
-    async with sessions() as session:
-        texts = list(
-            await session.scalars(select(TelegramMessage.text).where(TelegramMessage.kind == "cue"))
-        )
-    assert texts.count("First hook") == texts.count("Second hook") == 1
+    assert not services.access.blocked and failures == 0
 
 
-@pytest.mark.parametrize("restart", [False, True])
-@pytest.mark.parametrize("kind", ["cue", "passing_cue"])
-async def test_partial_long_delivery_recovers_without_a_second_logical_copy(
-    sessions, monkeypatch, restart, kind
-):
-    """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
-    await set_word(sessions)
-    services = protected_services(sessions)
-    anchor = QueueTestMessage(answer_as_new=True)
-    body = "A long hook line.\n" * 400
-    await keep(sessions, 1, body, MessageKind(kind))
-    await services.access.lock(anchor)
-    first = incoming(anchor, "x")
-    answer = first.answer
-    parts = 0
-
-    async def partial(text, **options):
-        nonlocal parts
-        parts += 1
-        if parts == 2:
-            raise TelegramBadRequest(method=None, message="Second part did not reach Telegram")
-        return await answer(text, **options)
-
-    monkeypatch.setattr(first, "answer", partial)
-    await services.access.intercept(first)
-    assert services.access.blocked and parts == 2
-    if restart:
-        services = protected_services(sessions)
-        await services.access.initialize(anchor)
-    await services.access.intercept(incoming(anchor, "x", 6000))
-    assert not services.access.blocked
-    async with sessions() as session:
-        copies = list(
-            await session.scalars(select(TelegramMessage).where(TelegramMessage.text == body))
-        )
-        assert len(copies) == 1
-        assert list(await session.scalars(select(DeferredDelivery))) == []
-
-
-async def test_unlock_waits_for_running_reminder_and_restores_its_words(sessions):
+async def test_unlock_waits_for_a_running_reminder_and_leaves_its_words(sessions):
     """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
     await set_word(sessions)
     services = protected_services(sessions)
@@ -451,8 +370,8 @@ async def test_unlock_waits_for_running_reminder_and_restores_its_words(sessions
     await notification(services, anchor, "Finished during entry")
     services.turn.end_background(revision)
     await asyncio.wait_for(unlocking, 5)
-    assert anchor.rendered[0] == "Finished during entry"
-    assert anchor.rendered[-1] == "Finished during entry"
+    assert anchor.rendered == ["Finished during entry"]
+    assert anchor.sent[0].message_id not in anchor.bot.deleted
 
 
 @pytest.mark.parametrize("when", ["before", "after", "after_error"])
@@ -519,101 +438,6 @@ async def test_unlock_deletes_the_word_and_attempts_even_when_the_chat_was_empty
     if wrong_first:
         assert 2000 in anchor.bot.deleted
     assert await services.history.dialogue(700) == []
-
-
-async def test_restored_passing_hook_starts_its_lifetime_when_shown(sessions):
-    """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
-    await set_word(sessions)
-    services = protected_services(sessions)
-    anchor = QueueTestMessage(answer_as_new=True)
-    timers = []
-
-    def spawn(work, name):
-        task = asyncio.create_task(work, name=name)
-        timers.append(task)
-        return task
-
-    services.chat = replace(services.chat, spawn=spawn)
-    try:
-        await keep(sessions, 1, "Temporary hook", MessageKind.PASSING_CUE)
-        await services.chat.let_pass(anchor, kind="passing_cue", seconds=300)
-        await services.access.lock(anchor)
-        async with sessions() as session:
-            pending = await session.scalar(select(DeferredDelivery))
-            assert pending.payload["passing_seconds"] == 300
-        await services.access.intercept(incoming(anchor, "x"))
-        notes = await TelegramNotes(sessions).outgoing(700, kinds={"passing_cue"})
-        assert len(notes) == 1 and notes[0].passing_seconds == 300
-        assert notes[0].message_id > 2000 and len(timers) == 2
-    finally:
-        for task in timers:
-            task.cancel()
-        await asyncio.gather(*timers, return_exceptions=True)
-
-
-async def test_day_read_keeps_today_when_an_older_hook_is_replayed_below_it(sessions):
-    """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
-    await set_word(sessions)
-    services = protected_services(sessions)
-    anchor = QueueTestMessage(answer_as_new=True)
-    now = utcnow()
-    async with sessions() as session:
-        await register_message(
-            session,
-            700,
-            1,
-            "out",
-            MessageKind.CUE,
-            text="Yesterday hook",
-            at=now - timedelta(days=1),
-        )
-        await register_message(
-            session, 700, 2, "out", MessageKind.DIALOGUE_ASSISTANT, text="Today answer", at=now
-        )
-        await session.commit()
-    await services.access.lock(anchor)
-    await services.access.intercept(incoming(anchor, "x"))
-    today = await services.history.day_transcript(
-        700, start=now - timedelta(hours=1), end=now + timedelta(hours=1), token_budget=10000
-    )
-    assert "Today answer" in today and "Yesterday hook" not in today
-    yesterday = await services.history.day_transcript(
-        700, start=now - timedelta(days=2), end=now - timedelta(hours=1), token_budget=10000
-    )
-    assert yesterday.count("Yesterday hook") == 1
-
-
-async def test_replayed_old_hook_uses_its_new_display_time_for_cleanup(sessions):
-    """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
-    await set_word(sessions)
-    services = protected_services(sessions)
-    anchor = QueueTestMessage(answer_as_new=True)
-    now = utcnow()
-    original = now - timedelta(days=3)
-    async with sessions() as session:
-        await register_message(
-            session, 700, 1, "out", MessageKind.CUE, text="Old hook", at=original
-        )
-        await session.commit()
-    await services.access.lock(anchor)
-    await services.access.intercept(incoming(anchor, "x"))
-    async with sessions() as session:
-        hook = await session.scalar(
-            select(TelegramMessage).where(TelegramMessage.text == "Old hook")
-        )
-        assert hook.created_at == original and hook.displayed_at >= now
-        shown_id = hook.message_id
-        # The word is outside 48 hours; the replay is still deletable.
-        hook.displayed_at = now - timedelta(hours=47, minutes=55)
-        word = await session.scalar(
-            select(TelegramMessage).where(TelegramMessage.kind == MessageKind.UI_INPUT.value)
-        )
-        word.created_at = now - timedelta(hours=48, minutes=5)
-        await session.commit()
-    anchor.bot.deleted.clear()
-    restarted = protected_services(sessions)
-    await restarted.access.initialize(anchor)
-    assert shown_id in anchor.bot.deleted
 
 
 async def test_a_command_sent_to_the_secret_word_editor_is_a_command(sessions):

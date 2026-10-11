@@ -168,11 +168,7 @@ class ChatWindow:
         before_edge: list[HistoryEntry] = []
         boundary: HistoryEntry | None = None
         spent = 0
-        notes = await self.notes.messages(chat_id, limit=SCAN_LIMIT)
-        if not stop_at_edge:
-            # Replayed messages may have a new transport id and their original timestamp.
-            notes = sorted(notes, key=lambda note: _aware(note.at) if note.at else datetime.min.replace(tzinfo=UTC), reverse=True)
-        for note in notes:
+        for note in await self.notes.messages(chat_id, limit=SCAN_LIMIT):
             if stop_at_edge and note.message_id <= after_message_id:
                 break
             created_at = _aware(note.at) if note.at else datetime.now(UTC)

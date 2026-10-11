@@ -182,9 +182,8 @@ Feature: The conversation in Telegram
     Given the owner requested an answer
     Then usage includes waiting for transcription, tools, subagents and delivery of the answer
     And a delivered answer starts another two-minute window for reading
-    But work after the answer and autonomous Cues or hooks start no usage interval
-    And cancellation or an unhandled failure ends the wait without a reading window
-    And cancellation while opening the wait leaves no active interval behind
+    But work after the answer and autonomous Cues or hooks add no usage
+    And cancellation or an unhandled failure ends the wait, and its two-minute window follows
 
   Scenario: TG-PAUSE-027 — A review pauses the wait until the owner decides
     Given the owner's request stopped on Save or Discard
@@ -193,12 +192,11 @@ Feature: The conversation in Telegram
     When the owner decides and the request continues
     Then its new work is counted, followed by the reading window of its answer
 
-  Scenario: TG-RESTART-028 — Restart retains confirmed usage without counting downtime
-    Given an owner's request is running
-    Then its elapsed work is checkpointed every 30 seconds
-    And a temporary checkpoint failure does not stop later checkpoints
+  Scenario: TG-RESTART-028 — Restart keeps accumulated usage without counting downtime
+    Given the owner has accumulated usage and an owner's request is running
     When the application stops before that request ends and starts again
-    Then the interrupted wait ends at its last checkpoint
+    Then the accumulated usage remains
+    And the interrupted wait adds nothing beyond the two-minute window of the owner's action
     And time until restart is not added
 
   Scenario: TG-KEEP-029 — Usage survives clearing the conversation
@@ -206,34 +204,32 @@ Feature: The conversation in Telegram
     When the chat is cleared or its kept messages are forgotten
     Then the accumulated usage remains
 
-  Scenario: TG-EVENT-030 — Usage belongs to owner actions and repeated delivery adds nothing
-    Given the application receives an owner's event again
-    Then the event's activity and work are not added a second time
+  Scenario: TG-EVENT-030 — Usage belongs to owner actions, and an edit repeats no recording
     When the owner edits a message
     Then the edit is a new action, without repeating any recording duration
     But events from another user or a group add no usage
 
-  Scenario: TG-LOCK-031 — Protected access gates every update and restores durable deliveries
+  Scenario: TG-LOCK-031 — Protected access gates every update
     Given the application enables secret-word access and the chat is locked
     Then messages, commands, callbacks, deep links, edits and media cannot reach their handlers
     And an attempted input asks for Secret word without changing the dialogue or cancelling a hook
     And only an exact new text message containing the word unlocks access
-    And a restart requires the word again and retains hidden messages and pending hook requests
+    And a restart requires the word again and retains pending hook requests
     And a clear Telegram refuses leaves access locked and is tried again until the messages are gone
-    And Reminder words are delivered without clickable links, separately from pending hook requests
+    And Reminder words are delivered, separately from pending hook requests
     And hooks are not prepared or generated while access is locked
-    And a hidden Reminder proposal is resolved as Discard and its continuation reaches the chat without links
+    And a Reminder proposal made while locked is resolved as Discard, and its continuation reaches the chat
     When the owner unlocks access
-    Then running background work finishes first, attempts are cleared, messages are restored and pending hooks run
+    Then running background work finishes first, attempts and prompts are cleared, what was said unasked since the owner last wrote stays, and pending hooks run
     And Home is shown only if the application supplies an unlock renderer
-    And commands and item links received after verification wait for restoration and then reach their handlers
+    And commands and item links received after verification wait until access opens and then reach their handlers
     And requests received before verification remain attempted inputs
     And pending hooks may open their normal screens and reviews after verification
-    And restored hooks are readable by the Advisor, with one logical copy in a day read
-    And failed delivery leaves access closed and the queue available for retry
+    And the Advisor reads the hooks and Reminders left in the chat
+    And a failed unlock leaves access closed and pending hooks waiting
     But applications without protection keep their ordinary behavior
 
-  Scenario: TG-CLEAR-032 — A clear takes out everything but what was said unasked and not yet answered, and the conversation starts after it
+  Scenario: TG-CLEAR-032 — A clear takes out everything but what was said unasked and not yet answered, and the conversation starts with what it left
     Given the application empties the chat, after a quiet time or when the owner asks
     Then every message is taken out, from both sides: screens, receipts, the owner's words and
       the answers to them
@@ -247,5 +243,6 @@ Feature: The conversation in Telegram
     And what was said stays kept, and a day read back still reads all of it
     And a screen, a progress line or anything else that was not said is forgotten with its message
     When Safwa reads the conversation back
-    Then it begins after the newest clear: nothing said before it is read
+    Then it begins with the first message the newest clear left in the chat, or after the clear when it left none
+    And nothing said before that is read
     And an application that never clears has nothing taken out and nothing started over
