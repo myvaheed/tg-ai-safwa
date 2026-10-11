@@ -19,17 +19,15 @@ from sqlalchemy import func, select
 
 from telegram_llm import DialogueMessage, markdown_to_telegram_html
 
-from ..access.model import ChatClearBoundary
 from ..ai.outcome import AIOutcome
 from ..ai.runs import AgentRun
 from ..foundation.clock import utcnow
 from ..foundation.kinds import MessageKind
-from ..history import TelegramMessage
+from ..history import TelegramMessage, cleared_through
 from ..hooks.contracts import BeforeTurn, Shown
 from ..proposals.model import BatchDecision
 from ..proposals.telegram import render_ai_outcome
 from ..telegram import Services, expire_review, owner_anchor, render_citations, send_prose
-from ..telegram.chat import clear_draw_home
 from ..telegram.dialogue import run_before_turn
 from ..turn import own_cancellation
 from .background import tick
@@ -65,7 +63,8 @@ async def speak_on_schedule(
     """Put the message of a check on a schedule in the chat, while the chat is free.
 
     The lease is taken for the sending alone, so the owner acting stops it, and the work
-    before it runs on. The Home hook empties the chat without publishing a dashboard.
+    before it runs on. Kind `home` sends nothing: it asks the access gate to lock the chat,
+    or to empty it when no secret word is set; with no gate nothing empties it.
     """
     if not still_current() or not await chat_is_free(services):
         return
@@ -81,17 +80,12 @@ async def speak_on_schedule(
                 anchor, services, html.escape(text), kind=MessageKind(kind), replace=False
             )
             return
-        if access is not None and await access.enabled():
-            await access.lock(anchor)
+        if access is None:
             return
-        if current() and still_current():
-            if access is not None:
-                await access.clear(anchor, keep_unanswered=True)
-            else:
-                async with services.sessions() as session:
-                    body = await render_citations(session, services, markdown_to_telegram_html(text))
-                if current() and still_current():
-                    await clear_draw_home(anchor, services, body)
+        if await access.enabled():
+            await access.lock(anchor)
+        elif current() and still_current():
+            await access.clear(anchor, keep_unanswered=True)
 
     await services.turn.run_background(say)
 
@@ -100,14 +94,13 @@ def tick_chat(services: Services, anchor: Message) -> TickChat:
     """The owner's chat, for the checks on a schedule; `anchor` stands for the owner in it."""
 
     async def newest() -> tuple[str, datetime | None] | None:
-        access = getattr(services, "access", None)
         notes = await services.chat.notes.messages(anchor.chat.id, limit=1)
-        if access is not None and notes:
-            async with services.sessions() as session:
-                boundary = await session.get(ChatClearBoundary, anchor.chat.id)
-            if boundary is not None and notes[0].message_id <= boundary.through_message_id:
+        if not notes:
+            return None
+        async with services.sessions() as session:
+            if notes[0].message_id <= await cleared_through(session, anchor.chat.id):
                 return None
-        return (notes[0].kind, notes[0].at) if notes else None
+        return (notes[0].kind, notes[0].at)
 
     async def speak(text: str, kind: str, still_current: Callable[[], bool]) -> None:
         await speak_on_schedule(services, anchor, text, kind, still_current)

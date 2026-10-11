@@ -438,22 +438,13 @@ class ChatHost:
             if "message is not modified" not in str(error).casefold():
                 logger.warning("Could not change the buttons of %s: %s", message.message_id, error)
 
-    async def remove_screen(
-        self, message: Message, message_id: int, *, retain_as: str | None = None
-    ) -> None:
-        """Take one bot message away, or at least its buttons when Telegram refuses.
-
-        A retained note has no words and a different kind: the screen is gone, while its
-        boundary in the conversation can stay.
-        """
+    async def remove_screen(self, message: Message, message_id: int) -> None:
+        """Take one bot message away, or at least its buttons when Telegram refuses."""
         try:
             await message.bot.delete_message(message.chat.id, message_id)
         except TelegramAPIError:
             await clear_markup(message, message_id)
-        if retain_as is None:
-            await self.notes.forget(message.chat.id, message_id)
-        elif (note := await self.notes.note(message.chat.id, message_id)) is not None:
-            await self.notes.write(replace(note, kind=retain_as, text="", reads_as=None))
+        await self.notes.forget(message.chat.id, message_id)
 
     async def leave_one_screen(
         self,
@@ -461,7 +452,6 @@ class ChatHost:
         *,
         kinds: Collection[str],
         freeze: Freeze,
-        retain: Mapping[str, str] | None = None,
     ) -> None:
         """Leave exactly one screen live: the one this event belongs to.
 
@@ -473,9 +463,7 @@ class ChatHost:
                 continue
             frozen = await freeze(screen)
             if frozen is None:
-                await self.remove_screen(
-                    message, screen.message_id, retain_as=(retain or {}).get(screen.kind)
-                )
+                await self.remove_screen(message, screen.message_id)
                 continue
             await self.freeze_screen(message, screen, *frozen)
 

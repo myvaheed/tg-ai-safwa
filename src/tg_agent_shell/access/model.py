@@ -1,4 +1,4 @@
-"""The access state, clear boundary, and snapshots of hidden unanswered messages."""
+"""The access state, and snapshots of hidden unanswered messages."""
 
 from __future__ import annotations
 
@@ -27,12 +27,6 @@ class Unlocking:
 
 
 type AccessState = Open | Locked | Unlocking
-
-
-class ChatClearBoundary(Base):
-    __tablename__ = "chat_clear_boundaries"
-    chat_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    through_message_id: Mapped[int] = mapped_column(Integer)
 
 
 class DeferredDelivery(Base):

@@ -1,4 +1,4 @@
-"""One owner of chat access, clear boundaries and delivery during a lock."""
+"""One owner of chat access, clearing and delivery during a lock."""
 
 from __future__ import annotations
 
@@ -16,12 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..cues.runtime import resume_cues
 from ..foundation.clock import utcnow
 from ..foundation.kinds import MessageKind
-from ..history import CONVERSATION_KINDS, TelegramMessage, register_message
+from ..history import CONVERSATION_KINDS, TelegramMessage, mark_cleared, register_message
 from ..telegram.chat import UNASKED_KINDS, send_prose
 from ..telegram.model import CallbackToken, UiSession
 from ..telegram.services import Services
 from .credentials import matches_secret_word
-from .model import AccessState, ChatClearBoundary, DeferredDelivery, Locked, Open, Unlocking
+from .model import AccessState, DeferredDelivery, Locked, Open, Unlocking
 
 logger = logging.getLogger(__name__)
 ENTER_SECRET_WORD = "Сначала введите Secret word."
@@ -66,7 +66,6 @@ class AccessManager:
             return await self.verifier(session) is not None
 
     async def initialize(self, anchor: Message) -> None:
-        self.services.history.access_boundaries = True
         if await self.enabled():
             await self.lock(anchor)
 
@@ -190,11 +189,7 @@ class AccessManager:
                 )
                 or 0,
             )
-            boundary = await session.get(ChatClearBoundary, anchor.chat.id)
-            if boundary is None:
-                session.add(ChatClearBoundary(chat_id=anchor.chat.id, through_message_id=last))
-            else:
-                boundary.through_message_id = last
+            await mark_cleared(session, anchor.chat.id, last)
             await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
             await session.execute(
                 delete(CallbackToken).where(CallbackToken.owner_id == services.owner_id)

@@ -25,17 +25,16 @@ from aiogram.types import (
     Message,
     User,
 )
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from telegram_llm import Note
 
 from ..foundation.kinds import MessageKind
-from ..history import CONVERSATION_KINDS, TelegramMessage
 from ..proposals.model import BatchDecision
 from ..proposals.render import proposal_outcome_text
 from ..proposals.store import PROPOSAL_REVIEW_MINUTES
-from .layout import Page, home_markup
+from .layout import Page
 from .model import CallbackToken, UiSession
 from .place import Place
 from .services import Services
@@ -52,7 +51,6 @@ UNASKED_KINDS = frozenset({MessageKind.CUE.value, MessageKind.PASSING_CUE.value}
 # What the owner acts on: one of these is ever live (SC-LIVE-001).
 SCREEN_KINDS = frozenset(
     {
-        MessageKind.HOME.value,
         MessageKind.DASHBOARD.value,
         MessageKind.EDITOR.value,
         MessageKind.APPROVAL.value,
@@ -162,7 +160,6 @@ async def dismiss_prior_ui(message: Message, services: Services) -> None:
         message,
         kinds=SCREEN_KINDS,
         freeze=freeze,
-        retain={MessageKind.HOME.value: MessageKind.CHAT_RESET.value},
     )
     async with services.sessions() as session:
         await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
@@ -411,45 +408,6 @@ def screen_anchor(bot: Bot, chat_id: int, message_id: int) -> Message:
         chat=Chat(id=chat_id, type="private"),
         from_user=User(id=bot.id, is_bot=True, first_name="Bot"),
     ).as_(bot)
-
-
-async def clear_draw_home(message: Message, services: Services, text: str) -> Message:
-    """Draw Home silently, and take every message before it out of the chat but what Safwa
-    said unasked since the owner last wrote to the Advisor (TG-HOME-023).
-
-    A bot cannot tell whether a message was read, so a message the owner has not answered
-    is one they may not have seen. What was said stays kept, and the conversation starts
-    over after this message, which is returned.
-    """
-    chat_id = message.chat.id
-    async with services.sessions() as session:
-        last = await session.scalar(
-            select(func.max(TelegramMessage.message_id)).where(
-                TelegramMessage.chat_id == chat_id,
-                TelegramMessage.kind == MessageKind.DIALOGUE_USER.value,
-            )
-        ) or 0
-    unread = {
-        note.message_id
-        for note in await services.chat.notes.outgoing(chat_id, kinds=UNASKED_KINDS)
-        if note.message_id > last
-    }
-    home = await services.chat.send(
-        message,
-        text,
-        kind=MessageKind.HOME.value,
-        markup=home_markup(),
-        replace=False,
-        silent=True,
-    )
-    await services.chat.clear(
-        message.bot, chat_id, home.message_id - 1, keep=CONVERSATION_KINDS, spare=unread
-    )
-    # Every screen went with the rest, so no editor is left to type into.
-    async with services.sessions() as session:
-        await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
-        await session.commit()
-    return home
 
 
 async def discard_stale_messages(bot: Bot, services: Services, chat_id: int) -> None:

@@ -43,7 +43,7 @@ from safwa.foundation.workspace import require_workspace
 from telegram_llm import Note, markdown_to_telegram_html
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
-from tg_agent_shell.history import TelegramNotes
+from tg_agent_shell.history import TelegramNotes, mark_cleared
 from tg_agent_shell.telegram import OwnerAndWritingMiddleware, render_citations
 
 
@@ -491,7 +491,10 @@ async def test_after_a_clear_the_conversation_starts_over(sessions) -> None:
         sessions, chat_id, 12, "An answer before it", MessageKind.DIALOGUE_ASSISTANT,
         at + timedelta(minutes=2),
     )
-    await keep(sessions, chat_id, 13, "🏠 The dashboard", MessageKind.HOME, at + timedelta(hours=1))
+    await keep(sessions, chat_id, 13, "🏠 The dashboard", MessageKind.DASHBOARD, at + timedelta(hours=1))
+    async with sessions() as session:
+        await mark_cleared(session, chat_id, 13)
+        await session.commit()
     await keep(
         sessions, chat_id, 14, "After the clear", MessageKind.DIALOGUE_USER,
         at + timedelta(hours=2),

@@ -6,9 +6,9 @@ requesting the Values' words or drawing Home. The automatic cleanup spares the h
 after the owner last wrote to the Advisor; `/clear` removes them. The conversation Safwa reads
 starts after the persistent clear boundary. The rules are HM-QUIET-003 to HM-CLEAR-012
 in [home.feature](../tests/brd/home.feature) and PS-HOME-018 in
-[profile.feature](../tests/brd/profile.feature); what a Home message does to the chat is the
-shell's, TG-HOME-023 in [telegram_history.feature](../tests/brd/tg_agent_shell/telegram_history.feature),
-and the check that draws it is a hook on a schedule, AG-HOOK-049 and AG-HOOK-050 in
+[profile.feature](../tests/brd/profile.feature); what a clear does to the chat is the
+shell's, TG-CLEAR-032 in [telegram_history.feature](../tests/brd/tg_agent_shell/telegram_history.feature),
+and the check that asks for it is a hook on a schedule, AG-HOOK-049 and AG-HOOK-050 in
 [agents.feature](../tests/brd/tg_agent_shell/agents.feature).
 
 With Secret word set, automatic clearing instead locks access and hides its unanswered hooks.
@@ -79,8 +79,8 @@ kept; otherwise the words are asked for while it is shown and put in when they c
 [The words under a Value](#the-words-under-a-value)).
 
 Home follows the one-screen rule: navigation redraws it in place, while a new command or
-message to the Advisor dismisses it. Its clear boundary is independent of the visible UI,
-so replacing Home does not restore the earlier conversation (HM-STAYS-005, SC-LIVE-001).
+message to the Advisor dismisses it. The clear boundary is no message in the chat, so
+replacing Home does not restore the earlier conversation (HM-STAYS-005, SC-LIVE-001).
 
 ## When the chat is cleared
 
@@ -120,15 +120,12 @@ The notes of `CONVERSATION_KINDS` — what was said — and held `UNASKED_KINDS`
 other operational notes in the range go with their messages. The Diary's `read_conversation`
 reads a whole day from them (DI-READ-016), past the clear.
 
-Legacy `MessageKind.HOME` and `MessageKind.CHAT_RESET` notes are in the history vocabulary's `resets`: the window stops at the newest
-clear boundary, so the Advisor, a routed subagent and the Summary writer read only what came after it,
-an older Summary included. A period read — `day_transcript`, which `read_conversation` is — goes past it. The dashboard is
-a screen, and its words are never conversation. Removing Home retains its boundary without
-its words, so it is no longer a screen and the model never reads it. A later clear replaces
-that retained boundary with the persistent message-id boundary.
-
-Safwa uses the shell's persistent message-id boundary for every clear, without sending a
-Home reset. A day read goes past this boundary as it does past an older Home reset.
+Every clear writes its boundary — the message id the chat was cleared through, one row of
+`chat_clear_boundaries` per chat, through `mark_cleared` in
+[history.py](../src/tg_agent_shell/history.py). The window stops there, so the Advisor, a routed
+subagent and the Summary writer read only what came after it, an older Summary included. A
+period read — `day_transcript`, which `read_conversation` is — goes past it. The dashboard is a
+screen, and its words are never conversation.
 
 ## The words under a Value
 

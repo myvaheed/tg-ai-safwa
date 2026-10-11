@@ -21,10 +21,8 @@ class MessageKind(StrEnum):
     SUMMARY = "summary"
     UI_INPUT = "ui_input"
     DASHBOARD = "dashboard"
-    # The screen drawn when a quiet chat is cleared; history starts over after it.
+    # Never a message: what a check on a schedule publishes to have the quiet chat emptied.
     HOME = "home"
-    # The clear boundary kept after its Home screen is taken out of the chat.
-    CHAT_RESET = "chat_reset"
     EDITOR = "editor"
     APPROVAL = "approval"
     RECEIPT = "receipt"

@@ -704,7 +704,9 @@ async def test_ag_hook_061_work_on_a_commit_keeps_only_what_it_found_as_the_requ
             await session.execute(text("SELECT 1"))
             record_change(session, KIND, thing)
             await session.commit()
-    await sink.drain()
+        # Each commit's work runs as a task of its own; drained one by one, the rows keep
+        # the commits' order.
+        await sink.drain()
     # Nothing found and a failure leave no row; the failure is logged by the hook's name.
     assert await pending(sessions) == [("test.found", None, [3]), ("test.found", None, [5])]
     assert "The work of the hook test.found failed" in caplog.text

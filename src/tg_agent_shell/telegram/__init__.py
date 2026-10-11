@@ -12,7 +12,6 @@ from __future__ import annotations
 from .callbacks import callback_token_handler
 from .chat import (
     TURN_NOTICE,
-    clear_draw_home,
     delete_screen,
     delete_text_input,
     discard_stale_messages,
@@ -106,7 +105,6 @@ __all__ = [
     "delete_text_input",
     "discard_stale_messages",
     "discard_toast",
-    "clear_draw_home",
     "dismiss_prior_ui",
     "dismiss_screens_before_a_command",
     "edit_registered_message",

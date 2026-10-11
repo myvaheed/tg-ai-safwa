@@ -12,11 +12,11 @@ from ui_harness import FakeMessage, history_source
 from safwa.bootstrap.modules import SCREENS
 from safwa.features.summary.window import SUMMARY_HEADER
 from telegram_llm import ChatHost, HistoryEntry, Note, telegram_html_to_text
+from tg_agent_shell.access.manager import AccessManager
 from tg_agent_shell.ai.conversation import CLEARED_READ, conversation_block, kept_turn
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.history import TelegramNotes
 from tg_agent_shell.telegram import SHELL_COMMANDS
-from tg_agent_shell.telegram.chat import clear_draw_home
 from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.model import UiSession
 from tg_agent_shell.telegram.routing import build_router
@@ -648,10 +648,19 @@ def test_conversation_block_is_empty_when_the_conversation_is() -> None:
     assert conversation_block([]) == ""
 
 
-async def test_a_home_clears_everything_before_it_but_unasked_words_not_yet_answered(
-    sessions,
-) -> None:
-    """TG-HOME-023 — tests/brd/tg_agent_shell/telegram_history.feature"""
+async def no_secret_word(session) -> None:
+    return None
+
+
+def chat_access(sessions) -> AccessManager:
+    services = SimpleNamespace(
+        sessions=sessions, owner_id=42, chat=ChatHost(TelegramNotes(sessions), spawn=spawn_timer)
+    )
+    return AccessManager(services, no_secret_word)
+
+
+async def test_a_clear_takes_out_everything_but_unasked_words_not_yet_answered(sessions) -> None:
+    """TG-CLEAR-032 — tests/brd/tg_agent_shell/telegram_history.feature"""
     chat_id, now = 700, datetime.now(UTC)
     await keep(sessions, chat_id, 1000, "Too old", MessageKind.DIALOGUE_USER, now - timedelta(days=3))
     await keep(sessions, chat_id, 1099, "<b>Yesterday</b>", MessageKind.DASHBOARD, now - timedelta(hours=2))
@@ -659,9 +668,7 @@ async def test_a_home_clears_everything_before_it_but_unasked_words_not_yet_answ
     await keep(sessions, chat_id, 1101, "Pay the rent.", MessageKind.DIALOGUE_ASSISTANT, now - timedelta(minutes=59))
     await keep(sessions, chat_id, 1102, "<b>Today</b>", MessageKind.DASHBOARD, now - timedelta(minutes=58))
     await keep(sessions, chat_id, 1103, "Time to stretch.", MessageKind.CUE, now - timedelta(minutes=10))
-    services = SimpleNamespace(
-        sessions=sessions, owner_id=42, chat=ChatHost(TelegramNotes(sessions), spawn=spawn_timer)
-    )
+    access = chat_access(sessions)
     anchor = QueueTestMessage(message_id=150, is_bot=False, answer_as_new=True)
     source = history_source(sessions)
     notes = TelegramNotes(sessions)
@@ -669,21 +676,17 @@ async def test_a_home_clears_everything_before_it_but_unasked_words_not_yet_answ
         session.add(UiSession(owner_id=42, kind="text_input", state={}))
         await session.commit()
 
-    # No Home message yet: nothing is taken out, and the conversation runs back to the start.
+    # Never cleared: nothing is taken out, and the conversation runs back to the start.
     assert [entry.text for entry in await source.recent(chat_id)] == [
         "Too old", "What is next?", "Pay the rent.", "Time to stretch."
     ]
 
-    await clear_draw_home(anchor, services, "<b>🏠 Home</b>")
+    await access.clear(anchor, keep_unanswered=True)
 
-    [home] = anchor.sent
-    assert anchor.bot.silent == [home.text]
-    assert [button.text for row in anchor.markups[-1].inline_keyboard for button in row] == [
-        "☰ Menu"
-    ]
-    # Everything before Home goes but the Cue after the owner's last message; the message
-    # too old for Telegram to delete stays.
-    assert anchor.bot.deleted == [id_ for id_ in range(1099, home.message_id) if id_ != 1103]
+    assert anchor.sent == []
+    # Everything goes but the Cue after the owner's last message; the message too old for
+    # Telegram to delete stays.
+    assert anchor.bot.deleted == [1099, 1100, 1101, 1102]
     assert None not in [await notes.note(chat_id, 1100), await notes.note(chat_id, 1101)]
     assert await notes.note(chat_id, 1099) is None and await notes.note(chat_id, 1102) is None
     assert await notes.note(chat_id, 1103) is not None
@@ -691,44 +694,41 @@ async def test_a_home_clears_everything_before_it_but_unasked_words_not_yet_answ
         assert await session.scalar(select(UiSession)) is None
     assert await source.recent(chat_id) == []
 
-    # Another Home with no message to the Advisor since still leaves the Cue, and takes the
-    # last Home out.
+    # Another clear with no message to the Advisor since still leaves the Cue.
+    await keep(sessions, chat_id, 1104, "<b>Today again</b>", MessageKind.DASHBOARD, now)
     deleted = len(anchor.bot.deleted)
-    await clear_draw_home(anchor, services, "<b>🏠 Home again</b>")
-    assert home.message_id in anchor.bot.deleted[deleted:]
-    assert 1103 not in anchor.bot.deleted
-    assert await notes.note(chat_id, home.message_id) is None
-    home = anchor.sent[-1]
-    await keep(sessions, chat_id, home.message_id + 1, "Hello again", MessageKind.DIALOGUE_USER, now)
+    await access.clear(anchor, keep_unanswered=True)
+    assert 1104 in anchor.bot.deleted[deleted:] and 1103 not in anchor.bot.deleted
+    await keep(sessions, chat_id, 1105, "Hello again", MessageKind.DIALOGUE_USER, now)
     assert [entry.text for entry in await source.recent(chat_id)] == ["Hello again"]
     day = await source.day_transcript(
         chat_id, start=now - timedelta(hours=2), end=now + timedelta(hours=1), token_budget=10_000
     )
-    assert "What is next?" in day and "Hello again" in day and "Home" not in day
+    assert "What is next?" in day and "Hello again" in day and "Today" not in day
 
     # A message to the Advisor answers the Cue, so the next clear takes it out too.
     deleted = len(anchor.bot.deleted)
-    anchor.message_id = 160
-    await clear_draw_home(anchor, services, "<b>🏠 Home again</b>")
-    assert 1103 in anchor.bot.deleted[deleted:]
-    assert home.message_id + 1 in anchor.bot.deleted[deleted:]
-    assert await notes.note(chat_id, home.message_id) is None
+    await access.clear(anchor, keep_unanswered=True)
+    assert {1103, 1105} <= set(anchor.bot.deleted[deleted:])
 
 
-async def test_a_home_without_user_dialogue_preserves_unsolicited_messages(sessions) -> None:
-    """TG-HOME-023 — tests/brd/tg_agent_shell/telegram_history.feature"""
+async def test_a_clear_the_owner_asked_for_takes_out_unasked_words_too(sessions) -> None:
+    """TG-CLEAR-032 — tests/brd/tg_agent_shell/telegram_history.feature"""
     chat_id, now = 700, datetime.now(UTC)
     await keep(sessions, chat_id, 1100, "Time to stretch.", MessageKind.CUE, now)
-    await keep(sessions, chat_id, 1101, "<b>🏠 Yesterday</b>", MessageKind.HOME, now)
+    await keep(sessions, chat_id, 1101, "<b>🏠 Yesterday</b>", MessageKind.DASHBOARD, now)
     await keep(sessions, chat_id, 1102, "Time to rest.", MessageKind.CUE, now)
-    services = SimpleNamespace(
-        sessions=sessions, owner_id=42, chat=ChatHost(TelegramNotes(sessions), spawn=spawn_timer)
-    )
+    access = chat_access(sessions)
     anchor = QueueTestMessage(message_id=150, is_bot=False, answer_as_new=True)
+    notes = TelegramNotes(sessions)
 
-    await clear_draw_home(anchor, services, "<b>🏠 Home</b>")
+    await access.clear(anchor, keep_unanswered=True)
 
-    assert 1101 in anchor.bot.deleted
-    assert 1100 not in anchor.bot.deleted and 1102 not in anchor.bot.deleted
-    assert await services.chat.notes.note(chat_id, 1100) is not None
-    assert await services.chat.notes.note(chat_id, 1102) is not None
+    assert anchor.bot.deleted == [1101]
+    assert None not in [await notes.note(chat_id, 1100), await notes.note(chat_id, 1102)]
+
+    await access.clear(anchor)
+
+    assert {1100, 1102} <= set(anchor.bot.deleted)
+    # Taken out of the chat, still kept as what was said.
+    assert None not in [await notes.note(chat_id, 1100), await notes.note(chat_id, 1102)]

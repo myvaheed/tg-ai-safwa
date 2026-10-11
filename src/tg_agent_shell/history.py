@@ -1,9 +1,10 @@
 """The bot's chat: the table it is kept in, and what its kinds mean.
 
 The window itself is `telegram_llm`. This is what it has to be told — which message kinds
-are the conversation and what each cites — plus the one thing only a running bot can
-supply: the `telegram_messages` table every message is kept in as it passes. Where the
-window ends arrives the same way, as a `WindowEdge`.
+are the conversation and what each cites — plus what only a running bot can supply: the
+`telegram_messages` table every message is kept in as it passes, and the message the chat
+was last cleared through, which the conversation starts after. Where the window ends
+arrives the same way, as a `WindowEdge`.
 """
 
 from __future__ import annotations
@@ -33,9 +34,12 @@ from .foundation.models import Base, UtcDateTime
 
 __all__ = [
     "CONVERSATION_KINDS",
+    "ChatClearBoundary",
     "TelegramHistorySource",
     "TelegramMessage",
     "TelegramNotes",
+    "cleared_through",
+    "mark_cleared",
     "register_message",
 ]
 
@@ -74,6 +78,28 @@ class TelegramMessage(Base):
     __table_args__ = (UniqueConstraint("chat_id", "message_id"),)
 
 
+class ChatClearBoundary(Base):
+    """The message through which the chat was last cleared: the conversation starts after it."""
+
+    __tablename__ = "chat_clear_boundaries"
+    chat_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    through_message_id: Mapped[int] = mapped_column(Integer)
+
+
+async def cleared_through(session: AsyncSession, chat_id: int) -> int:
+    """The message the chat was last cleared through, or 0 when it never was."""
+    boundary = await session.get(ChatClearBoundary, chat_id)
+    return boundary.through_message_id if boundary is not None else 0
+
+
+async def mark_cleared(session: AsyncSession, chat_id: int, through: int) -> None:
+    boundary = await session.get(ChatClearBoundary, chat_id)
+    if boundary is None:
+        session.add(ChatClearBoundary(chat_id=chat_id, through_message_id=through))
+    else:
+        boundary.through_message_id = through
+
+
 def vocabulary(citation_types: tuple[str, ...]) -> ChatVocabulary:
     """How the reader reads the chat back. The citation types are the features' own."""
     return ChatVocabulary(
@@ -87,7 +113,6 @@ def vocabulary(citation_types: tuple[str, ...]) -> ChatVocabulary:
         ),
         events=frozenset({MessageKind.EVENT.value}),
         citation_types=citation_types,
-        resets=frozenset({MessageKind.HOME.value, MessageKind.CHAT_RESET.value}),
     )
 
 
@@ -254,14 +279,9 @@ class TelegramHistorySource(ChatWindow):
             timezone=timezone,
         )
         self.sessions = sessions
-        self.access_boundaries = False
 
     async def recent(self, chat_id: int, **options: Any):
-        if self.access_boundaries and options.get("stop_at_edge", True):
-            from .access.model import ChatClearBoundary
-
+        if options.get("stop_at_edge", True):
             async with self.sessions() as session:
-                boundary = await session.get(ChatClearBoundary, chat_id)
-                if boundary is not None:
-                    options["after_message_id"] = boundary.through_message_id
+                options["after_message_id"] = await cleared_through(session, chat_id)
         return await super().recent(chat_id, **options)

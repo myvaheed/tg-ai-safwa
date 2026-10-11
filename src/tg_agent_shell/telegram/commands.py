@@ -17,7 +17,7 @@ from aiogram.types import BotCommand, CallbackQuery, Message
 
 from ..foundation.kinds import MessageKind
 from .callbacks import SCREEN_LINK
-from .chat import dismiss_prior_ui, owner_anchor, remove_turn_notice, send_registered
+from .chat import dismiss_prior_ui, remove_turn_notice, send_registered
 from .contributions import ScreenCommand
 from .layout import start_payload
 from .services import Services
@@ -107,12 +107,8 @@ async def navigation(callback: CallbackQuery, services: Services) -> None:
         await callback.answer("This action is no longer available.", show_alert=True)
         return
     await callback.answer()
-    note = await services.chat.notes.note(callback.message.chat.id, callback.message.message_id)
-    on_home = note is not None and note.kind == MessageKind.HOME.value
     # Walking into the menu is an answer too: whatever else was open is refused, and the
     # editor state behind it goes with the screen. A screen that opens an editor of its
     # own writes that state after this, so it needs no exception here.
-    # A clear boundary must not be overwritten by the screen opened from Home.
-    target = owner_anchor(callback.message.bot, services.owner_id) if on_home else callback.message
-    await dismiss_prior_ui(target, services)
-    await handler(target, services)
+    await dismiss_prior_ui(callback.message, services)
+    await handler(callback.message, services)

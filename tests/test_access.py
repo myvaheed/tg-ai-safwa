@@ -47,7 +47,6 @@ def protected_services(sessions):
     services.history = history_source(sessions)
     services.owner_acted_at = utcnow() - timedelta(hours=1)
     services.access = AccessManager(services, secret_word_verifier)
-    services.history.access_boundaries = True
     return services
 
 

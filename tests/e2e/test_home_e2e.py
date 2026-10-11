@@ -90,7 +90,6 @@ def _services(harness, model: Model, *, busy: bool = False) -> SimpleNamespace:
         owner_acted_at=utcnow() - timedelta(minutes=HOME_AFTER_MINUTES_DEFAULT + 1),
     )
     services.history = history_source(harness.sessions)
-    services.history.access_boundaries = True
     services.access = AccessManager(services, secret_word_verifier)
     return services
 
@@ -261,7 +260,7 @@ async def test_the_owner_acting_stops_the_clearing(e2e_harness, monkeypatch) -> 
 async def test_a_dashboard_from_an_earlier_day_is_removed_without_drawing_another(e2e_harness) -> None:
     """HM-QUIET-004 — tests/brd/home.feature"""
     yesterday = datetime.now(UTC) - timedelta(days=1, hours=1)
-    await _keep(e2e_harness, 1140, MessageKind.HOME, "<b>🏠 Yesterday</b>", at=yesterday)
+    await _keep(e2e_harness, 1140, MessageKind.DASHBOARD, "<b>🏠 Yesterday</b>", at=yesterday)
     services = _services(e2e_harness, Model())
     services.owner_acted_at = yesterday - timedelta(hours=1)
     anchor = QueueTestMessage(message_id=150, is_bot=False, answer_as_new=True)
@@ -275,7 +274,7 @@ async def test_a_dashboard_from_an_earlier_day_is_removed_without_drawing_anothe
 
 @pytest.mark.parametrize("opened", ("/start", "/tags", "/start value-1", "place", "home", "tags"))
 async def test_the_dashboard_is_the_only_ui_until_the_owner_opens_another(
-    e2e_harness, monkeypatch, opened,
+    e2e_harness, opened,
 ) -> None:
     """HM-STAYS-005 — tests/brd/home.feature"""
     await _a_chat(e2e_harness)
@@ -294,7 +293,6 @@ async def test_the_dashboard_is_the_only_ui_until_the_owner_opens_another(
     below = QueueTestMessage(
         message_id=180, text=opened, is_bot=False, answer_as_new=True, parent=anchor
     )
-    monkeypatch.setattr(commands_module, "owner_anchor", lambda _bot, _owner_id: below)
     if opened.startswith("/"):
         handler = next(
             screen.handler for screen in FEATURE_COMMANDS

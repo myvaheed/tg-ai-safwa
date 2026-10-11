@@ -164,28 +164,6 @@ Feature: The conversation in Telegram
     And the photo itself does not enter the conversation
     But where images are off, Safwa has no way to look at a photo
 
-  Scenario: TG-HOME-023 — Home clears everything before it but what was said unasked and not yet answered, and the conversation starts after Home
-    Given the application puts a Home message in the chat, from a check on a schedule (AG-HOOK-050)
-    Then it arrives as a new message that makes no sound, with one button, ☰ Menu
-    And every message before it is taken out, from both sides: screens, receipts, the owner's
-      words, the answers to them, and the previous Home message
-    But what Safwa said unasked after the owner last wrote to the Advisor stays, through repeated
-      Home messages, until the owner writes to the Advisor again
-    And no screen is left before it, so nothing is left waiting for a typed value
-    But a message older than 48 hours stays in the chat (TELEGRAM_DELETE_WINDOW = 48 hours)
-    When the owner presses ☰ Menu
-    Then the Home message is taken out and the application's home screen opens as the only screen
-    When the owner presses a menu button under the Home message
-    Then the Home message is taken out and the chosen screen opens as the only screen
-    When the owner runs a command, writes a message or opens an item from a link
-    Then Home is taken out like every other screen
-    And what was said stays kept, and a day read back still reads all of it
-    And a screen, a progress line or anything else that was not said is forgotten with its message,
-      except the clear boundary, which stays after Home is taken out
-    When Safwa reads the conversation back
-    Then it begins after the newest Home message: nothing said before it, a Summary included, and not the Home message itself
-    And an application that never puts a Home message in the chat has nothing taken out and nothing started over
-
   Scenario: TG-USAGE-024 — Usage counts elapsed activity once with a two-minute quiet window
     Given the application records its owner's usage
     When the owner sends a message, command or presses a button
@@ -254,3 +232,20 @@ Feature: The conversation in Telegram
     And restored hooks are readable by the Advisor, with one logical copy in a day read
     And failed delivery leaves access closed and the queue available for retry
     But applications without protection keep their ordinary behavior
+
+  Scenario: TG-CLEAR-032 — A clear takes out everything but what was said unasked and not yet answered, and the conversation starts after it
+    Given the application empties the chat, after a quiet time or when the owner asks
+    Then every message is taken out, from both sides: screens, receipts, the owner's words and
+      the answers to them
+    And no screen is left, so nothing is left waiting for a typed value
+    But a message older than 48 hours stays in the chat (TELEGRAM_DELETE_WINDOW = 48 hours)
+    When the clear comes after a quiet time
+    Then what Safwa said unasked after the owner last wrote to the Advisor stays, through repeated
+      clears, until the owner writes to the Advisor again
+    When the owner asked for the clear
+    Then what Safwa said unasked is taken out too
+    And what was said stays kept, and a day read back still reads all of it
+    And a screen, a progress line or anything else that was not said is forgotten with its message
+    When Safwa reads the conversation back
+    Then it begins after the newest clear: nothing said before it is read
+    And an application that never clears has nothing taken out and nothing started over

@@ -278,6 +278,11 @@ the subagent: a tool no subagent names is a tool nothing may call, and a subagen
 no feature publishes fails the build of the routing rules. The tool's schema is in the prompt
 snapshot.
 
+A tool only one subagent's prompt teaches, for an entity another feature owns, may live in that
+subagent's `agent.py` instead, beside the prompt and with its autoapproval rule. The entity's
+owner imports both into its `ProposalContribution`. Profile's `stop_onboarding` is that: the
+profile subagent's prompt teaches it, and `onboarding` owns the entity and its handler.
+
 **A view for a reader.** Publishing is the `SqlView` in the owning feature's `views.py` and its
 entry in that module's `views`, which creates it at startup and puts it in `ALLOWED_VIEWS`.
 **Publishing grants nobody anything.** A reader reaches a view when its own list names it —

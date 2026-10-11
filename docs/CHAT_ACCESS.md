@@ -46,8 +46,9 @@ proposals generated while the chat is still locked are discarded.
 Reminders received while locked. It holds no newly generated hidden answers or pictures.
 The `event_id`, `created_at` and `updated_at` columns used by the old result queue are removed.
 
-`chat_clear_boundaries` stores the message id through which the conversation was cleared;
-it is independent of the Home screen. The Advisor reads restored hooks beyond that boundary.
+Every clear writes the shell history's one clear boundary, `chat_clear_boundaries`: the
+message id through which the conversation was cleared. The Advisor reads restored hooks
+beyond that boundary.
 Replaying a previously shown Cue moves its existing logical record to its new Telegram id,
 keeping its original timestamp, so a Diary day read still contains it only once.
 Its new display time determines Telegram's deletion window.
