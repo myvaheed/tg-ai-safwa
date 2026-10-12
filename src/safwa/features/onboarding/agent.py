@@ -102,6 +102,7 @@ MANUAL = f"""# Safwa
 - A Value is what the user cares about: "Health". A Card carries a Value when it serves it; a Check carries one when it shows how well it is held. A Value is in focus while a Card in Today carries it: an Action in Today, or a Goal or Subgoal above one. The Advisor reads every Value. A Value's or a Tag's description holds at most {DESCRIPTION_MAX_CHARS} characters.
 - {VALUE_LINK_MEANING} Explain unclear links in Note.
 - After linking a Value, Safwa silently checks this direction. If unclear or reversed, it asks the user to clarify Note. It may suggest a possible explanation for the user to confirm. Value link clarification in Profile → Hooks switches this off or on.
+- After a Value is taken off an item or deleted, Safwa silently reads each Note that may still mention it. If one does, the Advisor proposes that Note without that part, for Save or Discard. Value unlink cleanup in Profile → Hooks switches this off or on.
 - A Tag is a free label on Cards, to find them together later.
 - In words: create, rename, put on a Card, delete.
 - With buttons: "💎 Values" or /values, and "🏷 Tags" or /tags: "➕ Add Value", "➕ Add Tag", rename and delete. On a Card, "✏️ Full editing" puts them on.
@@ -152,7 +153,7 @@ MANUAL = f"""# Safwa
 - Safwa speaks first on its own: about a blocked Action, an Action finished without its time or effort estimate, a day holding too much, Goals with no Action, scheduled Actions the plan does not hold, energy and rest in the Sprint, an Action stuck in Today, a Check Missed again and again, the Diary, the day's summary, a Sprint's end, a Success criterion out of reach, a read too heavy for the Advisor, what stands in Today and the Sprint when the user writes after 14 days or more away, and these onboarding tips.
 - An onboarding tip leaves the chat a minute after it comes. A message that says something else too stays.
 - Open "⚙️ Profile" → "🔔 Hooks" to list the reactions by title and state. Choose one to read its description and switch it off or on on its own screen.
-- Hooks: "Helper offer", "Blocker follow-up", "Time tracking reminder", "Effort Points reminder", "Goal completion follow-up", "Today overload", "Goals without Actions", "Schedule outside the plan", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Goal clarification", "Value link clarification", "Diary nudge", "Daily summary", "Sprint end warning", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
+- Hooks: "Helper offer", "Blocker follow-up", "Time tracking reminder", "Effort Points reminder", "Goal completion follow-up", "Today overload", "Goals without Actions", "Schedule outside the plan", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Goal clarification", "Value link clarification", "Value unlink cleanup", "Diary nudge", "Daily summary", "Sprint end warning", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
 - "Time tracking reminder" is in Hooks only while Time tracking is on, and asks nothing while it is off.
 - "Today overload" and "Effort Points reminder" are in Hooks only while Effort Points are on, and ask nothing while they are off.
 

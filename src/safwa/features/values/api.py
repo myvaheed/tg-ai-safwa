@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +15,8 @@ from .model import CheckValue as CheckValue
 
 CARD_VALUE_LINKED = "card.value_linked"
 CHECK_VALUE_LINKED = "check.value_linked"
+# One fact for every item one change took the Value off, so its follow-up is one request.
+VALUE_UNLINKED = "value.unlinked"
 
 VALUE_LINK_MEANING = (
     "Link a Value to a Goal, Action or Check only when the item supports the Value.\n"
@@ -39,6 +42,15 @@ async def attach_values(session: AsyncSession, card_id: int, value_ids: Iterable
     for value_id in sorted(set(value_ids)):
         session.add(CardValue(card_id=card_id, value_id=value_id))
         record_change(session, CARD_VALUE_LINKED, card_id, data={"value_id": value_id})
+
+
+def record_unlinked(session: AsyncSession, value: Value, items: list[dict[str, Any]]) -> None:
+    """Note the items `value` was taken off, `{"type": "card" | "check", "id": ...}` each,
+    with the Value's words, which a deletion leaves nowhere else to read."""
+    if items:
+        record_change(session, VALUE_UNLINKED, value.id, data={
+            "value": value.name, "value_description": value.description, "items": items,
+        })
 
 
 async def value_names(session: AsyncSession) -> dict[int, str]:

@@ -9,6 +9,7 @@ from tg_agent_shell.telegram.manifest import FeatureModule, ProposalContribution
 
 from . import agent, proposal, telegram, views
 from .hooks import VALUE_LINK_HOOK as VALUE_LINK_HOOK
+from .hooks import VALUE_UNLINK_HOOK as VALUE_UNLINK_HOOK
 from .model import Value
 from .telegram import VALUE_CALLBACK_ACTIONS, command_values
 

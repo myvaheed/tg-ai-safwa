@@ -52,7 +52,13 @@ from ..schedules.api import (
 from ..schedules.use_cases import drop_reminders, follow_remind
 from ..tags.api import Tag, attach_tags, unlinkable_tag_id
 from ..tags.model import CardTag
-from ..values.api import CARD_VALUE_LINKED, Value, attach_values, unlinkable_value_id
+from ..values.api import (
+    CARD_VALUE_LINKED,
+    Value,
+    attach_values,
+    record_unlinked,
+    unlinkable_value_id,
+)
 from ..values.model import CardValue
 from .hierarchy import branch_actions, card_children, propagate_ancestors, settle_archive
 from .model import (
@@ -310,6 +316,7 @@ async def toggle_card_value(
         operation, linked = "link_value", True
     else:
         await session.delete(link)
+        record_unlinked(session, value, [{"type": "card", "id": card_id}])
         operation, linked = "unlink_value", False
     card.version += 1
     await record_card_event(session, card, operation, actor, before)

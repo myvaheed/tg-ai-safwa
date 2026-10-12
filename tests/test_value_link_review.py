@@ -16,7 +16,7 @@ from safwa.features.checks.use_cases import resolve_check, toggle_check_value, u
 from safwa.features.onboarding.agent import MANUAL
 from safwa.features.profile.api import hook_switched_on, set_hook_switch
 from safwa.features.values.api import VALUE_LINK_MEANING
-from safwa.features.values.hooks import VALUE_LINK_HOOK
+from safwa.features.values.hooks import VALUE_LINK_HOOK, VALUE_UNLINK_HOOK
 from safwa.features.values.link_review import ValueLinkReviewer
 from safwa.features.values.use_cases import create_value, update_value_fields
 from safwa.features.workspace_mutator.agent import MUTATOR_AGENT
@@ -117,7 +117,9 @@ def test_all_three_prompts_teach_the_same_supporting_direction():
 
 def test_one_hook_checks_the_link_and_asks_under_its_own_switch():
     """VL-LINK-019 — tests/brd/values.feature"""
-    assert [spec for spec in REGISTRY.hooks.specs if spec.owner == "values"] == [VALUE_LINK_HOOK]
+    assert [spec for spec in REGISTRY.hooks.specs if spec.owner == "values"] == [
+        VALUE_LINK_HOOK, VALUE_UNLINK_HOOK,
+    ]
     assert isinstance(VALUE_LINK_HOOK.effect, RunAndAdvise)
     assert VALUE_LINK_HOOK.agent_related and VALUE_LINK_HOOK.switch is None
 

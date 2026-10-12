@@ -18,6 +18,7 @@ from ...constants import DESCRIPTION_MAX_CHARS
 from ...enums import ActorType
 from ...foundation.log_events import CREATE, DELETE, UPDATE, record_log_event, snapshot
 from ...foundation.workspace import bump_workspace
+from .api import record_unlinked
 from .model import CardValue, CheckValue, Value
 
 # The change a hook may follow up on: a Value was created, however it was saved.
@@ -110,13 +111,26 @@ async def delete_value(
     value = await session.get(Value, value_id)
     if value is None:
         raise DomainError("Value does not exist")
-    cards, checks = await value_link_counts(session, value.id)
+    items = [
+        {"type": "card", "id": card_id}
+        for card_id in await session.scalars(
+            select(CardValue.card_id).where(CardValue.value_id == value.id).order_by(CardValue.card_id)
+        )
+    ] + [
+        {"type": "check", "id": check_id}
+        for check_id in await session.scalars(
+            select(CheckValue.check_id)
+            .where(CheckValue.value_id == value.id)
+            .order_by(CheckValue.check_id)
+        )
+    ]
     await _record(session, value, DELETE, actor, snapshot(value))
     await session.execute(delete(CardValue).where(CardValue.value_id == value.id))
     await session.execute(delete(CheckValue).where(CheckValue.value_id == value.id))
+    record_unlinked(session, value, items)
     await session.delete(value)
     await bump_workspace(session)
-    return value, cards + checks
+    return value, len(items)
 
 
 async def _record(

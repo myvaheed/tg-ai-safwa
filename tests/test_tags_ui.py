@@ -68,7 +68,7 @@ async def test_tag_field_input_reuses_editor_message_and_deletes_input(sessions)
         assert classified.kind == MessageKind.UI_INPUT.value
 
 
-async def test_a_tag_description_holds_at_most_300_characters(sessions) -> None:
+async def test_a_tag_description_holds_at_most_description_max_chars(sessions) -> None:
     """TA-DESC-011 — tests/brd/tags.feature"""
     too_long = "x" * (DESCRIPTION_MAX_CHARS + 1)
     refusal = (

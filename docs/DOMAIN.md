@@ -179,7 +179,7 @@ worked out, and Life in weeks counts a Value's Actions by it.
 A Value is **in focus** while a Card in Today carries it: an Action in Today, or a Goal or Subgoal
 whose derived stage is Today because an Action under it is. Nothing sets it by hand;
 `values_in_focus` in the Planning door reads it. A Value's and a Tag's description hold at most
-300 characters (`DESCRIPTION_MAX_CHARS`).
+400 characters (`DESCRIPTION_MAX_CHARS`).
 
 A Value link runs from the Goal, Action or Check to the Value it supports, never merely from
 a needed Value to the work. Earning $4k supports Freedom through more choices; it supports
@@ -200,6 +200,15 @@ The hook's switch is "Value link clarification" in Profile → Hooks. The
 Advisor may suggest a possible supporting explanation and ask whether it fits the owner's
 meaning; it never treats that suggestion as the owner's reason.
 Nothing changes before the owner answers. The hook edits or removes no link.
+
+A Note can outlive the link it explains. Taking a Value off a Card or a Check, or deleting the
+Value, records one `value.unlinked` fact per change with the Value's name and description and
+every item it left, so a deletion off twenty items is one request rather than one per item.
+The hook "Value unlink cleanup" (`values.unlink_cleanup`) runs one mini session per item that
+has a Note, is live and does not carry the Value again, asking whether the Note still mentions
+it; it rechecks the Note before keeping the item. The request tells the Advisor to read the
+current Notes and route to workspace_mutator to propose each one without that part. The
+proposal's Save or Discard is the owner's answer; the hook changes no Note itself.
 
 ## Versions, and what invalidates what
 

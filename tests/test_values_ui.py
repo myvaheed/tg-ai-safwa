@@ -62,7 +62,7 @@ async def test_no_screen_sets_a_values_focus_by_hand(sessions) -> None:
     assert button_texts(listing.edits[-1][1])[:2] == ["💎 Health", "💎 Tidiness"]
 
 
-async def test_a_value_description_holds_at_most_300_characters(sessions) -> None:
+async def test_a_value_description_holds_at_most_description_max_chars(sessions) -> None:
     """VL-DESC-020 — tests/brd/values.feature"""
     too_long = "x" * (DESCRIPTION_MAX_CHARS + 1)
     refusal = (

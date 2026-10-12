@@ -47,9 +47,9 @@
     And none is left out
     And each Tag comes with its description on its own line
 
-  Scenario: TA-DESC-011 — A Tag's description holds at most 300 characters
+  Scenario: TA-DESC-011 — A Tag's description holds at most 400 characters
     Given a Tag
-    When its description is written with 301 characters, on its screen or by Safwa (DESCRIPTION_MAX_CHARS = 300)
+    When its description is written with 401 characters, on its screen or by Safwa (DESCRIPTION_MAX_CHARS = 400)
     Then it is refused with the limit and the length it has, and the Tag keeps the description it had
     And the screen's editor stays open with that message, and its instruction names the limit
     And Safwa's tag tool says the limit in the description field

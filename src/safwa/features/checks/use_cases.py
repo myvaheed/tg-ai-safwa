@@ -27,7 +27,7 @@ from ..schedules.api import (
     successor_slot,
 )
 from ..schedules.use_cases import drop_reminders, follow_remind
-from ..values.api import CHECK_VALUE_LINKED, Value
+from ..values.api import CHECK_VALUE_LINKED, Value, record_unlinked
 from ..values.model import CheckValue
 from .model import Check, CheckOutcome
 
@@ -90,6 +90,7 @@ async def toggle_check_value(
         operation, linked = "link_value", True
     else:
         await session.delete(link)
+        record_unlinked(session, value, [{"type": "check", "id": check_id}])
         operation, linked = "unlink_value", False
     check.version += 1
     await _record(session, check, operation, actor, before)

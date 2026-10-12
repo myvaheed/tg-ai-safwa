@@ -8,9 +8,9 @@
   Background:
     Given a workspace where a Value can be written by the owner or proposed by Safwa
 
-  Scenario: VL-DESC-020 — A Value's description holds at most 300 characters
+  Scenario: VL-DESC-020 — A Value's description holds at most 400 characters
     Given a Value
-    When its description is written with 301 characters, on its screen or by Safwa (DESCRIPTION_MAX_CHARS = 300)
+    When its description is written with 401 characters, on its screen or by Safwa (DESCRIPTION_MAX_CHARS = 400)
     Then it is refused with the limit and the length it has, and the Value keeps the description it had
     And the screen's editor stays open with that message, and its instruction names the limit
     And Safwa's value tool says the limit in the description field
@@ -39,6 +39,20 @@
     And the queued request tells the Advisor to read current data before asking
     And the request waits like any hook request while access is locked
     And switching Value link clarification off in Profile → Hooks stops the check and drops what is pending
+
+  Scenario: VL-UNLINK-021 — A Note that still mentions a removed Value is proposed without it
+    Given a Value is taken off a Goal, Action or Check, or deleted from all of them, by hand or by a saved proposal
+    When the change commits
+    Then each item with a Note gets one mini session that reads its title and Note, and the Value's name and description
+    And an item with an empty Note, archived, deleted or carrying the Value again gets no mini session
+    And a Note that does not mention the Value produces nothing
+    And a Note changed during the check produces nothing for that item
+    And the items one change took the Value off that still mention it make one pending request
+    And the request tells the Advisor to read the current Note and route to workspace_mutator to propose each Note without the part about that Value
+    And the proposal keeps the rest of the Note, and the Note changes only on Save
+    And a rollback starts no check
+    And the request waits like any hook request while access is locked
+    And switching Value unlink cleanup off in Profile → Hooks stops the check and drops what is pending
 
   Scenario: VL-FOCUS-001 — A Value is in focus while a Card in Today carries it
     Given "Health" is on an Action in Today
