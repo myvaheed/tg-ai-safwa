@@ -145,8 +145,7 @@ async def test_ws_context_005_the_mode_comes_first_and_the_owner_next(sessions):
 async def test_ws_context_006_everything_named_in_the_state_is_a_citation(sessions):
     """WS-CONTEXT-006 — tests/brd/workspace_mutator.feature"""
     async with sessions() as session:
-        value = await create_value(session, "Health", description="Sleep and exercise", active=True)
-        await create_value(session, "Work", description="Inactive description", active=False)
+        value = await create_value(session, "Health", description="Sleep and exercise")
         tag = await create_tag(session, "Family", description="Time with my family")
         empty = await create_tag(session, "Empty")
         card = await create_card(
@@ -167,7 +166,6 @@ async def test_ws_context_006_everything_named_in_the_state_is_a_citation(sessio
     assert f"- [Health](value:{value.id}): Sleep and exercise" in state.splitlines()
     assert f"- [Family](tag:{tag.id}): Time with my family" in state.splitlines()
     assert f"- [Empty](tag:{empty.id})" in state.splitlines()
-    assert "Inactive description" not in state
     builder = _builder(state)
     turn = [{"role": "user", "content": "What should I do?"}]
     for messages in (
@@ -180,14 +178,14 @@ async def test_ws_context_006_everything_named_in_the_state_is_a_citation(sessio
 
 async def test_ws_context_006_a_description_is_one_short_line_and_no_heading_is_empty(sessions):
     """WS-CONTEXT-006 — tests/brd/workspace_mutator.feature"""
-    long = "Two lines:\n" + "word " * CONTEXT_DESCRIPTION_MAX_CHARS
+    long = "Two lines:\n" + "word " * (CONTEXT_DESCRIPTION_MAX_CHARS // 4)
     async with sessions() as session:
         nothing = (await workspace_context(session)).state
         tag = await create_tag(session, "Family", description=long)
         await session.commit()
         state = (await workspace_context(session)).state
 
-    assert "Active Values:" not in nothing and "Priority Goals:" not in nothing
+    assert "Values:" not in nothing and "Priority Goals:" not in nothing
     [line] = [line for line in state.splitlines() if f"(tag:{tag.id})" in line]
     about = line.split(": ", 1)[1]
     assert about.startswith("Two lines: word word")

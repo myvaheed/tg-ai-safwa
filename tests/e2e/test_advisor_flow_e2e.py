@@ -81,7 +81,7 @@ async def test_ai_card_proposal_reaches_the_sprint_it_was_planned_into(e2e_harne
             kind="goal",
             effort_points=None,
         )
-        fitness = Value(name="Fitness", description="Build a healthy body", active=True)
+        fitness = Value(name="Fitness", description="Build a healthy body")
         family = Tag(name="Family")
         session.add(fitness)
         session.add(family)
@@ -254,7 +254,7 @@ async def test_a_turn_that_stops_without_words_is_asked_again(e2e_harness):
     assert outcome.message == "Isha is the night prayer."
     assert len(provider.calls) == 3
     nudge = str(provider.calls[2][-1]["content"])
-    assert nudge.startswith("[System]: You stopped without answering.")
+    assert nudge.startswith("<system>You stopped without answering.")
     assert provider.calls[2][-2]["role"] == "tool"
 
 
@@ -337,7 +337,7 @@ async def test_cacheable_prefix_is_byte_stable_across_turns(e2e_harness):
     first, second = provider.calls
     # Only the trailing clock inside the final owner turn may differ.
     assert first[:-1] == second[:-1]
-    assert "[System]: Current local time:" in str(first[-1]["content"])
+    assert "<system>Current local time:" in str(first[-1]["content"])
 
 
 async def test_advisor_combines_context_when_history_is_absent(e2e_harness):
@@ -349,7 +349,7 @@ async def test_advisor_combines_context_when_history_is_absent(e2e_harness):
     assert [message["role"] for message in messages] == ["system", "user"]
     assert "Persistent memory:" in messages[-1]["content"]
     assert "Hi" in messages[-1]["content"]
-    assert "[System]: Current local time:" in messages[-1]["content"]
+    assert "<system>Current local time:" in messages[-1]["content"]
 
 
 async def test_advisor_sends_layered_system_blocks_and_canonical_dialogue(e2e_harness):
@@ -376,7 +376,7 @@ async def test_advisor_sends_layered_system_blocks_and_canonical_dialogue(e2e_ha
         "user",
     ]
     assert messages[-1]["content"].startswith(dialogue[-1].content)
-    assert "[System]: Current local time:" in messages[-1]["content"]
+    assert "<system>Current local time:" in messages[-1]["content"]
     timestamp = messages[-1]["content"].split("Current local time: ", 1)[1]
     assert "T" not in timestamp and timestamp.count(":") == 1
     system = str(messages[0]["content"])
@@ -612,7 +612,7 @@ async def test_a_resumed_subagent_reads_the_workspace_as_it_is_now(e2e_harness):
         await session.commit()
     # Made by hand while the subagent was waiting on its screen.
     async with e2e_harness.sessions() as session:
-        await create_value(session, "Patience", active=True)
+        await create_value(session, "Patience")
         await session.commit()
 
     await advisor.resolve_approval(

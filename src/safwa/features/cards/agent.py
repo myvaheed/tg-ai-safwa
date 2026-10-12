@@ -253,6 +253,7 @@ def _repair(model: type[ToolInput]) -> Callable[[dict[str, Any]], dict[str, Any]
 
 CARD_AUTOAPPROVALS = {
     "link": AutoApprovalRule(RELATIONSHIP_LINK, LINK_FIELDS),
+    "move": AutoApprovalRule(SCALAR_UPDATE, frozenset({"stage"})),
     "update": AutoApprovalRule(
         SCALAR_UPDATE,
         frozenset(

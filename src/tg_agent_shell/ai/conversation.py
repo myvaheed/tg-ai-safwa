@@ -8,7 +8,7 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from agent_runtime import routed_answers
+from agent_runtime import SYSTEM_CLOSE, SYSTEM_OPEN, routed_answers
 from llm_gateway import standard_message
 
 # The reads whose rows are stale by the next turn. The call stays in the conversation and the
@@ -17,16 +17,16 @@ CLEARED_READS = frozenset({"query_data", "call_helper"})
 CLEARED_READ = {"status": "cleared", "next": "Read again if you need these rows."}
 
 # Who each line of the owner's side belongs to.  The keys are the labels the window writes;
-# the values are what a reader that did not take part sees.
+# the values are what a reader that did not take part sees.  What the interface said is not a
+# label but a tagged block, which may run over several lines.
 CONVERSATION_TAGS = {
     "User": "User",
     "Assistant": "Advisor",
     "Summary": "Summary",
-    "System": "System",
 }
 _CONVERSATION_LINE = re.compile(
     r"^(?:\[(?P<stamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2})\] )?"
-    r"(?:\[(?P<label>User|Assistant|Summary|System)\]: )?"
+    r"(?:\[(?P<label>User|Assistant|Summary)\]: )?"
 )
 
 
@@ -94,11 +94,21 @@ def conversation_block(dialogue: Sequence[Mapping[str, Any]], last: int | None =
         if not isinstance(content, str) or (role == "assistant" and item.get("tool_calls")):
             continue
         spoken_by = "Advisor" if role == "assistant" else "User"
+        open_system = False
         for line in content.splitlines():
+            if open_system:
+                open_system = not line.endswith(SYSTEM_CLOSE)
+                elements[-1][2].append(line.removesuffix(SYSTEM_CLOSE))
+                continue
             match = _CONVERSATION_LINE.match(line)
             stamp, label = match.group("stamp"), match.group("label")
-            tag = CONVERSATION_TAGS[label] if label else spoken_by
             body = line[match.end() :]
+            if label is None and body.startswith(SYSTEM_OPEN):
+                body = body.removeprefix(SYSTEM_OPEN)
+                open_system = not body.endswith(SYSTEM_CLOSE)
+                elements.append(("System", stamp, [body.removesuffix(SYSTEM_CLOSE)]))
+                continue
+            tag = CONVERSATION_TAGS[label] if label else spoken_by
             if stamp is None and label is None and elements and elements[-1][0] == tag:
                 elements[-1][2].append(body)
                 continue

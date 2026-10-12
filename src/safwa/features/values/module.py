@@ -1,4 +1,4 @@
-"""Values: what the owner cares about, and what is in focus."""
+"""Values: what the owner cares about, and the Cards and Checks that carry it."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ MODULE = FeatureModule(
         ScreenCommand(
             handler=command_values,
             command="values",
-            description="Values in focus",
+            description="Values",
             nav="values",
             title="💎 Values",
         ),

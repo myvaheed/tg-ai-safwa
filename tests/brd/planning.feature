@@ -1,4 +1,4 @@
-Feature: Planning — the Sprint, and the mode without one
+﻿Feature: Planning — the Sprint, and the mode without one
   Planning is what the workspace is in while no Sprint runs; Today keeps its Actions then. A Sprint is a
   fixed stretch of days with Success criteria that say what it must achieve, and it keeps one row
   per Action it ever had in scope. Sprint totals count Actions, or effort points while Effort Points are on; the screen's list
@@ -173,8 +173,8 @@ Feature: Planning — the Sprint, and the mode without one
   Scenario: PL-CONTEXT-020 — Today's Actions are handed over, in Planning as in a Sprint
     Given Actions in Today
     Then Safwa is handed every Action in Today, with its effort only while Effort Points are on
-    And a Card that is not an Action, or is not in Today, is not among them
-    And they come in the order Today has (PL-KEY-025)
+    And each stands under its Goal and Subgoal, which are named Goal and Subgoal, as the Today tree of PL-KEY-025 orders them
+    And no other Card is among them
     And they are handed over the same way whether a Sprint is running or not
 
   Scenario: PL-HARDTIME-021 — An Action whose Schedule the plan does not hold is brought up
@@ -218,6 +218,9 @@ Feature: Planning — the Sprint, and the mode without one
     Then Today on the Home dashboard and the Today list the Advisor reads put first the ones whose Schedule appointment is today or tomorrow (SCHEDULE_NOTICE_DAYS = 1), then Critical ones, then key ones, then the rest
     And within each group a Card with an appointment comes first, then the more important one, then the one written earlier
     And a day is the workspace's local day
+    When Today is shown under its Goals, on the Home dashboard and in what the Advisor reads
+    Then each Goal and Subgoal stands once, where the first of its Actions stands in that order, with its later Actions under it
+    And an Action with no Goal keeps its own place
 
   Scenario: PL-ASK-026 — A question about the Sprint is answered from the Sprint as it stands
     Given a Sprint is running on its 5th day of 14

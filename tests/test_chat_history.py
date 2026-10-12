@@ -12,6 +12,7 @@ from ui_harness import FakeMessage, history_source
 from safwa.bootstrap.modules import SCREENS
 from safwa.features.summary.window import SUMMARY_HEADER
 from telegram_llm import ChatHost, HistoryEntry, Note, telegram_html_to_text
+from telegram_llm.host import QUOTE_CHARS
 from tg_agent_shell.access.manager import AccessManager
 from tg_agent_shell.ai.conversation import CLEARED_READ, conversation_block, kept_turn
 from tg_agent_shell.foundation.kinds import MessageKind
@@ -232,8 +233,8 @@ async def test_a_line_the_interface_wrote_reads_as_a_system_event(sessions) -> N
         (
             "user",
             "[2026-08-08 12:00] Rename the Tag\n"
-            "[System]: Request interrupted\nNothing was saved.\n"
-            "[System]: ✅ Created Stretch.\n"
+            "<system>Request interrupted\nNothing was saved.</system>\n"
+            "<system>✅ Created Stretch.</system>\n"
             "Call it Home",
         ),
     ]
@@ -283,6 +284,41 @@ async def test_an_edit_the_owner_makes_is_what_the_conversation_reads(sessions) 
     entries = await history_source(sessions).recent(chat_id)
 
     assert [entry.text for entry in entries] == ["Buy milk & eggs", "Noted."]
+
+
+async def test_a_reply_carries_the_start_of_the_message_it_answers(sessions) -> None:
+    """TG-QUOTE-033 — tests/brd/tg_agent_shell/telegram_history.feature"""
+    chat_id = 121
+    host = ChatHost(TelegramNotes(sessions), spawn=spawn_timer)
+    answer = "Pay the rent first, then call the bank. " * 5
+    await host.keep(owner_message(30, "What first?", chat_id), kind=MessageKind.DIALOGUE_USER.value)
+    await host.send(
+        next_in_chat(31, chat_id), answer, kind=MessageKind.DIALOGUE_ASSISTANT.value, replace=False
+    )
+
+    def reply(message_id: int, text: str, replied_to: str | None, quoted: str | None = None):
+        message = owner_message(message_id, text, chat_id)
+        message.reply_to_message = SimpleNamespace(text=replied_to, caption=None)
+        message.quote = SimpleNamespace(text=quoted) if quoted else None
+        return message
+
+    for message in (
+        reply(32, "Why that?", answer),
+        reply(33, "And this?", answer, quoted="call the bank"),
+        reply(34, "Nice", None),
+    ):
+        await host.keep(message, kind=MessageKind.DIALOGUE_USER.value)
+    await host.amend(owner_message(33, "And this one?", chat_id))
+
+    dialogue = await history_source(sessions).dialogue(chat_id)
+
+    start = " ".join(answer.split())[: QUOTE_CHARS - 1].rstrip() + "…"
+    assert len(start) == QUOTE_CHARS
+    assert dialogue[-1].content.splitlines() == [
+        f"<quote>{start}</quote> Why that?",
+        "<quote>call the bank</quote> And this one?",
+        "Nice",
+    ]
 
 
 async def test_a_summary_too_long_for_one_message_reads_as_one(sessions) -> None:
@@ -613,7 +649,7 @@ def test_conversation_block_tags_every_line_by_who_wrote_it() -> None:
                 "role": "user",
                 "content": (
                     "[2026-08-08 12:00] Создай действие убраться в комнате\n"
-                    "[System]: Request interrupted."
+                    "<system>Request interrupted\nNothing was saved.</system>"
                 ),
             },
             route_call("call-1"),
@@ -627,7 +663,7 @@ def test_conversation_block_tags_every_line_by_who_wrote_it() -> None:
     assert block == (
         "<Conversation>\n"
         '<User at="2026-08-08 12:00">Создай действие убраться в комнате</User>\n'
-        "<System>Request interrupted.</System>\n"
+        "<System>Request interrupted\nNothing was saved.</System>\n"
         "<ToolResult>✅ Saved — New Action “Убраться” (Backlog · 2 EP)</ToolResult>\n"
         "<Advisor>Готово!\nЧто дальше?</Advisor>\n"
         "</Conversation>"

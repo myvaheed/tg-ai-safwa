@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from pydantic import Field
+
 from tg_agent_shell.ai.autoapproval import SCALAR_UPDATE, AutoApprovalRule
 from tg_agent_shell.ai.contracts import RecordToolInput
 from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
+
+from ...constants import DESCRIPTION_MAX_CHARS
 
 
 class TagToolInput(RecordToolInput):
@@ -12,7 +16,9 @@ class TagToolInput(RecordToolInput):
     create_requires = ("name",)
 
     name: str | None = None
-    description: str | None = None
+    description: str | None = Field(
+        default=None, description=f"At most {DESCRIPTION_MAX_CHARS} characters."
+    )
 
 
 TAG_AUTOAPPROVALS = {

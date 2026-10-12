@@ -27,20 +27,17 @@ Home appears only on `/start`. The access gate is described in [CHAT_ACCESS.md](
 26.09 21:10 🗑 Old plan — deleted
 …
 
-🎯 Priority Goals
-🎯 Launch the blog · ⚡3/8
-🎯 Run a marathon · ⚡1/13
-
 💎 Values in focus
 💎 Family
 💎 Health — Three runs last week and a calm evening in the Diary: a short walk today keeps it going.
 
 ☀️ Today · 4
 Planned: 4 Actions
-🎯 Launch the blog · ⚡3/8
-    ⭐️ Write the first post · 🧠·⚡2
-    ⭐️ Pick a domain · ⚡1
 ⭐️ Call the bank · ⚡1
+🎯 Launch the blog · ⚡3/8
+    🎯 First post · ⚡2/5
+        ⭐️ Write the first post · 🧠·⚡2
+    ⭐️ Pick a domain · ⚡1
 ⭐️ Pay rent · ⚡0.5
 
 ⌛ Tracked today: 2h 15m over 3 Actions
@@ -51,15 +48,13 @@ The day and the time it was drawn head it (HM-ORDER-014), then:
 - **The last `HOME_LOG_SHOWN = 5` changes**, newest first: when, an icon, the item, what
   changed. An item deleted at or after that change is its title without a link, because SQLite
   hands its id to the next item.
-- **The first `HOME_GOALS_SHOWN = 5` Priority Goals**, in the order the workspace context hands
-  them to Safwa (`priority_goals`, WS-CONTEXT-008).
-- **Values in focus**, by name, each with the words written for it, or its name alone when
-  none could be written.
-- **Today**, every Action in it, in its own order (`today_actions`). An Action under a Goal
-  stands under its root Goal (`goal_of` walks through every nested Goal); Goals come in the order of their
-  first Action, Actions with no Goal after them. The heading counts its Card rows; the line under
-  it gives the planned executions of the local day and, with EP on, their load; repeating rows
-  show × quantity. With Today empty it says so, and no other list stands in for it: the Sprint and
+- **Values in focus** (`values_in_focus`): every Value a Card in Today carries, by name, each
+  with the words written for it, or its name alone when none could be written.
+- **Today**, every Action in it under its Goal and Subgoal (`today_tree`, PL-KEY-025): a Goal
+  stands once, where its first Action stands in Today's order (`today_actions`), and its later
+  Actions come up under it; an Action with no Goal keeps its own place. The heading counts the
+  Actions; the line under it gives the planned executions of the local day and, with EP on, their
+  load; repeating rows show × quantity. With Today empty it says so, and no other list stands in for it: the Sprint and
   the Backlog are the Dashboard's (`📊 Dashboard` in the menu).
 - **Time tracked today**, only while Time tracking is on: `tracked_mins` of the Actions finished
   today, workspace local day (`tracked_between`).
@@ -132,13 +127,12 @@ nothing to clear.
 
 [motivation.py](../src/safwa/features/home/motivation.py): one `run_mini_session` for every Value
 in focus, ending in `motivate(words)`, a list of a Value's number and its text of at most
-`MOTIVATION_MAX_CHARS = 200`. The context is About me, the first `HOME_GOALS_SHOWN = 5` Goals in
-`priority_goals` order with their priorities and deadlines, the current Sprint's Success criteria (or an
-explicit note that no Sprint is running), the local date and `today_actions` in Today's order, the
-`MOTIVATION_DONE_ACTIONS = 10` Actions finished last and the `MOTIVATION_DIARY_ENTRIES = 2` Diary
-days written last with words, however old, and previous motivation — then the Values, numbered.
-The prompt prefers higher-ranked Goals relevant to a Value and connects a relevant Today Action
-to the Sprint's criteria. It asks for a different angle and wording, without repeating the
+`MOTIVATION_MAX_CHARS = 200`. The context is About me, the local date, the current Sprint's
+Success criteria (or an explicit note that no Sprint is running), Today as `today_tree` gives it,
+the `MOTIVATION_DONE_ACTIONS = 10` Actions finished last and the `MOTIVATION_DIARY_ENTRIES = 2`
+Diary days written last with words, however old, and previous motivation — then the Values,
+numbered, each with the Today Cards that carry it. The prompt ties each Value to those Cards and
+connects a relevant Today Action to the Sprint's criteria. It asks for a different angle and wording, without repeating the
 previous message or merely rephrasing it. A number that names no
 Value is dropped, and a Value with no words shows its name alone; a session that fails is logged
 and every Value does.

@@ -7,11 +7,12 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 
 from safwa.bootstrap.modules import AI_VIEWS
-from safwa.features.cards.model import Card, CardCheck
+from safwa.features.cards.model import Card, CardCheck, CardStage
 from safwa.features.cards.references import VALUE_REFERENCE
 from safwa.features.cards.use_cases import (
     archive_subtree,
     finish_action,
+    move_card,
     toggle_card_check,
     toggle_card_value,
 )
@@ -26,6 +27,7 @@ from safwa.features.checks.use_cases import (
     resolve_check,
     toggle_check_value,
 )
+from safwa.features.planning.api import values_in_focus
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.model import CardValue, CheckValue, Value
 from safwa.features.values.use_cases import create_value, delete_value, update_value_fields
@@ -223,54 +225,59 @@ async def test_safwa_can_start_from_a_value_and_find_what_is_behind_it(sessions)
         assert checks == ["Did I sleep seven hours?", "Old observation [📦]"]
 
 
-async def test_safwa_is_told_which_values_are_in_focus(sessions):
+async def test_a_value_is_in_focus_while_a_card_in_today_carries_it(sessions):
+    """VL-FOCUS-001 — tests/brd/values.feature"""
+    async with sessions() as session:
+        health = await create_value(session, "Health")
+        family = await create_value(session, "Family")
+        craft = await create_value(session, "Craft")
+        run = await _action(session, "Morning run", stage="today", value_ids={health.id})
+        home = await create_domain_card(
+            session, kind="goal", title="Home", value_ids={family.id}
+        )
+        rooms = await create_domain_card(session, kind="goal", title="Rooms", parent_id=home.id)
+        await _action(session, "Paint the wall", stage="today", parent_id=rooms.id)
+        await _action(session, "Practise", stage="sprint", value_ids={craft.id})
+        await create_domain_card(session, kind="goal", title="Mastery", value_ids={craft.id})
+        check = await create_check(session, title="Did I practise?")
+        await toggle_check_value(session, check.id, craft.id)
+        await session.commit()
+
+        focus = await values_in_focus(session)
+        assert [(value.name, [card.title for card in cards]) for value, cards in focus] == [
+            ("Family", ["Home"]),
+            ("Health", ["Morning run"]),
+        ]
+
+        await move_card(session, run.id, CardStage.SPRINT)
+        await session.commit()
+        assert [value.name for value, _ in await values_in_focus(session)] == ["Family"]
+
+
+async def test_safwa_is_handed_every_value(sessions):
     """VL-FOCUS-002 — tests/brd/values.feature"""
     async with sessions() as session:
-        fitness = await create_value(session, "Fitness", description="Daily movement", active=True)
-        await create_value(session, "Tidiness", active=False)
+        fitness = await create_value(session, "Fitness", description="Daily movement")
+        tidiness = await create_value(session, "Tidiness")
+        await _action(session, "Walk", stage="today", value_ids={fitness.id})
         family = await create_tag(session, "Family")
         await session.commit()
 
         context = await workspace_context(session)
 
     lines = context.state.splitlines()
-    assert lines[lines.index("Active Values:") + 1] == (
-        f"- [Fitness](value:{fitness.id}): Daily movement"
-    )
-    assert "Tidiness" not in context.state
-    assert lines[lines.index("Available Tags:") + 1] == f"- [Family](tag:{family.id})"
-
-
-async def test_a_goal_serving_a_focus_comes_before_other_equal_goals(sessions):
-    """VL-READ-003 — tests/brd/values.feature"""
-    async with sessions() as session:
-        focus = await create_value(session, "Health", active=True)
-        inactive = await create_value(session, "Tidiness", active=False)
-        planned = await create_domain_card(session, kind="goal", title="Planned")
-        await create_domain_card(
-            session, kind="action", title="Next step", parent_id=planned.id, stage="today"
-        )
-        plain = await create_domain_card(session, kind="goal", title="Plain")
-        served = await create_domain_card(session, kind="goal", title="Serves the focus")
-        await toggle_card_value(session, served.id, focus.id)
-        await create_domain_card(session, kind="goal", title="Inactive", value_ids={inactive.id})
-        await create_domain_card(session, kind="goal", title="Critical", priority="critical")
-        await session.commit()
-
-        context = await workspace_context(session)
-
-    goals = context.state.split("Priority Goals:\n", 1)[1].split("Today Actions:", 1)[0]
-    titles = [
-        line.split("](")[0].removeprefix("- [")
-        for line in goals.splitlines()
+    start = lines.index("Values:") + 1
+    assert lines[start : start + 2] == [
+        f"- [Fitness](value:{fitness.id}): Daily movement",
+        f"- [Tidiness](value:{tidiness.id})",
     ]
-    assert titles == ["Critical", served.title, planned.title, plain.title, "Inactive"]
+    assert lines[lines.index("Available Tags:") + 1] == f"- [Family](tag:{family.id})"
 
 
 async def test_a_value_is_deleted_not_archived(sessions):
     """VL-DELETE-015 — tests/brd/values.feature"""
     async with sessions() as session:
-        value = await create_value(session, "Health", active=True)
+        value = await create_value(session, "Health")
         card = await _action(session, "Morning run")
         check = await create_check(session, title="Did I sleep seven hours?")
         await toggle_card_check(session, card.id, check.id)
@@ -303,7 +310,7 @@ def test_the_remove_tool_refuses_to_archive_a_value():
 async def test_a_deleted_value_frees_its_name(sessions):
     """VL-DELETE-015 — tests/brd/values.feature"""
     async with sessions() as session:
-        first = await create_value(session, "Fitness", "Original Value", active=True)
+        first = await create_value(session, "Fitness", "Original Value")
         first_id = first.id
         await session.commit()
         await delete_value(session, first_id)
@@ -314,7 +321,6 @@ async def test_a_deleted_value_frees_its_name(sessions):
 
         # A new Value under the freed name, not the old one coming back.
         assert again.description == ""
-        assert again.active is False
         assert len(list(await session.scalars(select(Value)))) == 1
 
 

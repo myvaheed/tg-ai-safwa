@@ -120,6 +120,8 @@ class FakeMessage:
     date: datetime
     telegram: FakeTelegram
     chat: FakeChat = field(default_factory=FakeChat)
+    reply_to_message: None = None
+    quote: None = None
 
     async def answer(
         self, text: str, reply_markup=None, parse_mode=None, disable_notification=False

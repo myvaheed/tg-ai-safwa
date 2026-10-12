@@ -19,7 +19,7 @@ from tg_agent_shell.proposals.api import (
 
 from ...enums import ActorType
 from .model import Value
-from .use_cases import create_value, delete_value, update_value_fields
+from .use_cases import create_value, delete_value, update_value_fields, value_description
 
 
 class ValueProposalHandler:
@@ -28,6 +28,8 @@ class ValueProposalHandler:
 
     async def prepare(self, context: PreparationContext, change: Any) -> PreparedChange:
         _value, expected_version = await require_target(context, change, Value)
+        if change.values.get("description") is not None:
+            value_description(change.values["description"])
         return PreparedChange(values=dict(change.values), expected_version=expected_version)
 
     async def apply(self, context: ApplyContext, change: ProposalChange) -> list[int]:
@@ -41,7 +43,6 @@ class ValueProposalHandler:
                 session,
                 name,
                 change.values.get("description"),
-                active=change.values.get("active"),
                 actor=ActorType.AI,
             )
             await session.flush()
@@ -54,7 +55,6 @@ class ValueProposalHandler:
                     value.id,
                     name=change.values.get("name"),
                     description=change.values.get("description"),
-                    active=change.values.get("active"),
                     actor=ActorType.AI,
                 )
             elif change.action is ChangeAction.DELETE:
@@ -67,6 +67,6 @@ class ValueProposalHandler:
 
 
 async def every_value(session: AsyncSession) -> list[tuple[int, str]]:
-    """Every Value, in focus or not: none is ever closed (PR-SIMILAR-030)."""
+    """Every Value: none is ever closed (PR-SIMILAR-030)."""
     rows = await session.execute(select(Value.id, Value.name))
     return [(value_id, name) for value_id, name in rows]

@@ -109,7 +109,7 @@ These are agent instructions, not restrictions on manual Card editing or ordinar
 Each turn carries up to 10 open root Goals (`CONTEXT_PRIORITY_GOAL_LIMIT`) under **Priority Goals**,
 across all Priorities. An overdue compiled Deadline or one within the next 7 local calendar days
 (`PRIORITY_GOAL_DEADLINE_DAYS`) comes first. Within urgent and other Goals, the order is Priority,
-a directly linked Value in focus, then Actions in Sprint or Today, including work through a Subgoal.
+then Actions in Sprint or Today, including work through a Subgoal.
 Remaining ties use the earlier Deadline (none last), creation time and id. Each Goal carries its
 Priority, derived stage and compiled Deadline. The Advisor starts advice and planning from that order.
 
@@ -166,6 +166,11 @@ of the Cards that Check belongs to.
 An Action **serves** the Values it carries and those its Goal and Subgoal carry: a Value on a Goal
 says why the work under it is there. `every_finished_action` in the Cards door is where that is
 worked out, and Life in weeks counts a Value's Actions by it.
+
+A Value is **in focus** while a Card in Today carries it: an Action in Today, or a Goal or Subgoal
+whose derived stage is Today because an Action under it is. Nothing sets it by hand;
+`values_in_focus` in the Planning door reads it. A Value's and a Tag's description hold at most
+300 characters (`DESCRIPTION_MAX_CHARS`).
 
 A Value link runs from the Goal, Action or Check to the Value it supports, never merely from
 a needed Value to the work. Earning $4k supports Freedom through more choices; it supports

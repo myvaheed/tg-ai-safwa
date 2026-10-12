@@ -293,17 +293,17 @@ can cache the stable prefix:
 
 ```text
 messages[0]  system   SYSTEM_PROMPT                  ← cache breakpoint
-messages[1]  user     [System]: memory + workspace state
+messages[1]  user     <system>memory + workspace state</system>
    …         user/assistant/tool   the dialogue window, earlier answers with their calls
-messages[-1] user     [System]: the clock            ← volatile, always last
+messages[-1] user     <system>the clock</system>     ← volatile, always last
 ```
 
 The marker is the gateway's, not the builder's: the provider's row decides whether the prompt
 and what ends before the newest request are marked ([LLM_GATEWAY.md](LLM_GATEWAY.md)).
 
-Only `messages[0]` is a system message. Every other context block goes through `system_note`, which
-sends it as a user message prefixed `[System]: ` — the Qwen3.5 chat template raises on a second
-system message.
+Only `messages[0]` is a system message. Every other context block goes through `system_note` or
+`system_text`, which send it as user text inside `<system>…</system>` — the Qwen3.5 chat template
+raises on a second system message, and the closing tag is where the owner's own words begin again.
 
 **New volatile context goes after the dialogue, never into a system block.** One timestamp in
 `messages[0]` costs every cache hit and scatters OpenRouter's sticky provider routing.

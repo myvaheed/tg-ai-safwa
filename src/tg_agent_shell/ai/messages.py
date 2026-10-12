@@ -13,7 +13,7 @@ from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from agent_runtime import append_user_message, system_note
+from agent_runtime import append_user_message, system_note, system_text
 
 from .subagents import RoutedSubagent
 from .tools import conversation_for
@@ -95,7 +95,7 @@ class ContextBuilder:
                 append_user_message(messages, str(item["content"]))
             else:
                 messages.append(dict(item))
-        append_user_message(messages, f"[System]: {context.clock}")
+        append_user_message(messages, system_text(context.clock))
         return messages
 
     async def routed(
@@ -115,19 +115,24 @@ class ContextBuilder:
         if routed.workspace_state:
             async with self.sessions() as session:
                 context = await self.workspace_state(session)
-            append_user_message(messages, f"[System]: Current workspace state:\n{context.state}")
+            append_user_message(
+                messages, system_text(f"Current workspace state:\n{context.state}")
+            )
         conversation = conversation_for(dialogue, routed.history_messages)
         if conversation:
             append_user_message(
                 messages,
-                "[System]: The conversation so far, newest last. None of it is yours: read it "
-                f"for what the owner wants changed.\n{conversation}",
+                system_text(
+                    "The conversation so far, newest last. None of it is yours: read it "
+                    "for what the owner wants changed. `<quote>` before the owner's words "
+                    f"holds the start of the message they reply to.\n{conversation}"
+                ),
             )
         lines = [line for line in prior_receipts or [] if line.strip()]
         if lines:
             append_user_message(
-                messages, "[System]: Already saved in this request:\n" + "\n".join(lines)
+                messages, system_text("Already saved in this request:\n" + "\n".join(lines))
             )
         if routed.current is not None:
-            append_user_message(messages, f"[System]: {await routed.current()}")
+            append_user_message(messages, system_text(await routed.current()))
         return messages

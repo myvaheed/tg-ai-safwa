@@ -35,6 +35,7 @@ from ..cards.api import (
 from ..cards.model import CardKind, Priority
 from ..profile.api import effort_tracking_on
 from ..schedules.api import planned_executions, remaining_occurrences
+from ..values.api import CardValue, Value
 from .model import Sprint, SprintCommitment
 
 # What the next Sprint's length may be set to, in days.
@@ -381,3 +382,50 @@ async def today_actions(session: AsyncSession, *, now: datetime | None = None) -
         )
 
     return sorted(cards, key=cannot_move)
+
+
+async def today_tree(session: AsyncSession, actions: list[Card]) -> list[tuple[int, Card]]:
+    """Today's Actions under their Goals and Subgoals, each with its depth, root first.
+
+    A Goal stands once, where the first of its Actions stands in `actions`, and its later
+    Actions come up under it. An Action with no Goal keeps its own place.
+    """
+    children: dict[int | None, list[Card]] = {}
+    placed: set[int] = set()
+    for action in actions:
+        chain = [action]
+        while chain[-1].parent_id is not None:
+            chain.append(await session.get(Card, chain[-1].parent_id))
+        parent_id = None
+        for card in reversed(chain):
+            if card.id not in placed:
+                placed.add(card.id)
+                children.setdefault(parent_id, []).append(card)
+            parent_id = card.id
+    rows: list[tuple[int, Card]] = []
+
+    def walk(parent_id: int | None, depth: int) -> None:
+        for card in children.get(parent_id, ()):
+            rows.append((depth, card))
+            walk(card.id, depth + 1)
+
+    walk(None, 0)
+    return rows
+
+
+async def values_in_focus(session: AsyncSession) -> list[tuple[Value, list[Card]]]:
+    """Every Value a Card in Today carries, by name, with those Cards.
+
+    A Goal or a Subgoal is in Today while an Action under it is, so its Values count too.
+    """
+    rows = await session.execute(
+        select(Value, Card)
+        .join(CardValue, CardValue.value_id == Value.id)
+        .join(Card, Card.id == CardValue.card_id)
+        .where(Card.effective_stage == CardStage.TODAY.value, Card.archived_at.is_(None))
+        .order_by(Value.name, Card.id)
+    )
+    found: dict[int, tuple[Value, list[Card]]] = {}
+    for value, card in rows:
+        found.setdefault(value.id, (value, []))[1].append(card)
+    return list(found.values())

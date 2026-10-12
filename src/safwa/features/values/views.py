@@ -6,11 +6,10 @@ from tg_agent_shell.ai.sql import Searchable, SqlView
 
 AI_VALUES = SqlView(
     "ai_values",
-    """SELECT id, name, description, active, created_at, updated_at,
+    """SELECT id, name, description, created_at, updated_at,
                relevance('value', id) AS relevance
         FROM "values\"""",
-    doc="""- `ai_values(id, name, description, active, created_at, updated_at, relevance)`
-  - `active` 0 | 1""",
+    doc="""- `ai_values(id, name, description, created_at, updated_at, relevance)`""",
     searchable=Searchable("value", "values", ("name", "description")),
 )
 

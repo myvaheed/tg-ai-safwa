@@ -39,6 +39,8 @@ class Note:
     # words alone: an answer's calls, their results and the model's own words, or the
     # person's words a relayed message carries without its heading.
     reads_as: tuple[Mapping[str, Any], ...] | None = None
+    # The start of the message the person replied to, read before their words.
+    quote: str | None = None
 
 
 class NoteStore(Protocol):

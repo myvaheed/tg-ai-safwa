@@ -32,10 +32,12 @@ from tg_agent_shell.telegram import (
 from tg_agent_shell.telegram.contributions import TextInputFlow
 from tg_agent_shell.telegram.model import UiSession
 
+from ....constants import DESCRIPTION_MAX_CHARS
 from ..model import Tag
 from ..use_cases import (
     create_tag,
     delete_tag,
+    tag_description,
     tag_link_count,
     update_tag_fields,
     validate_tag_change,
@@ -224,7 +226,7 @@ async def render_tag_text_prompt(
         screen=TextInputScreen(
             title=f"Edit Tag {field.title()}",
             current_value=str(state.get("values", {}).get(field, "")),
-            instruction=f"Send the new {field}.",
+            instruction=_INSTRUCTIONS[field],
             back=Place("tag_text_back", {"mode": mode, "id": item_id}, back),
             related_id=item_id,
         ),
@@ -232,8 +234,14 @@ async def render_tag_text_prompt(
     )
 
 
+_INSTRUCTIONS = {
+    "name": "Send the new name.",
+    "description": f"Send the new description, at most {DESCRIPTION_MAX_CHARS} characters.",
+}
+
+
 def _validator(state: Mapping[str, Any]) -> TextValidator[str] | None:
-    return required_text("Tag name") if state["field"] == "name" else None
+    return required_text("Tag name") if state["field"] == "name" else tag_description
 
 
 async def _apply_text(

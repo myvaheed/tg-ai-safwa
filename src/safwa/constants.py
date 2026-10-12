@@ -9,6 +9,8 @@ from __future__ import annotations
 
 # The built-in Tag used by capture, its saved Request and the agents' instructions.
 INBOX_TAG_NAME = "Inbox"
+# How long a Value's or a Tag's description may be. Their tools tell the model the same.
+DESCRIPTION_MAX_CHARS = 300
 
 # Weekday tokens as stored in `reminders.weekdays`, indexed by `date.weekday()`.
 # Mirrored by the Literal in `reminders/agent.py`.

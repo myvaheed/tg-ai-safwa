@@ -71,6 +71,8 @@ class TelegramMessage(Base):
     text: Mapped[str | None] = mapped_column(Text)
     # What the model reads for it, in the provider's shape, when that is not its words.
     reads_as: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
+    # The start of the message a reply of the person's answers.
+    quote: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, server_default=func.now())
     __table_args__ = (UniqueConstraint("chat_id", "message_id"),)
 
@@ -124,6 +126,7 @@ def _note(row: TelegramMessage) -> Note:
         text=row.text,
         at=row.created_at,
         reads_as=tuple(row.reads_as) if row.reads_as is not None else None,
+        quote=row.quote,
     )
 
 
@@ -185,6 +188,7 @@ class TelegramNotes:
                 text=note.text,
                 at=note.at,
                 reads_as=note.reads_as,
+                quote=note.quote,
             )
             await session.commit()
 
@@ -211,6 +215,7 @@ async def register_message(
     text: str | None = None,
     at: datetime | None = None,
     reads_as: Sequence[Mapping[str, Any]] | None = None,
+    quote: str | None = None,
 ) -> None:
     kept = [dict(message) for message in reads_as] if reads_as is not None else None
     existing = await session.scalar(
@@ -224,6 +229,7 @@ async def register_message(
         existing.related_id = related_id
         existing.text = text
         existing.reads_as = kept
+        existing.quote = quote
         if event_id is not None:
             existing.event_id = event_id
     else:
@@ -236,6 +242,7 @@ async def register_message(
             related_id=related_id,
             text=text,
             reads_as=kept,
+            quote=quote,
         )
         if at is not None:
             row.created_at = at

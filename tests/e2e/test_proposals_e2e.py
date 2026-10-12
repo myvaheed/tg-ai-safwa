@@ -666,7 +666,7 @@ async def test_ai_create_value_and_link_are_reviewed_as_separate_proposals(e2e_h
         await session.commit()
 
     response = mutation_turn(
-        ("value", {"mode": "create", "name": "Health", "active": True}),
+        ("value", {"mode": "create", "name": "Health"}),
         ("action", {"mode": "link", "id": action.id, "values": "Health"}),
     )
     repaired_turn = mutation_turn(
@@ -709,7 +709,7 @@ async def test_ai_create_value_and_link_are_reviewed_as_separate_proposals(e2e_h
     assert len(provider.calls) == 5
     async with e2e_harness.sessions() as session:
         value = await session.scalar(select(Value).where(Value.name == "Health"))
-        assert value is not None and value.active is True
+        assert value is not None
         assert (
             await session.get(CardValue, {"card_id": action.id, "value_id": value.id}) is not None
         )

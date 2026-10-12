@@ -79,7 +79,7 @@ from safwa.features.schedules.api import workspace_zone
 from safwa.features.tags.model import CardTag, Tag
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.model import CardValue, Value
-from safwa.features.values.use_cases import create_value, delete_value, set_value_focus
+from safwa.features.values.use_cases import create_value, delete_value
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.log_events import LogEvent
 from safwa.foundation.marks import live_repeat_instance_id, title_marks
@@ -1146,11 +1146,9 @@ async def test_a_closed_repeat_cannot_be_reopened_and_points_at_the_open_one(ses
 
 
 async def test_ui_mutations_use_domain_services_and_are_audited(sessions):
-    """VL-FOCUS-001 — tests/brd/values.feature"""
+    """PR-SAVE-009 — tests/brd/tg_agent_shell/proposals.feature"""
     async with sessions() as session:
         tag = await create_tag(session, "Personal")
-        value = await create_value(session, "Consistency")
-        await set_value_focus(session, value.id, True)
         card = await a_card(session, title="Original")
         assert await toggle_card_tag(session, card.id, tag.id) is True
         await edit_card_text(session, card.id, "title", "Renamed")
@@ -1165,7 +1163,6 @@ async def test_ui_mutations_use_domain_services_and_are_audited(sessions):
 
         profile = await session.get(UserProfile, 1)
         assert profile.about_me == "Prefers calm, practical planning"
-        assert (await session.get(Value, value.id)).active is True
         assert (await session.get(Card, card.id)).title == "Renamed"
         assert await session.get(CardTag, {"card_id": card.id, "tag_id": tag.id}) is not None
         events = list(await session.scalars(select(LogEvent).where(LogEvent.item_type == "card", LogEvent.item_id == card.id)))

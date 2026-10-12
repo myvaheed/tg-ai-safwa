@@ -149,10 +149,10 @@ async def test_the_backlog_is_a_numbered_list_a_page_at_a_time(sessions) -> None
     assert "Hidden Goal" not in text
     assert await place_of(sessions, markup, "↩️ Back") == board
 
-    await press(services, message, markup, "🎯 Goals")
+    await press(services, message, markup, "✓ ⭐️ Actions | 🎯 Goals")
     text, markup = message.edits[-1]
     assert "🎯 Goals · 1 · page 1/1" in text and ">🎯 Hidden Goal</a>" in text
-    assert "✓ 🎯 Goals" in button_texts(markup)
+    assert "⭐️ Actions | 🎯 Goals ✓" in button_texts(markup)
 
 
 async def test_the_backlog_walks_between_its_pages(sessions) -> None:
@@ -200,9 +200,10 @@ async def test_the_dashboard_shows_every_stage_side_by_side(sessions) -> None:
 
     text, markup = message.edits[-1]
     headings = re.findall(r"<th>(.*?)</th>", text)
-    assert headings == ["📚 Backlog · 1", "🏃 Sprint · 2", "☀️ Today · 1", "✅ Done · 1"]
-    assert ">⭐️ Do today</a>" in text and "Gone" not in text and "Get fit" not in text
-    assert button_texts(markup) == ["✓ ⭐️ Actions", "🎯 Goals", "📚 Backlog", "↩️ Menu"]
+    assert headings == ["🏃 Sprint · 2", "☀️ Today · 1", "✅ Done · 1"]
+    assert ">⭐️ Do today</a>" in text and "Do backlog" not in text
+    assert "Gone" not in text and "Get fit" not in text
+    assert button_texts(markup) == ["✓ ⭐️ Actions | 🎯 Goals", "📚 Backlog · 1", "↩️ Menu"]
 
     # A title opens its Card in the Dashboard's place, and Back comes back to it.
     await tap_link(services, text, "⭐️ Do today", message.bot)
@@ -210,11 +211,12 @@ async def test_the_dashboard_shows_every_stage_side_by_side(sessions) -> None:
     assert "Do today" in card_text
     assert await place_of(sessions, card_markup, "↩️ Back") == Place("board", {"kinds": "actions"})
 
-    await press(services, message, markup, "🎯 Goals")
-    text = message.edits[-1][0]
+    await press(services, message, markup, "✓ ⭐️ Actions | 🎯 Goals")
+    text, markup = message.edits[-1]
     # The Goal stands where the work under it is.
-    assert re.findall(r"<th>(.*?)</th>", text)[1] == "🏃 Sprint · 1"
+    assert re.findall(r"<th>(.*?)</th>", text)[0] == "🏃 Sprint · 1"
     assert ">🎯 Get fit</a>" in text
+    assert button_texts(markup)[:2] == ["⭐️ Actions | 🎯 Goals ✓", "📚 Backlog · 0"]
 
 
 @pytest.mark.parametrize("stage", [CardStage.BACKLOG, CardStage.SPRINT, CardStage.TODAY])

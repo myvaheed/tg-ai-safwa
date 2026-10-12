@@ -1,4 +1,4 @@
-Feature: The workspace
+﻿Feature: The workspace
   The workspace is what the owner keeps: their Cards, Checks, Values, Tags, Requests and
   Reminders. It is not an item and it has no screen. What is here is the one part of Safwa
   that proposes every change to it, and what that part is given before it proposes one.
@@ -64,7 +64,7 @@ Feature: The workspace
     Then it is handed the first 10 Priority Goals (CONTEXT_PRIORITY_GOAL_LIMIT = 10)
     And that list includes only open root Goals, not Subgoals, Actions or archived Goals
     And an overdue Deadline or one within the next 7 local calendar days comes first (PRIORITY_GOAL_DEADLINE_DAYS = 7)
-    And within each group the order is Priority, a Value in focus, then Actions in Sprint or Today
+    And within each group the order is Priority, then Actions in Sprint or Today
     And an Action under a Subgoal counts as work toward its Goal too
     And remaining ties put a Deadline before none, the earlier Deadline before the later, then the older Goal
     And Goals created at the same instant keep their creation order

@@ -1,12 +1,20 @@
-Feature: Values
-  A Value is something the owner cares about, written down and given a name. Putting it in focus is
-  how they tell Safwa to weigh it. Cards carry a Value when they are work that serves it; Checks
-  carry one when they show how well it is actually being held to.
+﻿Feature: Values
+  A Value is something the owner cares about, written down and given a name. Cards carry a Value
+  when they are work that serves it; Checks carry one when they show how well it is actually being
+  held to. A Value is in focus while today's work carries it.
 
   Numbers below name the constant they come from; the tests read the constant.
 
   Background:
     Given a workspace where a Value can be written by the owner or proposed by Safwa
+
+  Scenario: VL-DESC-020 — A Value's description holds at most 300 characters
+    Given a Value
+    When its description is written with 301 characters, on its screen or by Safwa (DESCRIPTION_MAX_CHARS = 300)
+    Then it is refused with the limit and the length it has, and the Value keeps the description it had
+    And the screen's editor stays open with that message, and its instruction names the limit
+    And Safwa's value tool says the limit in the description field
+    And a call of Safwa's over it comes back to Safwa refused, with no screen shown
 
   Scenario: VL-LINK-018 — A link means the item supports the Value
     Given Advisor, Mutator and Onboarding explain Value links
@@ -32,25 +40,21 @@ Feature: Values
     And the request waits like any hook request while access is locked
     And switching Value link clarification off in Profile → Hooks stops the check and drops what is pending
 
-  Scenario: VL-FOCUS-001 — A Value carries a focus, and the owner turns it on and off
-    Given a Value the owner has written down
-    Then it also carries a focus, which is on or off
-    And the Value's screen has a button that flips it, showing which way it is now
-    And /values shows at a glance which Values are in focus
+  Scenario: VL-FOCUS-001 — A Value is in focus while a Card in Today carries it
+    Given "Health" is on an Action in Today
+    And "Family" is on a Goal whose Subgoal holds an Action in Today
+    And "Craft" is on an Action in Sprint, on a Goal with nothing in Today, and on a Check
+    Then Health and Family are in focus, and Craft is not
+    When the Action carrying Health leaves Today, by moving or by being finished
+    Then Health is out of focus
+    And neither the Value's screen nor /values offers a way to set it by hand
 
-  Scenario: VL-FOCUS-002 — Values in focus are the ones Safwa is told to weigh
-    Given "Fitness" is in focus and "Tidiness" is not
+  Scenario: VL-FOCUS-002 — Safwa is handed every Value
+    Given "Fitness" and "Tidiness", only Fitness in focus
     When Safwa answers the owner
-    Then Safwa has been told Fitness is in focus, and not Tidiness
-    And Fitness comes with its description on its own line
-    And the Value arrives as something Safwa can hand straight back to the owner as a link
-
-  Scenario: VL-READ-003 — A Goal that serves a Value in focus comes before an otherwise equal Goal
-    Given open Goals with the same Deadline urgency and Priority
-    When Safwa chooses its Priority Goals
-    Then a Goal directly carrying a Value in focus comes before one that does not
-    And a Value out of focus gives its Goal no advantage
-    And this comes before whether the Goal has Actions in Sprint or Today
+    Then Safwa has been handed both, by name and in alphabetical order
+    And each comes with its description on its own line
+    And each arrives as something Safwa can hand straight back to the owner as a link
 
   Scenario: VL-LINK-004 — One Value is carried by many things, which is what it is for
     Given a Value named "Health"

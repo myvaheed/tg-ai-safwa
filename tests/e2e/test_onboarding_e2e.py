@@ -104,7 +104,7 @@ async def test_ob_tip_002_the_tip_opens_the_message_in_the_subagents_own_words(e
     # The subagent reads the request as the newest message, reads no data, and was not made
     # to call any tool.
     read = "\n".join(str(message["content"]) for message in provider.calls[1])
-    assert read.rstrip().endswith(f"<User>{request}</User>\n</Conversation>")
+    assert read.rstrip().endswith(f"<User>{request}</User>\n</Conversation></system>")
     offered = [tool["function"]["name"] for tool in provider.options[1]["tools"]]
     assert offered == []
     assert provider.options[1]["tool_choice"] is None

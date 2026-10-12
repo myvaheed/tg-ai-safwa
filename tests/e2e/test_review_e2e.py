@@ -227,7 +227,7 @@ async def test_a_check_holds_the_answer_once_and_the_request_goes_on(e2e_harness
     assert event.answer == "Первый ответ."
     held_back, note = provider.calls[1][-2:]
     assert held_back == {"role": "assistant", "content": "Первый ответ."}
-    assert note["content"] == "[System]: Say it again."
+    assert note["content"] == "<system>Say it again.</system>"
 
 
 async def test_the_answer_is_read_after_the_last_screen_with_what_became_of_each_change(
@@ -334,7 +334,7 @@ async def test_an_unfinished_request_is_not_answered_yet(e2e_harness):
     assert "Saved" in changed and "Подтянуться 20 раз" in changed
     assert read["answer"] == "Готово, всё сделал."
     note = provider.calls[-1][-1]["content"]
-    assert note == "[System]: " + REQUEST_UNFINISHED.format(missing=missing)
+    assert note == f"<system>{REQUEST_UNFINISHED.format(missing=missing)}</system>"
 
 
 async def test_a_done_or_undecided_review_sends_the_answer_as_it_is(e2e_harness):

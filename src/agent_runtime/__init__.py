@@ -6,7 +6,7 @@ change is, and where the state is kept are the application's, through `ports`.
 
 from __future__ import annotations
 
-from .context import append_user_message, system_note
+from .context import SYSTEM_CLOSE, SYSTEM_OPEN, append_user_message, system_note, system_text
 from .loop import RUNTIME_TOOLS, ToolBudgetExceeded
 from .manager import AgentManager
 from .model import (
@@ -29,6 +29,8 @@ from .ports import ContextSource, Materializer, Observer, SessionStore, ToolRunn
 from .testing import InMemorySessionStore
 
 __all__ = [
+    "SYSTEM_CLOSE",
+    "SYSTEM_OPEN",
     "RUNTIME_TOOLS",
     "AgentDefinition",
     "AgentLoopResult",
@@ -54,4 +56,5 @@ __all__ = [
     "log_preview",
     "routed_answers",
     "system_note",
+    "system_text",
 ]

@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.errors import DomainError
 
-from ...constants import INBOX_TAG_NAME
+from ...constants import DESCRIPTION_MAX_CHARS, INBOX_TAG_NAME
 from ...enums import ActorType
 from ...foundation.log_events import CREATE, DELETE, UPDATE, record_log_event, snapshot
 from ...foundation.workspace import bump_workspace
@@ -22,6 +22,17 @@ from .model import CardTag, Tag
 
 # The change a hook may follow up on: a Tag was created, however it was saved.
 TAG_CREATED = "tag.created"
+
+
+def tag_description(text: str) -> str:
+    """A description as it is kept: trimmed, and at most `DESCRIPTION_MAX_CHARS` long."""
+    described = text.strip()
+    if len(described) > DESCRIPTION_MAX_CHARS:
+        raise DomainError(
+            f"Tag description holds at most {DESCRIPTION_MAX_CHARS} characters; "
+            f"this one has {len(described)}."
+        )
+    return described
 
 
 async def create_tag(
@@ -39,7 +50,7 @@ async def create_tag(
     existing = await session.scalar(select(Tag).where(Tag.name == normalized))
     if existing is not None:
         raise DomainError("A Tag with this name already exists")
-    tag = Tag(name=normalized, description=(description or "").strip())
+    tag = Tag(name=normalized, description=tag_description(description or ""))
     session.add(tag)
     await session.flush()
     await _record(session, tag, CREATE, actor)
@@ -98,7 +109,7 @@ async def update_tag_fields(
             raise DomainError("A Tag with this name already exists")
         tag.name = normalized
     if description is not None:
-        tag.description = description.strip()
+        tag.description = tag_description(description)
     tag.version += 1
     await _record(session, tag, UPDATE, actor, before)
     await bump_workspace(session)

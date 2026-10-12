@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import select
 from ui_harness import CALLBACK_ACTIONS, FakeMessage, button_texts, services_for
 
-from safwa.constants import INBOX_TAG_NAME
+from safwa.constants import DESCRIPTION_MAX_CHARS, INBOX_TAG_NAME
 from safwa.features.cards.use_cases import create_card, toggle_card_tag
+from safwa.features.tags.agent import TAG_TOOL, TagToolInput
 from safwa.features.tags.model import Tag
+from safwa.features.tags.proposal import TagProposalHandler
 from safwa.features.tags.telegram import render_tag
 from safwa.features.tags.telegram.screens import render_tag_text_prompt
-from safwa.features.tags.use_cases import create_tag, seed_inbox_tag
+from safwa.features.tags.use_cases import create_tag, seed_inbox_tag, update_tag_fields
+from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.history import TelegramMessage
+from tg_agent_shell.proposals.api import PreparationContext
 from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.model import UiSession
 
@@ -61,6 +66,47 @@ async def test_tag_field_input_reuses_editor_message_and_deletes_input(sessions)
             select(TelegramMessage).where(TelegramMessage.message_id == 32)
         )
         assert classified.kind == MessageKind.UI_INPUT.value
+
+
+async def test_a_tag_description_holds_at_most_300_characters(sessions) -> None:
+    """TA-DESC-011 — tests/brd/tags.feature"""
+    too_long = "x" * (DESCRIPTION_MAX_CHARS + 1)
+    refusal = (
+        f"at most {DESCRIPTION_MAX_CHARS} characters; this one has {DESCRIPTION_MAX_CHARS + 1}"
+    )
+    async with sessions() as session:
+        tag = await create_tag(session, "Family", "People at home")
+        await session.commit()
+        tag_id = tag.id
+        with pytest.raises(DomainError, match=refusal):
+            await update_tag_fields(session, tag_id, description=too_long)
+        with pytest.raises(DomainError, match=refusal):
+            await create_tag(session, "Work", too_long)
+        await session.rollback()
+        assert (await session.get(Tag, tag_id)).description == "People at home"
+        await create_tag(session, "Work", "x" * DESCRIPTION_MAX_CHARS)
+
+    # Safwa's call over the limit comes back to it before any screen.
+    assert str(DESCRIPTION_MAX_CHARS) in TagToolInput.model_fields["description"].description
+    change = TAG_TOOL.change_from({"mode": "update", "id": tag_id, "description": too_long})
+    async with sessions() as session:
+        context = PreparationContext(
+            session=session, world=None, provider=None, query_runner=None, views=frozenset()
+        )
+        with pytest.raises(DomainError, match=refusal):
+            await TagProposalHandler().prepare(context, change)
+
+    services = services_for(sessions)
+    screen = FakeMessage(50, bot_message=True)
+    await render_tag(screen, services, mode="create")
+    await render_tag_text_prompt(screen, services, mode="create", item_id=None, field="description")
+    assert f"at most {DESCRIPTION_MAX_CHARS} characters" in screen.bot.edits[-1][1]
+    typed = FakeMessage(51, text=too_long, bot_message=False, bot=screen.bot)
+    await ordinary_text(typed, services)
+
+    assert refusal in screen.bot.edits[-1][1]
+    async with sessions() as session:
+        assert (await session.scalar(select(UiSession))).kind == "text_input"
 
 
 async def test_the_tag_screen_counts_its_cards_and_has_no_focus(sessions) -> None:

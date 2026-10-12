@@ -1,9 +1,9 @@
-"""The Dashboard: every stage side by side, and the Backlog a page at a time.
+"""The Dashboard: Sprint, Today and Done side by side, and the Backlog a page at a time.
 
 The Dashboard is one table, a column per stage in the order work moves through them, each
-column the Cards changed last. The Backlog under it is a numbered list. Both show Actions or
-Goals, and every title is a link that opens its Card in place of the screen, whose Back
-returns to the same list, page and kind.
+column the Cards changed last. The Backlog behind its button is a numbered list. Both show
+Actions or Goals, and every title is a link that opens its Card in place of the screen, whose
+Back returns to the same list, page and kind.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ from .presentation import STAGE_EMOJIS, card_emoji, card_title_marks
 BOARD_ROWS = 10
 BACKLOG_PAGE_SIZE = 10
 
-_COLUMNS = (CardStage.BACKLOG, CardStage.SPRINT, CardStage.TODAY, CardStage.DONE)
+_COLUMNS = (CardStage.SPRINT, CardStage.TODAY, CardStage.DONE)
 
 # What either screen shows. A Goal takes its stage from the work under it, so Goals are
 # shown apart from the Actions rather than mixed in with them.
@@ -59,15 +59,18 @@ def _on_stage(stage: CardStage, kinds: str) -> tuple:
 async def _kind_row(
     session: AsyncSession, services: Services, here: Place
 ) -> list[InlineKeyboardButton]:
-    """The two kinds a screen shows, the one on screen ticked; a switch starts on page 1."""
+    """One button naming both kinds, the one on screen ticked; a press shows the other from
+    page 1."""
+    actions, goals = (label for label, _ in _KINDS.values())
+    shown = here.args["kinds"]
+    other = next(key for key in _KINDS if key != shown)
     return [
         await place_button(
             session,
             services.owner_id,
-            f"{'✓ ' if key == here.args['kinds'] else ''}{label}",
-            here.but(kinds=key, **({"page": 0} if "page" in here.args else {})),
+            f"✓ {actions} | {goals}" if shown == "actions" else f"{actions} | {goals} ✓",
+            here.but(kinds=other, **({"page": 0} if "page" in here.args else {})),
         )
-        for key, (label, _) in _KINDS.items()
     ]
 
 
@@ -85,6 +88,9 @@ async def render_board(message: Message, services: Services, *, kinds: str = "ac
     """Every stage as a column of the Cards changed last, and the way into the Backlog."""
     here = Place("board", {"kinds": kinds})
     async with services.sessions() as session:
+        backlog = await session.scalar(
+            select(func.count(Card.id)).where(*_on_stage(CardStage.BACKLOG, kinds))
+        )
         headings: list[str] = []
         columns: list[list[str]] = []
         for stage in _COLUMNS:
@@ -103,7 +109,7 @@ async def render_board(message: Message, services: Services, *, kinds: str = "ac
                 await place_button(
                     session,
                     services.owner_id,
-                    "📚 Backlog",
+                    f"📚 Backlog · {backlog}",
                     here.child("backlog_page", kinds=kinds, page=0),
                 )
             ],

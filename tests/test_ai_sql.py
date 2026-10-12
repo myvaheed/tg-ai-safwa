@@ -145,8 +145,8 @@ def test_zero_id_placeholders_are_ignored_but_real_ids_must_be_positive():
         ),
         (
             "value",
-            {"mode": "create", "id": None, "name": "Health", "description": None, "active": False},
-            {"name": "Health", "active": False},
+            {"mode": "create", "id": None, "name": "Health", "description": None},
+            {"name": "Health"},
         ),
         (
             "tag",

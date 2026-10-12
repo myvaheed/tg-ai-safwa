@@ -14,11 +14,11 @@ from ui_harness import history_source, services_for
 
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
 from safwa.features.cards.model import Card
-from safwa.features.cards.use_cases import create_card, delete_subtree, finish_action, finish_card
+from safwa.features.cards.use_cases import create_card, delete_subtree, finish_action
 from safwa.features.diary.model import DiaryEntry
 from safwa.features.diary.use_cases import create_diary_entry
 from safwa.features.home import motivation
-from safwa.features.home.dashboard import HOME_GOALS_SHOWN, HOME_LOG_SHOWN, dashboard_text
+from safwa.features.home.dashboard import HOME_LOG_SHOWN, dashboard_text
 from safwa.features.home.motivation import (
     MOTIVATION_DIARY_ENTRIES,
     MOTIVATION_DONE_ACTIONS,
@@ -83,34 +83,27 @@ async def test_the_dashboard_shows_every_action_in_today(sessions) -> None:
     """HM-ACTIONS-006 — tests/brd/home.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Launch the blog")
-        subgoal = await create_card(
-            session, kind="goal", title="Write posts", parent_id=goal.id
-        )
-        nested = [subgoal]
-        for level in range(4):
-            nested.append(await create_card(session, kind="goal", title=f"Part {level}", parent_id=nested[-1].id))
+        subgoal = await create_card(session, kind="goal", title="Write posts", parent_id=goal.id)
         plain = await _action(session, "Pay rent", stage="today")
-        post = await _action(session, "Write the first post", stage="today", parent_id=nested[-1].id)
+        post = await _action(session, "Write the first post", stage="today", parent_id=subgoal.id)
         critical = await _action(session, "Call the bank", stage="today", priority="critical")
         domain = await _action(session, "Pick a domain", stage="today", parent_id=goal.id)
-        extra = [await _action(session, f"Extra {n}", stage="today") for n in range(3)]
+        extra = await _action(session, "Extra", stage="today")
         await start_sprint(session, success_criteria="Ship it")
         await session.commit()
 
     lines = _block(await _text(sessions), "Today")
 
-    total = 4 + len(extra)
-    assert lines[0] == f"<b>☀️ Today · {total}</b>"
-    # The Goal comes with its first Action, a Subgoal between them is not shown, and the
-    # Actions with no Goal follow in Today's order: Critical first.
-    body = "\n".join(lines[1:])
-    assert body.index(_link("card", goal.id)) < body.index(_link("card", post.id))
-    assert all(_link("card", card.id) not in body for card in nested)
-    assert body.index(_link("card", domain.id)) < body.index(_link("card", critical.id))
-    assert body.index(_link("card", critical.id)) < body.index(_link("card", plain.id))
-    assert lines[1] == f"Planned: {total} Actions"
-    assert [line.startswith("    ") for line in lines[2:5]] == [False, True, True]
-    assert all(_link("card", card.id) in body for card in (plain, post, critical, domain, *extra))
+    assert lines[0] == "<b>☀️ Today · 5</b>"
+    assert lines[1] == "Planned: 5 Actions"
+    # Today's order is Critical, then oldest first; the Goal stands where its first Action
+    # does, once, and its later Action comes up under it.
+    rows = lines[2:]
+    tree = [(critical, 0), (plain, 0), (goal, 0), (subgoal, 1), (post, 2), (domain, 1), (extra, 0)]
+    assert len(rows) == len(tree)
+    for row, (card, depth) in zip(rows, tree, strict=True):
+        assert _link("card", card.id) in row
+        assert len(row) - len(row.lstrip(" ")) == 4 * depth
 
 
 async def test_without_today_the_dashboard_says_so_and_shows_no_other_list(sessions) -> None:
@@ -128,44 +121,27 @@ async def test_without_today_the_dashboard_says_so_and_shows_no_other_list(sessi
     assert "Sprint" not in text and "Backlog" not in text
 
 
-async def test_the_dashboard_names_the_first_priority_goals(sessions) -> None:
-    """HM-GOALS-013 — tests/brd/home.feature"""
-    assert "Priority Goals" not in await _text(sessions)
-    async with sessions() as session:
-        critical = await create_card(session, kind="goal", title="Critical", priority="critical")
-        others = [
-            await create_card(session, kind="goal", title=f"Goal {n}", priority="low")
-            for n in range(HOME_GOALS_SHOWN)
-        ]
-        await session.commit()
-
-    lines = _block(await _text(sessions), "Priority Goals")
-
-    assert len(lines) == 1 + HOME_GOALS_SHOWN
-    assert _link("card", critical.id) in lines[1]
-    assert _link("card", others[-1].id) not in "\n".join(lines)
-
-
 async def test_the_dashboard_reads_in_one_order(sessions) -> None:
     """HM-ORDER-014 — tests/brd/home.feature"""
     async with sessions() as session:
         await set_profile_field(session, ProfileField.TIME_TRACKING, True)
-        await create_value(session, "Health", active=True)
-        await create_card(session, kind="goal", title="Get fit")
-        await _action(session, "Run", stage="today")
+        health = await create_value(session, "Health")
+        await create_card(session, kind="goal", title="Get fit", priority="critical")
+        await _action(session, "Run", stage="today", value_ids={health.id})
         await session.commit()
     now = datetime(2026, 10, 7, 11, 5, tzinfo=UTC)
 
-    headings = [block.splitlines()[0] for block in (await _text(sessions, now=now)).split("\n\n")]
+    text = await _text(sessions, now=now)
+    headings = [block.splitlines()[0] for block in text.split("\n\n")]
 
     assert headings[0].startswith("<b>🏠 Wed, 07 Oct · ")
-    assert [heading.split("</b>")[0] for heading in headings[1:5]] == [
+    assert [heading.split("</b>")[0] for heading in headings[1:4]] == [
         "<b>🗒 Latest changes",
-        "<b>🎯 Priority Goals",
         "<b>💎 Values in focus",
         "<b>☀️ Today · 1",
     ]
-    assert headings[5].startswith("⌛ Tracked today")
+    assert headings[4].startswith("⌛ Tracked today")
+    assert "Priority Goals" not in text
 
 
 class Words:
@@ -188,7 +164,7 @@ class Words:
         words = [
             {"value": int(number), "text": self.said[name]}
             for number, rest in (line.split(". ", 1) for line in listed)
-            if (name := rest.split(" — ")[0]) in self.said
+            if (name := rest.split(" (carried")[0].split(" — ")[0]) in self.said
         ]
         if not words:
             return CompletionTurn(content="I would rather not.")
@@ -201,10 +177,15 @@ async def test_each_value_in_focus_carries_the_words_written_for_it(sessions) ->
     assert MOTIVATION_MAX_CHARS == 200
     async with sessions() as session:
         await set_profile_field(session, ProfileField.ABOUT_ME, "I run in the mornings.")
-        health = await create_value(session, "Health", "Body first", active=True)
-        family = await create_value(session, "Family", active=True)
+        health = await create_value(session, "Health", "Body first")
+        family = await create_value(session, "Family")
         tidy = await create_value(session, "Tidiness")
-        await create_card(session, kind="goal", title="Run a marathon")
+        marathon = await create_card(
+            session, kind="goal", title="Run a marathon", value_ids={health.id}
+        )
+        await _action(session, "Morning run", stage="today", parent_id=marathon.id)
+        await _action(session, "Call home", stage="today", value_ids={family.id})
+        await _action(session, "Tidy the desk", stage="sprint", value_ids={tidy.id})
         done = []
         for n in range(MOTIVATION_DONE_ACTIONS + 1):
             action = await _action(session, f"Run {n}")
@@ -226,7 +207,7 @@ async def test_each_value_in_focus_carries_the_words_written_for_it(sessions) ->
     assert request.reasoning_effort == "none"
     context = request.messages[1]["content"]
     assert "I run in the mornings." in context
-    assert "- Run a marathon" in context
+    assert "- Run a marathon (priority=medium)\n  - Morning run (priority=medium)" in context
     finished = [line for line in context.splitlines() if line.startswith("- 2026-")]
     assert len(finished) == MOTIVATION_DONE_ACTIONS
     assert finished[0].endswith(done[-1].title)
@@ -234,7 +215,13 @@ async def test_each_value_in_focus_carries_the_words_written_for_it(sessions) ->
     diary = context.split("Diary, newest first:\n")[1].split("\n\n")[0].splitlines()
     assert len(diary) == MOTIVATION_DIARY_ENTRIES
     assert diary == ["2026-09-04: Slept well", "2026-09-02: A good run"]
-    assert context.endswith("Values, numbered:\n1. Family\n2. Health — Body first")
+    # A Value in focus comes with the Today Cards that carry it; one carried only in the
+    # Sprint is not in focus.
+    assert context.endswith(
+        "Values, numbered:\n"
+        "1. Family (carried today by: Call home)\n"
+        "2. Health — Body first (carried today by: Run a marathon)"
+    )
 
     lines = _block(await _text(sessions, words), "Values in focus")
     assert lines[1].startswith(f'<a href="{_link("value", family.id)}">')
@@ -244,15 +231,22 @@ async def test_each_value_in_focus_carries_the_words_written_for_it(sessions) ->
     assert _link("value", tidy.id) not in "\n".join(lines)
 
 
+async def _in_focus(session, name: str) -> int:
+    """A Value in focus: an Action in Today carries it."""
+    value = await create_value(session, name)
+    await _action(session, f"Walk for {name}", stage="today", value_ids={value.id})
+    return value.id
+
+
 async def _health(sessions) -> int:
     async with sessions() as session:
-        health = await create_value(session, "Health", active=True)
+        health = await _in_focus(session, "Health")
         await session.commit()
-        return health.id
+        return health
 
 
 @pytest.mark.parametrize("running", [False, True])
-async def test_motivation_reads_ranked_goals_sprint_criteria_and_today(
+async def test_motivation_reads_sprint_criteria_and_today_as_its_tree(
     sessions, monkeypatch, running
 ) -> None:
     """HM-VALUES-007 — tests/brd/home.feature"""
@@ -263,16 +257,11 @@ async def test_motivation_reads_ranked_goals_sprint_criteria_and_today(
         workspace = await require_workspace(session)
         workspace.sprint_success_criteria = "A draft for the next Sprint"
         await create_card(session, kind="goal", title="Low Goal", priority="low")
-        await create_card(session, kind="goal", title="Critical Goal", priority="critical")
-        await create_card(
-            session, kind="goal", title="Deadline Goal", priority="low",
-            schedule="2026-10-15T23:59:00+03:00",
-            schedule_rule={"kind": "deadline", "date": "2026-10-15", "time": None},
-        )
-        closed = await create_card(session, kind="goal", title="Closed Goal")
-        await finish_card(session, closed.id)
+        blog = await create_card(session, kind="goal", title="Blog")
+        posts = await create_card(session, kind="goal", title="Posts", parent_id=blog.id)
         await _action(session, "Ordinary Today Action", stage="today")
         await _action(session, "Critical Today Action", stage="today", priority="critical")
+        await _action(session, "Write a post", stage="today", parent_id=posts.id)
         await _action(session, "Backlog Action")
         await _action(session, "Sprint Action", stage="sprint")
         if running:
@@ -285,37 +274,19 @@ async def test_motivation_reads_ranked_goals_sprint_criteria_and_today(
 
     context = model.requests[0].messages[1]["content"]
     assert "Today: 2026-10-08" in context
-    goals = context.split("Priority Goals, highest focus first:\n")[1].split("\n\n")[0]
-    assert goals.splitlines() == [
-        "- Deadline Goal (priority=low) deadline=2026-10-15 23:59",
-        "- Critical Goal (priority=critical)",
-        "- Low Goal (priority=low)",
-    ]
-    assert "Closed Goal" not in context
-    today = context.split("Today Actions, in Today's order:\n")[1].split("\n\n")[0]
-    assert today.splitlines() == [
+    today = context.split("Today Actions, in Today's order, each under its Goal and Subgoal:\n")
+    assert today[1].split("\n\n")[0].splitlines() == [
         "- Critical Today Action (priority=critical)",
+        "- Walk for Health (priority=medium)",
         "- Ordinary Today Action (priority=medium)",
+        "- Blog (priority=medium)",
+        "  - Posts (priority=medium)",
+        "    - Write a post (priority=medium)",
     ]
+    assert "Low Goal" not in context and "Priority Goals" not in context
     assert "Backlog Action" not in context and "Sprint Action" not in context
     assert "A draft for the next Sprint" not in context
     assert ("Run three times this Sprint" if running else "No Sprint is running.") in context
-
-
-async def test_motivation_reads_only_the_goals_the_dashboard_shows(sessions) -> None:
-    """HM-VALUES-007 — tests/brd/home.feature"""
-    await _health(sessions)
-    async with sessions() as session:
-        for number in range(HOME_GOALS_SHOWN + 1):
-            await create_card(session, kind="goal", title=f"Goal {number}")
-        await session.commit()
-    model = Words({"Health": "Move today."})
-
-    await Motivator(model, spawn=spawn_timer).write(sessions)
-
-    context = model.requests[0].messages[1]["content"]
-    goals = context.split("Priority Goals, highest focus first:\n")[1].split("\n\n")[0]
-    assert len(goals.splitlines()) == HOME_GOALS_SHOWN
 
 
 async def test_new_motivation_reads_the_last_words_by_value_after_the_cache_expires(
@@ -330,7 +301,7 @@ async def test_new_motivation_reads_the_last_words_by_value_after_the_cache_expi
     assert await motivator.write(sessions) == {health: "Health message 0."}
     assert "Previous motivation:\nNone." in model.requests[0].messages[1]["content"]
     async with sessions() as session:
-        family = await create_value(session, "Family", active=True)
+        family = await _in_focus(session, "Family")
         await session.commit()
 
     for generation in range(1, 4):
@@ -342,7 +313,7 @@ async def test_new_motivation_reads_the_last_words_by_value_after_the_cache_expi
         words = await motivator.write(sessions)
         assert words == {
             health: f"Health message {generation}.",
-            family.id: f"Family message {generation}.",
+            family: f"Family message {generation}.",
         }
         context = model.requests[-1].messages[1]["content"]
         previous = context.split("Previous motivation:\n")[1].split("\n\n")[0]

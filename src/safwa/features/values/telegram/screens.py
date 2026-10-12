@@ -32,12 +32,13 @@ from tg_agent_shell.telegram import (
 from tg_agent_shell.telegram.contributions import TextInputFlow
 from tg_agent_shell.telegram.model import UiSession
 
+from ....constants import DESCRIPTION_MAX_CHARS
 from ..model import Value
 from ..use_cases import (
     create_value,
     delete_value,
-    set_value_focus,
     update_value_fields,
+    value_description,
     value_link_counts,
 )
 
@@ -56,7 +57,7 @@ async def command_values(message: Message, services: Services) -> None:
                 await place_button(
                     session,
                     services.owner_id,
-                    f"{'✅' if value.active else '○'} {value.name}",
+                    f"💎 {value.name}",
                     _LIST.child("value_view", id=value.id),
                 )
             ]
@@ -76,7 +77,7 @@ async def command_values(message: Message, services: Services) -> None:
     await send_registered(
         message,
         services,
-        "<b>Values in focus</b>\nActive Values are injected into the advisor context.",
+        "<b>💎 Values</b>\nA Value is in focus while a Card in Today carries it.",
         kind=MessageKind.DASHBOARD,
         markup=InlineKeyboardMarkup(inline_keyboard=rows + [menu_row()]),
     )
@@ -144,16 +145,6 @@ async def render_value(
             ]
         ]
         if value is not None:
-            rows.append(
-                [
-                    await place_button(
-                        session,
-                        services.owner_id,
-                        f"💎 Focus: {'On' if value.active else 'Off'}",
-                        Place("value_toggle_focus", {"id": value.id}, back),
-                    )
-                ]
-            )
             rows.append(
                 [
                     await place_button(
@@ -241,7 +232,7 @@ async def render_value_text_prompt(
         screen=TextInputScreen(
             title=f"Edit Value {field.title()}",
             current_value=str(state.get("values", {}).get(field, "")),
-            instruction=f"Send the new {field}.",
+            instruction=_INSTRUCTIONS[field],
             back=Place("value_text_back", {"mode": mode, "id": item_id}, back),
             related_id=item_id,
         ),
@@ -249,8 +240,14 @@ async def render_value_text_prompt(
     )
 
 
+_INSTRUCTIONS = {
+    "name": "Send the new name.",
+    "description": f"Send the new description, at most {DESCRIPTION_MAX_CHARS} characters.",
+}
+
+
 def _validator(state: Mapping[str, Any]) -> TextValidator[str] | None:
-    return required_text("Value name") if state["field"] == "name" else None
+    return required_text("Value name") if state["field"] == "name" else value_description
 
 
 async def _apply_text(
@@ -344,19 +341,6 @@ async def _on_create(context: CallbackContext) -> None:
     )
 
 
-async def _on_toggle_focus(context: CallbackContext) -> None:
-    async with context.sessions() as session:
-        await set_value_focus(session, context.payload["id"])
-        await session.commit()
-    await render_value(
-        context.message,
-        context.services,
-        mode="view",
-        item_id=context.payload["id"],
-        back=context.back,
-    )
-
-
 async def _on_delete_prompt(context: CallbackContext) -> None:
     async with context.sessions() as session:
         value = await session.get(Value, context.payload["id"])
@@ -423,7 +407,6 @@ VALUE_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "value_edit_text": _on_edit_text,
     "value_text_back": _on_text_back,
     "value_create": _on_create,
-    "value_toggle_focus": _on_toggle_focus,
     "value_delete_prompt": _on_delete_prompt,
     "value_delete_confirm": _on_delete_confirm,
     "value_list": _on_list,

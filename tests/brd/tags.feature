@@ -1,4 +1,4 @@
-Feature: Tags
+﻿Feature: Tags
   A Tag is a label the owner puts on Cards so they can find them together later. It has a name, a
   description, and no focus, and it never goes on anything but a Card. The built-in Tag
   "Inbox" marks a record the owner chose to save for later clarification.
@@ -44,8 +44,16 @@ Feature: Tags
     When Safwa answers them
     Then it has already been handed all of them, by name and in alphabetical order
     And each arrives as a link it can hand straight back to the owner
-    And none is left out: a Tag has no focus to be out of, which is what makes it unlike a Value
+    And none is left out
     And each Tag comes with its description on its own line
+
+  Scenario: TA-DESC-011 — A Tag's description holds at most 300 characters
+    Given a Tag
+    When its description is written with 301 characters, on its screen or by Safwa (DESCRIPTION_MAX_CHARS = 300)
+    Then it is refused with the limit and the length it has, and the Tag keeps the description it had
+    And the screen's editor stays open with that message, and its instruction names the limit
+    And Safwa's tag tool says the limit in the description field
+    And a call of Safwa's over it comes back to Safwa refused, with no screen shown
 
   Scenario: TA-INBOX-010 — The Inbox Tag always exists and cannot be deleted or renamed
     Given a new or an existing workspace

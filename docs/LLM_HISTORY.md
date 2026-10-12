@@ -79,7 +79,11 @@ result that carried them, so the conversation holds them once.
   speaking without a reason and two answers never run together.
 - **Words the interface wrote are never the assistant's.** An outcome no turn produced, a review
   that closed or was interrupted, a Card created by hand and the onboarding notice are kept as
-  `MessageKind.EVENT` and read on the owner's side after `EVENT_LABEL`.
+  `MessageKind.EVENT` and read on the owner's side inside `<system>…</system>` (`EVENT_TAG`).
+- **A reply carries the start of what it answers.** `ChatHost.keep` keeps the part the owner
+  quoted, or else the words of the message they replied to, cut to `QUOTE_CHARS = 100`, in the
+  note's `quote`; the window reads it as `<quote>…</quote>` before the reply's words (`QUOTE_TAG`).
+  An edit replaces the words and keeps the quote.
 - **Reasoning goes back between calls and is never kept.** Whatever the provider put on a
   response beyond the standard keys — LM Studio's `reasoning_content`, OpenRouter's `reasoning`
   and `reasoning_details`, Gemini's signature on each call — goes back unchanged on that
@@ -104,8 +108,8 @@ Two requests that saved something, then a question, as the model receives the th
 
 ```text
 [0]  system     SYSTEM_PROMPT                                          ← cache breakpoint
-[1]  user       [System]: Persistent memory: …
-                Current workspace state: …
+[1]  user       <system>Persistent memory: …
+                Current workspace state: …</system>
                 [2026-09-26 14:05] Добавь задачу купить молоко
 [2]  assistant  tool_calls: route {"name": "workspace_mutator"}
 [3]  tool       {"subagent": "workspace_mutator", "outcome": "done",
@@ -121,7 +125,7 @@ Two requests that saved something, then a question, as the model receives the th
                  "text": "Готово."}
 [10] assistant  Добавила [Купить яйца](card:2), а [Купить молоко 2,5%](card:1) переименовала.
 [11] user       [2026-09-26 15:02] Спасибо! Что у меня осталось в Backlog?
-                [System]: Current local time: 2026-09-26 15:02 (Europe/Istanbul)   ← volatile, always last
+                <system>Current local time: 2026-09-26 15:02 (Europe/Istanbul)</system>   ← volatile, always last
 ```
 
 The answers keep their citations, so a follow-up about "the milk" is answerable without the rows
@@ -207,7 +211,7 @@ What keeps the same history readable by every endpoint, and by the next model af
 
 - **Only `messages[0]` is a system message.** Anthropic hoists every system message to the top,
   and a chat template raises on a second one; everything else the interface says is user text
-  after `[System]:`.
+  inside `<system>…</system>`, closed so the owner's words after it read as theirs.
 - **The roles alternate.** The owner's side is one user message up to the next answer, which is
   what Anthropic, Gemini and a strict template expect.
 - **A tool result follows its call directly**, paired by an id every endpoint takes back, and its
@@ -249,14 +253,14 @@ When the Advisor routes the second request of 2.3, `workspace_mutator` receives:
 
 ```text
 [0]  system     the subagent's own prompt
-[1]  user       [System]: Current workspace state: …
-                [System]: The conversation so far, newest last. None of it is yours: read it for what the owner wants changed.
+[1]  user       <system>Current workspace state: …</system>
+                <system>The conversation so far, newest last. None of it is yours: read it for what the owner wants changed.
                 <Conversation>
                 <User at="2026-09-26 14:05">Добавь задачу купить молоко</User>
                 <ToolResult>✅ Saved — New Action “Купить молоко” (1 EP)</ToolResult>
                 <Advisor>Готово — [Купить молоко](card:1) в Backlog.</Advisor>
                 <User>Добавь ещё купить яйца, а молоко переименуй в «Купить молоко 2,5%»</User>
-                </Conversation>
+                </Conversation></system>
 ```
 
 The Advisor's read in this turn, the arguments of its calls and the words a subagent returned to

@@ -267,7 +267,7 @@ async def test_cache_breakpoints_mark_the_prompt_and_what_ends_before_the_newest
         {"role": "system", "content": "Prompt."},
         {"role": "user", "content": "Plan this week."},
         {"role": "assistant", "content": "What matters most?"},
-        {"role": "user", "content": "Health.\n[System]: Current local time: 10:00"},
+        {"role": "user", "content": "Health.\n<system>Current local time: 10:00</system>"},
         {"role": "assistant", "content": None, "tool_calls": [_CALL]},
         {"role": "tool", "tool_call_id": "call_1", "content": "{}"},
     )

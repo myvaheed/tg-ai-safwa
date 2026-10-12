@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from tg_agent_shell.telegram.manifest import AgentSpec
 
-from ...constants import INBOX_TAG_NAME
+from ...constants import DESCRIPTION_MAX_CHARS, INBOX_TAG_NAME
 from ..cards.model import (
     CARD_TREE_DEPTH_MAX,
     CATEGORY_MEANINGS,
@@ -34,7 +34,7 @@ _ENERGY = ", ".join(f"{kind.title()} ({meaning})" for kind, meaning in ENERGY_ME
 MANUAL = f"""# Safwa
 - Safwa is a personal agile advisor in Telegram. The user keeps a workspace of Cards, commits to a Sprint of a fixed number of days, and learns from each Sprint in its retro.
 - The Advisor reads the workspace and advises. It saves nothing itself: it proposes, and only the user saves.
-- Its focus is open Goals of every Priority, ordered by urgent Deadline, Priority, Values in focus and Actions in Sprint or Today.
+- Its focus is open Goals of every Priority, ordered by urgent Deadline, Priority and Actions in Sprint or Today.
 
 # How a change happens
 - In words: the user asks the Advisor. It shows a review screen with "✅ Save" and "🗑 Discard". Nothing is saved before Save.
@@ -69,7 +69,7 @@ MANUAL = f"""# Safwa
 - A Done Card is archived two Sprints later, or by hand. It still counts.
 - In words: create, change, move, finish, place under another Card, delete.
 - Deleting a Card with children offers its whole tree or only that Card. Deleting only it gives its children its parent; without a parent, the children become root-level.
-- With buttons: "➕ Add" creates a Goal or an Action. "🗂 Dashboard" shows Backlog, Sprint, Today and Done side by side, the 10 changed last in each, for Actions or for Goals; its "📚 Backlog" lists the Backlog 10 to a page. Each title there is a link that opens its Card. On a Card: "✅ Done", "📍 Stage", "☑️ Checks", and "✏️ Full editing" for every field, its Values and Tags, "Archive" and "Delete".
+- With buttons: "➕ Add" creates a Goal or an Action. "🗂 Dashboard" shows Sprint, Today and Done side by side, the 10 changed last in each; one button switches between Actions and Goals, ✓ marking the one shown. Its "📚 Backlog · N" lists the Backlog 10 to a page. Each title there is a link that opens its Card. On a Card: "✅ Done", "📍 Stage", "☑️ Checks", and "✏️ Full editing" for every field, its Values and Tags, "Archive" and "Delete".
 - Not with buttons: placing a Card under another Card, or making a Subgoal. Ask the Advisor.
 - Not at all: moving an Action straight to Done. Finish it with "✅ Done".
 
@@ -98,12 +98,12 @@ MANUAL = f"""# Safwa
 - Not with buttons: creating a Check, or putting it on a Card. Ask the Advisor.
 
 # Values and Tags
-- A Value is what the user cares about: "Health". A Value in focus is one the Advisor weighs in every answer. A Card carries a Value when it serves it; a Check carries one when it shows how well it is held.
+- A Value is what the user cares about: "Health". A Card carries a Value when it serves it; a Check carries one when it shows how well it is held. A Value is in focus while a Card in Today carries it: an Action in Today, or a Goal or Subgoal above one. The Advisor reads every Value. A Value's or a Tag's description holds at most {DESCRIPTION_MAX_CHARS} characters.
 - {VALUE_LINK_MEANING} Explain unclear links in Note.
 - After linking a Value, Safwa silently checks this direction. If unclear or reversed, it asks the user to clarify Note. It may suggest a possible explanation for the user to confirm. Value link clarification in Profile → Hooks switches this off or on.
 - A Tag is a free label on Cards, to find them together later.
 - In words: create, rename, put on a Card, delete.
-- With buttons: "💎 Values" or /values, and "🏷 Tags" or /tags: "➕ Add Value", "➕ Add Tag", rename, delete, and "💎 Focus" on a Value. On a Card, "✏️ Full editing" puts them on.
+- With buttons: "💎 Values" or /values, and "🏷 Tags" or /tags: "➕ Add Value", "➕ Add Tag", rename and delete. On a Card, "✏️ Full editing" puts them on.
 
 # Requests
 - A Request is a saved query over Cards, such as "All Goals". It lists the Cards it finds, and it filters the Backlog when a Sprint is planned.
@@ -172,8 +172,8 @@ MANUAL = f"""# Safwa
 # Home dashboard
 - With Secret word set, the chat locks when it is cleared after a quiet time: Safwa answers nothing until the user sends the word. Reminders still arrive. /clear empties the chat without locking it.
 - When the user does nothing in the chat for the Profile's "🏠 Home after" minutes, 30 at first, or sends /clear, Safwa empties the chat: screens, receipts, the user's messages and replies. No Home appears. Automatic clearing leaves what Safwa said on its own after the user last wrote to it; /clear removes that too.
-- /start opens the Home dashboard with ☰ Menu: the day and the time, the last 5 changes, the first 5 Priority Goals, the Values in focus, every Action in Today under its Goal and today's tracked time when enabled. Each item is a link. Only one screen stays at the bottom. ☰ Menu unfolds navigation; another screen or a message to the Advisor replaces or removes Home. The words under Values are kept for 10 minutes; without them, they appear on Home a moment later.
-- Those words use About me, the first Priority Goals, the running Sprint's Success criteria, Today Actions, finished Actions and the Diary. Each new request reads the last words to avoid repeating them.
+- /start opens the Home dashboard with ☰ Menu: the day and the time, the last 5 changes, the Values in focus, every Action in Today under its Goal and Subgoal and today's tracked time when enabled. Each item is a link. Only one screen stays at the bottom. ☰ Menu unfolds navigation; another screen or a message to the Advisor replaces or removes Home. The words under Values are kept for 10 minutes; without them, they appear on Home a moment later.
+- Those words use the Today Cards that carry each Value, About me, the running Sprint's Success criteria, finished Actions and the Diary. Each new request reads the last words to avoid repeating them.
 - After a clear the conversation starts over. The Diary still reads the whole day."""
 
 ONBOARDING_PROMPT = f"""You explain Safwa to the user from the manual below. You read no data.

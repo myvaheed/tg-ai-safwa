@@ -327,7 +327,7 @@ async def test_a_subagent_reads_the_tail_of_the_conversation_as_tagged_data(e2e_
     board_seen = [item for item in provider.calls[1] if item["role"] == "user"]
     assert len(board_seen) == 1
     conversation = str(board_seen[0]["content"])
-    assert conversation.startswith("[System]: Current workspace state:")
+    assert conversation.startswith("<system>Current workspace state:")
     # The tail only, and every line says whose it is: the subagent said none of it, so
     # nothing reaches it in the slot it writes to itself.
     assert "сообщение 0" not in conversation
@@ -716,7 +716,7 @@ async def test_the_second_subagent_reads_what_the_first_one_saved(e2e_harness):
     # It sits outside the conversation, so the subagent window cannot trim it.
     conversation = context[context.index("<Conversation>") :]
     assert "<User>Переименуй действие и запиши день</User>" in conversation
-    assert context.index("[System]: Already saved") > context.index(conversation)
+    assert context.index("<system>Already saved") > context.index(conversation)
 
 
 DIARY_DRAFT = {

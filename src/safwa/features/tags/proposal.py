@@ -21,7 +21,13 @@ from tg_agent_shell.proposals.api import (
 from ...constants import INBOX_TAG_NAME
 from ...enums import ActorType
 from .model import Tag
-from .use_cases import create_tag, delete_tag, update_tag_fields, validate_tag_change
+from .use_cases import (
+    create_tag,
+    delete_tag,
+    tag_description,
+    update_tag_fields,
+    validate_tag_change,
+)
 
 
 class TagProposalHandler:
@@ -42,6 +48,8 @@ class TagProposalHandler:
                     f'Use action mode="unlink" with the Card id and tags=["{INBOX_TAG_NAME}"] '
                     "to remove this Tag from a Card.",
                 ) from error
+        if change.values.get("description") is not None:
+            tag_description(change.values["description"])
         return PreparedChange(values=dict(change.values), expected_version=expected_version)
 
     async def apply(self, context: ApplyContext, change: ProposalChange) -> list[int]:

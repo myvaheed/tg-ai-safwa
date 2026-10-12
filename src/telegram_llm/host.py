@@ -43,6 +43,8 @@ TELEGRAM_ALBUM_LIMIT = 10
 # The most messages one `deleteMessages` call takes, and how long after it was sent a bot
 # may still delete one.
 TELEGRAM_DELETE_BATCH = 100
+# How much of the message a reply answers is read before the reply's own words.
+QUOTE_CHARS = 100
 TELEGRAM_DELETE_WINDOW = timedelta(hours=48)
 
 # What becomes of a screen that is not the live one: the text to freeze it into and the kind
@@ -376,7 +378,8 @@ class ChatHost:
         """Keep what the person said, as the chat shows it. Nothing else records it.
 
         A photo's words are its caption. What the model reads for a message whose words are
-        not all of it — a photo's label — is `reads_as`.
+        not all of it — a photo's label — is `reads_as`. A reply keeps the start of what it
+        replies to.
         """
         await self.notes.write(
             Note(
@@ -387,6 +390,7 @@ class ChatHost:
                 text=html.escape(message.text or message.caption or ""),
                 at=message.date,
                 reads_as=tuple(reads_as) if reads_as is not None else None,
+                quote=_quoted(message),
             )
         )
 
@@ -595,3 +599,17 @@ class ChatHost:
             with suppress(TelegramAPIError):
                 await bot.delete_message(chat_id, stale.message_id)
             await self.notes.forget(chat_id, stale.message_id)
+
+
+def _quoted(message: Message) -> str | None:
+    """The start of the message this one replies to: the part the person quoted, else its
+    words, cut to `QUOTE_CHARS`. None when it replies to nothing, or to a message with no
+    words."""
+    replied = message.reply_to_message
+    if replied is None:
+        return None
+    quoted = message.quote.text if message.quote is not None else replied.text or replied.caption
+    words = " ".join((quoted or "").split())
+    if len(words) > QUOTE_CHARS:
+        return words[: QUOTE_CHARS - 1].rstrip() + "…"
+    return words or None

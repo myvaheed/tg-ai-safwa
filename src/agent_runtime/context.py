@@ -13,6 +13,16 @@ from __future__ import annotations
 
 from typing import Any
 
+# What the interface says on the user's side is closed by a tag, so a model reads where it
+# ends and the person's own words begin again.
+SYSTEM_OPEN = "<system>"
+SYSTEM_CLOSE = "</system>"
+
+
+def system_text(content: str) -> str:
+    """Words the interface says, as user text that says where it ends."""
+    return f"{SYSTEM_OPEN}{content}{SYSTEM_CLOSE}"
+
 
 def system_note(content: str) -> dict[str, Any]:
     """Carry a system block as user text.
@@ -21,7 +31,7 @@ def system_note(content: str) -> dict[str, Any]:
     raises ``System message must be at the beginning`` on any later one.
     """
 
-    return {"role": "user", "content": f"[System]: {content}"}
+    return {"role": "user", "content": system_text(content)}
 
 
 def append_user_message(messages: list[dict[str, Any]], content: str) -> None:

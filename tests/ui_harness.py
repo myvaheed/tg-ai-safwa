@@ -133,6 +133,8 @@ class FakeMessage:
         self.date = datetime.now(UTC)
         self.edit_date = None
         self.forward_origin = None
+        self.reply_to_message = None
+        self.quote = None
         self.edits: list[tuple[str, object | None]] = []
         self.answers: list[str] = []
         self.answer_markups: list[object | None] = []

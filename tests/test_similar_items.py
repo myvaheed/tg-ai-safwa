@@ -183,7 +183,7 @@ async def test_pr_similar_030_only_open_items_of_each_type_are_compared(sessions
         archived = await create_check(session, title="Stretched")
         await resolve_check(session, archived.id, "missed")
         await archive_check(session, archived.id)
-        value = await create_value(session, "Health", active=False)
+        value = await create_value(session, "Health")
         tag = await create_tag(session, "Training")
         request = await create_saved_request(
             session, "Open actions", "SELECT id FROM ai_cards WHERE kind = 'action'",

@@ -103,14 +103,6 @@ async def actions_on_stages(session: AsyncSession, *stages: CardStage) -> list[C
     )
 
 
-async def goal_of(session: AsyncSession, action: Card) -> Card | None:
-    """The root Goal an Action serves, through every nested Goal, or None."""
-    parent = await session.get(Card, action.parent_id) if action.parent_id else None
-    while parent is not None and parent.parent_id is not None:
-        parent = await session.get(Card, parent.parent_id)
-    return parent
-
-
 async def finished_actions(session: AsyncSession, limit: int) -> list[Card]:
     """The Actions finished last, newest first, however long ago and archived or not."""
     return list(

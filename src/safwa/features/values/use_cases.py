@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.errors import DomainError
 
+from ...constants import DESCRIPTION_MAX_CHARS
 from ...enums import ActorType
 from ...foundation.log_events import CREATE, DELETE, UPDATE, record_log_event, snapshot
 from ...foundation.workspace import bump_workspace
@@ -23,12 +24,22 @@ from .model import CardValue, CheckValue, Value
 VALUE_CREATED = "value.created"
 
 
+def value_description(text: str) -> str:
+    """A description as it is kept: trimmed, and at most `DESCRIPTION_MAX_CHARS` long."""
+    described = text.strip()
+    if len(described) > DESCRIPTION_MAX_CHARS:
+        raise DomainError(
+            f"Value description holds at most {DESCRIPTION_MAX_CHARS} characters; "
+            f"this one has {len(described)}."
+        )
+    return described
+
+
 async def create_value(
     session: AsyncSession,
     name: str,
     description: str | None = None,
     *,
-    active: bool | None = None,
     actor: ActorType = ActorType.USER_UI,
 ) -> Value:
     normalized = name.strip()
@@ -37,11 +48,7 @@ async def create_value(
     existing = await session.scalar(select(Value).where(Value.name == normalized))
     if existing is not None:
         raise DomainError("A Value with this name already exists")
-    value = Value(
-        name=normalized,
-        description=(description or "").strip(),
-        active=bool(active),
-    )
+    value = Value(name=normalized, description=value_description(description or ""))
     session.add(value)
     await session.flush()
     await _record(session, value, CREATE, actor)
@@ -56,7 +63,6 @@ async def update_value_fields(
     *,
     name: str | None = None,
     description: str | None = None,
-    active: bool | None = None,
     actor: ActorType = ActorType.USER_UI,
 ) -> Value:
     value = await session.get(Value, value_id)
@@ -77,9 +83,7 @@ async def update_value_fields(
             raise DomainError("A Value with this name already exists")
         value.name = normalized
     if description is not None:
-        value.description = description.strip()
-    if active is not None:
-        value.active = active
+        value.description = value_description(description)
     value.version += 1
     await _record(session, value, UPDATE, actor, before)
     await bump_workspace(session)
@@ -123,13 +127,3 @@ async def _record(
     before: dict[str, Any] | None = None,
 ) -> None:
     await record_log_event(session, "value", value, value.name, operation, actor, before)
-
-
-async def set_value_focus(session: AsyncSession, value_id: int, active: bool | None = None) -> Value:
-    """Set or flip Value focus through the single Value write path."""
-    value = await session.get(Value, value_id)
-    if value is None:
-        raise DomainError("Value does not exist")
-    return await update_value_fields(
-        session, value_id, active=(not value.active) if active is None else active
-    )

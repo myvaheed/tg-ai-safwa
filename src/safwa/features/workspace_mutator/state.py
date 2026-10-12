@@ -24,6 +24,7 @@ from ..planning.api import (
     sprint_day,
     sprint_length_days,
     today_actions,
+    today_tree,
 )
 from ..planning.model import Sprint
 from ..profile.model import UserProfile
@@ -58,13 +59,7 @@ def section(heading: str, items: list[str]) -> list[str]:
 async def workspace_context(session: AsyncSession) -> StateBlocks:
     workspace = await session.get(Workspace, 1)
     profile = await session.get(UserProfile, 1)
-    active_values = list(
-        await session.scalars(
-            select(Value)
-            .where(Value.active.is_(True))
-            .order_by(Value.name)
-        )
-    )
+    values = list(await session.scalars(select(Value).order_by(Value.name)))
     tags = list(
         await session.scalars(select(Tag).order_by(Tag.name))
     )
@@ -83,8 +78,8 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
         f"Advisor instructions: {(profile.advisor_instructions if profile else '').strip()}",
         f"Effort Points: {'on' if effort_on else 'off'}",
         *section(
-            "Active Values:",
-            [described(value.name, "value", value.id, value.description) for value in active_values],
+            "Values:",
+            [described(value.name, "value", value.id, value.description) for value in values],
         ),
         *section(
             "Available Tags:", [described(tag.name, "tag", tag.id, tag.description) for tag in tags]
@@ -140,21 +135,25 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
         lines.append(f"Remaining planned effort today: {effort_label(load.effort)} EP")
         if load.unestimated:
             lines.append(f"Unestimated executions: {load.unestimated}; EP total is partial.")
-    lines.extend(
-        f"- {citation(card.title, 'card', card.id)}"
-        + (
-            f" executions={load.counts[card.id] if load.counts[card.id] is not None else '?'}"
-            if load.counts[card.id] != 1
-            else ""
+    for depth, card in await today_tree(session, today):
+        line = f"{'  ' * depth}- {citation(card.title, 'card', card.id)}"
+        if card.id not in load.counts:
+            lines.append(line + (" Subgoal" if depth else " Goal"))
+            continue
+        lines.append(
+            line
+            + (
+                f" executions={load.counts[card.id] if load.counts[card.id] is not None else '?'}"
+                if load.counts[card.id] != 1
+                else ""
+            )
+            + (f" effort={effort_label(card.effort_points)}" if effort_on else "")
+            + (
+                f" schedule_at={appointment_label(card.schedule_record.rule, card.scheduled_at, timezone, '%d.%m')}"
+                if card.scheduled_at
+                else ""
+            )
         )
-        + (f" effort={effort_label(card.effort_points)}" if effort_on else "")
-        + (
-            f" schedule_at={appointment_label(card.schedule_record.rule, card.scheduled_at, timezone, '%d.%m')}"
-            if card.scheduled_at
-            else ""
-        )
-        for card in today
-    )
     return StateBlocks(
         state="\n".join(lines),
         clock=f"Current local time: {local_now:%Y-%m-%d %H:%M} ({timezone})",

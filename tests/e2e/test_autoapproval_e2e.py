@@ -149,18 +149,18 @@ async def test_one_unlisted_change_shows_the_whole_proposal(e2e_harness):
             route_turn("workspace_mutator"),
             mutation_turn(
                 ("action", {"mode": "update", "id": card.id, "title": "Buy oat milk"}),
-                ("action", {"mode": "move", "id": card.id, "stage": "today"}),
+                ("action", {"mode": "complete", "id": card.id}),
             ),
         ],
         autoapprove=True,
     )
 
-    outcome = await advisor.handle("Rename Buy milk to Buy oat milk and do it today")
+    outcome = await advisor.handle("Rename Buy milk to Buy oat milk and finish it")
 
     assert outcome.kind is AIOutcomeKind.PROPOSAL
     [proposal] = e2e_harness.reviews.open_proposals
     assert len(proposal.changes) == 2
-    # A move is not on the list, so the reviewer is never asked about the rename either.
+    # Finishing is not on the list, so the reviewer is never asked about the rename either.
     assert len(provider.calls) == 2
     async with e2e_harness.sessions() as session:
         assert (await session.get(Card, card.id)).title == "Buy milk"
@@ -334,18 +334,41 @@ async def test_non_allowlisted_operation_does_not_call_the_reviewer(e2e_harness)
     advisor, provider = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
-            mutation_turn(("action", {"mode": "move", "id": card.id, "stage": "today"})),
+            mutation_turn(("action", {"mode": "complete", "id": card.id})),
         ],
         autoapprove=True,
     )
 
-    outcome = await advisor.handle("Move Buy milk to Today")
+    outcome = await advisor.handle("Finish Buy milk")
 
     assert outcome.kind is AIOutcomeKind.PROPOSAL
     assert len(provider.calls) == 2
     async with e2e_harness.sessions() as session:
         stored = await session.get(Card, card.id)
         assert stored is not None and stored.effective_stage == "backlog"
+
+
+async def test_a_requested_move_is_autoapproved(e2e_harness):
+    """PR-AUTO-024 — tests/brd/tg_agent_shell/proposals.feature"""
+    card = await action(e2e_harness)
+    advisor, provider = e2e_harness.advisor(
+        [
+            route_turn("workspace_mutator"),
+            mutation_turn(("action", {"mode": "move", "id": card.id, "stage": "today"})),
+            review_turn("autoapprove", "The requested stage is exact."),
+            "Moved it.",
+            "Moved it.",
+        ],
+        autoapprove=True,
+    )
+
+    outcome = await advisor.handle("Move Buy milk to Today")
+
+    assert outcome.kind is AIOutcomeKind.ANSWER
+    assert outcome.proposal_id is None
+    assert "⚡ Auto-saved" in outcome.message
+    async with e2e_harness.sessions() as session:
+        assert (await session.get(Card, card.id)).effective_stage == "today"
 
 
 async def test_autoapproval_that_cannot_decide_leaves_the_screen_standing(e2e_harness):

@@ -1,8 +1,8 @@
 """The Home dashboard: what a quiet chat is cleared down to, built from the workspace.
 
-Five blocks under the day and the time, each read through the door of the feature that owns
-it: the last changes, the Priority Goals, the Values in focus with the words written for them,
-all of Today, and the time tracked today. It is Markdown, as an answer is, and every item is
+Four blocks under the day and the time, each read through the door of the feature that owns
+it: the last changes, the Values in focus with the words written for them, all of Today under
+its Goals, and the time tracked today. It is Markdown, as an answer is, and every item is
 a citation, so it reads and links the way it does in an answer.
 """
 
@@ -20,15 +20,12 @@ from tg_agent_shell.foundation.clock import utcnow
 
 from ...foundation.log_events import CREATE, DELETE, UPDATE, LogEvent
 from ...foundation.workspace import require_workspace
-from ..cards.api import Card, effort_label, goal_of, minutes_label, tracked_between
-from ..planning.api import plan_load, today_actions
+from ..cards.api import effort_label, minutes_label, tracked_between
+from ..planning.api import plan_load, today_actions, today_tree, values_in_focus
 from ..profile.api import effort_tracking_on, time_tracking_on
-from ..values.api import values_in_focus
-from ..workspace_mutator.api import priority_goals
 
-# How many changes the dashboard opens with, and how many Priority Goals follow them.
+# How many changes the dashboard opens with.
 HOME_LOG_SHOWN = 5
-HOME_GOALS_SHOWN = 5
 
 _INDENT = "    "
 
@@ -73,7 +70,6 @@ async def dashboard_text(
     blocks = (
         f"**🏠 {local:%a, %d %b · %H:%M}**",
         await _changes(session, local),
-        await _goals(session, local),
         await _values(session, words),
         await _today(session, local),
         await _time(session, local),
@@ -81,29 +77,12 @@ async def dashboard_text(
     return "\n\n".join(block for block in blocks if block)
 
 
-async def _goals(session: AsyncSession, local: datetime) -> str:
-    """The first Priority Goals, in the order Safwa is handed them."""
-    goals = (await priority_goals(session, local))[:HOME_GOALS_SHOWN]
-    if not goals:
-        return ""
-    return "\n".join(
-        ["**🎯 Priority Goals**", *(_cite("card", goal.id, goal.title) for goal in goals)]
-    )
-
-
 async def _today(session: AsyncSession, local: datetime) -> str:
-    """Every Action in Today, in Today's order, each under its Goal."""
+    """Every Action in Today, in Today's order, each under its Goal and Subgoal."""
     cards = await today_actions(session)
     if not cards:
         return "**☀️ Today** · Nothing is planned for today."
     load = await plan_load(session, cards, start_date=local.date(), end_date=local.date())
-    goals: dict[int, Card] = {}
-    under: dict[int | None, list[Card]] = {}
-    for action in cards:
-        goal = await goal_of(session, action)
-        if goal is not None:
-            goals[goal.id] = goal
-        under.setdefault(goal.id if goal else None, []).append(action)
     planned = f"Planned: {'at least ' if load.unknown_schedules else ''}{load.actions} Actions"
     if await effort_tracking_on(session):
         planned += f" · {effort_label(load.effort)} EP"
@@ -112,15 +91,11 @@ async def _today(session: AsyncSession, local: datetime) -> str:
     if load.unknown_schedules:
         planned += " · Schedule quantities are unknown"
     lines = [f"**☀️ Today · {len(cards)}**", planned]
-    for goal_id, actions in sorted(under.items(), key=lambda item: item[0] is None):
-        indent = ""
-        if goal_id is not None:
-            lines.append(_cite("card", goal_id, goals[goal_id].title))
-            indent = _INDENT
-        for action in actions:
-            quantity = load.counts[action.id]
-            suffix = f" × {quantity if quantity is not None else '?'}" if quantity != 1 else ""
-            lines.append(f"{indent}{_cite('card', action.id, action.title)}{suffix}")
+    for depth, card in await today_tree(session, cards):
+        # Only an Action has executions to count; a Goal stands for the Actions under it.
+        quantity = load.counts.get(card.id, 1)
+        suffix = f" × {quantity if quantity is not None else '?'}" if quantity != 1 else ""
+        lines.append(f"{_INDENT * depth}{_cite('card', card.id, card.title)}{suffix}")
     return "\n".join(lines)
 
 
@@ -129,7 +104,7 @@ async def _values(session: AsyncSession, words: Mapping[int, str]) -> str:
     if not values:
         return ""
     lines = ["**💎 Values in focus**"]
-    for value in values:
+    for value, _ in values:
         said = words.get(value.id)
         cited = _cite("value", value.id, value.name)
         lines.append(f"{cited} — {_plain(said)}" if said else cited)

@@ -1,4 +1,4 @@
-Feature: Cards
+﻿Feature: Cards
   A Card is one thing the owner means to do. Its kind is Goal or Action.
   Goals form a tree; a Goal with a parent is displayed as a Subgoal, and Actions are its leaves.
   What a Card may carry depends on its kind.
@@ -395,22 +395,23 @@ Feature: Cards
     And rolling back completion asks nothing
     But with Effort Points off, or the reminder switched off, nothing is asked, and a question not yet said is not said
 
-  Scenario: CD-BOARD-046 — The Dashboard shows every stage side by side
+  Scenario: CD-BOARD-046 — The Dashboard shows Sprint, Today and Done side by side
     Given Cards in the Backlog, the Sprint, Today and Done
     When the owner opens 🗂 Dashboard from the menu
-    Then one table shows them, a column per stage in this order: Backlog, Sprint, Today, Done
+    Then one table shows them, a column per stage in this order: Sprint, Today, Done
     And each column heading says how many Cards the stage holds, and the column lists the 10 changed last, newest first (BOARD_ROWS = 10)
     And each title is a link that opens its Card in place of the Dashboard (SC-LINK-013)
-    And it shows Actions, and its toggle switches to Goals and Subgoals, each in the stage the work under it gives it
+    And it shows Actions, and one button "✓ ⭐️ Actions | 🎯 Goals" switches to Goals and Subgoals, each in the stage the work under it gives it
+    And on Goals that button reads "⭐️ Actions | 🎯 Goals ✓" and switches back
     And an archived Card is in no column
-    And its 📚 Backlog button opens the Backlog
+    And the Backlog is no column: its 📚 Backlog button says how many Cards it holds and opens it
 
   Scenario: CD-BACKLOG-047 — The Backlog is a numbered list, ten to a page
     Given Actions in the Backlog
     When the owner opens the Backlog from the Dashboard
     Then it lists them in the order of every Card list but Today, 10 to a page (BACKLOG_PAGE_SIZE = 10), numbered across pages
     And each line is a link that opens its Card in place of the Backlog, followed only by what is unusual about it: a Priority other than Medium, its effort while Effort Points are on, its appointment, its Deadline, and Blocked
-    And ◀ Previous and Next ▶ turn the page (SC-PAGE-007), and its toggle switches between Actions and Goals
+    And ◀ Previous and Next ▶ turn the page (SC-PAGE-007), and the same one Actions | Goals button as the Dashboard's switches between them, from page 1
     And ↩️ Back returns to the Dashboard
 
   Scenario: CD-BUTTON-048 — A Card on a button is named by emoji, never by the word for its kind

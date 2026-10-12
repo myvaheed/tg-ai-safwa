@@ -120,6 +120,8 @@ class QueueTestMessage:
         self.date = datetime.now(UTC)
         self.edit_date = None
         self.forward_origin = None
+        self.reply_to_message = None
+        self.quote = None
         self.text = text
         self.owner_id = owner_id
         self.answer_as_new = answer_as_new

@@ -1,4 +1,4 @@
-Feature: Home
+﻿Feature: Home
   Home is the way in. It keeps no item of its own: it is the dashboard with the menu every
   other screen is offered from, the door a link Safwa wrote comes back through, and what a
   owner opens explicitly with /start.
@@ -58,20 +58,19 @@ Feature: Home
 
   Scenario: HM-ACTIONS-006 — The dashboard shows every Action in Today
     Given open Actions in Today
-    Then every one of them is on the dashboard, in Today's order (PL-KEY-025), each a link that opens it
-    And the heading says Today, and how many Card rows it holds
+    Then every one of them is on the dashboard under its Goal and Subgoal, as the Today tree of PL-KEY-025 orders them, each a link that opens it
+    And each Goal and Subgoal is a link too, and appears once
+    And the heading says Today, and how many Actions it holds
     And Today shows planned execution counts, and EP load while enabled, including repeats (PL-REPEAT-031, PL-REPEAT-033)
-    And an Action under a Goal is shown under its root Goal, skipping every nested Goal between them
-    And the Goals come in the order of their first Action, and the Actions with no Goal after them
     When Today holds none
     Then the dashboard says nothing is planned for today, and no Sprint or Backlog is shown in its place
 
   Scenario: HM-VALUES-007 — Each Value in focus carries a few words written for it
-    Given Values in focus
+    Given Values in focus (VL-FOCUS-001)
     Then each is on the dashboard as a link that opens it, with one or two sentences under it (MOTIVATION_MAX_CHARS = 200)
-    And the words for every Value are written in one request with reasoning off, from those Values, About me, the first 5 Goals in priority_goals order (HOME_GOALS_SHOWN = 5) with their priorities and deadlines, the current Sprint's Success criteria, Today Actions in Today's order, the 10 Actions finished last (MOTIVATION_DONE_ACTIONS = 10) and the 2 last Diary entries with words (MOTIVATION_DIARY_ENTRIES = 2), however long ago
+    And the words for every Value are written in one request with reasoning off, from those Values each with the Today Cards that carry it, About me, the current Sprint's Success criteria, Today as its tree (PL-KEY-025), the 10 Actions finished last (MOTIVATION_DONE_ACTIONS = 10) and the 2 last Diary entries with words (MOTIVATION_DIARY_ENTRIES = 2), however long ago
     And with no Sprint running, the session says so instead of reading the next Sprint's draft criteria
-    And higher-ranked Goals relevant to a Value and Today Actions that serve the Sprint's criteria guide the words
+    And the Today Cards that carry a Value and Today Actions that serve the Sprint's criteria guide the words
     And the next request reads the last successful generation by Value and asks for a different angle and wording without repeating or merely rephrasing its message
     And that generation lasts until the bot restarts; fresh words reused and failed requests do not replace it
     And a dashboard drawn within 10 minutes of the words being written shows them again without a request (MOTIVATION_FRESH_MINUTES = 10)
@@ -126,15 +125,10 @@ Feature: Home
     When the owner acts while the chat is being cleared
     Then the clearing stops, and what they did is taken up
 
-  Scenario: HM-GOALS-013 — The dashboard names the first 5 Priority Goals
-    Given open Goals
-    Then the first 5 are on the dashboard (HOME_GOALS_SHOWN = 5), in the order Safwa is handed them (WS-CONTEXT-008), each a link that opens it
-    When no Goal is open
-    Then the dashboard has no Goals block
-
   Scenario: HM-ORDER-014 — The dashboard reads in one order
     Given changes, open Goals, Values in focus, Actions in Today, and Time tracking on
-    Then the dashboard reads, top to bottom: the day and the time it was drawn, the last changes, the Priority Goals, the Values in focus, Today, and the time tracked today
+    Then the dashboard reads, top to bottom: the day and the time it was drawn, the last changes, the Values in focus, Today, and the time tracked today
+    And it has no Priority Goals block: a Goal is on it only as Today shows it
 
   Scenario: HM-LOCK-015 — Automatic clearing protects access while Reminders remain visible
     Given Secret word is set in Profile

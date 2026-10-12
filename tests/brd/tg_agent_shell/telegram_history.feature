@@ -1,4 +1,4 @@
-Feature: The conversation in Telegram
+﻿Feature: The conversation in Telegram
   Safwa keeps the private chat as it happens: every message it sends, and every message of the
   owner's that is conversation, with the kind of message each one is. Before every answer it
   reads the conversation back out of what it kept, never out of Telegram.
@@ -117,8 +117,19 @@ Feature: The conversation in Telegram
     Given the interface wrote into the chat itself — a review that closed or was interrupted,
       a Card created by hand, the onboarding notice, words no turn of Safwa's produced
     When Safwa reads the conversation back
-    Then each is on the owner's side, marked as a system line
+    Then each is on the owner's side, between <system> and </system>, its lines all inside them
     And none of it reads as something Safwa said
+    And the owner's words after it read as theirs, to the Advisor and to a subagent alike
+
+  Scenario: TG-QUOTE-033 — A reply carries the start of the message it answers
+    Given the owner replies in Telegram to a message in the chat, Safwa's or their own
+    When Safwa reads the conversation back
+    Then the reply's words follow <quote> and </quote> holding the first 100 characters of
+      that message, cut with "…" (QUOTE_CHARS = 100)
+    And when the owner quoted a part of that message, the part they quoted is held instead
+    And a reply to a message with no words carries no quote
+    And an edit the owner makes to the reply keeps its quote
+    And the Advisor and a subagent reading the conversation are told what <quote> holds
 
   Scenario: TG-THINK-017 — Safwa's reasoning goes back between its calls and is never kept
     Given the model returned its reasoning beside a call it made

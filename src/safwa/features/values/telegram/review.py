@@ -21,7 +21,6 @@ class ValueProposalPresenter(NamedItemPresenter):
         return {
             "name": item.name,
             "description": item.description,
-            "active": item.active,
         }
 
 

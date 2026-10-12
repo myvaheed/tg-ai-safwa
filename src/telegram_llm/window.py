@@ -27,8 +27,11 @@ from .text import telegram_html_to_text
 # normally stops it far sooner.
 SCAN_LIMIT = 2_000
 
-# How an event reads on the person's side: the interface speaking, not the person.
-EVENT_LABEL = "[System]:"
+# How an event reads on the person's side: the interface speaking, not the person, closed so
+# a model reads where it ends.
+EVENT_TAG = "system"
+# What holds the start of the message a reply answers, read before the reply's words.
+QUOTE_TAG = "quote"
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +85,8 @@ class HistoryEntry:
     # What the model reads for this message when it is not `text` alone, in the provider's
     # shape: an answer's calls and their results before its words.
     turn: tuple[Mapping[str, Any], ...] = ()
+    # The start of the message the person replied to.
+    quote: str | None = None
 
 
 @dataclass(frozen=True)
@@ -214,8 +219,11 @@ class ChatWindow:
                 # Beside the edge, a message is context for what the edge stands for, and
                 # its words are all of that.
                 turn=() if boundary is not None else turn,
+                quote=note.quote,
             )
-            cost = self.count_tokens(_turn_text(entry.turn) if entry.turn else entry.text)
+            cost = self.count_tokens(
+                _turn_text(entry.turn) if entry.turn else (entry.quote or "") + entry.text
+            )
             if (selected or before_edge) and spent + cost > budget:
                 break
             spent += cost
@@ -285,9 +293,10 @@ class ChatWindow:
                 # Packed into the person's turn beside the edge, so each says whose it is.
                 person(f"[{entry.role.title()}]: {entry.text}", entry.created_at)
             elif entry.role == "system":
-                person(f"{EVENT_LABEL} {entry.text}", entry.created_at)
+                person(f"<{EVENT_TAG}>{entry.text}</{EVENT_TAG}>", entry.created_at)
             elif entry.role == "user" and not entry.turn:
-                person(entry.text, entry.created_at)
+                quote = f"<{QUOTE_TAG}>{entry.quote}</{QUOTE_TAG}> " if entry.quote else ""
+                person(quote + entry.text, entry.created_at)
             else:
                 for message in entry.turn or ({"role": entry.role, "content": entry.text},):
                     if message.get("role") == "user":

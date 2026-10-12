@@ -17,6 +17,7 @@ from ui_harness import history_source
 
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
 from safwa.bootstrap.modules import FEATURE_CALLBACK_ACTIONS, FEATURE_COMMANDS, SCREENS
+from safwa.features.cards.use_cases import create_card
 from safwa.features.home.api import menu_markup
 from safwa.features.home.hooks import HOME_HOOK, HOME_LOOK_EVERY
 from safwa.features.home.motivation import Motivator
@@ -155,7 +156,8 @@ async def _kinds(harness) -> dict[int, str]:
 async def _a_chat(harness) -> None:
     """What a morning leaves: a screen, the owner's words, and an answer."""
     async with harness.sessions() as session:
-        await create_value(session, "Health", active=True)
+        health = await create_value(session, "Health")
+        await create_card(session, kind="action", title="Walk", stage="today", value_ids={health.id})
         await session.commit()
     # Three days old: past what Telegram lets a bot delete.
     await _keep(

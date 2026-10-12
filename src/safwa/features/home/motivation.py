@@ -25,12 +25,9 @@ from tg_agent_shell.foundation.clock import utcnow
 from ...foundation.workspace import require_workspace
 from ..cards.api import finished_actions
 from ..diary.api import last_entries
-from ..planning.api import today_actions
+from ..planning.api import today_actions, today_tree, values_in_focus
 from ..planning.model import Sprint
 from ..profile.api import about_me
-from ..values.api import values_in_focus
-from ..workspace_mutator.api import priority_goals
-from .dashboard import HOME_GOALS_SHOWN
 
 logger = logging.getLogger(__name__)
 
@@ -45,9 +42,9 @@ MOTIVATION_FRESH_MINUTES = 10
 
 MOTIVATION_PROMPT = (
     "Write a few words for each Value that move the user to live by it today.\n"
-    "Tie each Value to one real thing from About me, the Priority Goals, the Sprint's "
-    "Success criteria, Today Actions, the finished Actions or the Diary.\n"
-    "Prefer higher-ranked Goals when they fit the Value.\n"
+    "Tie each Value to the Today Cards that carry it.\n"
+    "Also use About me, the Sprint's Success criteria, the finished Actions or the Diary "
+    "when they fit.\n"
     "Connect a relevant Today Action to the Sprint's Success criteria.\n"
     "Do not invent an Action or a connection to a Value.\n"
     "Read Previous motivation for each Value; use a different angle and wording.\n"
@@ -83,32 +80,25 @@ async def owner_context(session: AsyncSession) -> str:
     """What the session reads before the Values."""
     workspace = await require_workspace(session)
     local_now = utcnow().astimezone(ZoneInfo(workspace.timezone))
-    goals = (await priority_goals(session, local_now))[:HOME_GOALS_SHOWN]
     sprint = (
         await session.get(Sprint, workspace.active_sprint_id)
         if workspace.active_sprint_id else None
     )
-    today = await today_actions(session, now=local_now)
+    today = await today_tree(session, await today_actions(session, now=local_now))
     done = await finished_actions(session, MOTIVATION_DONE_ACTIONS)
     days = await last_entries(session, MOTIVATION_DIARY_ENTRIES)
     lines = [
         "About me:", (await about_me(session)).strip() or "Nothing written.", "",
-        f"Today: {local_now:%Y-%m-%d}", "Priority Goals, highest focus first:",
+        f"Today: {local_now:%Y-%m-%d}",
     ]
-    lines += [
-        f"- {goal.title} (priority={goal.priority})"
-        + (
-            f" deadline={goal.deadline_at.astimezone(local_now.tzinfo):%Y-%m-%d %H:%M}"
-            if goal.deadline_at else ""
-        )
-        for goal in goals
-    ] or ["None."]
     lines += [
         "", "Current Sprint's Success criteria:",
         sprint.success_criteria.strip() if sprint else "No Sprint is running.",
     ]
-    lines += ["", "Today Actions, in Today's order:"]
-    lines += [f"- {card.title} (priority={card.priority})" for card in today] or ["None."]
+    lines += ["", "Today Actions, in Today's order, each under its Goal and Subgoal:"]
+    lines += [
+        f"{'  ' * depth}- {card.title} (priority={card.priority})" for depth, card in today
+    ] or ["None."]
     lines += ["", "Actions finished last, newest first:"]
     lines += [f"- {card.completed_at:%Y-%m-%d} {card.title}" for card in done] or ["None."]
     lines += ["", "Diary, newest first:"]
@@ -164,20 +154,22 @@ class Motivator:
     async def _ask(self, sessions: async_sessionmaker[AsyncSession]) -> dict[int, str]:
         async with sessions() as session:
             values = [
-                (value.id, value.name, value.description)
-                for value in await values_in_focus(session)
+                (value.id, value.name, value.description, [card.title for card in cards])
+                for value, cards in await values_in_focus(session)
             ]
             if not values:
                 return {}
             shared = await owner_context(session)
         listed = [
-            f"{number}. {name}" + (f" — {about}" if about else "")
-            for number, (_, name, about) in enumerate(values, start=1)
+            f"{number}. {name}"
+            + (f" — {about}" if about else "")
+            + f" (carried today by: {'; '.join(titles)})"
+            for number, (_, name, about, titles) in enumerate(values, start=1)
         ]
         last = self._kept[1] if self._kept else {}
         previous = [
             f"- Value {number}: {last[value_id]}"
-            for number, (value_id, _, _) in enumerate(values, start=1)
+            for number, (value_id, _, _, _) in enumerate(values, start=1)
             if value_id in last
         ]
         try:
