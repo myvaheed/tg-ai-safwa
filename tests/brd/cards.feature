@@ -304,6 +304,21 @@
     And the same one still without an Action is asked about again the next morning
     And a check that fires again before the question is said adds no second one
 
+  Scenario: CD-GOAL-051 — A new Goal gets one small check of its result and Done before any question
+    Given a Goal or Subgoal is created, by hand or by a saved proposal
+    When the change commits
+    Then one mini session reads only its title, Note, Deadline and parent Goal
+    And it judges whether the result is specific and its Done observable, not whether the Goal is attainable or worth doing
+    And a clear Goal produces no question or change
+    And an unclear Goal asks what result it is and how its Done is seen, to write in Note
+    And the Advisor may suggest a possible criterion and ask whether it matches the owner's meaning
+    And a suggestion is not treated as the owner's criterion, and nothing changes before the owner answers
+    And creating an Action or a Goal carrying "Inbox", a rollback, or editing a Goal starts no review
+    And a Goal changed, closed or deleted during review produces no queued request
+    And one request asks about every Goal still open and still without "Inbox"
+    And the request waits like any hook request while access is locked
+    And switching Goal clarification off in Profile → Hooks stops the check and drops what is pending
+
   Scenario: CD-TODAY-036 — A day holding more than it is meant to is asked about
     Given Effort Points are on in the Profile
     Given an Action enters Today — created there, moved there, or opened there as the next instance of a finished repeating one — by a proposal the owner saved or by hand

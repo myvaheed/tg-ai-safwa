@@ -39,6 +39,7 @@ from tg_agent_shell.usage.recorder import UsageRecorder
 
 from ..config import Settings
 from ..features.advisor.agent import ADVISOR_ROW_LIMITS, ADVISOR_VIEWS
+from ..features.cards.goal_review import GoalReviewer
 from ..features.diagnostics.module import SHOW_ANSWER_SOURCE
 from ..features.home.motivation import Motivator
 from ..features.memory.absorb import PatternReviewer
@@ -89,6 +90,7 @@ class SafwaFeatures:
     summary: DialogueSummary
     memory_reviewer: PatternReviewer
     key_actions: KeyActions
+    goal_reviewer: GoalReviewer
     value_link_reviewer: ValueLinkReviewer
     analyst: SprintAnalyst
     motivator: Motivator
@@ -310,6 +312,7 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
             summary=summary,
             memory_reviewer=PatternReviewer(provider),
             key_actions=KeyActions(provider),
+            goal_reviewer=GoalReviewer(provider),
             value_link_reviewer=ValueLinkReviewer(provider),
             analyst=SprintAnalyst(provider),
             motivator=Motivator(provider, spawn=spawn),

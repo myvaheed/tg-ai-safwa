@@ -8,6 +8,7 @@ from tg_agent_shell.telegram.contributions import ScreenCommand
 from tg_agent_shell.telegram.manifest import FeatureModule, ProposalContribution
 
 from . import agent, proposal, telegram, views
+from .goal_review import GOAL_CLARIFICATION_HOOK as GOAL_CLARIFICATION_HOOK
 from .hooks import BLOCKER_HOOK as BLOCKER_HOOK
 from .hooks import EFFORT_TRACKING_REMINDER_HOOK as EFFORT_TRACKING_REMINDER_HOOK
 from .hooks import EMPTY_PARENTS_HOOK as EMPTY_PARENTS_HOOK

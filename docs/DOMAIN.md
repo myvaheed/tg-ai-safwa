@@ -33,6 +33,15 @@ or reframed Goal is proposed; targets, resources and deadlines are never invente
 works backward from results to Actions and assesses progress toward results, not Action counts.
 These are agent instructions, not restrictions on manual Card editing or ordinary updates.
 
+After a Goal or Subgoal is created, by hand or by a saved proposal, a mini session reads its
+title, Note, Deadline and parent Goal and judges only the S and M: whether the result is
+specific and its Done observable. Attainable and meaningful are the owner's to know, so the
+check leaves them to the conversation. A clear Goal says nothing; an unclear one is kept by
+the hook "Goal clarification" (`cards.goal_clarification`), rechecked before keeping, and one
+request asks to clarify Note for every Goal still open. A Goal carrying the Inbox Tag is a
+capture and is not checked. Only creation starts the check: the Note written from the owner's
+answer is an update, so the answer never asks again. Nothing changes before the owner answers.
+
 - The two Card kinds are Goal and Action. A Goal may be root-level or under any Goal;
   a Goal with a parent is displayed as a Subgoal, without changing its kind. An Action may
   be root-level or under any Goal and has no children. The tree has at most 7 levels
