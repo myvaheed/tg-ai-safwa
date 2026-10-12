@@ -1,5 +1,6 @@
 """Calendar executions, rather than open Card rows, consume the plan's capacity."""
 
+import re
 from datetime import timedelta
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -318,7 +319,8 @@ async def test_weekly_quota_counts_its_share_and_ep_off_still_counts_executions(
         await session.commit()
     message = FakeMessage(102, bot_message=False)
     await render_sprint(message, services_for(sessions))
-    assert "Taken <b>3 Actions</b>" in message.answers[-1] and "EP" not in message.answers[-1]
+    visible = re.sub(r"<[^>]+>", "", message.answers[-1])
+    assert "Taken 3 Actions" in visible and "EP" not in visible
 
 
 async def test_schedule_change_refreshes_only_open_work(sessions):
