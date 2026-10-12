@@ -304,18 +304,20 @@
     And the same one still without an Action is asked about again the next morning
     And a check that fires again before the question is said adds no second one
 
-  Scenario: CD-GOAL-051 — A new Goal gets one small check of its result and Done before any question
+  Scenario: CD-GOAL-051 — A new Goal gets one small check before any question
     Given a Goal or Subgoal is created, by hand or by a saved proposal
     When the change commits
     Then one mini session reads only its title, Note, Deadline and parent Goal
-    And it judges whether the result is specific and its Done observable, not whether the Goal is attainable or worth doing
+    And it answers clear for one concrete result that takes more than one day and whose Done is observable
+    And it answers unclear, with what is unclear and one advice, for a direction, an ongoing practice, work for one day, two results, or a Done nothing shows
+    And it does not judge whether the Goal is attainable or worth doing, or how a Subgoal serves its parent
     And a clear Goal produces no question or change
-    And an unclear Goal asks what result it is and how its Done is seen, to write in Note
-    And the Advisor may suggest a possible criterion and ask whether it matches the owner's meaning
-    And a suggestion is not treated as the owner's criterion, and nothing changes before the owner answers
     And creating an Action or a Goal carrying "Inbox", a rollback, or editing a Goal starts no review
     And a Goal changed, closed or deleted during review produces no queued request
-    And one request asks about every Goal still open and still without "Inbox"
+    And one request carries every Goal still open and still without "Inbox", each with its advice, and tells the Advisor to read current data before asking
+    And the Advisor says it looked at the new Goal again and it could be improved, says what could be clearer, and asks one question following its advice
+    And it offers each suggestion as a possibility and to update the Goal, and nothing changes before the owner answers
+    And the answer writes the criterion in Note, or proposes what the Goal should be instead
     And the request waits like any hook request while access is locked
     And switching Goal clarification off in Profile → Hooks stops the check and drops what is pending
 

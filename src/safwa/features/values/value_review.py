@@ -65,8 +65,11 @@ CLARIFY_REQUEST = (
     "{values}\n"
     "Read the current Values first.\n"
     "If a Value is gone or its description already answers the advice, skip it.\n"
-    "Ask one short question per Value, following its advice.\n"
+    "Say that you looked at the new Values again and they could be improved.\n"
+    "For each Value, say briefly what could be clearer, then ask one short question, "
+    "following its advice.\n"
     "Offer each suggestion as a possibility, not as the user's meaning.\n"
+    "Offer to update the Value with their answer.\n"
     "When they answer, route to workspace_mutator to update the Value or propose a Goal.\n"
     "Change nothing until they answer."
 )

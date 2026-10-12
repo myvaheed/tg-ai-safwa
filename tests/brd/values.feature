@@ -66,7 +66,8 @@
     And a rename, a new description or a rollback starts no review
     And a Value renamed, described anew or deleted during review produces no queued request
     And one request carries every Value still there, each with its advice, and tells the Advisor to read current data before asking
-    And the Advisor asks one question per Value, offers each suggestion as a possibility, and nothing changes before the owner answers
+    And the Advisor says it looked at the new Value again and it could be improved, says what could be clearer, and asks one question following its advice
+    And it offers each suggestion as a possibility and to update the Value, and nothing changes before the owner answers
     And the answer updates the Value, or proposes a Goal for a Value that is a result
     And the request waits like any hook request while access is locked
     And switching Value clarification off in Profile → Hooks stops the check and drops what is pending

@@ -34,11 +34,15 @@ works backward from results to Actions and assesses progress toward results, not
 These are agent instructions, not restrictions on manual Card editing or ordinary updates.
 
 After a Goal or Subgoal is created, by hand or by a saved proposal, a mini session reads its
-title, Note, Deadline and parent Goal and judges only the S and M: whether the result is
-specific and its Done observable. Attainable and meaningful are the owner's to know, so the
-check leaves them to the conversation. A clear Goal says nothing; an unclear one is kept by
-the hook "Goal clarification" (`cards.goal_clarification`), rechecked before keeping, and one
-request asks to clarify Note for every Goal still open. A Goal carrying the Inbox Tag is a
+title, Note, Deadline and parent Goal and answers clear, or unclear with what is unclear and
+one advice: whether it names one concrete result rather than a direction, an ongoing practice
+or two results, takes more than one day, and has an observable Done. Attainable and
+meaningful are the owner's to know, so the check leaves them to the conversation. A clear
+Goal says nothing; an unclear one is kept with its advice by the hook "Goal clarification"
+(`cards.goal_clarification`), rechecked before keeping, and one request asks about every
+Goal still open: the Advisor says it looked at the new Goals again and they could be
+improved, follows each advice, and writes the criterion in Note or proposes what the Goal
+should be instead. A Goal carrying the Inbox Tag is a
 capture and is not checked. Only creation starts the check: the Note written from the owner's
 answer is an update, so the answer never asks again. Nothing changes before the owner answers.
 
@@ -188,7 +192,8 @@ description and answers clear, or unclear with what is unclear and one advice, w
 hold a short exercise such as asking "what for?" again. Whether the Value is right for the
 owner is theirs to know. A clear Value says nothing; an unclear one is kept with its advice
 by the hook "Value clarification" (`values.value_clarification`), rechecked before keeping,
-and one request asks about every Value still there, following each advice. Only creation
+and one request asks about every Value still there: the Advisor says it looked at the new
+Values again and they could be improved, and follows each advice. Only creation
 starts the check: the description written from the owner's answer is an update. A Value
 that is a result may be proposed as a Goal. Nothing changes before the owner answers.
 

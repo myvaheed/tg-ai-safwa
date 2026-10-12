@@ -25,7 +25,7 @@ async def test_saved_mutator_goal_is_reviewed_and_its_note_written_asks_nothing_
 
     async def complete(request):
         calls.append(request)
-        return mutation_turn(("goal_review", {"clear": False}))
+        return mutation_turn(("unclear", {"advice": "Done is not observable. Ask what result shows it."}))
 
     registry = HookRegistry.of((GOAL_CLARIFICATION_HOOK,), owners=frozenset({"cards"}))
     sink = bind_committed(sessions, registry, resources=SimpleNamespace(

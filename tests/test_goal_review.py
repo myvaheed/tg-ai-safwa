@@ -11,7 +11,11 @@ from sqlalchemy import select
 from llm_gateway import CompletionTurn, ToolCall
 from safwa.bootstrap.modules import REGISTRY
 from safwa.constants import INBOX_TAG_NAME
-from safwa.features.cards.goal_review import GOAL_CLARIFICATION_HOOK, GoalReviewer
+from safwa.features.cards.goal_review import (
+    GOAL_CLARIFICATION_HOOK,
+    GOAL_REVIEW_PROMPT,
+    GoalReviewer,
+)
 from safwa.features.cards.use_cases import (
     CARD_CREATED,
     delete_one_card,
@@ -28,6 +32,8 @@ from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.hooks.contracts import OnCommitted, RunAndAdvise
 from tg_agent_shell.hooks.registry import HookRegistry
 
+ADVICE = "Done is not observable. Ask what result shows it, such as passing DELE B2."
+
 
 class ReviewProvider:
     def __init__(self, clear=False, *, wait=False):
@@ -42,12 +48,12 @@ class ReviewProvider:
         self.calls.append(request)
         self.started.set()
         await self.release.wait()
-        return CompletionTurn(
-            content="",
-            tool_calls=(ToolCall(
-                id="review", name="goal_review", arguments_json=json.dumps({"clear": self.clear})
-            ),),
+        call = (
+            ToolCall(id="review", name="clear", arguments_json="{}")
+            if self.clear
+            else ToolCall(id="review", name="unclear", arguments_json=json.dumps({"advice": ADVICE}))
         )
+        return CompletionTurn(content="", tool_calls=(call,))
 
 
 def hooks():
@@ -106,6 +112,20 @@ def test_one_hook_checks_a_new_goal_under_its_own_switch():
     assert f"{GOAL_CLARIFICATION_HOOK.title} in Profile → Hooks" in MANUAL
 
 
+def test_the_review_knows_every_criterion_and_advises():
+    """CD-GOAL-051 — tests/brd/cards.feature"""
+    for criterion in (
+        "names one concrete result, not a direction",
+        "is a result, not an ongoing practice",
+        "takes more than one day; work for one day is an Action",
+        "has an observable Done",
+        "Two results. Suggest two Goals.",
+        "Do not judge whether the Goal is attainable or worth doing.",
+    ):
+        assert criterion in GOAL_REVIEW_PROMPT
+    assert "parent Goal's result" not in GOAL_REVIEW_PROMPT
+
+
 @pytest.mark.parametrize("subgoal", [False, True])
 @pytest.mark.parametrize("clear", [True, False])
 async def test_new_goal_is_reviewed_alone_and_asked_about_only_when_unclear(
@@ -126,7 +146,7 @@ async def test_new_goal_is_reviewed_alone_and_asked_about_only_when_unclear(
         request = provider.calls[0]
         assert len(request.messages) == 2
         assert request.reasoning_effort == "none"
-        assert [tool["function"]["name"] for tool in request.tools] == ["goal_review"]
+        assert [tool["function"]["name"] for tool in request.tools] == ["clear", "unclear"]
         context = json.loads(request.messages[1]["content"])
         assert context == {
             "kind": "Subgoal" if subgoal else "Goal",
@@ -140,8 +160,11 @@ async def test_new_goal_is_reviewed_alone_and_asked_about_only_when_unclear(
         if not clear:
             assert cues[0].hook == GOAL_CLARIFICATION_HOOK.name and cues[0].text is None
             [words] = await say_waiting(sessions, registry)
-            assert f"#{goal_id} «Learn Spanish»" in words
-            assert "Note" in words
+            kind = "Subgoal" if subgoal else "Goal"
+            assert f"#{goal_id} «Learn Spanish» ({kind}): {ADVICE}" in words
+            assert "you looked at the new Goals again and they could be improved" in words
+            assert "Offer to update the Goal with their answer" in words
+            assert "write the criterion in Note, or to propose what it should be instead" in words
             assert "Read the current Goals first" in words
             assert "Change nothing until they answer" in words
             assert await pending(sessions) == []

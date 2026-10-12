@@ -162,6 +162,8 @@ async def test_new_value_is_reviewed_alone_and_asked_about_only_when_unclear(ses
             [words] = await say_waiting(sessions, registry)
             assert f"- [Money](value:{value_id}): {ADVICE}" in words
             assert "Read the current Values first" in words
+            assert "you looked at the new Values again and they could be improved" in words
+            assert "Offer to update the Value with their answer" in words
             assert "update the Value or propose a Goal" in words
             assert "Change nothing until they answer" in words
             assert await pending(sessions) == []
