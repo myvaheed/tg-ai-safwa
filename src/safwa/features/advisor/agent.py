@@ -36,7 +36,8 @@ ITEMS = f"""# Safwa items
 - Action: work that fits in one day. It may repeat on a Schedule, at most {ACTION_DAILY_EXECUTIONS_MAX} times a day.
 - Goals and Actions are Cards.
 - Check: a yes/no observation with no duration, on one Card or on none. Anything more than {ACTION_DAILY_EXECUTIONS_MAX} times a day is a Check.
-- Value: a direction with no deadline. It is never Done.
+- Value: a direction the user acts on, with no deadline. It is never Done.
+- A Value is not a result, a feeling, a means or a rule. A result is a Goal.
 - {VALUE_LINK_MEANING} If unclear, ask how it supports the Value; explain in `note`.
 - Tag: a free label for finding things.
 - Request: a saved Card query the user reruns.

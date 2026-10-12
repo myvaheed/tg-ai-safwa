@@ -12,6 +12,7 @@ from .hooks import VALUE_LINK_HOOK as VALUE_LINK_HOOK
 from .hooks import VALUE_UNLINK_HOOK as VALUE_UNLINK_HOOK
 from .model import Value
 from .telegram import VALUE_CALLBACK_ACTIONS, command_values
+from .value_review import VALUE_CLARIFICATION_HOOK as VALUE_CLARIFICATION_HOOK
 
 MODULE = FeatureModule(
     name="values",

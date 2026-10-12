@@ -370,11 +370,10 @@ async def schedule_plan_request(
 
     Read on the workspace's local days as the question is about to be said: an appointment
     today or tomorrow outside Today, one by the Sprint's last day in Backlog, and a daily
-    quota with executions left today outside Today. In Planning no Sprint runs, so it asks nothing.
+    quota with executions left today outside Today. In Planning no Sprint runs, so only
+    today and tomorrow count.
     """
     end = await active_sprint_end_date(session)
-    if end is None:
-        return None
     tz = await workspace_zone(session)
     moment = now or utcnow()
     today = moment.astimezone(tz).date()
@@ -396,7 +395,7 @@ async def schedule_plan_request(
         if card.scheduled_at is not None and card.scheduled_at >= moment:
             when = card.scheduled_at.astimezone(tz)
             if (when.date() <= near and stage is not CardStage.TODAY) or (
-                when.date() <= end and stage is CardStage.BACKLOG
+                end is not None and when.date() <= end and stage is CardStage.BACKLOG
             ):
                 lines.append(
                     f"- #{card.id} «{card.title}»: {appointment_label(rule, when, tz, '%Y-%m-%d')}, "

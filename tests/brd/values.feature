@@ -54,6 +54,29 @@
     And the request waits like any hook request while access is locked
     And switching Value unlink cleanup off in Profile → Hooks stops the check and drops what is pending
 
+  Scenario: VL-CLARIFY-022 — A new Value gets one small check before any question
+    Given a Value is created, by hand or by a saved proposal
+    When the change commits
+    Then one mini session reads only its name and description
+    And it answers clear for a direction the owner acts on whose name or description says what exactly matters
+    And it answers unclear, with what is unclear and one advice, for a result, a feeling, a means, a rule, a turn away from something, what others decide, or a Value that does not say what exactly matters
+    And the advice may hold a short exercise, such as asking "what for?" again or how the Value looks on an ordinary weekday
+    And it does not judge whether the Value is right for the owner
+    And a clear Value produces no question or change
+    And a rename, a new description or a rollback starts no review
+    And a Value renamed, described anew or deleted during review produces no queued request
+    And one request carries every Value still there, each with its advice, and tells the Advisor to read current data before asking
+    And the Advisor asks one question per Value, offers each suggestion as a possibility, and nothing changes before the owner answers
+    And the answer updates the Value, or proposes a Goal for a Value that is a result
+    And the request waits like any hook request while access is locked
+    And switching Value clarification off in Profile → Hooks stops the check and drops what is pending
+
+  Scenario: VL-MEANING-023 — Safwa says what a Value is before proposing one
+    Given Advisor and Mutator explain Values
+    Then a Value is a direction the owner acts on, with no deadline, and never Done
+    And a Value is not a result, a feeling, a means or a rule, and a result is a Goal
+    And a new Value's description holds what exactly matters to the owner, in the owner's words, never invented
+
   Scenario: VL-FOCUS-001 — A Value is in focus while a Card in Today carries it
     Given "Health" is on an Action in Today
     And "Family" is on a Goal whose Subgoal holds an Action in Today

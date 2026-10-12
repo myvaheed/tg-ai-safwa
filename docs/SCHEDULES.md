@@ -134,9 +134,9 @@ actual Done and time once per copy.
 ## The morning hook
 
 `cards.schedule_plan` ("Schedule outside the plan", PL-HARDTIME-021) runs when a Sprint starts
-and at the Morning time while one runs. It asks once about open Actions with an appointment
-today or tomorrow outside Today, an appointment by the Sprint's end still in Backlog, or a
-daily quota with executions left today outside Today. It moves nothing itself.
+and at the Morning time. It asks once about open Actions with an appointment today or
+tomorrow outside Today, or a daily quota with executions left today outside Today, and while
+a Sprint runs about an appointment by its end still in Backlog. It moves nothing itself.
 
 ## Reading the plan
 

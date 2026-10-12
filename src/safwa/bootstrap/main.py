@@ -54,6 +54,7 @@ from ..features.summary.summary import DialogueSummary
 from ..features.summary.window import SummaryEdge
 from ..features.tags.use_cases import seed_inbox_tag
 from ..features.values.link_review import ValueLinkReviewer
+from ..features.values.value_review import ValueReviewer
 from ..features.workspace_mutator.state import workspace_context
 from ..foundation.models import Base
 from ..foundation.tokens import estimate_tokens
@@ -91,6 +92,7 @@ class SafwaFeatures:
     memory_reviewer: PatternReviewer
     key_actions: KeyActions
     goal_reviewer: GoalReviewer
+    value_reviewer: ValueReviewer
     value_link_reviewer: ValueLinkReviewer
     analyst: SprintAnalyst
     motivator: Motivator
@@ -313,6 +315,7 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
             memory_reviewer=PatternReviewer(provider),
             key_actions=KeyActions(provider),
             goal_reviewer=GoalReviewer(provider),
+            value_reviewer=ValueReviewer(provider),
             value_link_reviewer=ValueLinkReviewer(provider),
             analyst=SprintAnalyst(provider),
             motivator=Motivator(provider, spawn=spawn),

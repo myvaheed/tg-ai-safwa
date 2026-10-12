@@ -724,16 +724,28 @@ async def test_pl_hardtime_021_the_request_names_the_schedules_the_plan_does_not
             return card
 
         dentist = await fixed("Dentist", 1)
-        # In Planning there is no plan to hold anything.
-        assert await schedule_plan_request(session, [PLAN_CHECK], now=late) is None
+        tax = await fixed("Tax office", 5)
+        # A copy of planned work left in Sprint for its next slot, as Planning places it.
+        call = await fixed("Call mom", 0, stage="sprint")
+        water = await daily("Water", "sprint")
+        await session.commit()
+        # In Planning only today and tomorrow count: no Sprint end holds the Tax office.
+        request = await schedule_plan_request(session, [PLAN_CHECK], now=late)
+        assert request is not None
+        for line in (
+            f"#{dentist.id} «Dentist»: {today + timedelta(days=1):%Y-%m-%d} 23:59, in Backlog",
+            f"#{call.id} «Call mom»: {today:%Y-%m-%d} 23:59, in Sprint",
+            f"#{water.id} «Water»: 3 times a day, in Sprint",
+        ):
+            assert line in request
+        assert "Tax office" not in request
+
         await plan_one(session)
         sprint = await start_sprint(session, success_criteria="Ship v2", length_days=7)
         assert changes_of(session, SPRINT_STARTED) == [Committed(SPRINT_STARTED, sprint.id)]
         await session.commit()
 
-        tax = await fixed("Tax office", 5)
         await fixed("Concert", 20)
-        call = await fixed("Call mom", 0, stage="sprint")
         await fixed("Report", 3, stage="sprint")
         await fixed("Gym", 1, stage="today")
         train = await fixed("Missed train", 1)
@@ -745,7 +757,6 @@ async def test_pl_hardtime_021_the_request_names_the_schedules_the_plan_does_not
         shelved = await fixed("Shelved", 2)
         await finish_action(session, shelved.id)
         await archive_subtree(session, shelved.id)
-        water = await daily("Water", "sprint")
         await daily("Stretch", "today")
         tomorrow = await daily("Tomorrow's walk", "sprint")
         tomorrow.period_start += timedelta(days=1)

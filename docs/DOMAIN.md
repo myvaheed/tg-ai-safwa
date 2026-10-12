@@ -181,6 +181,17 @@ whose derived stage is Today because an Action under it is. Nothing sets it by h
 `values_in_focus` in the Planning door reads it. A Value's and a Tag's description hold at most
 400 characters (`DESCRIPTION_MAX_CHARS`).
 
+A Value is a direction the owner acts on, never Done: not a result, which is a Goal, nor a
+feeling, a means or a rule, and its description says what exactly matters to the owner.
+After a Value is created, by hand or by a saved proposal, a mini session reads its name and
+description and answers clear, or unclear with what is unclear and one advice, which may
+hold a short exercise such as asking "what for?" again. Whether the Value is right for the
+owner is theirs to know. A clear Value says nothing; an unclear one is kept with its advice
+by the hook "Value clarification" (`values.value_clarification`), rechecked before keeping,
+and one request asks about every Value still there, following each advice. Only creation
+starts the check: the description written from the owner's answer is an update. A Value
+that is a result may be proposed as a Goal. Nothing changes before the owner answers.
+
 A Value link runs from the Goal, Action or Check to the Value it supports, never merely from
 a needed Value to the work. Earning $4k supports Freedom through more choices; it supports
 Health if the money maintains health, but needing health to earn it is the reverse direction.

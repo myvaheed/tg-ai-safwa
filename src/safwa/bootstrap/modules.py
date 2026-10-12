@@ -79,7 +79,11 @@ from ..features.summary.module import MODULE as SUMMARY
 from ..features.summary.module import SUMMARY_HOOK
 from ..features.tags.module import MODULE as TAGS
 from ..features.values.module import MODULE as VALUES
-from ..features.values.module import VALUE_LINK_HOOK, VALUE_UNLINK_HOOK
+from ..features.values.module import (
+    VALUE_CLARIFICATION_HOOK,
+    VALUE_LINK_HOOK,
+    VALUE_UNLINK_HOOK,
+)
 from ..features.workspace_mutator.module import MODULE as WORKSPACE_MUTATOR
 from ..foundation.log_events import AI_LOG_EVENTS
 from ..foundation.workspace import require_workspace
@@ -139,6 +143,7 @@ HOOKS = (
     TODAY_STALE_HOOK,
     MISSED_RUN_HOOK,
     GOAL_CLARIFICATION_HOOK,
+    VALUE_CLARIFICATION_HOOK,
     VALUE_LINK_HOOK,
     VALUE_UNLINK_HOOK,
     DIARY_HOOK,
