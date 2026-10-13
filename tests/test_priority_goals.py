@@ -52,7 +52,8 @@ async def test_priority_goals_are_open_root_goals_of_every_priority(sessions, go
     assert _titles(context) == ["Critical", "Medium", "Low"] + [
         f"Filler {index}" for index in range(state.CONTEXT_PRIORITY_GOAL_LIMIT - 3)
     ]
-    assert f"[Critical](card:{critical.id}) priority=critical stage=backlog" in context.state
+    assert f"[Critical](card:{critical.id}) priority=critical stage=backlog tree_level=1" in context.state
+    assert f"[Low](card:{low.id}) priority=low stage=backlog tree_level=2" in context.state
     assert "Critical Cards:" not in context.state
 
 

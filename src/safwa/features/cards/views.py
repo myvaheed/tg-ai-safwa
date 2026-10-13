@@ -5,7 +5,7 @@ from __future__ import annotations
 from tg_agent_shell.ai.sql import Searchable, SqlView
 
 from ...foundation.marks import ARCHIVE_MARKER, LIVE_FORMAT, MARKER_FORMAT, REPEAT_DONE
-from .model import TERMINAL_STAGES
+from .model import CARD_TREE_DEPTH_MAX, TERMINAL_STAGES, CardKind
 
 # What the search index calls a Card.
 CARD_ITEM_TYPE = "card"
@@ -22,6 +22,30 @@ _LIVE_TAIL = f"""COALESCE((SELECT printf('{LIVE_FORMAT}', p.id) FROM cards p
                     AND p.effective_stage NOT IN ({_TERMINAL_STAGE_SQL})
                     AND p.archived_at IS NULL
                   ORDER BY p.id DESC LIMIT 1), '')"""
+
+_GOAL = CardKind.GOAL.value
+
+
+def _goal_chain_below(length: int) -> str:
+    """True when `length` Goals hang under the row's Card, each the parent of the next."""
+    joins = "".join(
+        f" JOIN cards g{n} ON g{n}.parent_id = g{n - 1}.id AND g{n}.kind = '{_GOAL}'"
+        for n in range(2, length + 1)
+    )
+    return (
+        f"EXISTS (SELECT 1 FROM cards g1{joins} "
+        f"WHERE g1.parent_id = c.id AND g1.kind = '{_GOAL}')"
+    )
+
+
+# A Goal's 🎯 index, the number `tree_level` counts for the screens. A recursive CTE is a
+# derived table, which would hide this view's name from the read authorizer, so the chain
+# is unrolled to the deepest tree there can be.
+_TREE_LEVEL = (
+    f"CASE WHEN c.kind = '{_GOAL}' THEN 1"
+    + "".join(f" + {_goal_chain_below(length)}" for length in range(1, CARD_TREE_DEPTH_MAX))
+    + " ELSE 0 END"
+)
 
 
 # An archived Card is read here like any other: the workspace is what keeps one out of a
@@ -46,7 +70,7 @@ AI_CARDS = SqlView(
                NULLIF(c.blocked_description, '') AS blocked_description,
                CASE WHEN (SELECT effort_tracking FROM user_profile WHERE id=1)
                     THEN c.effort_points END AS effort_points,
-               c.tracked_mins, c.parent_id,
+               c.tracked_mins, c.parent_id, {_TREE_LEVEL} AS tree_level,
                COALESCE(c.repeat_series_id, c.id) AS series_id,
                (SELECT group_concat(cc.category, ',') FROM card_categories cc
                 WHERE cc.card_id=c.id) AS categories,
@@ -58,8 +82,9 @@ AI_CARDS = SqlView(
                 JOIN tags t ON t.id=ct.tag_id WHERE ct.card_id=c.id) AS direct_tags,
                c.created_at, c.updated_at, relevance('card', c.id) AS relevance
         FROM cards c LEFT JOIN schedules s ON s.id=c.schedule_id""",
-    doc="""- `ai_cards(id, title, note, kind, stage, priority, schedule, blocked_description, effort_points, tracked_mins, parent_id, series_id, categories, energy_types, direct_values, direct_tags, created_at, updated_at, relevance)`
+    doc="""- `ai_cards(id, title, note, kind, stage, priority, schedule, blocked_description, effort_points, tracked_mins, parent_id, tree_level, series_id, categories, energy_types, direct_values, direct_tags, created_at, updated_at, relevance)`
   - `kind` goal | action; a goal with `parent_id` is displayed as a Subgoal
+  - `tree_level` counts up from the bottom: an action is 0; a goal is 1 + the highest `tree_level` of its child goals, 1 with none. Goal → subgoal → action reads 2, 1, 0
   - `stage` backlog | sprint | today | done
   - `priority` critical | medium | low
   - `effort_points` 0.5 | 1 | 2 | 3 | 5 | 8 | 13, cost of one execution; NULL when unestimated or Effort Points are off

@@ -467,3 +467,11 @@
     Given a Goal with several nested Goals under it
     When the Goal is proposed as its own parent, or moved under any of its descendants
     Then it is refused before review and again on Save, without changing any parent or version
+
+  Scenario: CD-TREE-053 — Safwa reads a Goal's marker as its tree_level
+    Given a Goal with a chain of three Subgoals under it and an Action under the last one
+    When Safwa reads them from ai_cards
+    Then the Goal's tree_level is 4, the index of its 🎯⁴ marker (CD-BUTTON-048)
+    And the Subgoals down the chain read 3, 2 and 1, and the Action reads 0
+    And a chain of seven Goals reads 7 at its root (CARD_TREE_DEPTH_MAX = 7)
+    And a move or a deletion in the subtree changes tree_level as it changes the marker

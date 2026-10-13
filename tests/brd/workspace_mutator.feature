@@ -68,7 +68,7 @@
     And an Action under a Subgoal counts as work toward its Goal too
     And remaining ties put a Deadline before none, the earlier Deadline before the later, then the older Goal
     And Goals created at the same instant keep their creation order
-    And each Goal says its Priority, stage and compiled Deadline when there is one
+    And each Goal says its Priority, stage, tree_level (CD-TREE-053) and compiled Deadline when there is one
     And when there are no open Goals, there is no empty Priority Goals heading
 
   Scenario: WS-CAPTURE-008 — A captured record waits for a decision, not for filled fields

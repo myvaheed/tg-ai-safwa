@@ -4,6 +4,8 @@ import pytest
 from schedule_helpers import create_card
 from ui_harness import FakeMessage, button_texts, services_for
 
+from safwa.features.cards.api import tree_level
+from safwa.features.cards.model import CARD_TREE_DEPTH_MAX
 from safwa.features.cards.telegram import render_backlog, render_card, render_children
 from safwa.features.cards.telegram.presentation import (
     ITEM_BUTTON_LIMIT,
@@ -103,3 +105,61 @@ async def test_cd_button_048_goal_subgoal_action_chain_counts_only_goal_levels(s
         assert await card_emoji(session, goal) == "🎯²"
         assert await card_emoji(session, subgoal) == "🎯"
         assert await card_emoji(session, action) == "⭐️"
+
+
+async def test_cd_tree_053_ai_cards_reads_the_goal_marker_as_tree_level(read_views):
+    """CD-TREE-053 — tests/brd/cards.feature"""
+    sessions, runner = read_views
+
+    async def read_levels():
+        rows = (await runner.run("SELECT id, tree_level FROM ai_cards")).rows
+        return {row["id"]: row["tree_level"] for row in rows}
+
+    async with sessions() as session:
+        chain = [await create_card(session, kind="goal", title="Goal")]
+        for level in range(3):
+            chain.append(
+                await create_card(
+                    session, kind="goal", title=f"Subgoal {level}", parent_id=chain[-1].id
+                )
+            )
+        sibling = await create_card(session, kind="goal", title="Sibling", parent_id=chain[0].id)
+        action = await create_card(session, kind="action", title="Action", parent_id=chain[-1].id)
+        await session.commit()
+        assert await card_emoji(session, chain[0]) == "🎯⁴"
+        ids = [card.id for card in chain]
+        sibling_id, action_id = sibling.id, action.id
+
+    levels = await read_levels()
+    assert [levels[card_id] for card_id in ids] == [4, 3, 2, 1]
+    assert (levels[sibling_id], levels[action_id]) == (1, 0)
+
+    async with sessions() as session:
+        await set_card_parent(session, ids[2], None)
+        await session.commit()
+    levels = await read_levels()
+    assert [levels[card_id] for card_id in ids] == [2, 1, 2, 1]
+
+    async with sessions() as session:
+        await delete_one_card(session, ids[3])
+        await session.commit()
+    assert (await read_levels())[ids[2]] == 1
+
+
+async def test_cd_tree_053_a_chain_at_the_depth_limit_reads_the_same_as_its_markers(read_views):
+    """CD-TREE-053 — tests/brd/cards.feature"""
+    sessions, runner = read_views
+    async with sessions() as session:
+        chain = [await create_card(session, kind="goal", title="Goal")]
+        for level in range(CARD_TREE_DEPTH_MAX - 1):
+            chain.append(
+                await create_card(
+                    session, kind="goal", title=f"Subgoal {level}", parent_id=chain[-1].id
+                )
+            )
+        await session.commit()
+        counted = {card.id: await tree_level(session, card.kind, card.id) for card in chain}
+
+    rows = (await runner.run("SELECT id, tree_level FROM ai_cards")).rows
+    assert {row["id"]: row["tree_level"] for row in rows} == counted
+    assert counted[chain[0].id] == CARD_TREE_DEPTH_MAX

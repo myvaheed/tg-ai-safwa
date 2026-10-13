@@ -234,3 +234,18 @@ async def card_labels(session: AsyncSession, card_ids: Iterable[int]) -> list[st
         for card in await session.scalars(select(Card).where(Card.id.in_(wanted)))
     ]
 
+
+async def tree_level(session: AsyncSession, kind: str | None, card_id: int | None) -> int:
+    """A Goal's 🎯 index: the Goals in its deepest chain down, itself included. 0 for an Action.
+
+    `ai_cards.tree_level` is the same number in SQL.
+    """
+    if kind != CardKind.GOAL.value:
+        return 0
+    if card_id is None:
+        return 1
+    children = await session.scalars(
+        select(Card.id).where(Card.parent_id == card_id, Card.kind == CardKind.GOAL.value)
+    )
+    return 1 + max([await tree_level(session, kind, child) for child in children], default=0)
+

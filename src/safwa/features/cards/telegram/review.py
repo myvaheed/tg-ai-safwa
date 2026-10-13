@@ -32,6 +32,7 @@ from ...profile.api import effort_tracking_on
 from ...schedules.api import rule_summary, workspace_zone
 from ...tags.model import CardTag
 from ...values.model import CardValue
+from ..api import tree_level
 from ..hierarchy import card_progress
 from ..model import (
     Card,
@@ -44,7 +45,7 @@ from ..model import (
     minutes_label,
 )
 from ..references import CARD_REFERENCE_SPECS
-from .presentation import card_overview_text, category_expression, energy_expression, subgoal_depth
+from .presentation import card_overview_text, category_expression, energy_expression
 
 CARD_DETAIL_FIELDS = (
     "kind",
@@ -222,9 +223,7 @@ async def _card_display_state(
         )
     parent = await session.get(Card, state.get("parent_id")) if state.get("parent_id") else None
     display["parent_name"] = parent.title if parent else None
-    display["subgoal_depth"] = (
-        await subgoal_depth(session, state.get("id")) if state.get("kind") == CardKind.GOAL.value else 0
-    )
+    display["tree_level"] = await tree_level(session, state.get("kind"), state.get("id"))
     for spec in CARD_REFERENCE_SPECS:
         display[f"{spec.key}_names"] = await reference_names(
             session, spec, state.get(spec.field)

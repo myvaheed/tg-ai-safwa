@@ -69,7 +69,8 @@ carrying the Inbox Tag is not checked, and only creation starts the check.
   no screen offers the control or a separate Subgoal kind.
 - A Goal's marker counts the deepest Goal chain starting with itself: `🎯` for one
   level, `🎯²` for two, `🎯³` for three, and so on. Actions do not count. Screens,
-  lists, citations and proposal previews read the subtree without storing a depth.
+  lists, citations and proposal previews read the subtree without storing a depth, and
+  Safwa reads the same index as `tree_level` in `ai_cards`, 0 on an Action.
 - **Schedule** is plain-language timing on an Action or independent Check, and the
   **Deadline** of a Goal or Subgoal: one date, never repeating, never gating Done and never
   planned. Its compiled revisions live in `schedules`; instances retain their revision and
@@ -135,7 +136,7 @@ across all Priorities. An overdue compiled Deadline or one within the next 7 loc
 (`PRIORITY_GOAL_DEADLINE_DAYS`) comes first. Within urgent and other Goals, the order is Priority,
 then Actions in Sprint or Today, including work through a Subgoal.
 Remaining ties use the earlier Deadline (none last), creation time and id. Each Goal carries its
-Priority, derived stage and compiled Deadline. The Advisor starts advice and planning from that order.
+Priority, derived stage, `tree_level` and compiled Deadline. The Advisor starts advice and planning from that order.
 
 ## Checks
 

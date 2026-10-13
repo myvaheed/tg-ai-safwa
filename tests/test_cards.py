@@ -1292,8 +1292,8 @@ async def test_cd_context_028_only_open_goals_are_handed_over_as_priority_goals(
     listed = [line for line in state.splitlines() if line.startswith("- [")]
 
     assert listed == [
-        f"- [Fix the roof](card:{open_card.id}) priority=critical stage=backlog",
-        f"- [Ordinary](card:{ordinary.id}) priority=medium stage=backlog",
+        f"- [Fix the roof](card:{open_card.id}) priority=critical stage=backlog tree_level=2",
+        f"- [Ordinary](card:{ordinary.id}) priority=medium stage=backlog tree_level=1",
     ]
     assert "Shipped" not in state
     assert "Action" not in state.split("Today Actions:")[0]

@@ -17,6 +17,7 @@ from tg_agent_shell.ai.messages import StateBlocks
 from tg_agent_shell.foundation.clock import utcnow
 
 from ...foundation.workspace import Workspace
+from ..cards.api import tree_level
 from ..cards.model import effort_label
 from ..planning.api import (
     capacity_effort_points,
@@ -117,7 +118,7 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
         "Priority Goals:",
         [
             f"- {citation(goal.title, 'card', goal.id)} priority={goal.priority} "
-            f"stage={goal.effective_stage}"
+            f"stage={goal.effective_stage} tree_level={await tree_level(session, goal.kind, goal.id)}"
             + (
                 f" deadline={goal.deadline_at.astimezone(timezone):%d.%m.%Y %H:%M}"
                 if goal.deadline_at else ""

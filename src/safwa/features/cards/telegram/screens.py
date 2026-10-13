@@ -29,9 +29,10 @@ from ...profile.api import effort_tracking_on, time_tracking_on
 from ...schedules.api import schedule_summary
 from ...tags.model import CardTag, Tag
 from ...values.model import CardValue, Value
+from ..api import tree_level
 from ..hierarchy import card_progress
 from ..model import Card, CardCategory, CardEnergyType, CardKind, CardStage
-from .presentation import card_overview_text, card_title_marks, subgoal_depth
+from .presentation import card_overview_text, card_title_marks
 
 
 async def render_card(
@@ -350,14 +351,14 @@ async def render_card(
         ]
         closed_at = card.completed_at
         summary = await schedule_summary(session, card)
-        depth = await subgoal_depth(session, card.id) if card.kind == CardKind.GOAL.value else 0
+        level = await tree_level(session, card.kind, card.id)
         await session.commit()
     text = with_notice(
         card_overview_text(
             {
                 "kind": card.kind,
                 "parent_id": card.parent_id,
-                "subgoal_depth": depth,
+                "tree_level": level,
                 "title": card.title + card_marks,
                 "parent_name": parent.title if parent else None,
                 "stage": card.effective_stage,
