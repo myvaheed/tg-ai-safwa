@@ -19,7 +19,8 @@ media download or background cancellation. Locked commands, callbacks, links, ed
 media cannot invoke their handlers, so an item link in a message shown while locked opens
 nothing. A new text message matching the word exactly unlocks; other inputs receive
 “Сначала введите Secret word.” Attempts retain only operational message identifiers, never
-their text, and do not cancel background work or enter conversation history.
+their text, and do not cancel background work. Only the last one that is words for the
+Advisor enters conversation history, after unlocking.
 
 Reminders, including Remind on a Schedule, keep firing and their answers reach the chat
 while locked. The Cue queue distinguishes their text rows from hook rows. Filtering
@@ -28,12 +29,23 @@ Turn hooks also wait for authenticated access. A Reminder's manual proposal made
 locked is Discarded through the existing approval continuation; no review or item screen
 is opened.
 
-Unlocking stops new Cue turns and scheduled publications, waits for the current turn,
+Unlocking stops new Cue turns and scheduled publications, waits for the current turn, and
 clears the chat as the lock did, so attempts and prompts go while unanswered Cues and
-Reminders stay, and runs the waiting Cue requests. Access then opens without a Home
+Reminders stay. The last attempt that is words for the Advisor — text but a command, a
+recording or a photo, perhaps sent without knowing the chat was locked — stays too, unless
+it is a try at the word: a text of at most `SECRET_LIKE_LENGTH = 5` characters, or at most
+`SECRET_LIKE_DISTANCE = 3` Levenshtein edits from the word. Only a verifier is stored, so
+the distance is measured at unlock, against the word just entered; an earlier attempt that
+is words then stays in place of a later try. The middleware hands the gate a way to pass each
+update through it again; the gate keeps that, with the message, for every such attempt until
+unlock, in memory only, so a restart clears them with the other attempts. Once access opens,
+the attempt that stays passes the gate again as a new owner message: it enters the
+conversation and is answered. A mistyped word farther from the word than that is taken for
+words and answered too. With such an attempt the waiting Cue requests are left to the next
+poll that finds the chat free; without one, unlocking runs them. Access then opens without a Home
 dashboard and the Home after timer restarts. An error leaves access closed and the waiting
 Cue requests queued for the next entry. Commands and item links arriving after the secret
-has matched wait until access opens, then reach their handlers. Inputs received before
+has matched wait until access opens, then reach their handlers. Other inputs received before
 verification remain attempts. Pending hooks may open screens and reviews once the secret has
 matched; only Reminder proposals generated while the chat is still locked are discarded.
 

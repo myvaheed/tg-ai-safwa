@@ -13,7 +13,9 @@ and the check that asks for it is a hook on a schedule, AG-HOOK-049 and AG-HOOK-
 
 With Secret word set, automatic clearing also locks access; the unanswered hooks stay.
 Reminder and Schedule Remind answers still reach the chat; new hook requests wait.
-Entering the word deletes attempts and prompts and runs waiting hooks.
+Entering the word deletes prompts and every attempt but the last text, voice message or photo
+that is not a try at the word, which is answered first. Waiting hooks run at once when no such attempt stays, otherwise once
+the chat is free after that answer.
 Home appears only on `/start`. The access gate is described in [CHAT_ACCESS.md](CHAT_ACCESS.md).
 
 ## How it looks

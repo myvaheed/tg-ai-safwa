@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 
 import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.base import BaseSession
-from aiogram.methods import EditMessageText, GetMe, SendMessage
-from aiogram.types import CallbackQuery, Chat, Message, Update, User
+from aiogram.methods import DeleteMessages, EditMessageText, GetFile, GetMe, SendMessage
+from aiogram.types import CallbackQuery, Chat, File, Message, Update, User, Voice
 from test_access import protected_services, set_word
+from ui_harness import ScriptedTranscriber
 
 from safwa.features.cards.use_cases import create_card
+from tg_agent_shell.access import manager
+from tg_agent_shell.access.credentials import SECRET_LIKE_DISTANCE, SECRET_LIKE_LENGTH
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.telegram import owner_anchor
 from tg_agent_shell.telegram.routing import build_router
@@ -43,7 +47,16 @@ class Telegram(BaseSession):
             ).as_(bot)
             self.sent.append(message)
             return message
+        if isinstance(method, GetFile):
+            return File(file_id=method.file_id, file_unique_id=method.file_id, file_path="voice.ogg")
         return True
+
+    def deleted(self):
+        return {
+            message_id
+            for method in self.calls if isinstance(method, DeleteMessages)
+            for message_id in method.message_ids
+        }
 
     async def stream_content(self, url, headers=None, timeout=30, chunk_size=65536, raise_for_status=True):
         if False:
@@ -54,6 +67,14 @@ def message(bot, message_id, text):
     return Message(
         message_id=message_id, date=utcnow(), chat=Chat(id=42, type="private"),
         from_user=User(id=42, is_bot=False, first_name="Owner"), text=text,
+    ).as_(bot)
+
+
+def voice(bot, message_id):
+    return Message(
+        message_id=message_id, date=utcnow(), chat=Chat(id=42, type="private"),
+        from_user=User(id=42, is_bot=False, first_name="Owner"),
+        voice=Voice(file_id="voice", file_unique_id="voice", duration=3),
     ).as_(bot)
 
 
@@ -119,10 +140,10 @@ async def test_commands_waiting_during_unlock_run_only_if_the_secret_was_already
             await resume.wait()
             return await original(*args, **options)
 
-        async def observed_intercept(event):
+        async def observed_intercept(event, again=None):
             if getattr(event, "text", None) == command:
                 command_waiting.set()
-            return await intercept(event)
+            return await intercept(event, again)
 
         monkeypatch.setattr(services.access, held_method, pause)
         monkeypatch.setattr(services.access, "intercept", observed_intercept)
@@ -140,3 +161,60 @@ async def test_commands_waiting_during_unlock_run_only_if_the_secret_was_already
             assert telegram.sent[-1].reply_markup is not None
         else:
             assert telegram.sent == []
+
+
+@pytest.mark.parametrize("words", ["text", "recording", None])
+async def test_the_last_words_sent_while_locked_are_answered_once_the_word_matches(
+    e2e_harness, monkeypatch, words,
+):
+    """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
+    sessions = e2e_harness.sessions
+    word = "open sesame"
+    await set_word(sessions, word)
+    services = protected_services(sessions)
+    services.root, provider = e2e_harness.advisor(["Here is your answer."], plan_required=False)
+    services.transcriber = ScriptedTranscriber("What is due today?")
+    taken_up: list[asyncio.Task] = []
+
+    def spawn(work, name):
+        taken_up.append(asyncio.create_task(work, name=name))
+        return taken_up[-1]
+
+    services.chat = replace(services.chat, spawn=spawn)
+    resumed = []
+
+    async def resume_cues(*args):
+        resumed.append(args)
+
+    monkeypatch.setattr(manager, "resume_cues", resume_cues)
+    telegram = Telegram()
+    async with Bot("999999:TEST_TOKEN", session=telegram) as bot:
+        updates = dispatcher(services)
+        await services.access.lock(owner_anchor(bot, 42))
+        said = {
+            "text": [message(bot, 1, "First try"), message(bot, 2, "What is due today?")],
+            "recording": [message(bot, 1, "First try"), voice(bot, 2)],
+            None: [],
+        }[words]
+        tries = [
+            message(bot, 3, "q" * SECRET_LIKE_LENGTH),
+            message(bot, 4, "X" * SECRET_LIKE_DISTANCE + word[SECRET_LIKE_DISTANCE:]),
+            message(bot, 5, "/start"),
+            message(bot, 6, word),
+        ]
+        for update_id, owner_message in enumerate([*said, *tries], 1):
+            await updates.feed_update(bot, Update(update_id=update_id, message=owner_message))
+        await asyncio.wait_for(asyncio.gather(*taken_up), 5)
+    prompts = {item.message_id for item in telegram.sent if item.text == manager.ENTER_SECRET_WORD}
+    assert len(prompts) == len(said) + 3 and prompts | {3, 4, 5, 6} <= telegram.deleted()
+    assert not any("🏠" in (item.text or "") for item in telegram.sent)
+    dialogue = await services.history.dialogue(42)
+    if words is None:
+        assert len(resumed) == 1 and provider.calls == [] and dialogue == []
+        return
+    assert 1 in telegram.deleted() and 2 not in telegram.deleted() and resumed == []
+    [call] = provider.calls
+    assert "What is due today?" in str(call[-1]["content"])
+    assert telegram.sent[-1].text == "Here is your answer."
+    assert ["What is due today?" in item.content for item in dialogue] == [True, False]
+    assert dialogue[-1].content.endswith("Here is your answer.")

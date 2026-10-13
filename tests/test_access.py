@@ -22,7 +22,13 @@ from safwa.features.profile.model import UserProfile
 from safwa.features.profile.telegram import command_profile
 from safwa.features.profile.use_cases import set_secret_word
 from tg_agent_shell.access import manager
-from tg_agent_shell.access.credentials import hash_secret_word, matches_secret_word
+from tg_agent_shell.access.credentials import (
+    SECRET_LIKE_DISTANCE,
+    SECRET_LIKE_LENGTH,
+    hash_secret_word,
+    matches_secret_word,
+    resembles_secret_word,
+)
 from tg_agent_shell.access.manager import ENTER_SECRET_WORD, AccessManager
 from tg_agent_shell.cues.runtime import speak_on_schedule
 from tg_agent_shell.foundation.clock import utcnow
@@ -420,6 +426,20 @@ async def test_turn_hooks_are_not_evaluated_while_locked(sessions, when):
         await run_after_turn(anchor, services, AfterTurn(42, 700, 1, 0, "system"))
     expected = "Private failure detail" if when == "after_error" else "Private hook words"
     assert expected in anchor.rendered[-1] and len(evaluated) == 1
+
+
+def test_a_try_at_the_word_is_a_short_text_or_one_a_few_edits_from_it():
+    """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
+    word = "open sesame"
+    assert resembles_secret_word("q" * SECRET_LIKE_LENGTH, word)
+    assert not resembles_secret_word("q" * (SECRET_LIKE_LENGTH + 1), word)
+    replaced = "X" * SECRET_LIKE_DISTANCE + word[SECRET_LIKE_DISTANCE:]
+    assert resembles_secret_word(replaced, word)
+    assert not resembles_secret_word("X" + replaced[1:] + "X", word)
+    assert resembles_secret_word(word[SECRET_LIKE_DISTANCE:], word)
+    assert not resembles_secret_word(word[SECRET_LIKE_DISTANCE + 1 :], word)
+    assert resembles_secret_word(word + "!" * SECRET_LIKE_DISTANCE, word)
+    assert not resembles_secret_word(word + "!" * (SECRET_LIKE_DISTANCE + 1), word)
 
 
 @pytest.mark.parametrize("wrong_first", [False, True])

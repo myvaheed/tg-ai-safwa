@@ -23,8 +23,8 @@ from ..history import (
 )
 from ..telegram.chat import UNASKED_KINDS
 from ..telegram.model import CallbackToken, UiSession
-from ..telegram.services import Services
-from .credentials import matches_secret_word
+from ..telegram.services import Services, is_dialogue
+from .credentials import matches_secret_word, resembles_secret_word
 from .model import AccessState, Locked, Open, Unlocking
 
 logger = logging.getLogger(__name__)
@@ -34,6 +34,7 @@ CLEAR_RETRY_SECONDS = 60
 
 Verifier = Callable[[AsyncSession], Awaitable[str | None]]
 Home = Callable[[Message, Services], Awaitable[None]]
+Again = Callable[[], Awaitable[Any]]
 
 
 async def _last_user_message_id(session: AsyncSession, chat_id: int) -> int:
@@ -56,6 +57,9 @@ class AccessManager:
         self.home = home
         self._state: AccessState = Open()
         self._transition = asyncio.Lock()
+        # Words for the Advisor sent while locked, and how to take each up once open. Which
+        # one is kept is known only at unlock, against the word just entered.
+        self._attempts: list[tuple[Message, Again]] = []
 
     @property
     def blocked(self) -> bool:
@@ -132,6 +136,7 @@ class AccessManager:
                         TelegramMessage.message_id <= last,
                     )
                 ))
+            spare.extend(attempt.message_id for attempt, _again in self._attempts)
             # The conversation starts with the first message the clear leaves in the chat.
             await mark_cleared(session, chat_id, min(spare, default=last + 1) - 1)
             await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
@@ -148,7 +153,7 @@ class AccessManager:
             strict=True,
         )
 
-    async def intercept(self, event: Any) -> bool:
+    async def intercept(self, event: Any, again: Again | None = None) -> bool:
         if not self.blocked:
             return False
         authenticated = self.unlocking
@@ -161,9 +166,9 @@ class AccessManager:
                 else:
                     await event.answer()
                 return True
-            return await self._locked_input(event)
+            return await self._locked_input(event, again)
 
-    async def _locked_input(self, event: Any) -> bool:
+    async def _locked_input(self, event: Any, again: Again | None) -> bool:
         if not hasattr(event, "message_id"):
             await event.answer(ENTER_SECRET_WORD, show_alert=True)
             return True
@@ -190,6 +195,8 @@ class AccessManager:
         if correct:
             await self._unlock(event)
         else:
+            if again is not None and event.edit_date is None and is_dialogue(event):
+                self._attempts.append((event, again))
             await self.services.chat.send(
                 event,
                 ENTER_SECRET_WORD,
@@ -200,16 +207,35 @@ class AccessManager:
 
     async def _unlock(self, anchor: Message) -> None:
         self._state = Unlocking()
+        # Only the last words that are not a try at the word stay, to be answered.
+        self._attempts = [
+            (attempt, again)
+            for attempt, again in self._attempts
+            if attempt.text is None or not resembles_secret_word(attempt.text, anchor.text)
+        ][-1:]
         try:
             await self.services.turn.wait_idle()
             await self._clear(anchor, anchor.message_id, keep_unanswered=True)
-            await resume_cues(self.services, anchor)
+            # The owner's words are answered first; waiting hooks speak once the chat is free.
+            if not self._attempts:
+                await resume_cues(self.services, anchor)
             self.services.owner_acted_at = utcnow()
             if self.home is not None:
                 await self.home(anchor, self.services)
             self._state = Open()
+            if self._attempts:
+                [(_attempt, again)] = self._attempts
+                self._attempts = []
+                self.services.chat.spawn(self._take_up(again), "access-attempt")
         except Exception:
             logger.exception("Could not finish unlocking the chat")
         finally:
             if self.unlocking:
                 self._state = Locked()
+
+    async def _take_up(self, again: Again) -> None:
+        """Pass the words sent while locked through the gate again, as if sent now."""
+        try:
+            await again()
+        except Exception:
+            logger.exception("Could not take up the words sent while the chat was locked")

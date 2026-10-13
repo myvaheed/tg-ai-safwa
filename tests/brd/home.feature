@@ -137,7 +137,9 @@
     And new hook requests wait without generating answers
     And Schedule Remind and Reminder answers reach the locked chat without item screens
     When the correct word is entered
-    Then attempts and prompts are deleted, the hooks and Reminders said since the owner last wrote stay, and waiting hooks run
+    Then attempts and prompts are deleted, and the hooks and Reminders said since the owner last wrote stay
+    But the last text, voice message or photo sent before the word that is not a try at the word stays and is answered first
+    And waiting hooks run at once, or after that answer
     And Home appears only after /start, with one ☰ Menu button
     And access remains open until the next automatic clear
     But /clear while access is open empties the chat and does not lock access

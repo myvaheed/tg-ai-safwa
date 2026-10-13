@@ -54,6 +54,15 @@ def audio_payload(message: Message) -> Audio | Voice | VideoNote | None:
     return message.voice or message.audio or message.video_note
 
 
+def is_dialogue(message: Message) -> bool:
+    """Whether the message is said to the Advisor: text but a command, audio or a photo."""
+    return (
+        (bool(message.text) and not message.text.lstrip().startswith("/"))
+        or audio_payload(message) is not None
+        or bool(message.photo)
+    )
+
+
 class AlbumGatherer:
     """The photos of one album, gathered so the album is answered once.
 
@@ -125,7 +134,9 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
         )
         if user is None or user.id != services.owner_id or (chat and chat.type != "private"):
             return None
-        if services.access is not None and await services.access.intercept(event):
+        if services.access is not None and await services.access.intercept(
+            event, lambda: self(handler, event, data)
+        ):
             return None
         services.owner_acted_at = utcnow()
         edited = isinstance(event, Message) and event.edit_date is not None
@@ -185,14 +196,8 @@ class OwnerAndWritingMiddleware(BaseMiddleware):
             await event.answer(STILL_ANSWERING, show_alert=True)
             return None
         taken = False
-        if isinstance(event, Message) and not services.turn.active:
-            is_dialogue = (
-                (bool(event.text) and not event.text.lstrip().startswith("/"))
-                or audio_payload(event) is not None
-                or bool(event.photo)
-            )
-            if is_dialogue:
-                taken = services.turn.try_begin(event.message_id)
+        if isinstance(event, Message) and not services.turn.active and is_dialogue(event):
+            taken = services.turn.try_begin(event.message_id)
         try:
             return await dispatch()
         finally:

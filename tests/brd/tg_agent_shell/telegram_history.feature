@@ -231,10 +231,13 @@
     And hooks are not prepared or generated while access is locked
     And a Reminder proposal made while locked is resolved as Discard, and its continuation reaches the chat
     When the owner unlocks access
-    Then running background work finishes first, attempts and prompts are cleared, what was said unasked since the owner last wrote stays, and pending hooks run
+    Then running background work finishes first, attempts and prompts are cleared, and what was said unasked since the owner last wrote stays
+    But the last text, recording or photo attempted before the word that is not a try at the word stays, and once access opens it is answered as if sent then
+    And a try at the word is a text of at most 5 characters (SECRET_LIKE_LENGTH = 5) or at most 3 character edits from it (SECRET_LIKE_DISTANCE = 3)
+    And pending hooks run at unlock when no such attempt stays, and otherwise once the chat is free after its answer
     And Home is shown only if the application supplies an unlock renderer
     And commands and item links received after verification wait until access opens and then reach their handlers
-    And requests received before verification remain attempted inputs
+    And commands and item links received before verification remain attempted inputs
     And pending hooks may open their normal screens and reviews after verification
     And the Advisor reads the hooks and Reminders left in the chat
     And a failed unlock leaves access closed and pending hooks waiting
