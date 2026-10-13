@@ -26,6 +26,7 @@ from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec, FeatureMod
 from .. import featuretoggles
 from ..features.advisor.agent import ADVISOR_VIEWS, ITEMS, PERSONA, SYSTEM_PROMPT_TEMPLATE
 from ..features.cards.module import (
+    ACTION_REVIEW_HOOK,
     BLOCKER_HOOK,
     EFFORT_TRACKING_REMINDER_HOOK,
     EMPTY_PARENTS_HOOK,
@@ -143,6 +144,7 @@ HOOKS = (
     TODAY_STALE_HOOK,
     MISSED_RUN_HOOK,
     GOAL_CLARIFICATION_HOOK,
+    ACTION_REVIEW_HOOK,
     VALUE_CLARIFICATION_HOOK,
     VALUE_LINK_HOOK,
     VALUE_UNLINK_HOOK,

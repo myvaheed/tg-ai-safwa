@@ -46,6 +46,17 @@ should be instead. A Goal carrying the Inbox Tag is a
 capture and is not checked. Only creation starts the check: the Note written from the owner's
 answer is an update, so the answer never asks again. Nothing changes before the owner answers.
 
+After an Action is created, by hand or by a saved proposal, the hook "Action review"
+(`cards.action_review`) checks it the same way: a mini session reads its title, Note,
+Schedule, Categories and Energy types and the owner's last five messages with their answers,
+and, with Effort Points on, its Effort Points and up to ten similar Actions with an estimate
+from the search index, finished ones first. It answers unclear only for an Action that takes
+more than one day, a label that clearly does not fit, a clearly missing main one, or Effort
+Points clearly apart from the similar Actions or not set. What the owner named in those
+messages is theirs and is never advised on. The Advisor says it looked at the new Actions
+again and they could be improved, names each change with its reason, and asks; an Action
+carrying the Inbox Tag is not checked, and only creation starts the check.
+
 - The two Card kinds are Goal and Action. A Goal may be root-level or under any Goal;
   a Goal with a parent is displayed as a Subgoal, without changing its kind. An Action may
   be root-level or under any Goal and has no children. The tree has at most 7 levels

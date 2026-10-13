@@ -186,14 +186,15 @@
     And in Planning, with no Sprint running, the morning asks only about the appointments today or tomorrow and the daily quotas left for today
     And a day is the workspace's local day
 
-  Scenario: PL-ENERGY-022 — A Sprint that leaves out a kind of energy the Backlog has is brought up
+  Scenario: PL-ENERGY-022 — A Sprint that leaves out a kind of energy the Backlog has, or holds Actions without labels, is brought up
     Given a Sprint starts, and the chat is free
     When one of the four energy types (Physical, Cognitive, Emotional, Spiritual) is on no open Action in the Sprint and is on an open Action in Backlog
     Then the Advisor is asked once, in one message about every such type, naming for each up to three Backlog Actions that carry it (ENERGY_CANDIDATES = 3), Critical first
     And the same is asked for the Rest category: no open Action of it in the Sprint while Backlog holds one
     And it is asked to suggest one of each into the Sprint, for a spread of energy over the Sprint; nothing is moved before the owner's answer
-    And a type on no Backlog Action either is not mentioned; with nothing missing, nothing is asked
-    And the list is read when the question is about to be said: a type the Sprint has gained by then is left out, and with the Sprint ended by then nothing is asked
+    And the same message names each open Action in the Sprint with no Category or no Energy type, saying which it lacks, and asks whether to add them, with labels suggested from each title
+    And a type on no Backlog Action either is not mentioned; with no kind missing, only the Actions without labels are asked about; with neither, nothing is asked
+    And the list is read when the question is about to be said: a type the Sprint has gained by then and an Action labelled by then are left out, and with the Sprint ended by then nothing is asked
 
   Scenario: PL-KEY-023 — The Actions a Sprint's Success criterion rests on are marked without asking
     Given a Sprint starts with a Success criterion, or an Action joins the running Sprint — moved or created into it, or brought back from Backlog

@@ -1,6 +1,7 @@
 """What the Cards ask the Advisor to raise on their own: a parent whose Actions are all
 finished, a blocker just set, an Action finished without its time or effort estimate, a day loaded
-past what it is meant to hold, a Sprint started without a kind of energy the Backlog has,
+past what it is meant to hold, a Sprint started without a kind of energy the Backlog has
+or with Actions the balance cannot read,
 an Action found in Today morning after morning, and — each morning, and when a Sprint
 starts — the Goals and Subgoals that still have no Action under them, the Schedules the
 plan does not hold, and a day planned without the rest the Sprint holds.
@@ -122,10 +123,16 @@ EFFORT_TRACKING_REQUEST = (
     "If they do not know, leave it."
 )
 
-ENERGY_BALANCE_REQUEST = (
+ENERGY_GAPS = (
     "The Sprint has no open Action for these, and the Backlog has:\n{kinds}\n"
-    "Ask the user in one message whether to take one of each into the Sprint. "
-    "Change nothing until they answer."
+    "Ask whether to take one of each into the Sprint."
+)
+UNLABELED_ACTIONS = (
+    "These open Actions in the Sprint lack labels the balance reads:\n{cards}\n"
+    "Ask whether to add them, suggesting labels from each title."
+)
+ENERGY_BALANCE_REQUEST = (
+    "{parts}\nAsk the user in one message. Change nothing until they answer."
 )
 
 REST_TODAY_REQUEST = (
@@ -496,9 +503,34 @@ async def _energy_kinds(
     return carried
 
 
+async def _unlabeled_lines(session: AsyncSession) -> list[str]:
+    """Each open Action in the Sprint with no Category or no Energy type, and what it lacks."""
+    cards = sorted(await actions_on_stages(session, *PLANNED_STAGES), key=lambda card: card.id)
+    ids = [card.id for card in cards]
+    with_category = set(
+        await session.scalars(select(CardCategory.card_id).where(CardCategory.card_id.in_(ids)))
+    )
+    with_energy = set(
+        await session.scalars(
+            select(CardEnergyType.card_id).where(CardEnergyType.card_id.in_(ids))
+        )
+    )
+    lines = []
+    for card in cards:
+        lacks = [
+            label
+            for label, held in (("no Category", with_category), ("no Energy type", with_energy))
+            if card.id not in held
+        ]
+        if lacks:
+            lines.append(f"- #{card.id} «{card.title}»: {', '.join(lacks)}")
+    return lines
+
+
 async def energy_balance_request(session: AsyncSession, items: Sequence[str]) -> str | None:
     """The request about each kind of energy, and rest, on no open Action in the Sprint while
-    an open Backlog Action carries it — read as the question is about to be said."""
+    an open Backlog Action carries it, and about the open Actions in the Sprint with no
+    Category or no Energy type — read as the question is about to be said."""
     if not await sprint_is_active(session):
         return None
     planned = await _energy_kinds(session, PLANNED_STAGES)
@@ -513,9 +545,14 @@ async def energy_balance_request(session: AsyncSession, items: Sequence[str]) ->
             for card in backlog[kind][:ENERGY_CANDIDATES]
         )
         lines.append(f"- {label}: {named}")
-    if not lines:
+    parts = []
+    if lines:
+        parts.append(ENERGY_GAPS.format(kinds="\n".join(lines)))
+    if unlabeled := await _unlabeled_lines(session):
+        parts.append(UNLABELED_ACTIONS.format(cards="\n".join(unlabeled)))
+    if not parts:
         return None
-    return ENERGY_BALANCE_REQUEST.format(kinds="\n".join(lines))
+    return ENERGY_BALANCE_REQUEST.format(parts="\n".join(parts))
 
 
 ENERGY_BALANCE_HOOK = HookSpec(
@@ -525,7 +562,10 @@ ENERGY_BALANCE_HOOK = HookSpec(
     evaluate=plan_check_due,
     effect=Advise(prepare=energy_balance_request),
     title="Energy balance",
-    description="When a Sprint starts, asks about the kinds of energy, and the rest, it has no Action for while the Backlog does.",
+    description=(
+        "When a Sprint starts, asks about the kinds of energy, and the rest, it has no Action "
+        "for while the Backlog does, and about its Actions with no Category or Energy type."
+    ),
 )
 
 

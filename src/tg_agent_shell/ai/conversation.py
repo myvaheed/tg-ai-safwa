@@ -73,6 +73,14 @@ def receipt_lines(messages: Sequence[Mapping[str, Any]]) -> list[str]:
     ]
 
 
+def last_exchanges(
+    dialogue: Sequence[Mapping[str, Any]], count: int
+) -> Sequence[Mapping[str, Any]]:
+    """The newest `count` exchanges: each of the owner's turns, and what answered it."""
+    starts = [index for index, message in enumerate(dialogue) if message.get("role") == "user"]
+    return dialogue[starts[-count] :] if len(starts) >= count else dialogue
+
+
 def conversation_block(dialogue: Sequence[Mapping[str, Any]], last: int | None = None) -> str:
     """The newest `last` things said, as tagged data rather than as the reader's own turns.
 

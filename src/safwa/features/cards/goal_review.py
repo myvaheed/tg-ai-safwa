@@ -109,15 +109,15 @@ async def created_card(event: Committed) -> tuple[int, ...]:
     return (event.subject_id,)
 
 
-async def _read_goal(session: AsyncSession, card_id: int) -> dict[str, Any] | None:
-    """What the review reads of an open Goal or Subgoal, or None for anything else.
+async def open_card(session: AsyncSession, card_id: int, kind: CardKind) -> Card | None:
+    """The Card a new-item review reads: open, not archived, of this kind and not a capture.
 
-    A Goal carrying the Inbox Tag is a capture, kept without detail on purpose.
+    A Card carrying the Inbox Tag is a capture, kept without detail on purpose.
     """
     card = await session.get(Card, card_id)
     if (
         card is None
-        or card.kind != CardKind.GOAL.value
+        or card.kind != kind.value
         or card.archived_at is not None
         or card.effective_stage in {stage.value for stage in TERMINAL_STAGES}
     ):
@@ -127,7 +127,13 @@ async def _read_goal(session: AsyncSession, card_id: int) -> dict[str, Any] | No
         .join(Tag, Tag.id == CardTag.tag_id)
         .where(CardTag.card_id == card_id, Tag.name == INBOX_TAG_NAME)
     )
-    if inbox is not None:
+    return card if inbox is None else None
+
+
+async def _read_goal(session: AsyncSession, card_id: int) -> dict[str, Any] | None:
+    """What the review reads of an open Goal or Subgoal, or None for anything else."""
+    card = await open_card(session, card_id, CardKind.GOAL)
+    if card is None:
         return None
     parent = await session.get(Card, card.parent_id) if card.parent_id else None
     return {

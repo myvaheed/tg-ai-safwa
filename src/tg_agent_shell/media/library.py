@@ -22,7 +22,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from llm_gateway import CompletionRequest, LlmProvider, ToolCall
 
 from ..ai.contracts import ToolResultStatus
-from ..ai.conversation import conversation_block
+from ..ai.conversation import conversation_block, last_exchanges
 from ..ai.mini import ReadToolSpec
 from ..foundation.errors import DomainError
 from ..foundation.models import Base, UtcDateTime
@@ -100,14 +100,6 @@ def image_part(data: bytes, mime: str) -> dict[str, Any]:
     """
     encoded = base64.b64encode(data).decode("ascii")
     return {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}}
-
-
-def last_exchanges(
-    dialogue: Sequence[Mapping[str, Any]], count: int
-) -> Sequence[Mapping[str, Any]]:
-    """The newest `count` exchanges: each of the owner's turns, and what answered it."""
-    starts = [index for index, message in enumerate(dialogue) if message.get("role") == "user"]
-    return dialogue[starts[-count] :] if len(starts) >= count else dialogue
 
 
 def label_words(text: str) -> str:

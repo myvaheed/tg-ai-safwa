@@ -23,12 +23,14 @@ from safwa.features.cards.hooks import (
     energy_balance_request,
     schedule_plan_request,
 )
-from safwa.features.cards.model import Card, CardStage
+from safwa.features.cards.model import Card, CardStage, Category, EnergyType
 from safwa.features.cards.use_cases import (
     archive_subtree,
     delete_subtree,
     finish_action,
     move_card,
+    toggle_card_category,
+    toggle_card_energy_type,
     update_card_fields,
 )
 from safwa.features.home.dashboard import dashboard_text
@@ -786,7 +788,7 @@ async def test_pl_hardtime_021_the_request_names_the_schedules_the_plan_does_not
         assert await schedule_plan_request(session, [PLAN_CHECK], now=late) is None
 
 
-async def test_pl_energy_022_the_request_names_each_kind_the_sprint_lacks_and_the_backlog_has(
+async def test_pl_energy_022_the_request_names_each_kind_the_sprint_lacks_and_its_unlabeled_actions(
     sessions,
 ):
     """PL-ENERGY-022 — tests/brd/planning.feature"""
@@ -795,15 +797,25 @@ async def test_pl_energy_022_the_request_names_each_kind_the_sprint_lacks_and_th
     async with sessions() as session:
         # In Planning there is no Sprint to spread anything over.
         assert await energy_balance_request(session, [PLAN_CHECK]) is None
-        await plan_one(session, title="Write the report", energy_types={"cognitive"})
+        await plan_one(
+            session, title="Write the report", categories={"work"}, energy_types={"cognitive"}
+        )
+        tidy = await plan_one(session, title="Tidy the desk", categories={"chores"})
+        think = await plan_one(session, title="Think it over", stage="today")
         run = await create_card(session, title="Run", energy_types={"physical"})
         swim = await create_card(session, title="Swim", energy_types={"physical"})
         await create_card(session, title="Hike", energy_types={"physical"})
         climb = await create_card(
-            session, title="Climb", energy_types={"physical"}, priority="critical"
+            session, title="Climb", categories={"growth"}, energy_types={"physical"},
+            priority="critical",
         )
-        help_out = await create_card(session, title="Help out", energy_types={"spiritual"})
-        nap = await create_card(session, title="Nap", categories={"rest"})
+        help_out = await create_card(
+            session, title="Help out", categories={"people"}, energy_types={"spiritual"}
+        )
+        # Fifth with Physical, Nap is past the three the question names.
+        nap = await create_card(
+            session, title="Nap", categories={"rest"}, energy_types={"physical"}
+        )
         # Cognitive is in the Sprint already; a finished one is not open in the Backlog;
         # nothing anywhere carries Emotional.
         await create_card(session, title="Read a paper", energy_types={"cognitive"})
@@ -820,19 +832,31 @@ async def test_pl_energy_022_the_request_names_each_kind_the_sprint_lacks_and_th
             f"- Physical energy: #{climb.id} «Climb» (Critical), #{run.id} «Run», #{swim.id} «Swim»",
             f"- Spiritual energy: #{help_out.id} «Help out»",
             f"- Rest: #{nap.id} «Nap»",
+            "Ask whether to take one of each into the Sprint.",
+            f"- #{tidy.id} «Tidy the desk»: no Energy type",
+            f"- #{think.id} «Think it over»: no Category, no Energy type",
+            "Ask whether to add them, suggesting labels from each title.",
         ):
             assert line in request
         for absent in ("Hike", "Cognitive", "Emotional", "Read a paper", "Walked"):
             assert absent not in request
         assert "Change nothing until they answer" in request
 
-        # Gained by the time it is said, a kind is left out; with nothing missing, nothing.
+        # Gained by the time it is said, a kind is left out; with no kind missing, only the
+        # Actions without labels; labelled too, nothing.
         await move_card(session, climb.id, CardStage.SPRINT)
         await session.commit()
         request = await energy_balance_request(session, [PLAN_CHECK])
         assert request is not None and "Physical" not in request and "Rest" in request
         await move_card(session, help_out.id, CardStage.SPRINT)
         await move_card(session, nap.id, CardStage.TODAY)
+        await session.commit()
+        request = await energy_balance_request(session, [PLAN_CHECK])
+        assert request is not None and "take one of each" not in request
+        assert "Tidy the desk" in request and "Think it over" in request
+        await toggle_card_energy_type(session, tidy.id, EnergyType.PHYSICAL)
+        await toggle_card_category(session, think.id, Category.GROWTH)
+        await toggle_card_energy_type(session, think.id, EnergyType.COGNITIVE)
         await session.commit()
         assert await energy_balance_request(session, [PLAN_CHECK]) is None
 

@@ -39,6 +39,7 @@ from tg_agent_shell.usage.recorder import UsageRecorder
 
 from ..config import Settings
 from ..features.advisor.agent import ADVISOR_ROW_LIMITS, ADVISOR_VIEWS
+from ..features.cards.action_review import ActionReviewer
 from ..features.cards.goal_review import GoalReviewer
 from ..features.diagnostics.module import SHOW_ANSWER_SOURCE
 from ..features.home.motivation import Motivator
@@ -92,6 +93,7 @@ class SafwaFeatures:
     memory_reviewer: PatternReviewer
     key_actions: KeyActions
     goal_reviewer: GoalReviewer
+    action_reviewer: ActionReviewer
     value_reviewer: ValueReviewer
     value_link_reviewer: ValueLinkReviewer
     analyst: SprintAnalyst
@@ -315,6 +317,9 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
             memory_reviewer=PatternReviewer(provider),
             key_actions=KeyActions(provider),
             goal_reviewer=GoalReviewer(provider),
+            action_reviewer=ActionReviewer(
+                provider, history, settings.telegram_owner_id, search
+            ),
             value_reviewer=ValueReviewer(provider),
             value_link_reviewer=ValueLinkReviewer(provider),
             analyst=SprintAnalyst(provider),

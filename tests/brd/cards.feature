@@ -321,6 +321,22 @@
     And the request waits like any hook request while access is locked
     And switching Goal clarification off in Profile → Hooks stops the check and drops what is pending
 
+  Scenario: CD-ACTION-052 — A new Action gets one small check of its size and labels before any question
+    Given an Action is created, by hand or by a saved proposal
+    When the change commits
+    Then one mini session reads its title, Note, Schedule, Categories and Energy types, and the owner's last five messages with what answered each (ACTION_REVIEW_EXCHANGES = 5)
+    And with Effort Points on it also reads the Action's Effort Points and up to ten Actions with Effort Points close to its title by words or meaning (SIMILAR_ACTIONS = 10), finished ones first, one of each repeat series; with Effort Points off it reads neither and searches nothing
+    And it answers unclear, with what to change, why and one advice, for an Action that takes more than one day, a Category or Energy type that clearly does not fit, a clearly missing main one, Effort Points clearly apart from the similar Actions, or Effort Points not set while they are on
+    And it never advises changing what the owner named in those messages, and does not judge whether the Action is worth doing
+    And an Action that fits produces no question or change
+    And creating a Goal or an Action carrying "Inbox", a rollback, or editing an Action starts no review
+    And an Action changed, finished or deleted during review produces no queued request
+    And one request carries every Action still open and still without "Inbox", each with its advice, and tells the Advisor to read current data before asking
+    And the Advisor says it looked at the new Action again and it could be improved, says what to change and why, and asks whether to make the change
+    And nothing changes before the owner answers; the answer updates the Action or proposes a Goal instead
+    And the request waits like any hook request while access is locked
+    And switching Action review off in Profile → Hooks stops the check and drops what is pending
+
   Scenario: CD-TODAY-036 — A day holding more than it is meant to is asked about
     Given Effort Points are on in the Profile
     Given an Action enters Today — created there, moved there, or opened there as the next instance of a finished repeating one — by a proposal the owner saved or by hand

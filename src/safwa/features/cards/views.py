@@ -7,6 +7,9 @@ from tg_agent_shell.ai.sql import Searchable, SqlView
 from ...foundation.marks import ARCHIVE_MARKER, LIVE_FORMAT, MARKER_FORMAT, REPEAT_DONE
 from .model import TERMINAL_STAGES
 
+# What the search index calls a Card.
+CARD_ITEM_TYPE = "card"
+
 _TERMINAL_STAGE_SQL = ", ".join(f"'{stage.value}'" for stage in TERMINAL_STAGES)
 
 # The open row of this row's series, already rendered as the marker's tail, so the whole
@@ -71,7 +74,7 @@ AI_CARDS = SqlView(
   - `categories`, `energy_types`, `direct_values` and `direct_tags` are comma-joined names, so match one with `LIKE '%Health%'`
   - `series_id` is the whole repeat series of one card; a card that never repeated is its own series
   - the checks on a card are `ai_checks WHERE card_id = <id>`""",
-    searchable=Searchable("card", "cards", ("title", "note", "blocked_description")),
+    searchable=Searchable(CARD_ITEM_TYPE, "cards", ("title", "note", "blocked_description")),
 )
 
 
