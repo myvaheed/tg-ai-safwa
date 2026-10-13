@@ -29,7 +29,7 @@ from ...telegram import (
     send_prose,
     send_registered,
 )
-from ..model import DECISION_RECEIPTS, BatchDecision
+from ..model import DECISION_RECEIPTS, KEPT_RECEIPT, BatchDecision
 from .screens import render_proposal
 
 logger = logging.getLogger(__name__)
@@ -84,13 +84,17 @@ async def continue_agent_approval(
 ) -> bool:
     """Advance an open approval queue, resuming the model only after its last item.
 
-    The caller holds the turn, and the decision is already applied: the queue moves on
+    The caller holds the turn. A Save is kept and written with the rest once the queue
+    ends, so one with screens still behind it reads as kept, not saved. The queue moves on
     whatever the chat can show, or the review stays open with nothing on screen. The
     request goes on under the turn's notice, which the caller takes down with the turn.
     """
-    if not services.root.has_pending_approval(proposal_id):
+    batch = services.root.reviews.batch_for_proposal(proposal_id)
+    if batch is None:
         return False
-    resolved_text = f"{DECISION_RECEIPTS[decision]}."
+    waiting = sum(item.decision is BatchDecision.PENDING for item in batch.state.items)
+    kept = decision is BatchDecision.APPROVED and waiting > 1
+    resolved_text = f"{KEPT_RECEIPT if kept else DECISION_RECEIPTS[decision]}."
     steps: Listener | None = None
     try:
         await send_registered(message, services, resolved_text, kind=MessageKind.RECEIPT)

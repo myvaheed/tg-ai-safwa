@@ -9,13 +9,13 @@ from __future__ import annotations
 import json
 
 import pytest
-from advisor_e2e_helpers import mutation_turn, route_turn
+from advisor_e2e_helpers import mutation_turn, route_turn, save
 from agent_turns import forward_turn
 from sqlalchemy import select
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.bootstrap.modules import PROPOSALS, REGISTRY
+from safwa.bootstrap.modules import REGISTRY
 from safwa.features.cards.hooks import BLOCKER_HOOK
 from safwa.features.cards.use_cases import create_card
 from safwa.features.onboarding.hooks import ONBOARDING_HOOK
@@ -26,8 +26,6 @@ from telegram_llm import DialogueMessage
 from tg_agent_shell.ai.outcome import AIOutcomeKind
 from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.cues.queue import add_hook_cue
-from tg_agent_shell.proposals.model import BatchDecision
-from tg_agent_shell.proposals.use_cases import approve_proposal
 
 pytestmark = pytest.mark.e2e
 
@@ -173,13 +171,8 @@ async def test_ob_ask_004_explaining_and_adding_a_check_explains_once_the_screen
 
     assert screen.kind is AIOutcomeKind.PROPOSAL
     assert "Already saved" not in json.dumps(provider.calls[3], ensure_ascii=False)
-    async with e2e_harness.sessions() as session:
-        affected = await approve_proposal(session, advisor.reviews, PROPOSALS, screen.proposal_id)
-        await session.commit()
     provider.responses.extend(["Added the Check.", forward_turn("onboarding")])
-    answered = await advisor.resolve_approval(
-        screen.proposal_id, decision=BatchDecision.APPROVED, result={"affected_ids": affected}
-    )
+    answered, _ = await save(advisor, screen.proposal_id)
 
     assert answered is not None and answered.message.startswith(f"{EXPLANATION}\n\n")
     assert "Saved" in answered.message[len(EXPLANATION):]

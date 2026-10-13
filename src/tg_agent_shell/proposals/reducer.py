@@ -17,12 +17,17 @@ from .model import (
     BatchState,
     DecideAction,
     InterruptAction,
+    QueueItem,
     RejectPendingEffect,
     ResolveCallsEffect,
 )
 
 INTERRUPTED = "The user continued with a new message."
 EXPIRED = "Nobody answered the review in time, so the request was closed."
+NOT_SHOWN = (
+    "The user discarded an earlier proposal of this request, so this one was not shown. "
+    "Tell the user it was not shown; propose it again only if they ask."
+)
 
 
 def reduce(state: BatchState, action: BatchAction) -> tuple[BatchState, tuple[BatchEffect, ...]]:
@@ -38,17 +43,41 @@ def _decide(
 ) -> tuple[BatchState, tuple[BatchEffect, ...]]:
     item = state.item_for(action.proposal_id)
     # A screen already answered, and a batch whose screens all are, both mean the press
-    # arrived after the fact: nothing left to decide and nothing to tell the model.
+    # arrived after the fact: the state comes back as it was, with nothing to do.
     if item is None or item.decision is not BatchDecision.PENDING:
         return state, ()
-    decided = replace(
-        state,
-        items=tuple(
-            replace(candidate, decision=action.decision) if candidate is item else candidate
+    decided = replace(item, decision=action.decision, notes=action.notes)
+    if action.decision is BatchDecision.APPROVED:
+        # A Save is kept, not written: its call learns what it wrote once the queue ends.
+        return _replaced(state, {item.proposal_id: decided}), ()
+    effects: list[BatchEffect] = [ResolveCallsEffect(item.call_ids, action.decision)]
+    replaced = {item.proposal_id: decided}
+    if action.decision is BatchDecision.DISCARDED:
+        # A Discard ends the queue: the screens behind it are never shown.
+        rest = tuple(
+            candidate
             for candidate in state.items
-        ),
+            if candidate is not item and candidate.decision is BatchDecision.PENDING
+        )
+        if rest:
+            effects.append(RejectPendingEffect(tuple(other.proposal_id for other in rest)))
+            effects.append(
+                ResolveCallsEffect(
+                    tuple(call_id for other in rest for call_id in other.call_ids),
+                    BatchDecision.DISCARDED,
+                    NOT_SHOWN,
+                )
+            )
+            for other in rest:
+                replaced[other.proposal_id] = replace(other, decision=BatchDecision.DISCARDED)
+    return _replaced(state, replaced), tuple(effects)
+
+
+def _replaced(state: BatchState, items: dict[int, QueueItem]) -> BatchState:
+    return replace(
+        state,
+        items=tuple(items.get(candidate.proposal_id, candidate) for candidate in state.items),
     )
-    return decided, (ResolveCallsEffect(item.call_ids, action.decision),)
 
 
 def _interrupt(

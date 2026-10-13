@@ -203,7 +203,11 @@ class RootSession:
             proposal = self.reviews.proposal(head.proposal_id)
             if proposal is None or proposal.shown_at is not None:
                 continue
-            stopped = interrupt_batch(self.reviews, head.proposal_id, reason="cancelled")
+            async with self.sessions() as session:
+                stopped = await interrupt_batch(
+                    session, self.reviews, self.proposals, head.proposal_id,
+                    reason="cancelled", render=resolved_tool_result,
+                )
             # A session the batch never named was already ended by the runtime.
             if stopped is not None and stopped.interaction_token:
                 await self.runtime.close(
@@ -240,14 +244,14 @@ class RootSession:
         *,
         decision: BatchDecision,
         result: dict[str, Any],
-        apply_proposal: bool = False,
     ) -> AIOutcome | None:
-        """Resolve one queued screen, and resume the suspended session once the queue empties."""
+        """Resolve one queued screen, and resume the suspended session once the queue ends.
+
+        A Save is kept with `result`, and written with the others once the queue ends.
+        """
         answer: AIOutcome | None = None
         try:
-            answer = await self._resolve(
-                proposal_id, decision=decision, result=result, apply_proposal=apply_proposal
-            )
+            answer = await self._resolve(proposal_id, decision=decision, result=result)
             return answer
         finally:
             await self._end_unseen_reviews(answer)
@@ -258,7 +262,6 @@ class RootSession:
         *,
         decision: BatchDecision,
         result: dict[str, Any],
-        apply_proposal: bool,
     ) -> AIOutcome | None:
         async with self.sessions() as session:
             decided = await decide_batch_item(
@@ -267,16 +270,11 @@ class RootSession:
                 self.proposals,
                 proposal_id,
                 decision=decision,
-                apply_change=apply_proposal,
-                render=lambda tool, affected: resolved_tool_result(
-                    tool,
-                    decision,
-                    {**result, "affected_ids": affected} if apply_proposal else result,
-                ),
+                result=result,
+                render=resolved_tool_result,
             )
             if decided is None:
                 return None
-            await session.commit()
         tools = decided.tool_calls
         head = decided.state.head
         if head is not None:
@@ -341,7 +339,11 @@ class RootSession:
         and the request that routed there keeps its turn: those words are its answer, and
         `handle` resumes it with them rather than starting a second request over the top.
         """
-        interrupted = interrupt_batch(self.reviews, proposal_id, reason=INTERRUPTED)
+        async with self.sessions() as session:
+            interrupted = await interrupt_batch(
+                session, self.reviews, self.proposals, proposal_id,
+                reason=INTERRUPTED, render=resolved_tool_result,
+            )
         if interrupted is None:
             return None
         tools = interrupted.tool_calls
@@ -364,9 +366,11 @@ class RootSession:
         a new request instead of continuing this one.  ``None`` when the screen does not
         belong to a suspended batch.
         """
-        interrupted = interrupt_batch(
-            self.reviews, proposal_id, reason=EXPIRED, decision=BatchDecision.EXPIRED
-        )
+        async with self.sessions() as session:
+            interrupted = await interrupt_batch(
+                session, self.reviews, self.proposals, proposal_id,
+                reason=EXPIRED, render=resolved_tool_result, decision=BatchDecision.EXPIRED,
+            )
         if interrupted is None:
             return None
         tools = interrupted.tool_calls

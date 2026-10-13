@@ -39,6 +39,7 @@ MANUAL = f"""# Safwa
 # How a change happens
 - In words: the user asks the Advisor. It shows a review screen with "✅ Save" and "🗑 Discard". Nothing is saved before Save.
 - Several changes to one item, such as a new title and a Tag, come on one screen. Save and Discard take them all.
+- Several screens come one at a time. Save marks a screen "☑️ Will be saved"; all saved ones are written when the last is decided. Discard ends the chain: the screens after it are not shown, and those saved before it are written. If one of them cannot be written, none are, and Safwa proposes them again.
 - A screen that creates an item lists up to 3 open items of its type most like it, under "Similar items already exist". Open one to use it instead of a new one.
 - Words sent while a review screen is open rework that proposal.
 - A small edit that is exactly what the user asked for may be saved with no screen. The answer then says it was saved.

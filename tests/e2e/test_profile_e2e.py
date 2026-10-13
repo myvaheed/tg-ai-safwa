@@ -10,7 +10,7 @@ import json
 from datetime import time
 
 import pytest
-from advisor_e2e_helpers import mutation_turn, route_turn
+from advisor_e2e_helpers import mutation_turn, route_turn, save
 from agent_turns import forward_turn
 
 from safwa.bootstrap.modules import PROPOSALS, REGISTRY, routed_prompt
@@ -20,8 +20,6 @@ from safwa.features.profile.api import set_hook_switch
 from safwa.features.profile.model import ProfileField, UserProfile
 from safwa.foundation.workspace import Workspace
 from tg_agent_shell.ai.outcome import AIOutcomeKind
-from tg_agent_shell.proposals.model import BatchDecision
-from tg_agent_shell.proposals.use_cases import approve_proposal
 from tg_agent_shell.telegram.manifest import AgentContext
 
 pytestmark = pytest.mark.e2e
@@ -65,17 +63,13 @@ async def test_ps_ai_019_two_fields_set_in_words_are_one_screen_and_one_change_e
         "• Home after: 30 min → 45 min",
     )
 
+    provider.responses.extend(["Saved both.", "Anything else?"])
+    await save(advisor, screen.proposal_id)
     async with e2e_harness.sessions() as session:
-        await approve_proposal(session, advisor.reviews, PROPOSALS, screen.proposal_id)
-        await session.commit()
         profile = await session.get(UserProfile, 1)
         after = (await session.get(Workspace, 1)).revision
     assert (profile.home_after_minutes, profile.morning_time) == (45, time(8, 0))
     assert after == revision + 2
-    provider.responses.extend(["Saved both.", "Anything else?"])
-    await advisor.resolve_approval(
-        screen.proposal_id, decision=BatchDecision.APPROVED, result={"affected_ids": []}
-    )
 
     # Out of range: refused before any screen, with the range the Profile screen gives.
     advisor, provider = e2e_harness.advisor(

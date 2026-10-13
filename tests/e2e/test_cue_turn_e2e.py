@@ -10,12 +10,11 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-from advisor_e2e_helpers import create_manual_card, mutation_turn, route_turn
+from advisor_e2e_helpers import create_manual_card, mutation_turn, route_turn, save
 from sqlalchemy import func, select
 
 from conftest import ScriptedProvider
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
-from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.cards.model import Card
 from tg_agent_shell.ai.runs import AgentRun
 from tg_agent_shell.cues.background import BLOCK_SHOWN, tick
@@ -24,8 +23,6 @@ from tg_agent_shell.cues.queue import add_cue, add_hook_cue
 from tg_agent_shell.cues.runtime import CueRuntime
 from tg_agent_shell.hooks.contracts import Advise, HookSpec, OnCommitted, Shown
 from tg_agent_shell.hooks.registry import HookRegistry
-from tg_agent_shell.proposals.model import BatchDecision
-from tg_agent_shell.proposals.use_cases import approve_proposal
 from tg_agent_shell.turn import TurnManager
 
 pytestmark = pytest.mark.e2e
@@ -206,16 +203,8 @@ async def test_ag_turn_015_a_follow_up_that_fails_after_a_save_leaves_nothing_op
     )
     proposal = await advisor.handle("Rename it to Buy oat milk")
     assert proposal.proposal_id is not None
-    async with e2e_harness.sessions() as session:
-        affected = await approve_proposal(
-            session, advisor.reviews, PROPOSALS, proposal.proposal_id
-        )
 
-    outcome = await advisor.resolve_approval(
-        proposal.proposal_id,
-        decision=BatchDecision.APPROVED,
-        result={"affected_ids": affected},
-    )
+    outcome, _ = await save(advisor, proposal.proposal_id)
 
     assert outcome is not None and "could not be generated" in outcome.message
     async with e2e_harness.sessions() as session:
@@ -308,15 +297,9 @@ async def test_ag_turn_010_cancelled_while_the_next_screen_is_checked_leaves_not
     )
     first = await advisor.handle("Rename both")
     assert first.proposal_id is not None
-    async with e2e_harness.sessions() as session:
-        affected = await approve_proposal(session, advisor.reviews, PROPOSALS, first.proposal_id)
 
     # Saved, and the second screen is being checked when the owner runs /cancel.
-    saving = asyncio.create_task(
-        advisor.resolve_approval(
-            first.proposal_id, decision=BatchDecision.APPROVED, result={"affected_ids": affected}
-        )
-    )
+    saving = asyncio.create_task(save(advisor, first.proposal_id))
     await asyncio.wait_for(provider.reached.wait(), timeout=5)
     saving.cancel()
     with pytest.raises(asyncio.CancelledError):

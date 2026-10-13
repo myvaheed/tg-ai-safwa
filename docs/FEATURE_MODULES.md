@@ -245,9 +245,9 @@ One rule, because the alternative is a reentrancy question with no good answer:
   `ProposalHandler.apply`, a hook's work and a Telegram handler all run the same operation.
 - The **caller owns the transaction.** Whoever opened the session commits it: a Telegram handler
   around `sessions()`, a hook's work, `approve_proposal` around the operations one Save
-  applies. Nothing opens a second boundary inside one — an operation a use case has to call takes
-  the session it was given, and a nested block would have no savepoint to roll a caught inner
-  failure back to.
+  applies, `write_saved` around those of a queue's Saves. Nothing opens a second boundary inside
+  one — an operation a use case has to call takes the session it was given, and a nested block
+  would have no savepoint to roll a caught inner failure back to.
 - A use case whose **answer** turns on the time **takes it as an argument**, and one that only
   records when something happened does not. Profile and Reminders take a `Clock` the composition
   root binds to `SystemClock()`, because the scheduled hour and the next fire are decided against

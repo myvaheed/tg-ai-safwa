@@ -59,17 +59,17 @@ Feature: Proposals
 
   Scenario: PR-QUEUE-007 — Only the front of the queue is on screen, and Safwa answers after the last one
     Given three proposals from one request are queued
-    When the owner saves or discards the one on screen
-    Then the next one in the queue takes its place on screen
+    When the owner saves the one on screen
+    Then nothing is written yet: the Save is kept, the screen says "☑️ Will be saved", and the next one in the queue takes its place on screen
     And Safwa says nothing about the request while any of them is still undecided
-    And once the last one is decided, Safwa is given every decision at once and then answers
+    And once the last one is decided, every kept Save is written by PR-SAVE-031, and Safwa is given every decision at once and then answers
 
   Scenario: PR-QUEUE-008 — Saving one proposal does not spoil the ones behind it
     Given Safwa proposed three edits to the same Card with another Card's edit between each two,
       so all three are queued
-    When the owner saves the first one
-    Then the second one is still saveable, and saving it edits the Card as it now is
-    And the third one is still saveable after that
+    When the owner saves all three
+    Then each is written on top of the one before it, in the order Safwa made them
+    And the screens of the second and the third show the Card as it is before the queue is written
 
   Scenario: PR-SAVE-009 — Save writes through the same operations the manual screens use
     Given a proposal to move an Action to Done
@@ -80,12 +80,24 @@ Feature: Proposals
     When a proposal holds more than one edit
     Then they are applied in the order the review screen listed them
 
-  Scenario: PR-SAVE-010 — Discard writes nothing, and the rest of the request goes on
-    Given a proposal is on screen and two more from the same request are queued behind it
+  Scenario: PR-SAVE-010 — Discard writes nothing and ends the request's queue
+    Given a proposal is on screen, one from the same request was saved before it, and two more are queued behind it
     When the owner discards it
     Then nothing about that item changed
     And the proposal is recorded as discarded, and its screen can no longer be acted on
-    And the two behind it are still queued and still shown in turn
+    And the two behind it are never shown: each is recorded as discarded, with the reason that the owner discarded an earlier proposal of the request
+    And the one saved before it is written by PR-SAVE-031
+    And Safwa is given every decision at once and says which were not shown; it proposes them again only if the owner asks
+
+  Scenario: PR-SAVE-031 — A request's saves are written together, once its queue ends
+    Given the owner saved some proposals of one request and its queue has ended: the last one decided, one discarded, a message written instead, or no answer in time
+    When the saves are written
+    Then they are written in the order Safwa made them, in one transaction committed once
+    And they are written all or none: when one fails, nothing of them is written and the hooks hear of none of them
+    And one is refused, and with it all of them, when the workspace moved on after its screen was shown
+    And the hooks hear of all of them once, after that commit
+    And saves kept when Safwa restarts before the queue ends are lost with the queue
+    And a proposal no request is waiting on is written at once by its Save
 
   Scenario: PR-RESULT-011 — After each decision Safwa is told what became of that proposal
     Given the owner saved one proposal and discarded another from the same request
@@ -98,7 +110,7 @@ Feature: Proposals
     Given a proposal is on screen and its review has not expired by PR-EXPIRE-029
     When the Sprint reaches its planned end and closes itself
     And the owner presses Save before the review closes
-    Then nothing at all is written
+    Then nothing of it is written, and when it is in a queue, nothing of that queue is written by PR-SAVE-031
     And the owner is told the workspace has moved on since Safwa proposed this, and it has to be
       proposed again
     And the screen cannot be acted on any more
@@ -111,16 +123,15 @@ Feature: Proposals
     And the review is over
     But a review nobody answers closes after 30 minutes by PR-EXPIRE-029, and its old Save writes nothing
     When Safwa restarts instead before the owner answers another proposal
-    Then its review, its queue and its buttons are all gone
+    Then its review, its queue and its buttons are all gone, and the Saves kept in that queue with them: nothing of them is written
     And pressing the old Save button writes nothing and says the screen has to be reopened
 
-  Scenario: PR-FAIL-014 — A proposal that fails while it is being saved takes nothing else with it
-    Given three proposals from one request are queued and the second one cannot be applied
-    When the owner saves it
-    Then it is recorded as failed and nothing was written for it
-    And the first one, already saved, stands
-    And the third one is still queued
-    And Safwa is told to fix only that one and try it once more
+  Scenario: PR-FAIL-014 — A proposal that fails while it is being saved is tried once more
+    Given three proposals from one request are saved and the second one cannot be applied
+    When the queue ends and the saves are written by PR-SAVE-031
+    Then the second is recorded as failed and nothing was written for it
+    And the first and the third are not written either, and are recorded as failed because another one of the request failed
+    And Safwa is told to fix the second and try it once more, and to try the first and the third once more unchanged
     When the same failure happens to a proposal no request is waiting on
     Then the proposal stays as it was and its screen comes back with the reason on it
 
@@ -151,7 +162,7 @@ Feature: Proposals
   Scenario: PR-INTERRUPT-018 — What was already saved is still reported as saved
     Given three proposals from one request, the first of them already saved
     When the owner writes a message instead of deciding the second
-    Then the first one stays saved
+    Then the first one is written by PR-SAVE-031, and the second and the third are recorded as discarded
     And the account left in place of the screen names all three, the saved one included
 
   Scenario: PR-EXPIRE-029 — A review nobody answers is closed after 30 minutes
@@ -160,7 +171,7 @@ Feature: Proposals
     When 30 minutes pass from the moment the screen was shown without Save, Discard or a message
       from the owner (PROPOSAL_REVIEW_MINUTES)
     Then neither proposal is written, and each is recorded as expired, not as discarded
-    And what that request had already saved stays saved and is reported as saved
+    And what the owner had already saved in that request is written by PR-SAVE-031 and reported as saved
     And the screen loses its buttons and becomes an account that the system closed the request
     And pressing its old Save writes nothing and cannot resume the closed request
     And the owner's next message starts a new request; the closed one is not resumed and nothing

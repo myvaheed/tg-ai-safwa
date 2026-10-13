@@ -11,7 +11,7 @@ from datetime import timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
-from advisor_e2e_helpers import mutation_turn, route_turn
+from advisor_e2e_helpers import mutation_turn, route_turn, save
 from agent_turns import forward_turn
 from sqlalchemy import select
 
@@ -26,8 +26,6 @@ from safwa.features.profile.use_cases import set_profile_field
 from safwa.foundation.workspace import SPRINT_LENGTH_DAYS, Workspace
 from tg_agent_shell.ai.outcome import AIOutcomeKind
 from tg_agent_shell.foundation.clock import utcnow
-from tg_agent_shell.proposals.model import BatchDecision
-from tg_agent_shell.proposals.use_cases import approve_proposal
 
 pytestmark = pytest.mark.e2e
 
@@ -46,13 +44,8 @@ def _tool_result(call: list[dict], name: str) -> dict:
 
 
 async def _save(harness, advisor, provider, proposal_id: int, words: list[str]):
-    async with harness.sessions() as session:
-        affected = await approve_proposal(session, advisor.reviews, PROPOSALS, proposal_id)
-        await session.commit()
     provider.responses.extend(words)
-    answered = await advisor.resolve_approval(
-        proposal_id, decision=BatchDecision.APPROVED, result={"affected_ids": affected}
-    )
+    answered, affected = await save(advisor, proposal_id)
     return affected, answered
 
 

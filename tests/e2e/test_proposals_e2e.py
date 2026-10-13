@@ -6,12 +6,13 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
-from advisor_e2e_helpers import create_manual_card, mutation_turn, route_turn
+from advisor_e2e_helpers import create_manual_card, mutation_turn, route_turn, save
 from aiogram.exceptions import TelegramAPIError
 from review_e2e_helpers import (
     QueueTestCallback,
     QueueTestHistory,
     QueueTestMessage,
+    on_screen,
     resolve_queued_proposal,
     review_services,
     standalone_tag_proposal,
@@ -48,6 +49,7 @@ from tg_agent_shell.proposals.model import (
     ChangeAction,
     ProposalChange,
 )
+from tg_agent_shell.proposals.reducer import NOT_SHOWN
 from tg_agent_shell.proposals.store import PROPOSAL_REVIEW_MINUTES
 from tg_agent_shell.proposals.telegram import render_proposal
 from tg_agent_shell.proposals.use_cases import approve_proposal
@@ -321,14 +323,7 @@ async def test_multiple_ai_card_creations_are_reviewed_sequentially(e2e_harness)
     for _index in range(3):
         assert current.proposal_id is not None
         proposal_ids.append(current.proposal_id)
-        async with e2e_harness.sessions() as session:
-            affected = await approve_proposal(session, advisor.reviews, PROPOSALS, current.proposal_id)
-            await session.commit()
-        current = await advisor.resolve_approval(
-            proposal_ids[-1],
-            decision=BatchDecision.APPROVED,
-            result={"affected_ids": affected},
-        )
+        current, _ = await save(advisor, proposal_ids[-1])
         assert current is not None
         if len(proposal_ids) == 1:
             assert "⚠️ Failed" not in current.message
@@ -412,15 +407,8 @@ async def test_current_request_progress_includes_current_card_update_diffs(e2e_h
     ])
     proposal = await advisor.handle("Move my walk after dinner and make it Rest")
     assert proposal.proposal_id is not None
-    async with e2e_harness.sessions() as session:
-        affected = await approve_proposal(session, advisor.reviews, PROPOSALS, proposal.proposal_id)
-        await session.commit()
 
-    outcome = await advisor.resolve_approval(
-        proposal.proposal_id,
-        decision=BatchDecision.APPROVED,
-        result={"affected_ids": affected},
-    )
+    outcome, affected = await save(advisor, proposal.proposal_id)
 
     assert outcome is not None and outcome.kind is AIOutcomeKind.ANSWER
     saved = json.loads(
@@ -507,25 +495,11 @@ async def test_new_tag_and_dependent_card_link_use_one_repair_round(e2e_harness)
 
     tag_proposal = await advisor.handle("Create VrWalk and link it to Configure environment")
     assert tag_proposal.proposal_id is not None
-    async with e2e_harness.sessions() as session:
-        tag_ids = await approve_proposal(session, advisor.reviews, PROPOSALS, tag_proposal.proposal_id)
-        await session.commit()
 
-    card_proposal = await advisor.resolve_approval(
-        tag_proposal.proposal_id,
-        decision=BatchDecision.APPROVED,
-        result={"affected_ids": tag_ids},
-    )
+    card_proposal, tag_ids = await save(advisor, tag_proposal.proposal_id)
     assert card_proposal is not None and card_proposal.proposal_id is not None
-    async with e2e_harness.sessions() as session:
-        affected = await approve_proposal(session, advisor.reviews, PROPOSALS, card_proposal.proposal_id)
-        await session.commit()
 
-    outcome = await advisor.resolve_approval(
-        card_proposal.proposal_id,
-        decision=BatchDecision.APPROVED,
-        result={"affected_ids": affected},
-    )
+    outcome, affected = await save(advisor, card_proposal.proposal_id)
 
     assert outcome is not None and outcome.kind is AIOutcomeKind.ANSWER
     assert len(provider.calls) == 5
@@ -637,13 +611,7 @@ async def test_ai_create_tag_and_links_are_reviewed_as_separate_proposals(e2e_ha
         async with e2e_harness.sessions() as session:
             changes = list(e2e_harness.reviews.proposal(current.proposal_id).changes)
             assert len(changes) == 1
-            affected = await approve_proposal(session, advisor.reviews, PROPOSALS, current.proposal_id)
-            await session.commit()
-        current = await advisor.resolve_approval(
-            proposal_ids[-1],
-            decision=BatchDecision.APPROVED,
-            result={"affected_ids": affected},
-        )
+        current, _ = await save(advisor, proposal_ids[-1])
         assert current is not None
 
     assert len(set(proposal_ids)) == 3
@@ -683,26 +651,12 @@ async def test_ai_create_value_and_link_are_reviewed_as_separate_proposals(e2e_h
     )
     first = await advisor.handle("Create Health and link it to Morning run")
     assert first.proposal_id is not None
-    async with e2e_harness.sessions() as session:
-        first_ids = await approve_proposal(session, advisor.reviews, PROPOSALS, first.proposal_id)
-        await session.commit()
-    second = await advisor.resolve_approval(
-        first.proposal_id,
-        decision=BatchDecision.APPROVED,
-        result={"affected_ids": first_ids},
-    )
+    second, first_ids = await save(advisor, first.proposal_id)
     assert second is not None and second.proposal_id is not None
     assert second.proposal_id != first.proposal_id
     assert len(provider.calls) == 3
 
-    async with e2e_harness.sessions() as session:
-        second_ids = await approve_proposal(session, advisor.reviews, PROPOSALS, second.proposal_id)
-        await session.commit()
-    final = await advisor.resolve_approval(
-        second.proposal_id,
-        decision=BatchDecision.APPROVED,
-        result={"affected_ids": second_ids},
-    )
+    final, second_ids = await save(advisor, second.proposal_id)
 
     assert final is not None and "Health is resolved." in final.message
     assert final.message.count("✅ Saved") == 2
@@ -731,26 +685,12 @@ async def test_independent_mutations_are_reviewed_in_order_before_one_resume(e2e
     first = await advisor.handle("Create a VrWalk tag and a Health value")
     assert first.proposal_id is not None
 
-    async with e2e_harness.sessions() as session:
-        first_ids = await approve_proposal(session, advisor.reviews, PROPOSALS, first.proposal_id)
-        await session.commit()
-    second = await advisor.resolve_approval(
-        first.proposal_id,
-        decision=BatchDecision.APPROVED,
-        result={"affected_ids": first_ids},
-    )
+    second, first_ids = await save(advisor, first.proposal_id)
 
     assert second is not None and second.proposal_id is not None
     assert second.proposal_id != first.proposal_id
     assert len(provider.calls) == 2
-    async with e2e_harness.sessions() as session:
-        second_ids = await approve_proposal(session, advisor.reviews, PROPOSALS, second.proposal_id)
-        await session.commit()
-    final = await advisor.resolve_approval(
-        second.proposal_id,
-        decision=BatchDecision.APPROVED,
-        result={"affected_ids": second_ids},
-    )
+    final, second_ids = await save(advisor, second.proposal_id)
 
     assert final is not None and "Both decisions are resolved." in final.message
     assert final.message.count("✅ Saved") == 2
@@ -760,46 +700,46 @@ async def test_independent_mutations_are_reviewed_in_order_before_one_resume(e2e
     assert all('"status": "approved"' in str(message["content"]) for message in tool_messages)
 
 
-async def test_discarded_proposal_result_is_returned_with_later_approval(e2e_harness):
+async def test_a_discard_ends_the_queue_and_writes_the_saves_before_it(e2e_harness):
     """PR-SAVE-010 — tests/brd/tg_agent_shell/proposals.feature"""
     advisor, provider = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
             mutation_turn(
-                ("tag", {"mode": "create", "name": "Skip me"}),
-                ("value", {"mode": "create", "name": "Keep me"}),
+                ("tag", {"mode": "create", "name": "Keep me"}),
+                ("value", {"mode": "create", "name": "Skip me"}),
+                ("tag", {"mode": "create", "name": "Not shown"}),
             ),
-            "I kept only the Value.",
-            "I kept only the Value.",
+            "Kept the Tag; the last one was not shown.",
+            "Kept the Tag; the last one was not shown.",
         ]
     )
-    first = await advisor.handle("Prepare two independent changes")
+    first = await advisor.handle("Prepare three independent changes")
     assert first.proposal_id is not None
+    second, affected = await save(advisor, first.proposal_id)
+    # Kept, not written: the queue writes it once it ends.
+    assert second is not None and second.proposal_id is not None and affected == []
     async with e2e_harness.sessions() as session:
-        advisor.reviews.end_proposal(first.proposal_id)
-        await session.commit()
-    second = await advisor.resolve_approval(
-        first.proposal_id,
+        assert await session.scalar(select(func.count(Tag.id))) == 0
+
+    advisor.reviews.end_proposal(second.proposal_id)
+    final = await advisor.resolve_approval(
+        second.proposal_id,
         decision=BatchDecision.DISCARDED,
         result={"message": "The user discarded this proposed change."},
     )
-    assert second is not None and second.proposal_id is not None
 
+    assert final is not None and "Kept the Tag; the last one was not shown." in final.message
+    assert "✅ Saved — New Tag “Keep me”" in final.message
+    assert "🗑 Discarded — New Value “Skip me”" in final.message
+    assert "🗑 Discarded — New Tag “Not shown”" in final.message
+    results = [json.loads(str(m["content"])) for m in provider.calls[2] if m["role"] == "tool"]
+    assert [result["status"] for result in results] == ["approved", "discarded", "discarded"]
+    assert results[2]["reason"] == NOT_SHOWN
+    assert advisor.reviews.open_proposals == () and advisor.reviews.open_batches == ()
     async with e2e_harness.sessions() as session:
-        affected = await approve_proposal(session, advisor.reviews, PROPOSALS, second.proposal_id)
-        await session.commit()
-    final = await advisor.resolve_approval(
-        second.proposal_id,
-        decision=BatchDecision.APPROVED,
-        result={"affected_ids": affected},
-    )
-
-    assert final is not None and "I kept only the Value." in final.message
-    assert "🗑 Discarded — New Tag “Skip me”" in final.message
-    assert "✅ Saved — New Value “Keep me”" in final.message
-    tool_messages = [message for message in provider.calls[2] if message["role"] == "tool"]
-    assert '"status": "discarded"' in str(tool_messages[0]["content"])
-    assert '"status": "approved"' in str(tool_messages[1]["content"])
+        assert list(await session.scalars(select(Tag.name))) == ["Keep me"]
+        assert await session.scalar(select(func.count(Value.id))) == 0
 
 
 async def test_new_dialogue_cancels_every_unresolved_item_in_suspended_batch(e2e_harness):
@@ -981,36 +921,15 @@ async def test_query_then_link_continuation_can_suspend_for_a_second_queue(e2e_h
     first = await advisor.handle("Create VrWalk and attach it to recent cards")
     assert first.proposal_id is not None
 
-    async with e2e_harness.sessions() as session:
-        created_tag_ids = await approve_proposal(session, advisor.reviews, PROPOSALS, first.proposal_id)
-        await session.commit()
-    first_link = await advisor.resolve_approval(
-        first.proposal_id,
-        decision=BatchDecision.APPROVED,
-        result={"affected_ids": created_tag_ids},
-    )
+    first_link, created_tag_ids = await save(advisor, first.proposal_id)
     assert first_link is not None and first_link.proposal_id is not None
     assert len(provider.calls) == 4
 
-    async with e2e_harness.sessions() as session:
-        first_link_ids = await approve_proposal(session, advisor.reviews, PROPOSALS, first_link.proposal_id)
-        await session.commit()
-    second_link = await advisor.resolve_approval(
-        first_link.proposal_id,
-        decision=BatchDecision.APPROVED,
-        result={"affected_ids": first_link_ids},
-    )
+    second_link, first_link_ids = await save(advisor, first_link.proposal_id)
     assert second_link is not None and second_link.proposal_id is not None
     assert len(provider.calls) == 4
 
-    async with e2e_harness.sessions() as session:
-        second_link_ids = await approve_proposal(session, advisor.reviews, PROPOSALS, second_link.proposal_id)
-        await session.commit()
-    final = await advisor.resolve_approval(
-        second_link.proposal_id,
-        decision=BatchDecision.APPROVED,
-        result={"affected_ids": second_link_ids},
-    )
+    final, second_link_ids = await save(advisor, second_link.proposal_id)
     assert final is not None and final.kind is AIOutcomeKind.ANSWER
     assert len(provider.calls) == 6
 
@@ -1179,7 +1098,8 @@ async def test_discarding_the_last_queued_proposal_still_reports_saved_siblings(
     await resolve_queued_proposal(
         e2e_harness, services, message, first.proposal_id, "proposal_approve"
     )
-    second_id = next((review.id for review in e2e_harness.reviews.open_proposals), None)
+    assert "☑️ Will be saved." in message.rendered
+    second_id = on_screen(e2e_harness)
     assert second_id is not None
 
     await resolve_queued_proposal(e2e_harness, services, message, second_id, "proposal_reject")
@@ -1190,6 +1110,8 @@ async def test_discarding_the_last_queued_proposal_still_reports_saved_siblings(
     assert "🗑 Discarded — New Action “Second”" in final_text
     assert "Handled both proposals." in final_text
     assert len(provider.calls) == 4
+    async with e2e_harness.sessions() as session:
+        assert list(await session.scalars(select(Card.title))) == ["First"]
 
 
 async def test_failed_call_result_states_that_its_siblings_are_still_queued(e2e_harness):
@@ -1563,15 +1485,8 @@ async def test_application_owned_saved_receipt_is_rendered_once_when_model_echoe
 
     first = await advisor.handle(f"Создай цель {title}")
     assert first.proposal_id is not None
-    async with e2e_harness.sessions() as session:
-        affected_ids = await approve_proposal(session, advisor.reviews, PROPOSALS, first.proposal_id)
-        await session.commit()
 
-    final = await advisor.resolve_approval(
-        first.proposal_id,
-        decision=BatchDecision.APPROVED,
-        result={"affected_ids": affected_ids},
-    )
+    final, affected_ids = await save(advisor, first.proposal_id)
 
     assert final is not None
     assert final.message.startswith(receipt)
@@ -1822,12 +1737,16 @@ async def test_saving_one_proposal_leaves_the_queued_ones_saveable(e2e_harness):
     services = review_services(e2e_harness, advisor)
     await render_proposal(message, services, outcome.proposal_id)
 
-    for _ in range(5):
-        pending = next((review.id for review in e2e_harness.reviews.open_proposals), None)
+    for saved in range(5):
+        pending = on_screen(e2e_harness)
         assert pending is not None
         await resolve_queued_proposal(
             e2e_harness, services, message, pending, "proposal_approve"
         )
+        if saved < 4:
+            # PR-QUEUE-007: kept until the last one is decided.
+            async with e2e_harness.sessions() as session:
+                assert (await session.get(Card, card_id)).title == "Release"
 
     async with e2e_harness.sessions() as session:
         card = await session.get(Card, card_id)
@@ -1879,9 +1798,10 @@ async def test_deleting_a_card_asks_once_more_before_it_goes(e2e_harness):
         e2e_harness, services, message, outcome.proposal_id, "proposal_delete_confirm"
     )
 
+    # Confirmed and kept: the deletion is written with the rest once the queue ends.
     async with e2e_harness.sessions() as session:
-        assert await session.get(Card, card_id) is None
-        tag_proposal = next((review.id for review in e2e_harness.reviews.open_proposals), None)
+        assert await session.get(Card, card_id) is not None
+    tag_proposal = on_screen(e2e_harness)
     assert tag_proposal is not None
 
     await resolve_queued_proposal(
@@ -1889,6 +1809,7 @@ async def test_deleting_a_card_asks_once_more_before_it_goes(e2e_harness):
     )
 
     async with e2e_harness.sessions() as session:
+        assert await session.get(Card, card_id) is None
         assert await session.get(Tag, tag_id) is None
     # The Tag went on Save alone: no second screen stood between it and the deletion.
     assert "Final destructive confirmation" not in message.rendered[-1]

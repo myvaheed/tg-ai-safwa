@@ -4,10 +4,9 @@ import json
 from collections.abc import Callable
 
 import pytest
-from advisor_e2e_helpers import PLAN, mutation_turn, route_turn
+from advisor_e2e_helpers import PLAN, mutation_turn, route_turn, save
 
 from conftest import ScriptedProvider
-from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.cards.model import Card
 from safwa.features.cards.use_cases import create_card
 from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
@@ -27,7 +26,6 @@ from tg_agent_shell.proposals.hooks import (
 )
 from tg_agent_shell.proposals.materialize import MAX_REPAIR_ROUNDS
 from tg_agent_shell.proposals.model import BatchDecision
-from tg_agent_shell.proposals.use_cases import approve_proposal
 
 pytestmark = pytest.mark.e2e
 
@@ -253,14 +251,9 @@ async def test_the_answer_is_read_after_the_last_screen_with_what_became_of_each
     # A screen stops the request before any answer, so nothing is read yet.
     assert first.kind is AIOutcomeKind.PROPOSAL
     assert seen == []
-    async with e2e_harness.sessions() as session:
-        affected = await approve_proposal(session, advisor.reviews, PROPOSALS, first.proposal_id)
-        await session.commit()
     provider.responses.extend(["Карточка переименована.", "Переименовал."])
 
-    final = await advisor.resolve_approval(
-        first.proposal_id, decision=BatchDecision.APPROVED, result={"affected_ids": affected}
-    )
+    final, _ = await save(advisor, first.proposal_id)
 
     assert final is not None and "Переименовал." in final.message
     [event] = seen
@@ -296,15 +289,8 @@ async def after_a_change(
     )
     first = await advisor.handle(request, source_message_id=1)
     assert first.kind is AIOutcomeKind.PROPOSAL
-    result: dict[str, object] = {}
-    if decision is BatchDecision.APPROVED:
-        async with e2e_harness.sessions() as session:
-            result["affected_ids"] = await approve_proposal(
-                session, advisor.reviews, PROPOSALS, first.proposal_id
-            )
-            await session.commit()
     provider.responses.extend(then)
-    final = await advisor.resolve_approval(first.proposal_id, decision=decision, result=result)
+    final = await advisor.resolve_approval(first.proposal_id, decision=decision, result={})
     return final, provider
 
 

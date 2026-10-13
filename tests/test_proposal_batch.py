@@ -1,8 +1,9 @@
 """Every transition of a batch of review screens, as a table.
 
 The reducer is where "what happens when the owner answers a screen" is decided, so each
-row here is one press and what it leaves behind. Applying a proposal and resuming the
-session are the caller's, and none of them is needed to check a transition.
+row here is one press and what it leaves behind. A Save is kept, with no effect: writing
+the kept Saves once no screen is left, and resuming the session, are the caller's, and
+none of them is needed to check a transition.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from tg_agent_shell.proposals.model import (
     ResolveCallsEffect,
 )
 from tg_agent_shell.proposals.reducer import EXPIRED as UNANSWERED
-from tg_agent_shell.proposals.reducer import INTERRUPTED, reduce
+from tg_agent_shell.proposals.reducer import INTERRUPTED, NOT_SHOWN, reduce
 
 PENDING = BatchDecision.PENDING
 APPROVED = BatchDecision.APPROVED
@@ -47,19 +48,34 @@ def batch(*items: QueueItem, exhausted: bool = False):
             batch(item(1)),
             DecideAction(1, APPROVED),
             [APPROVED],
-            (ResolveCallsEffect(("call-1",), APPROVED),),
+            (),
         ),
         (
             batch(item(1), item(2)),
             DecideAction(1, APPROVED),
             [APPROVED, PENDING],
-            (ResolveCallsEffect(("call-1",), APPROVED),),
+            (),
         ),
+        # PR-SAVE-010: a Discard ends the queue, and the screens behind it are never shown.
         (
             batch(item(1), item(2)),
             DecideAction(1, DISCARDED),
-            [DISCARDED, PENDING],
-            (ResolveCallsEffect(("call-1",), DISCARDED),),
+            [DISCARDED, DISCARDED],
+            (
+                ResolveCallsEffect(("call-1",), DISCARDED),
+                RejectPendingEffect((2,)),
+                ResolveCallsEffect(("call-2",), DISCARDED, NOT_SHOWN),
+            ),
+        ),
+        (
+            batch(item(1, APPROVED), item(2), item(3)),
+            DecideAction(2, DISCARDED),
+            [APPROVED, DISCARDED, DISCARDED],
+            (
+                ResolveCallsEffect(("call-2",), DISCARDED),
+                RejectPendingEffect((3,)),
+                ResolveCallsEffect(("call-3",), DISCARDED, NOT_SHOWN),
+            ),
         ),
         (
             batch(item(1, APPROVED), item(2)),
@@ -71,7 +87,7 @@ def batch(*items: QueueItem, exhausted: bool = False):
             batch(item(1, APPROVED), item(2), exhausted=True),
             DecideAction(2, APPROVED),
             [APPROVED, APPROVED],
-            (ResolveCallsEffect(("call-2",), APPROVED),),
+            (),
         ),
         (
             batch(item(1, APPROVED), item(2)),
@@ -141,11 +157,19 @@ def test_the_head_is_the_first_screen_still_waiting_for_an_answer():
 
     assert state.head == item(2)
 
-    decided, _effects = reduce(
-        state, DecideAction(2, DISCARDED)
-    )
+    decided, _effects = reduce(state, DecideAction(2, APPROVED))
 
     assert decided.head == item(3)
+
+
+def test_a_kept_save_carries_its_notes_and_a_late_press_changes_nothing():
+    """PR-SAVE-031 — tests/brd/tg_agent_shell/proposals.feature"""
+    state = batch(item(1), item(2))
+    kept, effects = reduce(state, DecideAction(1, APPROVED, {"destructive": True}))
+
+    assert effects == () and kept.items[0].notes == {"destructive": True}
+    # A press on a screen already answered hands the very same state back.
+    assert reduce(kept, DecideAction(1, DISCARDED))[0] is kept
 
 
 def test_a_batch_with_nothing_left_to_answer_has_no_head():

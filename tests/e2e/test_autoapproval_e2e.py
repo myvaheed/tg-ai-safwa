@@ -3,12 +3,11 @@ from __future__ import annotations
 import json
 
 import pytest
-from advisor_e2e_helpers import PLAN, route_turn
+from advisor_e2e_helpers import PLAN, route_turn, save
 from sqlalchemy import func, select
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.cards.model import Card
 from safwa.features.cards.use_cases import create_card
 from safwa.features.tags.model import CardTag, Tag
@@ -16,10 +15,6 @@ from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.model import Value
 from safwa.features.values.use_cases import create_value
 from tg_agent_shell.ai.outcome import AIOutcomeKind
-from tg_agent_shell.proposals.model import (
-    BatchDecision,
-)
-from tg_agent_shell.proposals.use_cases import approve_proposal
 
 pytestmark = pytest.mark.e2e
 
@@ -244,7 +239,8 @@ async def test_batch_is_reviewed_head_first_without_a_bulk_block(e2e_harness):
     assert outcome.proposal_id is not None
     assert len(provider.calls) == 4
     async with e2e_harness.sessions() as session:
-        assert (await session.get(Tag, tag.id)).name == "Career"
+        # Kept like the owner's Save, and written with the rest once the queue ends.
+        assert (await session.get(Tag, tag.id)).name == "Work"
         assert (await session.get(Value, value.id)).name == "Freedom"
         batch = next(iter(advisor.reviews.open_batches), None)
         assert batch is not None
@@ -252,7 +248,7 @@ async def test_batch_is_reviewed_head_first_without_a_bulk_block(e2e_harness):
             "approved",
             "pending",
         ]
-        assert batch.tool_calls[0]["result"]["approval_source"] == "auto"
+        assert batch.state.items[0].notes["approval_source"] == "auto"
 
 
 async def test_next_head_is_autoapproved_after_a_manual_save(e2e_harness):
@@ -277,15 +273,8 @@ async def test_next_head_is_autoapproved_after_a_manual_save(e2e_harness):
     )
     first = await advisor.handle("Rename the Work tag and the Freedom value")
     assert first.proposal_id is not None
-    async with e2e_harness.sessions() as session:
-        affected = await approve_proposal(session, advisor.reviews, PROPOSALS, first.proposal_id)
-        await session.commit()
 
-    outcome = await advisor.resolve_approval(
-        first.proposal_id,
-        decision=BatchDecision.APPROVED,
-        result={"affected_ids": affected},
-    )
+    outcome, affected = await save(advisor, first.proposal_id)
 
     assert outcome is not None and outcome.kind is AIOutcomeKind.ANSWER
     assert "⚡ Auto-saved" in outcome.message
@@ -429,7 +418,7 @@ async def test_the_third_in_a_queue_is_not_read_while_the_second_is_on_screen(e2
     # One mutation turn and two reviews: the third was never put in front of autoapproval.
     assert len(provider.calls) == 4
     async with e2e_harness.sessions() as session:
-        assert (await session.get(Tag, tag.id)).name == "Career"
+        assert (await session.get(Tag, tag.id)).name == "Work"
         assert (await session.get(Value, value.id)).name == "Freedom"
         assert (await session.get(Card, card.id)).title == "Buy milk"
         batch = next(iter(advisor.reviews.open_batches), None)

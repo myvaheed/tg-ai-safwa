@@ -60,12 +60,12 @@ _DECISION_NEXT_STEPS = {
         "user's request that are still unfinished, then answer."
     ),
     BatchDecision.DISCARDED: (
-        "The user rejected this change, so it does not exist. Do not retry it unless the "
-        "user asks again. Continue with the rest of the request, then answer."
+        "The user rejected this change, so it does not exist, and the request stops here. "
+        "Do not retry it or propose more unless the user asks again. Answer now."
     ),
     BatchDecision.FAILED: (
         "Applying this change failed, so nothing was written for it. Read `error`, fix only "
-        "this call, and retry it once; every other resolved call in this request stands."
+        "this call, and retry it once."
     ),
 }
 

@@ -5,14 +5,13 @@ import json
 from datetime import date
 
 import pytest
-from advisor_e2e_helpers import PLAN, route_turn
+from advisor_e2e_helpers import PLAN, route_turn, save
 from agent_turns import forward_turn
 from sqlalchemy import select
 
 from agent_runtime.model import NOTHING_DONE_NEXT
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.cards.model import Card, CardKind
 from safwa.features.cards.use_cases import create_card, finish_action
 from safwa.features.diary.model import DiaryEntry
@@ -21,8 +20,6 @@ from tg_agent_shell.ai.outcome import AIOutcomeKind
 from tg_agent_shell.ai.runs import AgentRun, AgentStep
 from tg_agent_shell.ai.subagents import RoutedSubagent
 from tg_agent_shell.ai.tools import IMMEDIATE_TOOLS
-from tg_agent_shell.proposals.model import BatchDecision
-from tg_agent_shell.proposals.use_cases import approve_proposal
 from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec
 
 TODAY = date.today().isoformat()
@@ -603,9 +600,6 @@ async def test_two_domains_in_one_request_are_both_finished(e2e_harness):
     assert first.kind is AIOutcomeKind.PROPOSAL
 
     # Saving resumes the workspace, whose receipt resumes the Advisor, which routes on.
-    async with e2e_harness.sessions() as session:
-        affected = await approve_proposal(session, advisor.reviews, PROPOSALS, first.proposal_id)
-        await session.commit()
     provider.responses.extend(
         [
             "Карточка переименована.",
@@ -617,11 +611,7 @@ async def test_two_domains_in_one_request_are_both_finished(e2e_harness):
             ),
         ]
     )
-    second = await advisor.resolve_approval(
-        first.proposal_id,
-        decision=BatchDecision.APPROVED,
-        result={"affected_ids": affected},
-    )
+    second, affected = await save(advisor, first.proposal_id)
 
     # The Diary half is reached, and it is a screen of its own.
     assert second.kind is AIOutcomeKind.PROPOSAL
@@ -691,9 +681,6 @@ async def test_the_second_subagent_reads_what_the_first_one_saved(e2e_harness):
         subagents=(workspace, diary),
     )
     first = await advisor.handle("Переименуй действие и запиши день")
-    async with e2e_harness.sessions() as session:
-        affected = await approve_proposal(session, advisor.reviews, PROPOSALS, first.proposal_id)
-        await session.commit()
     provider.responses.extend(
         [
             "Переименовал.",
@@ -703,11 +690,7 @@ async def test_the_second_subagent_reads_what_the_first_one_saved(e2e_harness):
         ]
     )
 
-    await advisor.resolve_approval(
-        first.proposal_id,
-        decision=BatchDecision.APPROVED,
-        result={"affected_ids": affected},
-    )
+    _, affected = await save(advisor, first.proposal_id)
 
     # The Diary's own context names what the workspace already saved, in the owner's words.
     diary_seen = next(item for item in provider.calls[-1] if item["role"] == "user")
@@ -879,17 +862,8 @@ async def test_saving_finishes_the_subagent_and_the_next_route_starts_fresh(e2e_
     )
     proposal = await advisor.handle("Запиши день")
     assert proposal.proposal_id is not None
-    async with e2e_harness.sessions() as session:
-        affected = await approve_proposal(
-            session, advisor.reviews, PROPOSALS, proposal.proposal_id
-        )
-        await session.commit()
 
-    outcome = await advisor.resolve_approval(
-        proposal.proposal_id,
-        decision=BatchDecision.APPROVED,
-        result={"affected_ids": affected},
-    )
+    outcome, affected = await save(advisor, proposal.proposal_id)
 
     assert outcome is not None and outcome.kind is AIOutcomeKind.PROPOSAL
     async with e2e_harness.sessions() as session:
@@ -1110,13 +1084,8 @@ async def test_ag_receipt_044_words_survive_a_screen_and_open_the_message(e2e_ha
     assert "Already saved" not in mutator_context
     assert first.kind is AIOutcomeKind.PROPOSAL
 
-    async with e2e_harness.sessions() as session:
-        affected = await approve_proposal(session, advisor.reviews, PROPOSALS, first.proposal_id)
-        await session.commit()
     provider.responses.extend(["Added the Check.", forward_turn("guide")])
-    answered = await advisor.resolve_approval(
-        first.proposal_id, decision=BatchDecision.APPROVED, result={"affected_ids": affected}
-    )
+    answered, affected = await save(advisor, first.proposal_id)
 
     # The screen came between, and the words are still first, whole, above the receipt.
     assert answered is not None and answered.kind is AIOutcomeKind.ANSWER

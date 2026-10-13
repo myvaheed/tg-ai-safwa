@@ -1,7 +1,9 @@
 """Save, Discard, and the second confirmation a destructive change needs.
 
-A failed decision is recovered here rather than by the dispatcher: only this feature knows
-whether the screen is still answerable, and whether a suspended session is waiting on it.
+A Save on a screen a suspended session waits on is kept, and written with the rest of its
+queue once the queue ends; a proposal nobody waits on is written at once. A failed decision
+is recovered here rather than by the dispatcher: only this feature knows whether the screen
+is still answerable, and whether a suspended session is waiting on it.
 """
 
 from __future__ import annotations
@@ -65,18 +67,15 @@ async def _on_approve(context: CallbackContext) -> None:
                 markup=InlineKeyboardMarkup(inline_keyboard=[[confirm]]),
             )
             return
-        # Read the description before applying: its field lines diff against committed
-        # state, which the apply is about to become.
-        description = await context.services.root.describe_proposal(session, proposal_id)
-        affected = await approve_proposal(
-            session, root.reviews, root.proposals, proposal_id
-        )
-    if await continue_agent_approval(
-        context.message,
-        context.services,
-        proposal_id,
-        decision=BatchDecision.APPROVED,
-        result={"affected_ids": affected},
+        # Read the description before saving: its field lines diff against committed
+        # state, which the write is about to become.
+        description = await root.describe_proposal(session, proposal_id)
+        waiting = root.has_pending_approval(proposal_id)
+        if not waiting:
+            await approve_proposal(session, root.reviews, root.proposals, proposal_id)
+    if waiting and await continue_agent_approval(
+        context.message, context.services, proposal_id,
+        decision=BatchDecision.APPROVED, result={},
     ):
         return
     await send_registered(
@@ -89,31 +88,26 @@ async def _on_approve(context: CallbackContext) -> None:
 
 async def _on_delete_confirm(context: CallbackContext) -> None:
     proposal_id = context.payload["id"]
+    root = context.services.root
+    notice = None
     async with context.sessions() as session:
-        description = await context.services.root.describe_proposal(session, proposal_id)
-        affected = await approve_proposal(
-            session,
-            context.services.root.reviews,
-            context.services.root.proposals,
-            proposal_id,
-            allow_destructive=True,
-        )
-    if await continue_agent_approval(
-        context.message,
-        context.services,
-        proposal_id,
-        decision=BatchDecision.APPROVED,
-        result={"affected_ids": affected, "destructive": True},
+        description = await root.describe_proposal(session, proposal_id)
+        waiting = root.has_pending_approval(proposal_id)
+        if not waiting:
+            affected = await approve_proposal(
+                session, root.reviews, root.proposals, proposal_id, allow_destructive=True
+            )
+            notice = f"Permanently deleted {len(affected)} item(s)."
+    if waiting and await continue_agent_approval(
+        context.message, context.services, proposal_id,
+        decision=BatchDecision.APPROVED, result={"destructive": True},
     ):
         return
     await send_registered(
         context.message,
         context.services,
         proposal_outcome_text(
-            BatchDecision.APPROVED,
-            description.summary,
-            description.fields,
-            notice=f"Permanently deleted {len(affected)} item(s).",
+            BatchDecision.APPROVED, description.summary, description.fields, notice=notice
         ),
         kind=MessageKind.EVENT,
     )

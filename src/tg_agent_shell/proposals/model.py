@@ -8,6 +8,7 @@ what the review *did*: the rows its handlers wrote, and the turn's own `agent_ru
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
@@ -60,6 +61,8 @@ class BatchDecision(StrEnum):
 # The interface owns this line, never the model: the model reads what a change did in the
 # result of the call that made it.
 SAVED_RECEIPT = "✅ Saved"
+# A Save in a queue is kept, and written once the queue ends.
+KEPT_RECEIPT = "☑️ Will be saved"
 AUTO_SAVED_RECEIPT = "⚡ Auto-saved"
 DISCARDED_RECEIPT = "🗑 Discarded"
 FAILED_RECEIPT = "⚠️ Failed"
@@ -75,6 +78,7 @@ DECISION_RECEIPTS = {
 # How a line the interface wrote about a change opens, so words that echo one are known.
 RECEIPT_PREFIXES = (
     SAVED_RECEIPT,
+    KEPT_RECEIPT,
     AUTO_SAVED_RECEIPT,
     DISCARDED_RECEIPT,
     FAILED_RECEIPT,
@@ -89,6 +93,9 @@ class QueueItem:
     proposal_id: int
     call_ids: tuple[str, ...]
     decision: BatchDecision = BatchDecision.PENDING
+    # What a kept Save says about itself — confirmed as destructive, or saved by
+    # autoapproval — for the write once the queue ends and for the model's result.
+    notes: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,12 +145,14 @@ class DecideAction:
 
     proposal_id: int
     decision: BatchDecision
+    notes: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
 class InterruptAction:
     """The batch never gets its answer: new dialogue arrived over the screens, or nobody
-    answered them in time. `decision` is what the screens still waiting are recorded as."""
+    answered them in time. `decision` is what the screens still waiting are recorded as;
+    the Saves kept before are written all the same."""
 
     reason: str
     decision: BatchDecision = BatchDecision.DISCARDED

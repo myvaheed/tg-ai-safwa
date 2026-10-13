@@ -9,18 +9,16 @@ from __future__ import annotations
 import json
 
 import pytest
+from advisor_e2e_helpers import save
 from agent_turns import mutation_turn, route_turn
 from ui_harness import FakeMessage, history_source, services_for
 
 from llm_gateway import CompletionTurn, ToolCall
-from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
 from tg_agent_shell.ai.conversation import CLEARED_READ
 from tg_agent_shell.foundation.kinds import MessageKind
-from tg_agent_shell.proposals.model import BatchDecision
 from tg_agent_shell.proposals.telegram.answer import render_ai_outcome
-from tg_agent_shell.proposals.use_cases import approve_proposal
 
 pytestmark = pytest.mark.e2e
 
@@ -65,15 +63,10 @@ async def two_requests(e2e_harness) -> tuple[list[dict], FakeMessage, int, list[
         first.text, source_message_id=1, dialogue=await history.dialogue(CHAT)
     )
     after_read = provider.calls[1]
-    async with e2e_harness.sessions() as session:
-        affected = await approve_proposal(session, advisor.reviews, PROPOSALS, outcome.proposal_id)
-        await session.commit()
-    provider.responses.extend(
-        ["Created it.", f"Done — [Buy milk](card:{affected[0]}) is in your Backlog."]
-    )
-    answer = await advisor.resolve_approval(
-        outcome.proposal_id, decision=BatchDecision.APPROVED, result={"affected_ids": affected}
-    )
+    # The first Card of a fresh workspace, cited before the Save writes it.
+    provider.responses.extend(["Created it.", "Done — [Buy milk](card:1) is in your Backlog."])
+    answer, affected = await save(advisor, outcome.proposal_id)
+    assert affected == [1]
     anchor = FakeMessage(2, bot_message=False, chat_id=CHAT, answer_as_new=True)
     await render_ai_outcome(anchor, services, answer)
     second = FakeMessage(5_000, text="And eggs too", bot_message=False, chat_id=CHAT)

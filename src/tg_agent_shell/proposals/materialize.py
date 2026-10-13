@@ -409,36 +409,12 @@ class ProposalMaterializer:
         )
         if reason is None:
             return outcome
-        try:
-            advanced = await self.resolve(
-                outcome.proposal_id,
-                decision=BatchDecision.APPROVED,
-                result={
-                    "approval_source": AUTOAPPROVED,
-                    "autoapproval_reason": reason,
-                },
-                apply_proposal=True,
-            )
-        except Exception as error:
-            logger.warning(
-                "Autoapproval apply failed for proposal #%s: %s", outcome.proposal_id, error
-            )
-            if self.reviews.proposal(outcome.proposal_id) is not None:
-                # The write was rolled back and the review still stands, so the owner
-                # decides it after all.
-                return outcome
-            # A refusal ends the review with it, so there is no screen left to fall back
-            # to: the queue moves on the way it moves on for a failed manual Save.
-            advanced = await self.resolve(
-                outcome.proposal_id,
-                decision=BatchDecision.FAILED,
-                result={"error": str(error)},
-            )
-            return advanced or AIOutcome(
-                AIOutcomeKind.ANSWER,
-                "⚠️ The proposed change was not saved: the workspace moved on since it "
-                "was proposed. Ask for it again.",
-            )
+        # Kept like the owner's Save, and written with the rest once the queue ends.
+        advanced = await self.resolve(
+            outcome.proposal_id,
+            decision=BatchDecision.APPROVED,
+            result={"approval_source": AUTOAPPROVED, "autoapproval_reason": reason},
+        )
         return advanced or AIOutcome(
             AIOutcomeKind.ANSWER, f"{AUTO_SAVED_RECEIPT} the proposed change."
         )

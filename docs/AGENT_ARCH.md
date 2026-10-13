@@ -362,7 +362,8 @@ sequenceDiagram
   receipt, so the turn still answers.
 
 Words typed over a screen resume the turn that opened it. Every pending proposal in that batch is
-discarded, the screen is frozen into an account of what the request did, and only then is anything
+discarded, what the batch kept is written, the screen is frozen into an account of what the
+request did, and only then is anything
 generated: the Advisor's pending `route` is answered with what was proposed, what was refused, what
 was already saved, and the owner's words.
 
@@ -484,10 +485,12 @@ flowchart LR
     P -->|refused| ERR
     P --> R[open review in ProposalStore · calls in a row for one item share one]
     R --> AUTO{BeforeReview hooks}
-    AUTO -->|listed and saved unseen| APPLY
+    AUTO -->|listed and saved unseen| KEEP
     AUTO -->|no, or any doubt| SCREEN[review screen · Save / Discard]
-    SCREEN -->|Save| APPLY[approve_proposal]
-    SCREEN -->|Discard| REJ[end the review]
+    SCREEN -->|Save| KEEP[kept in its batch]
+    SCREEN -->|Discard| REJ[end the review and the queue]
+    KEEP -->|the queue ends| APPLY[write_saved · one transaction, all or none]
+    REJ --> APPLY
     APPLY --> DOM[the same use cases the manual UI calls]
 ```
 
@@ -531,33 +534,43 @@ flowchart LR
 - **Autoapproval is the one exception to `PR-WRITE-002`, and `PR-AUTO-024` is where it is
   approved.** It is `AUTOAPPROVAL_HOOK`, and it decides only whether a screen is shown: it never
   bypasses preparation or the stored proposal, and any doubt leaves the pending screen untouched.
-  A Save it asked for that is refused because the workspace moved on ends the review with it, and
-  the queue moves on the way a failed manual Save moves it. Which actions are eligible is each
+  A Save it asked for is kept like the owner's and written with the queue's, and one refused
+  there is a failed call like any other. Which actions are eligible is each
   feature's `ProposalContribution.autoapprovals`, which `BeforeReview` carries as each change's
   `criterion`; a create is never one of them. A review holding several changes to one item is
   read in one call, and only when every change is eligible.
 - **`PR-TARGET-001` is a shell rule the feature keeps.** The generic walk carries no entity, so
   loading the target, `archived_at` and the closed repeat are the owning feature's
   `ProposalHandler.prepare`, and `target_not_found` is the one refusal `proposals/` raises itself.
-- `approve_proposal` is where one Save ends, the manual one and the automatic one alike: it checks
-  `workspace.revision` before any handler runs, commits the write itself, and takes the review off
-  the screen only once that commit stands. `StaleStateError` is the expected failure, and it is the
-  one that ends the review instead — the screen is unanswerable rather than retryable.
+- **A Save on a screen a suspended session waits on is kept, not written** (`PR-SAVE-031`).
+  `decide_batch_item` records it in the batch, and once no screen of the batch is left to show —
+  the last one decided, one discarded, the owner wrote instead, or nobody answered in time —
+  `write_saved` writes every kept Save in one transaction, all or none. It checks each Save
+  against the `workspace.revision` its screen was shown at; one that is refused or fails rolls
+  the transaction back, so the hooks hear of none of them. That one is handed back failed with
+  its error and every other one failed with `NOT_WRITTEN`, and the model retries them once.
+  Kept Saves live in the process with their batch, and a restart loses them.
+- `approve_proposal` is the Save of a proposal no session waits on: it checks `workspace.revision`
+  before any handler runs, commits the write itself, and takes the review off the screen only
+  once that commit stands. `StaleStateError` is the expected failure, and it is the one that ends
+  the review instead — the screen is unanswerable rather than retryable.
 - Several mutation calls in one turn queue as screens in the order they were made, and calls in a
   row for one existing item share one (`PR-QUEUE-005`): each is prepared on its own, so its receipt
-  stays its own, and `approve_proposal` hands each later change of the item the version the one
-  before it left in the same transaction. A presenter's `screen` gets every change of its review.
-  The model resumes only after the last screen resolves, each result handed back as a tool result.
+  stays its own, and the write hands each later change of an item the version the change before it
+  left in the same transaction, within one proposal and across the queue. A presenter's `screen`
+  gets every change of its review. A Discard ends the queue: the screens behind it are recorded
+  discarded and never shown (`PR-SAVE-010`). The model resumes only after the queue ends, each
+  result handed back as a tool result.
 - A review and its approval batch are process state, not rows: `ProposalStore` holds both, they
   carry no status, and a batch is over when no screen is still waiting. Nothing
   survives a restart, so startup only clears what pointed at a review — the buttons, and the
   `related_id` of the screens in the chat. Review ids only ever go up, so a screen that still names
   one cannot reach a later review.
 - **A review nobody answers is closed by the system** (`PR-EXPIRE-029`). A proposal carries
-  `shown_at` from the moment its screen is drawn — a queued one has none — and the Cue poll closes
+  `shown_at` from the moment its screen is drawn — a queued one and a kept Save have none — and the Cue poll closes
   the one that has stood `PROPOSAL_REVIEW_MINUTES = 30`: its pending proposals are recorded
   `expired`, never `discarded`, so neither the owner nor the model reads a rejection into it; what
-  the request had saved stays saved; the screen is frozen into an account that the system closed
+  the request kept is written; the screen is frozen into an account that the system closed
   the request; and the session chain is `abandoned` through `AgentManager.close`, so nothing is
   resumed. It takes the background lease the way a Cue does, so it never runs inside the owner's
   turn, and a Save that lands after it finds the review gone.

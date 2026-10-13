@@ -50,6 +50,13 @@ async def resolve_queued_proposal(
     await callback_token_handler(QueueTestCallback(token.token, message), services)
 
 
+def on_screen(e2e_harness) -> int | None:
+    """The proposal whose screen waits for an answer: the head of the open queue. A kept
+    Save is still an open proposal until its queue is written, so it is never this one."""
+    heads = [batch.state.head for batch in e2e_harness.reviews.open_batches]
+    return next((head.proposal_id for head in heads if head is not None), None)
+
+
 async def standalone_tag_proposal(e2e_harness, advisor, name: str) -> int:
     """A proposal with no live approval batch, which is the plain receipt path."""
     outcome = await advisor.handle(f"Create a {name} tag")

@@ -258,20 +258,17 @@ def _autoapproving(sessions, reviews: ProposalStore) -> ProposalMaterializer:
     the runtime's, and this test is about neither of those.
     """
 
-    async def resolve(proposal_id, *, decision, result, apply_proposal=False):
+    async def resolve(proposal_id, *, decision, result):
         async with sessions() as session:
-            decided = await decide_batch_item(
+            await decide_batch_item(
                 session,
                 reviews,
                 PROPOSALS,
                 proposal_id,
                 decision=decision,
-                apply_change=apply_proposal,
-                render=lambda tool, affected: {"status": decision.value},
+                result=result,
+                render=lambda tool, decided, payload: {"status": decided.value, **payload},
             )
-            if decided is None:
-                return None
-            await session.commit()
         return None
 
     return ProposalMaterializer(
@@ -307,23 +304,25 @@ async def test_pr_auto_026_a_refused_automatic_save_never_offers_a_review_that_i
         await session.commit()
         assert await expire_due_sprint(session) is not None
         await session.commit()
-    reviews.open_batch(
-        open_batch(
-            run_id=1,
-            items=[QueueItem(proposal_id=proposal.id, call_ids=("call-1",))],
-            tool_calls=[{"id": "call-1", "name": "card", "result": None}],
-            repair_exhausted=False,
-        )
+    batch = open_batch(
+        run_id=1,
+        items=[QueueItem(proposal_id=proposal.id, call_ids=("call-1",))],
+        tool_calls=[{"id": "call-1", "name": "card", "result": None}],
+        repair_exhausted=False,
     )
+    reviews.open_batch(batch)
 
     outcome = await _autoapproving(sessions, reviews).before_review(
         AIOutcome(AIOutcomeKind.PROPOSAL, "Review this.", proposal_id=proposal.id)
     )
 
-    # The refusal ends the review deliberately, so the fallback is words rather than a
-    # screen id nothing can draw, and the queue behind it does not stay open on it.
+    # Kept like a Save, it is refused when the queue is written, and the refusal is the
+    # call's result: no screen id nothing can draw, and no queue left open on it.
     assert outcome.kind is AIOutcomeKind.ANSWER
     assert reviews.proposal(proposal.id) is None
     assert reviews.batch_for_proposal(proposal.id) is None
+    [call] = batch.tool_calls
+    assert call["result"]["status"] == "failed"
+    assert "workspace moved on" in call["result"]["error"]
     async with sessions() as session:
         assert (await session.get(Card, card.id)).title == "Walk"

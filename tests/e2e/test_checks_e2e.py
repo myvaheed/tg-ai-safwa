@@ -219,15 +219,17 @@ async def test_answering_checks_by_proposal_then_completing(e2e_harness):
     assert (await _live_actions(e2e_harness)) == {"proposal_approve", "proposal_reject"}
 
     await _claim(e2e_harness, "proposal_approve", message, services, id=outcome.proposal_id)
+    # Kept, not written: the queue writes its Saves once its last screen is decided.
+    async with e2e_harness.sessions() as session:
+        assert (await session.get(Check, check_ids[0])).outcome is None
+    # The second proposal of the batch is queued behind the first.
+    await _claim(e2e_harness, "proposal_approve", message, services)
     async with e2e_harness.sessions() as session:
         assert advisor.reviews.proposal(outcome.proposal_id) is None
         first = await session.get(Check, check_ids[0])
         assert first.outcome == CheckOutcome.PASSED.value
         assert first.resolved_by == "ai"
         assert first.resolved_at is not None
-    # The second proposal of the batch is queued behind the first.
-    await _claim(e2e_harness, "proposal_approve", message, services)
-    async with e2e_harness.sessions() as session:
         assert (await session.get(Check, check_ids[1])).outcome == CheckOutcome.MISSED.value
         assert await pending_checks(session, card_id) == []
 

@@ -5,7 +5,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from advisor_e2e_helpers import create_manual_card, mutation_turn, route_turn, schedule_turn
+from advisor_e2e_helpers import create_manual_card, mutation_turn, route_turn, save, schedule_turn
 from sqlalchemy import func, select
 
 from llm_gateway import CompletionTurn as ProviderTurn
@@ -438,15 +438,8 @@ async def test_mixed_query_and_mutation_resumes_only_after_approval(e2e_harness)
 
     assert outcome.proposal_id is not None
     assert len(provider.calls) == 3
-    async with e2e_harness.sessions() as session:
-        affected = await approve_proposal(session, advisor.reviews, PROPOSALS, outcome.proposal_id)
-        await session.commit()
 
-    resumed = await advisor.resolve_approval(
-        outcome.proposal_id,
-        decision=BatchDecision.APPROVED,
-        result={"affected_ids": affected},
-    )
+    resumed, affected = await save(advisor, outcome.proposal_id)
 
     assert resumed is not None and resumed.kind is AIOutcomeKind.ANSWER
     assert "✅ Saved — New Tag “VrWalk”" in resumed.message
@@ -518,21 +511,11 @@ async def test_resumed_request_replays_its_own_intermediate_steps(e2e_harness):
         ],
     )
     assert first.proposal_id is not None
-    async with e2e_harness.sessions() as session:
-        goal_ids = await approve_proposal(session, advisor.reviews, PROPOSALS, first.proposal_id)
-        await session.commit()
 
     # No dialogue argument: the suspended turn resumes from what it persisted itself.
-    second = await advisor.resolve_approval(
-        first.proposal_id, decision=BatchDecision.APPROVED, result={"affected_ids": goal_ids}
-    )
+    second, goal_ids = await save(advisor, first.proposal_id)
     assert second is not None and second.proposal_id is not None
-    async with e2e_harness.sessions() as session:
-        action_ids = await approve_proposal(session, advisor.reviews, PROPOSALS, second.proposal_id)
-        await session.commit()
-    final = await advisor.resolve_approval(
-        second.proposal_id, decision=BatchDecision.APPROVED, result={"affected_ids": action_ids}
-    )
+    final, action_ids = await save(advisor, second.proposal_id)
 
     assert final is not None and "Цель и задача готовы." in final.message
     assert len(provider.calls) == 6
@@ -605,21 +588,12 @@ async def test_a_resumed_subagent_reads_the_workspace_as_it_is_now(e2e_harness):
         dialogue=[DialogueMessage(role="user", content="[User]: Create a VrWalk tag")],
     )
     assert proposal.proposal_id is not None
-    async with e2e_harness.sessions() as session:
-        affected = await approve_proposal(
-            session, advisor.reviews, PROPOSALS, proposal.proposal_id
-        )
-        await session.commit()
     # Made by hand while the subagent was waiting on its screen.
     async with e2e_harness.sessions() as session:
         await create_value(session, "Patience")
         await session.commit()
 
-    await advisor.resolve_approval(
-        proposal.proposal_id,
-        decision=BatchDecision.APPROVED,
-        result={"affected_ids": affected},
-    )
+    await save(advisor, proposal.proposal_id)
 
     def workspace_state(call: list[dict[str, object]]) -> str:
         return next(
@@ -706,7 +680,7 @@ async def test_ag_turn_010_cancellation_releases_the_database_claims_and_cue_gat
     if phase == "parent":
         waiting = await advisor.handle("Prepare a Tag")
         work = advisor.resolve_approval(
-            waiting.proposal_id, decision=BatchDecision.APPROVED, result={}, apply_proposal=True,
+            waiting.proposal_id, decision=BatchDecision.APPROVED, result={},
         )
     else:
         work = advisor.handle("Prepare a Tag")

@@ -5,14 +5,13 @@ import json
 from typing import Any
 
 import pytest
+from advisor_e2e_helpers import save
 
 from llm_gateway import CompletionTurn, ToolCall
-from safwa.bootstrap.modules import HOOKS, MODULES, OWN_VIEWS, PROPOSALS, REGISTRY
+from safwa.bootstrap.modules import HOOKS, MODULES, OWN_VIEWS, REGISTRY
 from safwa.features.cards.use_cases import create_card
 from telegram_llm import DialogueMessage
 from tg_agent_shell.ai.outcome import AIOutcomeKind
-from tg_agent_shell.proposals.model import BatchDecision
-from tg_agent_shell.proposals.use_cases import approve_proposal
 from tg_agent_shell.registry import Registry
 
 QUESTION = "Как у меня с подтягиваниями?"
@@ -301,16 +300,9 @@ async def test_han_offer_005_the_offer_outlives_a_screen(e2e_harness) -> None:
     first = await advisor.handle(QUESTION)
     assert first.kind is AIOutcomeKind.PROPOSAL
 
-    async with e2e_harness.sessions() as session:
-        affected = await approve_proposal(session, advisor.reviews, PROPOSALS, first.proposal_id)
-        await session.commit()
     provider.responses.extend(["Переименовал.", "Готово."])
 
-    await advisor.resolve_approval(
-        first.proposal_id,
-        decision=BatchDecision.APPROVED,
-        result={"affected_ids": affected},
-    )
+    await save(advisor, first.proposal_id)
 
     # The screen belonged to `route`; the resumed Advisor keeps the tool it was shown.
     assert "call_helper" in tools_of(provider, -1)
