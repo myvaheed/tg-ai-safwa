@@ -25,10 +25,31 @@ Feature: Proposals
   Scenario: PR-SCREEN-003 — A review screen shows everything the proposal would do, behind Save and Discard
     Given a review screen is open on a proposal
     When the owner looks at it
-    Then it names the item and lists what would change, field by field
-    And it carries exactly two buttons, Save and Discard
+    Then its heading says what Save does and to which item: "➕ Create Action", "✏️ Update Tag",
+      "📦 Archive Check" or "🗑 Delete Reminder"
+    And it carries exactly two buttons: Save, named for what it does — "✅ Create", "✅ Update",
+      "✅ Archive" or "✅ Delete" — and "🗑 Discard"
+    When the proposal creates the item, or archives or deletes it
+    Then the screen shows the item as it will be, or as it is, all in plain words
+    And a field that is empty, or that a new item takes by default, is not shown
+    When the proposal edits the item
+    Then the screen shows what names the item and each field the edit changes, once and with no
+      arrow
+    And what goes is struck through and what comes is bold
+    And a value of at most 3 words on both sides reads whole, the old struck and the new bold
+      (SHORT_VALUE_WORDS = 3)
+    And words that lose more than half of their characters read as the new words alone, bold
+      (REPLACED_SHARE = 0.5)
+    And a field emptied reads as its old words, struck
+    And a list strikes each item taken off and bolds each item added
+    And a field longer than 200 characters folds into a quote the owner opens
+      (LONG_TEXT_CHARS = 200)
     When the proposal holds more than one edit
-    Then every one of them is listed on that same screen, still behind one Save and one Discard
+    Then every one of them is on that same screen, each field marked from before the first to after
+      the last, still behind one Save and one Discard
+    When the owner decides a proposal no request is waiting on
+    Then its screen becomes one line: the decision and what the proposal does, as
+      "✅ Saved — Edit Tag “Family” (Description: Relationships and home)"
 
   Scenario: PR-SCREEN-004 — A change its own feature calls destructive asks once more
     Given a proposal to make a change the feature that owns the item declares destructive
@@ -43,8 +64,8 @@ Feature: Proposals
     Then it becomes one proposal with one review screen
     When one response carries several calls in a row for one item that already exists — an
       edit and a link, say
-    Then they are one proposal with one review screen, showing the item as all of them leave it
-      and each change
+    Then they are one proposal with one review screen, marking the item from before the first of
+      them to after the last by PR-SCREEN-003
     And Save saves all of them or none of them, and Discard discards all of them
     When a proposal for another item stands between two calls for the same item
     Then they stay separate proposals, in the order Safwa made them
@@ -54,8 +75,8 @@ Feature: Proposals
     When the proposals are put together
     Then there are three review screens, not one screen listing three items
     And they are queued in the order Safwa made them, not sorted, and grouped only by PR-QUEUE-005
-    And each is headed with its place in the queue, "Proposal 2/3"
-    And a proposal that is alone in its queue carries no such heading
+    And each heading ends with its place in the queue, "✏️ Update Action · 2/3"
+    And a proposal that is alone in its queue carries no place
 
   Scenario: PR-QUEUE-007 — Only the front of the queue is on screen, and Safwa answers after the last one
     Given three proposals from one request are queued
@@ -236,9 +257,9 @@ Feature: Proposals
 
   Scenario: PR-SIMILAR-030 — A screen that creates an item lists the open items of its type most like it
     When a proposal creates a Card, a Check, a Value, a Tag, a Request or a Reminder
-    Then its screen lists, under "Similar items already exist", up to 3 open items of the same
-      type whose words are closest in meaning to the new one's, closest first
-      (SIMILAR_ITEMS_SHOWN = 3)
+    Then its screen lists, under "⚠️ Similar items already exist" right below its heading, up to 3
+      open items of the same type whose words are closest in meaning to the new one's, closest
+      first (SIMILAR_ITEMS_SHOWN = 3)
     And each is named by PR-CITE-032, its title whole
     And a Card is compared with every open Card, a Goal, a Subgoal or an Action alike
     And an item is listed only when it is at least 0.80 alike (TEXT_MODEL.alike = 0.80)
@@ -252,8 +273,7 @@ Feature: Proposals
     Then the screen comes without the list
 
   Scenario: PR-CITE-032 — A review screen names the items it cites and links none
-    Given a review screen whose words cite an item: Safwa's reason, or a Note or a description it
-      proposes
+    Given a review screen whose words cite an item: a Note or a description it proposes
     When it is drawn
     Then the item reads as it does in Safwa's answers, with its emoji and its whole title
     And it is not a link

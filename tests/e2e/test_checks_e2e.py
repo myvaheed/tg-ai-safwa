@@ -213,9 +213,10 @@ async def test_answering_checks_by_proposal_then_completing(e2e_harness):
     message = _TestMessage()
     services = _services(e2e_harness, advisor)
     await render_proposal(message, services, outcome.proposal_id)
-    # A Check proposal reads like every other item: a diff plus Save/Discard, no field controls.
-    assert "Answer Check · AI proposal" in message.rendered[-1]
-    assert "Status: Passed" in message.rendered[-1]
+    # A Check proposal reads like every other item: marked fields plus Save/Discard, no field
+    # controls.
+    assert "<b>✏️ Answer Check</b>" in message.rendered[-1]
+    assert "Status: <s>Pending</s> <b>Passed</b>" in message.rendered[-1]
     assert (await _live_actions(e2e_harness)) == {"proposal_approve", "proposal_reject"}
 
     await _claim(e2e_harness, "proposal_approve", message, services, id=outcome.proposal_id)

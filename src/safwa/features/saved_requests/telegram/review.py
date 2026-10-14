@@ -11,7 +11,9 @@ from tg_agent_shell.ai.contracts import AgentChange
 from tg_agent_shell.proposals.api import (
     ProposalChange,
     ProposalScreen,
+    ShownField,
 )
+from tg_agent_shell.proposals.marks import shown
 from tg_agent_shell.proposals.render import (
     detail_lines,
     named_details,
@@ -48,8 +50,34 @@ class RequestProposalPresenter:
     async def screen(
         self, session: AsyncSession, changes: Sequence[ProposalChange]
     ) -> ProposalScreen | None:
-        # A Request is its SQL; the generic change list prints it without a second shape.
-        return None
+        first = changes[0]
+        saved = await session.get(SavedRequest, first.entity_id) if first.entity_id else None
+        current = (
+            {
+                "name": saved.name,
+                "description": saved.description,
+                "query_sql": saved.query_sql,
+            }
+            if saved is not None
+            else {}
+        )
+        proposed = dict(current)
+        for change in changes:
+            proposed.update(change.values)
+        # The query reads exactly as Save will store it (SR-AI-007).
+        return ProposalScreen(
+            item="Request",
+            fields=tuple(
+                ShownField(
+                    label, shown(current.get(key)), shown(proposed.get(key)), anchor=key == "name"
+                )
+                for key, label in (
+                    ("name", "Name"),
+                    ("description", "Description"),
+                    ("query_sql", REQUEST_LABELS["query_sql"]),
+                )
+            ),
+        )
 
 
 async def request_citation_label(

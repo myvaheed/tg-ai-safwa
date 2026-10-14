@@ -6,7 +6,6 @@ runs that turn.
 
 from __future__ import annotations
 
-import html
 import logging
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
@@ -18,14 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tg_agent_shell.ai.contracts import AgentChange
 from tg_agent_shell.proposals.api import (
     ChangeAction,
+    Effect,
     ProposalChange,
     ProposalScreen,
+    ShownField,
 )
-from tg_agent_shell.proposals.render import (
-    ACTION_VERBS,
-    field_diffs,
-    result_value,
-)
+from tg_agent_shell.proposals.render import ACTION_VERBS, result_value
 from tg_agent_shell.telegram import citation_title, edited_screen, required_text
 from tg_agent_shell.telegram.contributions import TextInputFlow
 
@@ -99,34 +96,38 @@ class ReminderProposalPresenter:
         workspace = await session.get(Workspace, 1)
         tz = ZoneInfo(workspace.timezone if workspace else "UTC")
         now = datetime.now(UTC)
+
+        def at(moment: datetime | None) -> str | None:
+            return f"{moment.astimezone(tz):%a %d.%m %H:%M}" if moment is not None else None
+
         current = (
-            {"words": reminder.instruction, "when": describe(schedule_of(reminder), tz=tz, now=now)}
+            {
+                "words": reminder.instruction,
+                "when": describe(schedule_of(reminder), tz=tz, now=now),
+                "first": at(reminder.next_fire_at),
+            }
             if reminder is not None
             else {}
         )
+        payload = values.get("schedule")
         proposed = {
-            "words": values.get("instruction") or current.get("words") or "",
-            "when": values.get("schedule_text") or current.get("when") or "—",
+            "words": values.get("instruction") or current.get("words"),
+            "when": values.get("schedule_text") or current.get("when"),
+            "first": at(next_fire(schedule_from_payload(payload), previous=None, now=now, tz=tz))
+            if payload is not None
+            else current.get("first"),
         }
-        if change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}:
-            mode, first = "Delete", None
-        else:
-            mode = "Create" if change.action is ChangeAction.CREATE else "Edit"
-            payload = values.get("schedule")
-            first = (
-                next_fire(schedule_from_payload(payload), previous=None, now=now, tz=tz)
-                if payload is not None
-                else reminder.next_fire_at if reminder is not None else None
-            )
-        lines = [f"🔁 <b>When:</b> {html.escape(proposed['when'])}"]
-        if first is not None:
-            lines.append(f"⏭ <b>First:</b> {first.astimezone(tz):%a %d.%m %H:%M}")
-        lines.extend(["", html.escape(proposed["words"])])
         return ProposalScreen(
-            mode=mode,
             item="Reminder",
-            blocks=("\n".join(lines),),
-            diffs=field_diffs(current, proposed) if mode == "Edit" else (),
+            fields=(
+                ShownField("🔁 When", current.get("when"), proposed["when"], anchor=True),
+                ShownField("⏭ First", current.get("first"), proposed["first"]),
+                ShownField("Words", current.get("words"), proposed["words"], anchor=True),
+            ),
+            # A Reminder has no archive, so the only removal `remove` can send reads as one.
+            effect=Effect.DELETE
+            if change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}
+            else None,
         )
 
 

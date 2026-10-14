@@ -589,7 +589,8 @@ async def test_a_proposed_schedule_is_read_before_its_proposal_is_saved(sessions
     from safwa.bootstrap.modules import PROPOSALS
     from safwa.features.cards.telegram.review import CardProposalPresenter
     from safwa.features.checks.telegram.review import CheckProposalPresenter
-    from tg_agent_shell.proposals.api import ApplyContext, ProposalChange
+    from tg_agent_shell.proposals.api import ApplyContext, Effect, ProposalChange
+    from tg_agent_shell.proposals.marks import field_line
     from tg_agent_shell.proposals.prepare import ChangePreparer
 
     provider, requests = _answering("set_schedule_config", {"period": "day", "count": 1})
@@ -606,7 +607,10 @@ async def test_a_proposed_schedule_is_read_before_its_proposal_is_saved(sessions
         proposal = ProposalChange(entity=entity, action=change.action, values=prepared.values)
         presenter = CardProposalPresenter() if entity == "card" else CheckProposalPresenter()
         screen = await presenter.screen(session, [proposal])
-        assert "every evening" in screen.blocks[0] and "1 per day." in screen.blocks[0]
+        assert "Schedule: every evening" in [
+            field_line(field, Effect.CREATE) for field in screen.fields
+        ]
+        assert screen.blocks == ("1 per day.",)
         [created] = await PROPOSALS.handler(entity).apply(ApplyContext(session, frozenset()), proposal)
         if entity == "card":
             assert (await finish_action(session, created)).successor_ids

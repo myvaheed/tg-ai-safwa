@@ -17,11 +17,20 @@ from ...telegram import (
     send_registered,
     token_button,
 )
+from ..api import Effect, ProposalScreen, ShownField, effect_of
+from ..marks import field_line, shown
 from ..model import ChangeAction, ProposalChange
-from ..render import proposal_change_summary, result_value
+from ..render import detail_label, result_value
 
-SIMILAR_HEADING = "<b>Similar items already exist</b>"
+SIMILAR_HEADING = "<b>⚠️ Similar items already exist</b>"
 SIMILAR_ITEMS_SHOWN = 3
+
+EFFECT_ICONS = {
+    Effect.CREATE: "➕",
+    Effect.UPDATE: "✏️",
+    Effect.ARCHIVE: "📦",
+    Effect.DELETE: "🗑",
+}
 
 
 async def render_proposal(
@@ -38,29 +47,34 @@ async def render_proposal(
         raise DomainError("Proposal is no longer pending")
     async with services.sessions() as session:
         changes = proposal.changes
-        text_parts = ["<b>Review proposal</b>"]
-        if notice:
-            text_parts.append(html.escape(notice))
-        text_parts.append(html.escape(proposal.message))
         # A proposal changes one item, so the feature that owns it draws the screen; one
-        # that draws none gets the plain list, which knows nothing about the entities in it.
+        # that draws none gets each value it sets, which knows nothing about the entity.
         presenter = services.root.proposals.presenter(changes[0].entity)
         screen = await presenter.screen(session, changes) if presenter is not None else None
-        if screen is not None:
-            text_parts[0] = f"<b>{screen.mode} {screen.item} · AI proposal</b>"
-            text_parts.extend(screen.blocks)
-            if screen.diffs:
-                text_parts.append("<b>Proposed changes</b>\n" + "\n".join(screen.diffs))
-        else:
-            text_parts.append(
-                "\n".join(f"• {html.escape(proposal_change_summary(change))}" for change in changes)
-            )
+        screen = screen or _plain_screen(changes)
+        effect = screen.effect or effect_of(changes)
+        heading = (
+            f"<b>{EFFECT_ICONS[effect]} {html.escape(screen.mode or effect.value)} "
+            f"{html.escape(screen.item)}</b>"
+        )
+        text_parts = [f"{heading} · {proposal.place}" if proposal.place else heading]
+        if notice:
+            text_parts.append(html.escape(notice))
         text_parts.append(await similar_items(session, services, changes[0]))
+        text_parts.append(
+            "\n".join(line for field in screen.fields if (line := field_line(field, effect)))
+        )
+        text_parts.extend(screen.blocks)
         # Every proposal screen is read-only: exactly Save and Discard, never a field control.
+        # Save is named for what it does to the item.
         rows = [
             [
                 await token_button(
-                    session, services.owner_id, "✅ Save", "proposal_approve", {"id": proposal.id}
+                    session,
+                    services.owner_id,
+                    f"✅ {effect.value}",
+                    "proposal_approve",
+                    {"id": proposal.id},
                 ),
                 await token_button(
                     session,
@@ -100,6 +114,18 @@ async def render_proposal(
             related_id=proposal_id,
             event_id=event_id,
         )
+
+
+def _plain_screen(changes: list[ProposalChange]) -> ProposalScreen:
+    """The screen of a proposal whose feature draws none: each value it sets, as it is set."""
+    return ProposalScreen(
+        item=changes[0].entity.replace("_", " ").title(),
+        fields=tuple(
+            ShownField(detail_label(field), shown(value), shown(value), anchor=True)
+            for change in changes
+            for field, value in change.values.items()
+        ),
+    )
 
 
 async def similar_items(session: AsyncSession, services: Services, change: ProposalChange) -> str:

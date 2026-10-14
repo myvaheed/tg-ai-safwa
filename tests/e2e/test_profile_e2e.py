@@ -20,6 +20,8 @@ from safwa.features.profile.api import set_hook_switch
 from safwa.features.profile.model import ProfileField, UserProfile
 from safwa.foundation.workspace import Workspace
 from tg_agent_shell.ai.outcome import AIOutcomeKind
+from tg_agent_shell.proposals.api import Effect
+from tg_agent_shell.proposals.marks import field_line
 from tg_agent_shell.telegram.manifest import AgentContext
 
 pytestmark = pytest.mark.e2e
@@ -58,10 +60,10 @@ async def test_ps_ai_019_two_fields_set_in_words_are_one_screen_and_one_change_e
         drawn = await PROPOSALS.presenter("profile").screen(
             session, advisor.reviews.proposal(screen.proposal_id).changes
         )
-    assert drawn.diffs == (
-        "• Morning time: 09:00 → 08:00",
-        "• Home after: 30 min → 45 min",
-    )
+    assert [field_line(field, Effect.UPDATE) for field in drawn.fields] == [
+        "Morning time: <s>09:00</s> <b>08:00</b>",
+        "Home after: <s>30 min</s> <b>45 min</b>",
+    ]
 
     provider.responses.extend(["Saved both.", "Anything else?"])
     await save(advisor, screen.proposal_id)

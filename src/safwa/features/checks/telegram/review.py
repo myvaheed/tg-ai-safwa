@@ -14,13 +14,13 @@ from tg_agent_shell.proposals.api import (
     ChangeAction,
     ProposalChange,
     ProposalScreen,
+    ShownField,
 )
+from tg_agent_shell.proposals.marks import shown
 from tg_agent_shell.proposals.render import (
     detail_label,
     detail_lines,
     detail_value,
-    display_diff_value,
-    field_diffs,
     named_summary,
     reference_groups,
     reference_names,
@@ -36,10 +36,10 @@ from ..references import CHECK_VALUE_REFERENCE
 from ..use_cases import check_value_ids
 
 
-async def _value_names(session: AsyncSession, value_ids: list[int]) -> str:
+async def _value_names(session: AsyncSession, value_ids: list[int]) -> list[str]:
     """The Values on a Check, as the owner reads them on a screen."""
     names = await reference_names(session, CHECK_VALUE_REFERENCE, sorted(value_ids))
-    return ", ".join(result_value(name) for name in names)
+    return [result_value(name) for name in names]
 
 
 # A Check's answer reads as its status, not as the column it is stored in.
@@ -104,32 +104,27 @@ class CheckProposalPresenter:
         self, session: AsyncSession, changes: Sequence[ProposalChange]
     ) -> ProposalScreen | None:
         first = changes[0]
-        proposed: dict[str, Any] = {}
-        archived = False
+        current: dict[str, Any] = {}
         linked: set[int] = set()
         if first.entity_id:
             check = await session.get(Check, first.entity_id)
             if check is not None:
-                archived = check.archived_at is not None
                 linked = set(await check_value_ids(session, check.id))
-                proposed = {
+                current = {
                     "title": check.title,
                     "note": check.note,
                     "schedule": check.schedule,
                     "status": CHECK_OUTCOME_LABELS[check.status],
                     "values": await _value_names(session, list(linked)),
                 }
-        # One diff for each change, in the order Save applies them.
-        diffs: list[str] = []
+        proposed = dict(current)
         rule = None
         for change in changes:
-            current = dict(proposed)
-            payload = {
-                k: v
+            proposed.update(
+                (k, v)
                 for k, v in change.values.items()
                 if k not in {CHECK_VALUE_REFERENCE.field, "schedule_rule"}
-            }
-            proposed = {**current, **payload}
+            )
             if "schedule" in change.values:
                 rule = change.values.get("schedule_rule")
             if change.action in {ChangeAction.LINK, ChangeAction.UNLINK}:
@@ -141,33 +136,25 @@ class CheckProposalPresenter:
                 proposed["values"] = await _value_names(session, list(linked))
             if change.action in CHECK_ANSWER_ACTIONS:
                 proposed["status"] = CHECK_OUTCOME_LABELS[CHECK_ANSWER_ACTIONS[change.action]]
-            if change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}:
-                current["status"] = "Archived" if archived else "Active"
-                proposed["status"] = (
-                    "Archived" if change.action is ChangeAction.ARCHIVE else "Deleted"
-                )
-            diffs.extend(field_diffs(current, proposed))
-        if first.action is ChangeAction.CREATE:
-            mode = "Create"
-        elif any(change.action in CHECK_ANSWER_ACTIONS for change in changes):
-            mode = "Answer"
-        else:
-            mode = "Edit"
-        reading = (
-            f"\n{html.escape(rule_summary(rule, await workspace_zone(session)))}" if rule else ""
-        )
+        answering = any(change.action in CHECK_ANSWER_ACTIONS for change in changes)
         return ProposalScreen(
-            mode=mode,
             item="Check",
-            blocks=(
-                f"Title: {html.escape(display_diff_value(proposed.get('title')))}\n"
-                f"Note: {html.escape(display_diff_value(proposed.get('note')))}\n"
-                f"Status: {html.escape(display_diff_value(proposed.get('status')))}\n"
-                f"Schedule: "
-                f"{html.escape(display_diff_value(proposed.get('schedule')))}{reading}\n"
-                f"Values: {html.escape(display_diff_value(proposed.get('values')))}",
+            fields=tuple(
+                ShownField(
+                    label, shown(current.get(key)), shown(proposed.get(key)), anchor=key == "title"
+                )
+                for key, label in (
+                    ("title", "Title"),
+                    ("note", "Note"),
+                    ("status", "Status"),
+                    ("schedule", "Schedule"),
+                    ("values", "Values"),
+                )
             ),
-            diffs=tuple(diffs),
+            blocks=(html.escape(rule_summary(rule, await workspace_zone(session))),)
+            if rule
+            else (),
+            mode="Answer" if answering else None,
         )
 
 

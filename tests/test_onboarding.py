@@ -280,7 +280,6 @@ async def test_ob_tip_002_a_value_saved_by_hand_or_by_proposal_is_owed_a_tip(ses
     async with sessions() as session:
         revision = (await session.get(Workspace, 1)).revision
     proposal = reviews.open_proposal(
-        message="A Value.",
         workspace_revision=revision,
         changes=[ProposalChange(entity="value", action=ChangeAction.CREATE, values={"name": "Calm", "description": "What matters to me"})],
     )
@@ -390,7 +389,7 @@ async def test_ob_tip_003_a_tip_waits_behind_an_open_screen(sessions):
         await session.commit()
     reviews = ProposalStore()
     reviews.open_proposal(
-        message="Rename it?", workspace_revision=1,
+        workspace_revision=1,
         changes=[ProposalChange(entity="value", action=ChangeAction.UPDATE, values={"name": "X"})],
     )
     services = SimpleNamespace(

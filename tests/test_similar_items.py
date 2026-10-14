@@ -105,7 +105,7 @@ async def _create_screen(sessions, search, change: ProposalChange) -> str:
     async with sessions() as session:
         workspace = await session.get(Workspace, 1)
         proposal = store.open_proposal(
-            message="Create it", workspace_revision=workspace.revision, changes=[change]
+            workspace_revision=workspace.revision, changes=[change]
         )
         await session.commit()
     services = services_for(sessions, reviews=store)

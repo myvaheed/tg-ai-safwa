@@ -13,27 +13,28 @@ from tg_agent_shell.ai.contracts import AgentChange
 from tg_agent_shell.foundation.references import resolve_references
 from tg_agent_shell.proposals.api import (
     ChangeAction,
+    FieldValue,
     ProposalChange,
     ProposalScreen,
+    ShownField,
 )
+from tg_agent_shell.proposals.marks import shown
 from tg_agent_shell.proposals.render import (
     ACTION_VERBS,
+    became,
     detail_label,
     detail_lines,
     detail_value,
-    display_diff_value,
     reference_details,
     reference_groups,
     reference_names,
     result_value,
 )
 
-from ...profile.api import effort_tracking_on
 from ...schedules.api import rule_summary, workspace_zone
 from ...tags.model import CardTag
 from ...values.model import CardValue
 from ..api import tree_level
-from ..hierarchy import card_progress
 from ..model import (
     Card,
     CardCategory,
@@ -45,12 +46,7 @@ from ..model import (
     minutes_label,
 )
 from ..references import CARD_REFERENCE_SPECS
-from .presentation import (
-    card_overview_text,
-    category_expression,
-    energy_expression,
-    progress_summary,
-)
+from .presentation import category_expression, energy_expression, kind_label
 
 CARD_DETAIL_FIELDS = (
     "kind",
@@ -218,79 +214,78 @@ async def _card_states(
     return states, unresolved_references
 
 
-async def _card_display_state(
-    session: AsyncSession, state: dict[str, Any]
-) -> dict[str, Any]:
-    display = dict(state)
-    if state.get("schedule_rule"):
-        display["schedule_summary"] = rule_summary(
-            state["schedule_rule"], await workspace_zone(session)
-        )
-    parent = await session.get(Card, state.get("parent_id")) if state.get("parent_id") else None
-    display["parent_html"] = html.escape(parent.title) if parent else None
-    display["tree_level"] = await tree_level(session, state.get("kind"), state.get("id"))
-    for spec in CARD_REFERENCE_SPECS:
-        display[f"{spec.key}_html"] = [
-            html.escape(name)
-            for name in await reference_names(session, spec, state.get(spec.field))
-        ]
-    if display.get("id") and display.get("kind") == CardKind.GOAL.value:
-        display.update(await card_progress(session, int(display["id"])))
-        display["children_html"] = html.escape(
-            progress_summary(display, effort_tracking=await effort_tracking_on(session))
-        )
-    return display
-
-
-async def _card_diff_value(session: AsyncSession, field: str, value: Any) -> str:
+async def _card_shown(
+    session: AsyncSession, field: str, state: dict[str, Any]
+) -> FieldValue:
+    """One field of a Card state in the words its screen shows it with."""
+    value = state.get(field)
+    if field == "kind":
+        level = await tree_level(session, value, state.get("id"))
+        return kind_label(value, state.get("parent_id"), level=level) if value else None
     if field == "parent_id":
-        if value is None:
-            return "Root"
-        parent = await session.get(Card, value)
-        return parent.title if parent else f"Card #{value}"
+        parent = await session.get(Card, value) if value else None
+        return parent.title if parent else None
     spec = _REFERENCE_BY_FIELD.get(field)
     if spec is not None:
-        return ", ".join(await reference_names(session, spec, value)) or "—"
-    if field == "categories":
-        return category_expression(value)
-    if field == "energy_types":
-        return energy_expression(value)
-    if field == "tracked_mins" and value:
-        return minutes_label(value)
-    if field in {"kind", "stage", "priority"} and value:
+        return shown(await reference_names(session, spec, value))
+    if field in {"categories", "energy_types"}:
+        expression = category_expression if field == "categories" else energy_expression
+        return tuple(expression([item]) for item in value or ())
+    if field == "tracked_mins":
+        return minutes_label(value) if value else None
+    if field in {"stage", "priority"} and value:
         return str(value).title()
-    return display_diff_value(value)
+    return shown(value)
 
 
-async def _card_diffs(
-    session: AsyncSession, current: dict[str, Any], proposed: dict[str, Any]
-) -> list[str]:
+async def _card_fields(
+    session: AsyncSession,
+    before: dict[str, Any],
+    after: dict[str, Any],
+    unresolved: list[tuple[str, str]],
+) -> tuple[ShownField, ...]:
+    """The Card before its changes and after them, in the order its own screen lists it."""
+    action = (after.get("kind") or before.get("kind")) == CardKind.ACTION.value
     labels = {
         "kind": "Kind",
         "title": "Title",
-        "note": "Note",
         "parent_id": "Parent",
         "stage": "Stage",
+        "note": "Note",
+        "schedule": "Schedule" if action else "Deadline",
         "priority": "Priority",
-        "schedule": "Schedule"
-        if (proposed.get("kind") or current.get("kind")) == CardKind.ACTION.value
-        else "Deadline",
-        "blocked_description": "Blocked Description",
+        "blocked_description": "Blocked",
         "effort_points": "Effort",
         "tracked_mins": "Time spent",
         "categories": "Categories",
         "energy_types": "Energy",
         **{spec.field: f"{spec.label}s" for spec in CARD_REFERENCE_SPECS},
-        "status": "Status",
     }
-    diffs: list[str] = []
+    # A new Card's defaults say nothing the owner chose.
+    defaults = {"stage": CardStage.BACKLOG.value, "priority": Priority.MEDIUM.value}
+    missing = {
+        spec.field: tuple(
+            f"{name} (not found)" for label, name in unresolved if label == spec.label
+        )
+        for spec in CARD_REFERENCE_SPECS
+    }
+    # A Goal placed under another reads as a Subgoal, but no proposal changes its kind.
+    kind = await _card_shown(session, "kind", after)
+    fields = [ShownField(labels.pop("kind"), kind, kind, anchor=True)]
     for field, label in labels.items():
-        if current.get(field) == proposed.get(field):
-            continue
-        old = await _card_diff_value(session, field, current.get(field))
-        new = await _card_diff_value(session, field, proposed.get(field))
-        diffs.append(f"• {label}: {html.escape(old)} → {html.escape(new)}")
-    return diffs
+        chosen = bool(before) or after.get(field) != defaults.get(field)
+        new = await _card_shown(session, field, after) if chosen else None
+        if missing.get(field):
+            new = (*(new or ()), *missing[field])
+        fields.append(
+            ShownField(
+                label,
+                await _card_shown(session, field, before),
+                new,
+                anchor=field in {"title", "parent_id"},
+            )
+        )
+    return tuple(fields)
 
 
 class CardProposalPresenter:
@@ -360,7 +355,8 @@ class CardProposalPresenter:
             if change.entity_id is not None
             else None
         )
-        title = result_value(values.get("title") or (card.title if card else ""))
+        # An edit names the Card as it is called now; what it becomes is in its parts.
+        title = result_value(card.title if card else values.get("title") or "")
         kind = str(values.get("kind") or (card.kind if card else "") or "card")
         parent_id = values.get("parent_id", card.parent_id if card else None)
         name = card_kind_name(kind, parent_id)
@@ -402,7 +398,9 @@ class CardProposalPresenter:
         elif action is ChangeAction.COMPLETE and values.get("tracked_mins"):
             parts.append(f"{minutes_label(values['tracked_mins'])} spent")
         elif action is ChangeAction.UPDATE:
-            parts.extend(detail for detail in details if not detail.startswith("Parent ID:"))
+            parts.extend(
+                became(detail) for detail in details if not detail.startswith("Parent ID:")
+            )
         if parent is not None:
             head += f" under {card_kind_name(parent.kind, parent.parent_id)} “{result_value(parent.title)}”"
         return f"{verb} {head}" + (f" ({' · '.join(parts)})" if parts else "")
@@ -411,23 +409,14 @@ class CardProposalPresenter:
         self, session: AsyncSession, changes: Sequence[ProposalChange]
     ) -> ProposalScreen | None:
         states, unresolved = await _card_states(session, changes)
-        display = await _card_display_state(session, states[-1])
-        creating = changes[0].action is ChangeAction.CREATE
-        # The Card screen is the overview itself; a field diff repeats it only when the
-        # Card already exists, and then there is one for each change, in the order of Save.
-        diffs: list[str] = []
-        if not creating:
-            for before, after in zip(states, states[1:], strict=False):
-                diffs.extend(await _card_diffs(session, before, after))
-            diffs.extend(
-                f"• {label}: — → {html.escape(name)} (not found)" for label, name in unresolved
-            )
+        after = states[-1]
+        reading = (
+            rule_summary(after["schedule_rule"], await workspace_zone(session))
+            if after.get("schedule_rule")
+            else None
+        )
         return ProposalScreen(
-            mode="Create" if creating else "Edit",
-            item="Card",
-            blocks=(card_overview_text(
-                display, heading="Card overview",
-                effort_tracking=await effort_tracking_on(session),
-            ),),
-            diffs=tuple(diffs),
+            item=card_kind_name(after.get("kind") or "card", after.get("parent_id")),
+            fields=await _card_fields(session, states[0], after, unresolved),
+            blocks=(html.escape(reading),) if reading else (),
         )

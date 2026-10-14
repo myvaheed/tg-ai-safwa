@@ -41,12 +41,13 @@ class ChangeProposal:
     """
 
     id: int
-    message: str
     workspace_revision: int
     changes: list[ProposalChange] = field(default_factory=list)
     # When its screen was drawn. A queued proposal has none until it becomes the head,
     # which is what keeps its time in the queue from counting against it.
     shown_at: datetime | None = None
+    # Its place in the queue it waits in, "2/3"; empty when it is alone there.
+    place: str = ""
 
 
 class BatchDecision(StrEnum):

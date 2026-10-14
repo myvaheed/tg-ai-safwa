@@ -26,7 +26,6 @@ from tg_agent_shell.proposals.use_cases import (
 async def _proposal(session, reviews: ProposalStore, tool: str, arguments: dict) -> ChangeProposal:
     preparer = ChangePreparer(None, None, PROPOSALS)  # type: ignore[arg-type]
     return reviews.open_proposal(
-        message="Safwa proposed this",
         workspace_revision=(await preparer.world(session)).revision,
         changes=[
             await prepare_change(session, preparer, PROPOSALS.change_from_tool(tool, arguments))

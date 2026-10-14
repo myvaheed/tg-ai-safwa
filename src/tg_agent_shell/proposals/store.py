@@ -27,11 +27,10 @@ class ProposalStore:
         self._ids = count(1)
 
     def open_proposal(
-        self, *, message: str, workspace_revision: int, changes: list[ProposalChange]
+        self, *, workspace_revision: int, changes: list[ProposalChange]
     ) -> ChangeProposal:
         proposal = ChangeProposal(
             id=next(self._ids),
-            message=message,
             workspace_revision=workspace_revision,
             changes=changes,
         )

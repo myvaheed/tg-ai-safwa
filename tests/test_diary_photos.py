@@ -36,9 +36,12 @@ from tg_agent_shell.media.telegram import open_media
 from tg_agent_shell.proposals.api import (
     ApplyContext,
     ChangeAction,
+    Effect,
     ProposalChange,
     ToolPreparationError,
+    effect_of,
 )
+from tg_agent_shell.proposals.marks import field_line
 from tg_agent_shell.proposals.prepare import ChangePreparer
 from tg_agent_shell.telegram import dismiss_prior_ui, render_citations
 
@@ -112,9 +115,13 @@ async def test_di_photo_017_the_screen_names_the_photo_and_keeps_the_words(sessi
         screen = await presenter.screen(session, [change])
         details = await presenter.details(session, change, None)
 
-    assert "📷 Кот на окне" in screen.blocks
-    assert "Утро." in screen.blocks
-    assert not any("replaces" in block for block in screen.blocks)
+    # The photo is what the edit adds; the day's words stay on screen as they are.
+    assert "📷 <b>Кот на окне</b>" in screen.blocks
+    assert [field_line(field, Effect.UPDATE) for field in screen.fields] == [
+        "Date: 2026-09-26",
+        None,
+        "Entry: Утро.",
+    ]
     assert details == ["Date: 2026-09-26", "Photo added: Кот на окне"]
     await saved(sessions, change)
     async with sessions() as session:
@@ -222,9 +229,9 @@ async def test_di_photo_021_a_photo_taken_off_leaves_the_rest_of_the_day(session
     assert last.action is ChangeAction.DELETE
     async with sessions() as session:
         screen = await DiaryProposalPresenter().screen(session, [last])
-    assert screen.mode == "Remove"
+    assert effect_of([last]) is Effect.DELETE
     assert any("This removes that day's entry for good." in block for block in screen.blocks)
-    assert "📷 <s>Парк</s>" in screen.blocks
+    assert "📷 Парк" in screen.blocks
     await saved(sessions, last)
     async with sessions() as session:
         assert await diary_entry_for(session, other) is None
@@ -362,7 +369,7 @@ async def test_di_photo_024_a_corrected_photo_is_called_by_the_new_words_everywh
     async with sessions() as session:
         screen = await presenter.screen(session, [change])
         details = await presenter.details(session, change, None)
-    assert "📷 <s>Кот на окне</s> Рыжий кот на окне" in screen.blocks
+    assert "📷 <s>Кот на окне</s> <b>Рыжий кот на окне</b>" in screen.blocks
     assert details == ["Date: 2026-09-26", "Photo renamed: Кот на окне → Рыжий кот на окне"]
 
     await saved(sessions, change)

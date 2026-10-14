@@ -81,7 +81,7 @@ async def _on_approve(context: CallbackContext) -> None:
     await send_registered(
         context.message,
         context.services,
-        proposal_outcome_text(BatchDecision.APPROVED, description.summary, description.fields),
+        proposal_outcome_text(BatchDecision.APPROVED, description.summary),
         kind=MessageKind.EVENT,
     )
 
@@ -106,9 +106,7 @@ async def _on_delete_confirm(context: CallbackContext) -> None:
     await send_registered(
         context.message,
         context.services,
-        proposal_outcome_text(
-            BatchDecision.APPROVED, description.summary, description.fields, notice=notice
-        ),
+        proposal_outcome_text(BatchDecision.APPROVED, description.summary, notice=notice),
         kind=MessageKind.EVENT,
     )
 
@@ -129,7 +127,7 @@ async def _on_reject(context: CallbackContext) -> None:
     await send_registered(
         context.message,
         context.services,
-        proposal_outcome_text(BatchDecision.DISCARDED, description.summary, description.fields),
+        proposal_outcome_text(BatchDecision.DISCARDED, description.summary),
         kind=MessageKind.EVENT,
     )
 

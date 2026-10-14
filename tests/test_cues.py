@@ -91,7 +91,6 @@ async def test_ag_turn_015_the_gate_is_shut_while_anything_of_the_owners_is_open
     turn.end(7)
 
     reviews.open_proposal(
-        message="Готово?",
         workspace_revision=1,
         changes=[
             ProposalChange(entity="card", action=ChangeAction.CREATE, values={"title": "Рынок"})
@@ -286,7 +285,6 @@ async def test_ag_cue_029_an_empty_queue_takes_no_lease(sessions):
 
 def _shown_review(reviews: ProposalStore, *, minutes_ago: int):
     proposal = reviews.open_proposal(
-        message="Готово?",
         workspace_revision=1,
         changes=[
             ProposalChange(entity="card", action=ChangeAction.CREATE, values={"title": "Рынок"})

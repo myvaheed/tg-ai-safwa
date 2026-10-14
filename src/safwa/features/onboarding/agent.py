@@ -42,14 +42,15 @@ MANUAL = f"""# Safwa
 - Its focus is open Goals of every Priority, ordered by urgent Deadline, Priority and Actions in Sprint or Today.
 
 # How a change happens
-- In words: the user asks the Advisor. It shows a review screen with "✅ Save" and "🗑 Discard". Nothing is saved before Save.
-- Several changes to one item, such as a new title and a Tag, come on one screen. Save and Discard take them all.
-- Several screens come one at a time. Save marks a screen "☑️ Will be saved"; all saved ones are written when the last is decided. Discard ends the chain: the screens after it are not shown, and those saved before it are written. If one of them cannot be written, none are, and Safwa proposes them again.
-- A screen that creates an item lists up to 3 open items of its type most like it, under "Similar items already exist", by full title. To use one instead, say so while the screen is open.
+- In words: the user asks the Advisor. It shows a review screen with "🗑 Discard" and a save button named for what it does: "✅ Create", "✅ Update", "✅ Archive" or "✅ Delete". Nothing is saved before that press.
+- A new or removed item reads plain. On an edit, what goes is struck through and what comes is bold; unchanged fields are not shown. A long text opens from a quote.
+- Several changes to one item, such as a new title and a Tag, come on one screen. One press saves or discards them all.
+- Several screens come one at a time. Saving marks a screen "☑️ Will be saved"; all saved ones are written when the last is decided. Discard ends the chain: the screens after it are not shown, and those saved before it are written. If one of them cannot be written, none are, and Safwa proposes them again.
+- A screen that creates an item lists up to 3 open items of its type most like it, under "⚠️ Similar items already exist", by full title. To use one instead, say so while the screen is open.
 - Items named on a review screen are not links. On other screens, an item named in a Note or a description is a link that opens it.
 - Words sent while a review screen is open rework that proposal.
 - A small edit that is exactly what the user asked for may be saved with no screen. The answer then says it was saved.
-- With buttons: a screen saves at once, through the same operations as Save.
+- With buttons: a screen saves at once, through the same operations as a review.
 
 # Cards
 - A Card is a Goal or an Action. A Goal may be root-level or under another Goal; with a parent it is displayed as a Subgoal. An Action may stand under any Goal or alone and has no children.
@@ -112,7 +113,7 @@ MANUAL = f"""# Safwa
 - {_LINK} Explain unclear links in Note.
 - After a Value is created, Safwa silently checks that it is a direction the user lives by, not a result, a practice, a feeling, a means or a rule, and that its description says what the user does for it. If not, the Advisor says the Value could be improved and asks with advice. It may offer a short exercise. Value clarification in Profile → Hooks switches this off or on.
 - After linking a Value, Safwa silently checks this direction. If unclear or reversed, it asks the user to clarify Note. It may suggest a possible explanation for the user to confirm. Value link clarification in Profile → Hooks switches this off or on.
-- After a Value is taken off an item or deleted, Safwa silently reads each Note that may still mention it. If one does, the Advisor proposes that Note without that part, for Save or Discard. Value unlink cleanup in Profile → Hooks switches this off or on.
+- After a Value is taken off an item or deleted, Safwa silently reads each Note that may still mention it. If one does, the Advisor proposes that Note without that part, to save or discard. Value unlink cleanup in Profile → Hooks switches this off or on.
 - Compass looks at the whole tree of Values, Goals, Actions and Checks: a root Goal that serves no Value, a Goal with {GOAL_VALUES_MANY} Values or more, a Value no open item carries, a Value that is really a Goal, a practice or a rule, a reversed link, two Values with one root. Ask the Advisor whether the Values, Goals or links are set right, which Value an item serves, or where it belongs. Compass names at most {COMPASS_FINDINGS_MAX} things, asks about each, and changes nothing itself. Ask it to show the tree, or the part one Value or Goal is on, as a picture.
 - Every {COMPASS_REVIEW_DAYS} days in the Morning, Safwa looks at the whole tree. If something stands out, Compass names it and asks whether to go through it together. Compass review in Profile → Hooks switches this off or on.
 - A Tag is a free label on Cards, to find them together later.
@@ -132,7 +133,7 @@ MANUAL = f"""# Safwa
 - Safwa warns the day before the last day and on the last day. The Sprint closes itself at midnight after its last day.
 - With buttons: "🏃 Sprint" or /sprint: "🎯 Set Success criteria", "🏁 Length", "⚖️ Capacity" while Effort Points are on, tap a Backlog Action in the plan to add it to Sprint, "▶️ Start N-day Sprint", "⏹ Finish early" or "⏹ Finish Sprint". Open an Action from the Dashboard or Home to move it with the two buttons at the top of its Card.
 - While a Sprint runs, its screen shows the dates, local day, Success criteria and taken and done Actions, or EP while Effort Points are on. "Today", "Remaining", "Done" and "Blocked" select one list in the same message; their counts are Actions. "Remaining" is only the Sprint stage; "Done" is only this Sprint's completions; "Blocked" includes open Actions in Sprint and Today with their reasons. The selected button has a checkmark. Actions have no separate buttons: tap an Action's title to open its Card, and "↩️ Back" returns to the list.
-- In words: start the next Sprint, finish the running one, set the next Sprint's Success criteria, length or capacity, or ask its dates, its length and the days left. A Sprint to start is shown with its Success criteria, its first and last day and its length, for Save.
+- In words: start the next Sprint, finish the running one, set the next Sprint's Success criteria, length or capacity, or ask its dates, its length and the days left. A Sprint to start is shown with its Success criteria, its first and last day and its length, to save.
 - In words: moving Actions into Sprint or Today, or back to Backlog.
 - Not at all: changing a running Sprint's Success criteria, length, capacity or dates, pausing or extending it, or bringing a finished one back.
 
@@ -148,13 +149,13 @@ MANUAL = f"""# Safwa
 
 # Diary
 - The Diary keeps one entry per day, in the user's own voice: how the day went and how it felt, with a rating from 0 to 10.
-- In words only: ask the Advisor to write, rewrite or delete a day. It shows the day for Save.
+- In words only: ask the Advisor to write, rewrite or delete a day. It shows the day to save.
 - With buttons: "📔 Diary" opens years, then months and days. Years and days show 10 per page. "Last 7 days" shows every date up to today; an empty day says "No entry for this day."
 - Ask what was done on a day or over a week: Safwa reads the log of changes and names each item created, changed or deleted. When there are many, it counts them and asks which to list.
 - At the Evening time Safwa sums up the day and offers to write it up in the Diary. The retro reads the Diary.
 - A day opens from its link or the Diary menu, its photos above its words. Back returns to the list it came from. No screen edits a day by hand.
-- A photo sent with no words, or with words about the day, goes to the Diary: Safwa shows it for Save on today, or on the day named. A day holds up to 10 photos.
-- Correcting what a photo on a day shows renames that photo everywhere, after Save.
+- A photo sent with no words, or with words about the day, goes to the Diary: Safwa shows it to save on today, or on the day named. A day holds up to 10 photos.
+- Correcting what a photo on a day shows renames that photo everywhere, once saved.
 
 # Reminders
 - A Reminder is words and a time. When it fires, its words come to the Advisor as a request, and the Advisor answers them.
@@ -174,7 +175,7 @@ MANUAL = f"""# Safwa
 - "⚙️ Profile": About me and Advisor instructions (what the Advisor must know and follow), Morning time, Evening time, Diary instruction, Home after, Secret word, Time tracking, Effort Points, and "🔔 Hooks".
 - "Usage time" shows roughly how long the user has used Safwa in all, such as "~2d 5h 25m". It is not Time tracking.
 - "⌛ Time tracking" is off until pressed. On, it offers "⌛ Time spent" on an Action, keeps a Sprint's time for its retro and turns on "Time tracking reminder". The active day it measures runs from the Morning time to the Evening time.
-- In words too: its ordinary fields, shown for Save with what it was and what it becomes. Secret word is set only on its own Profile screen, and the word is never shown.
+- In words too: its ordinary fields, shown to save, marked from what it was to what it becomes. Secret word is set only on its own Profile screen, and the word is never shown.
 - Time tracking and Effort Points can also be changed in words, through a Profile proposal. Hook switches are buttons only. Onboarding alone may be turned off in words.
 
 # Screens and commands

@@ -211,7 +211,7 @@ class ProposalMaterializer:
                 )
                 prepared.append((tool.call.id, change))
             queue = queue_proposals(
-                self.reviews, prepared, message=result.message, workspace_revision=revision
+                self.reviews, prepared, workspace_revision=revision
             )
             queued_proposal_ids = {
                 call_id: item.proposal_id for item in queue for call_id in item.call_ids

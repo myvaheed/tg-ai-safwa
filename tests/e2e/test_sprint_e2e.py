@@ -26,6 +26,8 @@ from safwa.features.profile.use_cases import set_profile_field
 from safwa.foundation.workspace import SPRINT_LENGTH_DAYS, Workspace
 from tg_agent_shell.ai.outcome import AIOutcomeKind
 from tg_agent_shell.foundation.clock import utcnow
+from tg_agent_shell.proposals.api import Effect
+from tg_agent_shell.proposals.marks import field_line
 
 pytestmark = pytest.mark.e2e
 
@@ -255,11 +257,11 @@ async def test_pl_length_035_the_next_sprints_length_and_capacity_are_set_in_wor
         drawn = await PROPOSALS.presenter("sprint").screen(
             session, advisor.reviews.proposal(screen.proposal_id).changes
         )
-    assert (drawn.mode, drawn.item) == ("Edit", "Next Sprint")
-    assert drawn.blocks == (
-        f"<b>Length</b>\nNow: {SPRINT_LENGTH_DAYS} days\nBecomes: 7 days",
-        "<b>Capacity</b>\nNow: off\nBecomes: 12.5 EP",
-    )
+    assert (drawn.mode, drawn.item) == (None, "Next Sprint")
+    assert [field_line(field, Effect.UPDATE) for field in drawn.fields] == [
+        f"Length: <s>{SPRINT_LENGTH_DAYS} days</s> <b>7 days</b>",
+        "Capacity: <s>off</s> <b>12.5 EP</b>",
+    ]
 
     await _save(e2e_harness, advisor, provider, screen.proposal_id, ["Set.", "Done."])
 

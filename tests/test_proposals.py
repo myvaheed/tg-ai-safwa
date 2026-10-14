@@ -97,7 +97,6 @@ async def _proposal_for(
     """One prepared change, opened the way a mutation tool call opens it."""
     preparer = ChangePreparer(None, None, PROPOSALS)  # type: ignore[arg-type]
     return reviews.open_proposal(
-        message="Safwa proposed this",
         workspace_revision=(await preparer.world(session)).revision,
         changes=[
             await prepare_change(session, preparer, PROPOSALS.change_from_tool(tool, arguments))

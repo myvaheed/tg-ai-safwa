@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any, Protocol
 
 from pydantic import BaseModel
@@ -174,19 +175,61 @@ def entity_change(entity: str) -> Callable[[BaseModel], AgentChange]:
     return convert
 
 
+class Effect(StrEnum):
+    """What Save does to the item: how its screen marks it and what its button says."""
+
+    CREATE = "Create"
+    UPDATE = "Update"
+    ARCHIVE = "Archive"
+    DELETE = "Delete"
+
+
+def effect_of(changes: Sequence[ProposalChange]) -> Effect:
+    if changes[0].action is ChangeAction.CREATE:
+        return Effect.CREATE
+    if changes[-1].action is ChangeAction.DELETE:
+        return Effect.DELETE
+    if changes[-1].action is ChangeAction.ARCHIVE:
+        return Effect.ARCHIVE
+    return Effect.UPDATE
+
+
+# A field's value in the owner's words, not yet escaped; a list is its items, None is empty.
+FieldValue = str | tuple[str, ...] | None
+
+
+@dataclass(frozen=True, slots=True)
+class ShownField:
+    """One field of the item a review screen shows, as it is and as Save leaves it."""
+
+    label: str
+    before: FieldValue = None
+    after: FieldValue = None
+    # Shown on an edit even when Save leaves it as it is: what tells the owner which item.
+    anchor: bool = False
+
+
 @dataclass(frozen=True, slots=True)
 class ProposalScreen:
-    """The review screen of one proposal, before any wording is joined."""
+    """The review screen of one proposal, before any wording is joined.
 
-    mode: str
+    `fields` hold the item before and after Save, and the screen marks them by the effect.
+    `blocks` are HTML the feature words itself, below them.
+    """
+
     item: str
+    fields: tuple[ShownField, ...] = ()
     blocks: tuple[str, ...] = ()
-    diffs: tuple[str, ...] = ()
+    # The heading's verb when the effect's own word says less: "Answer", "Start".
+    mode: str | None = None
+    # What Save does when the changes' actions say otherwise: a Reminder has no archive.
+    effect: Effect | None = None
 
 
 @dataclass(frozen=True)
 class ProposalDescription:
-    """One proposal in owner-facing words: a headline plus its `Label: value` lines."""
+    """One proposal in words: the line its receipt reads, plus its `Label: old → new` lines
+    for a model judging it."""
 
     summary: str
     fields: list[str] = field(default_factory=list)
@@ -219,8 +262,8 @@ class ProposalPresenter(Protocol):
         """The review screen of one proposal, or None to fall back to the generic change list.
 
         `changes` are every change the proposal holds, in the order Save applies them. More
-        than one are all for one existing item: the screen shows it as all of them leave it,
-        and what each one changes.
+        than one are all for one existing item: each field is before the first and after the
+        last of them.
         """
 
 

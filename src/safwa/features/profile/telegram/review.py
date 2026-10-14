@@ -1,16 +1,16 @@
-"""How a proposal to change the Profile reads to the owner: each field, as it is and as it
-becomes, in the words the Profile screen shows it with."""
+"""How a proposal to change the Profile reads to the owner: each field, marked from what it
+is to what it becomes, in the words the Profile screen shows it with."""
 
 from __future__ import annotations
 
-import html
 from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.ai.contracts import AgentChange
-from tg_agent_shell.proposals.api import ProposalChange, ProposalScreen
+from tg_agent_shell.proposals.api import ProposalChange, ProposalScreen, ShownField
+from tg_agent_shell.proposals.marks import shown
 
 from ..model import ProfileField, UserProfile
 from ..proposal import stored_value
@@ -59,11 +59,15 @@ class ProfileProposalPresenter:
         profile = await session.get(UserProfile, 1)
         if profile is None:
             return None
-        diffs = [
-            f"• {html.escape(_title(name))}: "
-            f"{html.escape(_show(name, getattr(profile, name)))} → "
-            f"{html.escape(_show(name, value))}"
-            for change in changes
-            for name, value in change.values.items()
-        ]
-        return ProposalScreen(mode="Edit", item="Profile", diffs=tuple(diffs))
+        return ProposalScreen(
+            item="Profile",
+            fields=tuple(
+                ShownField(
+                    _title(name),
+                    shown(_show(name, getattr(profile, name))),
+                    shown(_show(name, value)),
+                )
+                for change in changes
+                for name, value in change.values.items()
+            ),
+        )

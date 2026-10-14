@@ -63,7 +63,6 @@ def queue_proposals(
     store: ProposalStore,
     changes: Sequence[tuple[str, ProposalChange]],
     *,
-    message: str,
     workspace_revision: int,
 ) -> list[QueueItem]:
     """Open one response's prepared calls as proposals, in the order they were made.
@@ -79,10 +78,10 @@ def queue_proposals(
             items[-1] = replace(items[-1], call_ids=(*items[-1].call_ids, call_id))
             continue
         proposal = store.open_proposal(
-            message=message, workspace_revision=workspace_revision, changes=[change]
+            workspace_revision=workspace_revision, changes=[change]
         )
         items.append(QueueItem(proposal_id=proposal.id, call_ids=(call_id,)))
-    number_queued_proposals(store, items, message)
+    number_queued_proposals(store, items)
     return items
 
 
@@ -232,20 +231,18 @@ def open_batch(
     )
 
 
-def number_queued_proposals(
-    store: ProposalStore, items: Sequence[QueueItem], message: str
-) -> None:
-    """Head each proposal with its place in the queue it is waiting in.
+def number_queued_proposals(store: ProposalStore, items: Sequence[QueueItem]) -> None:
+    """Give each proposal its place in the queue it is waiting in.
 
-    A proposal alone in its queue carries no heading: the number is there to say how much
-    of the request is still to come.
+    A proposal alone in its queue has none: the number is there to say how much of the
+    request is still to come.
     """
     if len(items) < 2:
         return
     for position, item in enumerate(items, start=1):
         proposal = store.proposal(item.proposal_id)
         if proposal is not None:
-            proposal.message = f"Proposal {position}/{len(items)}\n{message}"
+            proposal.place = f"{position}/{len(items)}"
 
 
 @dataclass(frozen=True)

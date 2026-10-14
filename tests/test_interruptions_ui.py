@@ -103,7 +103,6 @@ async def test_proposal_ui_gives_up_the_turn_before_after_turn_work(sessions) ->
     async with sessions() as session:
         workspace = await session.get(Workspace, 1)
         proposal = store.open_proposal(
-            message="Create VrWalk",
             workspace_revision=workspace.revision,
             changes=[
                 ProposalChange(
@@ -177,7 +176,6 @@ async def test_new_dialogue_discards_and_freezes_pending_proposal(sessions) -> N
     async with sessions() as session:
         workspace = await session.get(Workspace, 1)
         proposal = store.open_proposal(
-            message="Rename the Tag",
             workspace_revision=workspace.revision,
             changes=[
                 ProposalChange(
@@ -218,7 +216,6 @@ async def test_new_dialogue_discards_and_freezes_pending_proposal(sessions) -> N
     assert "🗑 Discarded" in bot.edits[0][1]
     assert "You continued the conversation without saving it." in bot.edits[0][1]
     assert "Rename Tag “Family”" in bot.edits[0][1]
-    assert "• Name: Home → Family" in bot.edits[0][1]
     async with sessions() as session:
         proposal = store.proposal(proposal_id)
         assert proposal is None
@@ -240,7 +237,6 @@ async def test_pr_expire_029_the_screen_nobody_answered_is_frozen_by_the_poll(
     async with sessions() as session:
         workspace = await session.get(Workspace, 1)
         proposal = store.open_proposal(
-            message="Rename the Tag",
             workspace_revision=workspace.revision,
             changes=[
                 ProposalChange(
@@ -349,7 +345,6 @@ async def test_the_screen_the_owner_walked_into_is_left_alone(sessions) -> None:
     async with sessions() as session:
         workspace = await session.get(Workspace, 1)
         proposal = store.open_proposal(
-            message="Rename the Tag",
             workspace_revision=workspace.revision,
             changes=[
                 ProposalChange(
@@ -398,7 +393,6 @@ async def test_typed_words_end_the_review_and_are_then_answered(sessions) -> Non
     async with sessions() as session:
         workspace = await session.get(Workspace, 1)
         proposal = store.open_proposal(
-            message="Rename the Tag",
             workspace_revision=workspace.revision,
             changes=[
                 ProposalChange(

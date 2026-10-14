@@ -14,7 +14,8 @@ from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.telegram import render_reminder, render_reminders
 from safwa.features.reminders.telegram.review import ReminderProposalPresenter
 from safwa.features.reminders.use_cases import create_reminder
-from tg_agent_shell.proposals.api import ChangeAction, ProposalChange
+from tg_agent_shell.proposals.api import ChangeAction, Effect, ProposalChange
+from tg_agent_shell.proposals.marks import field_line
 from tg_agent_shell.telegram import callback_token_handler
 from tg_agent_shell.telegram.dialogue import ordinary_text
 
@@ -173,9 +174,13 @@ async def test_a_reminder_proposal_reads_as_its_words_and_its_times(sessions) ->
             ],
         )
 
-    assert (created.mode, created.item) == ("Create", "Reminder")
-    [block] = created.blocks
-    assert "<b>When:</b> every day at 09:00" in block and "<b>First:</b> " in block
-    assert block.endswith("Call mum.") and "interval" not in block and "{" not in block
-    assert created.diffs == ()
-    assert edited.mode == "Edit" and edited.diffs == ("• Words: Call mum. → Call dad.",)
+    assert created.item == "Reminder"
+    when, first, words = (field_line(field, Effect.CREATE) for field in created.fields)
+    assert when == "🔁 When: every day at 09:00" and first.startswith("⏭ First: ")
+    assert words == "Words: Call mum."
+    assert not any("interval" in line or "{" in line for line in (when, first, words))
+    assert [field_line(field, Effect.UPDATE) for field in edited.fields] == [
+        when,
+        None,
+        "Words: <s>Call mum.</s> <b>Call dad.</b>",
+    ]

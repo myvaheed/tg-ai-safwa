@@ -26,7 +26,8 @@
     Then Safwa shows that change on a review screen with Save and Discard
     And a Sprint about to start is shown with its Success criteria, its first and last day and
       its length in days, which is the next Sprint's length (PL-START-005)
-    And a change to the next Sprint shows each value it changes, what it is and what it becomes
+    And a change to the next Sprint shows each value it changes, marked from what it is to what it
+      becomes by PR-SCREEN-003
     And Save does what the Sprint screen's button does, with the same refusals
     When a Sprint is running and they ask to change its Success criteria
     Then it is refused with that reason, and nothing is proposed

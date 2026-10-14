@@ -7,10 +7,11 @@ from the plain dicts the session layer stores, so the session layer never has to
 a proposal is.
 
 The wording a feature writes its own `ProposalPresenter` out of is here too, under one
-heading: a field's label, a value the owner reads instead of a `None`, an `old → new` line,
-and `NamedItemPresenter` for the items a name is the whole of.  It reads
-[api.py](api.py) and nothing in those contracts reads it back, which is what keeps how a
-proposal reads out of what a proposal is.
+heading: a field's label, a value the owner reads instead of a `None`, a model's
+`old → new` line, and `NamedItemPresenter` for the items a name is the whole of.  How a
+review screen marks a field is [marks.py](marks.py).  It reads [api.py](api.py) and nothing
+in those contracts reads it back, which is what keeps how a proposal reads out of what a
+proposal is.
 """
 
 from __future__ import annotations
@@ -27,7 +28,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..ai.contracts import AgentChange, ToolResultStatus
 from ..foundation.references import ReferenceSpec, listed, resolve_references
-from .api import ProposalDescription, ProposalRegistry, ProposalScreen
+from .api import (
+    ProposalDescription,
+    ProposalRegistry,
+    ProposalScreen,
+    ShownField,
+)
+from .marks import shown
 from .model import (
     AUTO_SAVED_RECEIPT,
     DECISION_RECEIPTS,
@@ -37,10 +44,6 @@ from .model import (
     ProposalChange,
 )
 from .store import ProposalStore
-
-# A resolved proposal stays in the dialogue for good, so its receipt is capped rather
-# than carrying every field of a wide edit.
-PROPOSAL_OUTCOME_DETAIL_LIMIT = 6
 
 logger = logging.getLogger(__name__)
 
@@ -120,26 +123,11 @@ def detail_lines(
     ]
 
 
-def display_diff_value(value: Any) -> str:
-    """How one side of a review-screen diff reads. Empty is a dash, never a blank."""
-    if value is None or value == "":
-        return "—"
-    if isinstance(value, bool):
-        return "Yes" if value else "No"
-    return str(value)
-
-
-def field_diffs(
-    current: Mapping[str, Any], proposed: Mapping[str, Any]
-) -> tuple[str, ...]:
-    """The review screen's `old → new` lines for an item with no shape of its own."""
-    return tuple(
-        f"• {field.replace('_', ' ').title()}: "
-        f"{html.escape(display_diff_value(current.get(field)))} → "
-        f"{html.escape(display_diff_value(new_value))}"
-        for field, new_value in proposed.items()
-        if current.get(field) != new_value
-    )
+def became(detail: str) -> str:
+    """A `Label: old → new` detail line as what it becomes, for a line naming the result."""
+    label, separator, rest = detail.partition(": ")
+    _, arrow, new = rest.rpartition(" → ")
+    return f"{label}: {new}" if separator and arrow else detail
 
 
 async def named_summary(
@@ -149,7 +137,10 @@ async def named_summary(
     *,
     model: type[Any] | None,
 ) -> str:
-    """The receipt line for an item the owner knows by its name."""
+    """The receipt line for an item the owner knows by its name.
+
+    An edit names the item as it is called now and lists what its fields become.
+    """
     entity = (
         await session.get(model, change.entity_id)
         if model is not None and change.entity_id is not None
@@ -157,14 +148,19 @@ async def named_summary(
     )
     values = dict(change.values)
     name = (
-        values.get("name")
-        or values.get("title")
-        or getattr(entity, "name", None)
+        getattr(entity, "name", None)
         or getattr(entity, "title", None)
+        or values.get("name")
+        or values.get("title")
     )
     label = change.entity.title()
     head = f"{label} “{result_value(name)}”" if name else f"{label} #{change.entity_id}"
-    tail = [] if change.action is ChangeAction.CREATE else list(details)
+    if change.action is ChangeAction.UPDATE:
+        tail = [became(detail) for detail in details]
+    elif change.action in {ChangeAction.CREATE, ChangeAction.ARCHIVE, ChangeAction.DELETE}:
+        tail = []
+    else:
+        tail = list(details)
     verb = ACTION_VERBS.get(change.action, change.action.title())
     return f"{verb} {head}" + (f" ({' · '.join(tail)})" if tail else "")
 
@@ -266,30 +262,23 @@ class NamedItemPresenter:
         self, session: AsyncSession, changes: Sequence[ProposalChange]
     ) -> ProposalScreen | None:
         first = changes[0]
-        current: dict[str, Any] = {}
-        archived = False
-        if first.entity_id:
-            item = await session.get(self.model, first.entity_id)
-            if item is not None:
-                archived = getattr(item, "archived_at", None) is not None
-                current = self._current(item)
+        item = await session.get(self.model, first.entity_id) if first.entity_id else None
+        current = self._current(item) if item is not None else {}
         proposed = dict(current)
         for change in changes:
             proposed.update(change.values)
-            if change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}:
-                current["status"] = "Archived" if archived else "Active"
-                proposed["status"] = (
-                    "Archived" if change.action is ChangeAction.ARCHIVE else "Deleted"
-                )
         return ProposalScreen(
-            mode="Create" if first.action is ChangeAction.CREATE else "Edit",
             item=self.label,
-            blocks=(
-                f"Name: {html.escape(display_diff_value(proposed.get('name')))}\n"
-                f"Description: "
-                f"{html.escape(display_diff_value(proposed.get('description')))}",
+            fields=(
+                ShownField(
+                    "Name", shown(current.get("name")), shown(proposed.get("name")), anchor=True
+                ),
+                ShownField(
+                    "Description",
+                    shown(current.get("description")),
+                    shown(proposed.get("description")),
+                ),
             ),
-            diffs=field_diffs(current, proposed),
         )
 
 
@@ -545,13 +534,6 @@ class ProposalRenderer:
         return ProposalDescription(summary="\n".join(lines), fields=fields)
 
 
-def proposal_change_summary(change: ProposalChange) -> str:
-    target = f" #{change.entity_id}" if change.entity_id is not None else ""
-    values = ", ".join(f"{key}={value!r}" for key, value in change.values.items())
-    suffix = f": {values}" if values else ""
-    return f"{change.action.title()} {change.entity.title()}{target}{suffix}"
-
-
 PROPOSAL_OUTCOME_HEADINGS = {
     BatchDecision.APPROVED: "✅ Saved",
     BatchDecision.DISCARDED: "🗑 Discarded",
@@ -560,33 +542,17 @@ PROPOSAL_OUTCOME_HEADINGS = {
 }
 
 
-def _carries_a_value(field: str) -> bool:
-    """Whether a `Label: value` detail line says anything. `—` is the empty rendering."""
-    _, separator, value = field.partition(": ")
-    return not separator or value.strip() not in {"", "—", "— → —"}
-
-
 def proposal_outcome_text(
-    decision: BatchDecision,
-    summary: str,
-    fields: list[str] | None = None,
-    *,
-    notice: str | None = None,
+    decision: BatchDecision, summary: str, *, notice: str | None = None
 ) -> str:
     """The one text a resolved proposal leaves in the conversation.
 
-    Save, Discard, and the screen a navigation freezes all read the same way, so the model
-    rereading the dialogue learns what happened from one shape rather than three.
+    Save, Discard, and the screen a navigation freezes all read as the receipt line a
+    request's answer carries, so the model rereading the dialogue learns what happened from
+    one shape, and the owner reads each field once, on the screen they decided.
     """
-    parts = [f"<b>{PROPOSAL_OUTCOME_HEADINGS.get(decision, 'Resolved')}</b>"]
+    heading = f"<b>{PROPOSAL_OUTCOME_HEADINGS.get(decision, 'Resolved')}</b>"
+    parts = [f"{heading} — {html.escape(summary)}" if summary else heading]
     if notice:
         parts.append(html.escape(notice))
-    if summary:
-        parts.append(html.escape(summary))
-    details = [field for field in (fields or []) if _carries_a_value(field)]
-    if details:
-        capped = details[:PROPOSAL_OUTCOME_DETAIL_LIMIT]
-        if len(details) > PROPOSAL_OUTCOME_DETAIL_LIMIT:
-            capped.append(f"… and {len(details) - PROPOSAL_OUTCOME_DETAIL_LIMIT} more")
-        parts.append("\n".join(f"• {html.escape(field)}" for field in capped))
     return "\n".join(parts)

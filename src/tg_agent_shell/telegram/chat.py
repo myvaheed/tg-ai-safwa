@@ -194,7 +194,6 @@ async def _interrupted_review(services: Services, screen: Note) -> tuple[str, st
         text = proposal_outcome_text(
             BatchDecision.DISCARDED,
             description.summary,
-            description.fields,
             notice="You continued the conversation without saving it.",
         )
     return text, MessageKind.EVENT.value
@@ -228,7 +227,6 @@ async def expire_review(message: Message, services: Services, proposal_id: int) 
         text = proposal_outcome_text(
             BatchDecision.EXPIRED,
             description.summary,
-            description.fields,
             notice=f"{waited}, so it was not saved.",
         )
     for screen in screens:

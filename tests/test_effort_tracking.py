@@ -45,7 +45,8 @@ from tg_agent_shell.ai.sql import ReadOnlyQueryRunner
 from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.cues.queue import add_hook_cue
 from tg_agent_shell.foundation.changes import Committed
-from tg_agent_shell.proposals.api import ApplyContext, ToolPreparationError
+from tg_agent_shell.proposals.api import ApplyContext, Effect, ToolPreparationError
+from tg_agent_shell.proposals.marks import field_line
 from tg_agent_shell.proposals.model import ProposalChange
 from tg_agent_shell.proposals.prepare import ChangePreparer
 from tg_agent_shell.telegram import callback_token_handler
@@ -110,7 +111,8 @@ async def test_ps_ep_021_the_switch_keeps_estimates_and_capacity(sessions):
         prepared = await ChangePreparer(None, None, PROPOSALS).prepare(session, change)
         proposal = ProposalChange(entity="profile", action=change.action, values=prepared.values)
         screen = await ProfileProposalPresenter().screen(session, [proposal])
-        assert "Effort Points: off → on" in screen.diffs[0]
+        [field] = screen.fields
+        assert field_line(field, Effect.UPDATE) == "Effort Points: <s>off</s> <b>on</b>"
         await PROPOSALS.handler("profile").apply(ApplyContext(session, frozenset()), proposal)
         assert await effort_tracking_on(session)
         assert await hook_switched_on(session, TODAY_OVERLOAD_HOOK.name)

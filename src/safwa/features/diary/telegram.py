@@ -20,7 +20,9 @@ from tg_agent_shell.proposals.api import (
     ChangeAction,
     ProposalChange,
     ProposalScreen,
+    ShownField,
 )
+from tg_agent_shell.proposals.marks import shown
 from tg_agent_shell.proposals.render import (
     ACTION_VERBS,
     detail_lines,
@@ -278,6 +280,11 @@ def _day_lines(change: ProposalChange) -> list[str]:
     return lines
 
 
+def _feeling(state: dict[str, Any]) -> str | None:
+    score = state.get("feeling_score")
+    return None if score is None else f"{int(score)} {FEELING_SCORE_EMOJI[int(score)]}"
+
+
 class DiaryProposalPresenter:
     entity = "diary"
 
@@ -323,43 +330,37 @@ class DiaryProposalPresenter:
             proposed.update(values)
         # One day is one entry: whatever the last change does is what Save leaves.
         change = changes[-1]
-        shown = current if change.action is ChangeAction.DELETE else proposed
-        heading = f"Date: {html.escape(str(proposed.get('entry_date') or ''))}"
-        if shown.get("feeling_score") is not None:
-            score = int(shown["feeling_score"])
-            heading += f"\nFeeling: {score} {FEELING_SCORE_EMOJI[score]}"
-        rewritten = any(item.values.get("body") is not None for item in changes)
-        if change.action is ChangeAction.UPDATE and rewritten and current.get("body"):
-            heading += "\nThis replaces the entry already saved for that day."
-        elif change.action is ChangeAction.DELETE:
-            heading += "\nThis removes that day's entry for good."
-        blocks = [heading]
-        if change.action is ChangeAction.DELETE:
-            blocks.append(html.escape(str(current.get("body") or "")))
-            removed = on_day
+        day = str(proposed.get("entry_date") or "")
+        removing = change.action is ChangeAction.DELETE
+        if removing:
+            photos = [f"📷 {html.escape(meta)}" for meta in on_day]
         else:
-            blocks.append(html.escape(str(proposed.get("body") or "")))
-            if proposed.get("remark"):
-                blocks.append(f"<i>{html.escape(str(proposed['remark']))}</i>")
-        photos = [f"📷 {html.escape(meta)}" for meta in added]
-        photos += [
-            f"📷 <s>{html.escape(item['was'])}</s> {html.escape(item['meta'])}" for item in renamed
+            # A new day reads plain; an edited one marks the photos it adds and takes off.
+            new = "{}" if change.action is ChangeAction.CREATE else "<b>{}</b>"
+            photos = [f"📷 {new.format(html.escape(meta))}" for meta in added]
+            photos += [
+                f"📷 <s>{html.escape(item['was'])}</s> <b>{html.escape(item['meta'])}</b>"
+                for item in renamed
+            ]
+            photos += [f"📷 <s>{html.escape(meta)}</s>" for meta in removed]
+        blocks = [
+            f"<i>{html.escape(str(proposed['remark']))}</i>"
+            if proposed.get("remark") and not removing
+            else "",
+            "\n".join(photos),
+            "This removes that day's entry for good." if removing else "",
         ]
-        photos += [f"📷 <s>{html.escape(meta)}</s>" for meta in removed]
-        if photos:
-            blocks.append("\n".join(photos))
         return ProposalScreen(
-            mode=(
-                "Create"
-                if change.action is ChangeAction.CREATE
-                else "Remove"
-                if change.action is ChangeAction.DELETE
-                else "Edit"
-            ),
             item="Diary entry",
+            fields=(
+                ShownField("Date", day, day, anchor=True),
+                ShownField("Feeling", _feeling(current), _feeling(proposed)),
+                # The day's words stay on screen: a photo put on a day is put among them.
+                ShownField(
+                    "Entry", shown(current.get("body")), shown(proposed.get("body")), anchor=True
+                ),
+            ),
             blocks=tuple(block for block in blocks if block),
-            # The Diary screen is the entry itself; a field diff would only repeat it.
-            diffs=(),
         )
 
 

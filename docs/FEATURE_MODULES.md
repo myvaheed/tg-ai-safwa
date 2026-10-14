@@ -64,7 +64,9 @@ One registration, three layers, bound only in the feature's `module.py`:
 - **`MutationToolSpec`** (`features/<f>/agent.py`) — the Pydantic input model, the one-line
   description, and the conversion into a neutral `AgentChange`.
 - **`ProposalPresenter`** (the feature's Telegram adapter) — the receipt lines and the review
-  screen. `screen()` may return `None`, which falls back to the generic change list.
+  screen. `screen()` returns the item's fields as `ShownField(label, before, after)` in the
+  owner's words; the shell marks them by what Save does (`PR-SCREEN-003`), so no feature writes a
+  diff of its own. `screen()` may return `None`, which falls back to each value the change sets.
 
 Rule K keeps them apart: `proposal.py` carries no user-facing wording and no aiogram, and `agent.py`
 neither commits nor calls the domain.

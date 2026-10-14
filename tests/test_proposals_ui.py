@@ -1,4 +1,4 @@
-"""The review screen every feature's presenter is drawn into: diffs, and Save/Discard."""
+"""The review screen every feature's presenter is drawn into: marked fields, and Save/Discard."""
 
 from __future__ import annotations
 
@@ -21,13 +21,20 @@ from safwa.features.diary.use_cases import create_diary_entry
 from safwa.features.tags.model import CardTag, Tag
 from safwa.features.values.model import CardValue, Value
 from safwa.foundation.workspace import Workspace
+from tg_agent_shell.proposals.api import Effect, ShownField
+from tg_agent_shell.proposals.marks import (
+    LONG_TEXT_CHARS,
+    SHORT_VALUE_WORDS,
+    field_line,
+    marked,
+)
 from tg_agent_shell.proposals.model import ChangeAction, ProposalChange
 from tg_agent_shell.proposals.store import ProposalStore
 from tg_agent_shell.proposals.telegram import render_proposal
 from tg_agent_shell.proposals.use_cases import approve_proposal
 
 
-async def test_item_proposal_shows_diffs_and_only_save_discard_footer(sessions) -> None:
+async def test_item_proposal_marks_the_edit_and_only_save_discard_footer(sessions) -> None:
     store = ProposalStore()
     async with sessions() as session:
         tag = Tag(name="Family", description="Old description")
@@ -35,7 +42,6 @@ async def test_item_proposal_shows_diffs_and_only_save_discard_footer(sessions) 
         await session.flush()
         workspace = await session.get(Workspace, 1)
         proposal = store.open_proposal(
-            message="Improve the Family Tag",
             workspace_revision=workspace.revision,
             changes=[
                 ProposalChange(
@@ -53,15 +59,16 @@ async def test_item_proposal_shows_diffs_and_only_save_discard_footer(sessions) 
     message = FakeMessage(60, bot_message=True)
     await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
     text, markup = message.edits[-1]
-    assert "Old description" in text
-    assert "Relationships and home" in text
-    assert "→" in text
+    assert text.startswith("<b>✏️ Update Tag</b>")
+    assert "Name: Family" in text
+    assert "Description: <s>Old description</s> <b>Relationships and home</b>" in text
+    assert "→" not in text
     buttons = button_texts(markup)
-    assert buttons == ["✅ Save", "🗑 Discard"]
+    assert buttons == ["✅ Update", "🗑 Discard"]
     assert "↩️ Back" not in buttons
 
 
-async def test_card_proposal_uses_full_card_editor_with_human_diffs(sessions, effort_on) -> None:
+async def test_card_proposal_marks_only_what_changes(sessions, effort_on) -> None:
     store = ProposalStore()
     async with sessions() as session:
         card = Card(
@@ -75,7 +82,6 @@ async def test_card_proposal_uses_full_card_editor_with_human_diffs(sessions, ef
         session.add(CardCategory(card_id=card.id, category="growth"))
         workspace = await session.get(Workspace, 1)
         proposal = store.open_proposal(
-            message="Change the Action's energy profile",
             workspace_revision=workspace.revision,
             changes=[
                 ProposalChange(
@@ -97,14 +103,15 @@ async def test_card_proposal_uses_full_card_editor_with_human_diffs(sessions, ef
     await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
     text, markup = message.edits[-1]
 
-    assert "Card overview" in text
+    assert text.startswith("<b>✏️ Update Action</b>")
     assert "Kind: ⭐️ Action" in text
-    assert "Title: <b>Evening walk</b>" in text
-    assert "Effort: 3" in text
-    assert "Categories: 🌱 Growth → 🫂 People, 🔋 Rest" in text
-    assert "Energy: — → 💪 Physical, 🎭 Emotional" in text
+    assert "Title: Evening walk" in text
+    # What the edit leaves as it is stays off the screen.
+    assert "Effort:" not in text and "Note:" not in text
+    assert "Categories: <s>🌱 Growth</s>, <b>🫂 People</b>, <b>🔋 Rest</b>" in text
+    assert "Energy: <b>💪 Physical</b>, <b>🎭 Emotional</b>" in text
     buttons = button_texts(markup)
-    assert buttons == ["✅ Save", "🗑 Discard"]
+    assert buttons == ["✅ Update", "🗑 Discard"]
     assert "↩️ Back" not in buttons
 
 
@@ -126,7 +133,6 @@ async def test_cd_tree_002_the_review_screen_shows_the_goal_becoming_a_subgoal(s
         life = await create_card(session, kind="goal", title="Life", parent_id=ancestor.id if ancestor else None)
         workspace = await session.get(Workspace, 1)
         proposal = store.open_proposal(
-            message="Put Health under Life",
             workspace_revision=workspace.revision,
             changes=[
                 ProposalChange(
@@ -146,8 +152,8 @@ async def test_cd_tree_002_the_review_screen_shows_the_goal_becoming_a_subgoal(s
     await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
     text, _markup = message.edits[-1]
     assert f"Kind: {marker} Subgoal" in text
-    assert "Kind: Goal → Subgoal" not in text
-    assert "Parent: Root → Life" in text
+    assert "Goal</s>" not in text
+    assert "Parent: <b>Life</b>" in text
 
     async with sessions() as session:
         await approve_proposal(session, store, PROPOSALS, proposal_id)
@@ -164,7 +170,6 @@ async def test_card_check_link_proposal_shows_the_check_in_overview_and_diff(ses
         check = await create_check(session, title="Walk upright")
         workspace = await session.get(Workspace, 1)
         proposal = store.open_proposal(
-            message="Link the Check to the Goal",
             workspace_revision=workspace.revision,
             changes=[
                 ProposalChange(
@@ -183,8 +188,7 @@ async def test_card_check_link_proposal_shows_the_check_in_overview_and_diff(ses
     await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
     text, _ = message.edits[-1]
 
-    assert "Checks: Walk upright" in text
-    assert "• Checks: — → Walk upright" in text
+    assert "Checks: <b>Walk upright</b>" in text
 
 
 async def test_diary_proposal_shows_the_entry_itself_and_only_save_or_discard(
@@ -196,7 +200,6 @@ async def test_diary_proposal_shows_the_entry_itself_and_only_save_or_discard(
         saved = await create_diary_entry(session, entry_date=date(2026, 8, 15), body="Утро.")
         workspace = await session.get(Workspace, 1)
         proposal = store.open_proposal(
-            message="Save today's Diary entry",
             workspace_revision=workspace.revision,
             changes=[
                 ProposalChange(
@@ -220,16 +223,14 @@ async def test_diary_proposal_shows_the_entry_itself_and_only_save_or_discard(
     await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
     text, markup = message.edits[-1]
 
-    assert "<b>Edit Diary entry · AI proposal</b>" in text
+    assert text.startswith("<b>✏️ Update Diary entry</b>")
     assert "Date: 2026-08-15" in text
-    assert "Feeling: 6 🙂" in text
-    assert "This replaces the entry already saved for that day." in text
-    assert "Сходил на рынок, вечером стало легче." in text
+    assert "Feeling: <b>6 🙂</b>" in text
+    # Little of the saved day is left, so the new words read whole.
+    assert "Entry: <b>Сходил на рынок, вечером стало легче.</b>" in text
+    assert "Утро." not in text
     assert "<i>A day that ended better than it began.</i>" in text
-    # The screen is the day in the owner's voice plus Safwa's one line about it; a field
-    # diff would only repeat the entry back at them.
-    assert "<b>Proposed changes</b>" not in text
-    assert button_texts(markup) == ["✅ Save", "🗑 Discard"]
+    assert button_texts(markup) == ["✅ Update", "🗑 Discard"]
 
 
 async def test_diary_removal_shows_the_entry_it_would_delete(sessions) -> None:
@@ -240,7 +241,6 @@ async def test_diary_removal_shows_the_entry_it_would_delete(sessions) -> None:
         )
         workspace = await session.get(Workspace, 1)
         proposal = store.open_proposal(
-            message="Remove that day's Diary entry",
             workspace_revision=workspace.revision,
             changes=[
                 ProposalChange(
@@ -259,19 +259,21 @@ async def test_diary_removal_shows_the_entry_it_would_delete(sessions) -> None:
     await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
     text, markup = message.edits[-1]
 
-    assert "<b>Remove Diary entry · AI proposal</b>" in text
+    assert text.startswith("<b>🗑 Delete Diary entry</b>")
     assert "This removes that day's entry for good." in text
-    # The owner reads what is about to go, not an empty replacement.
-    assert "День, который уходит." in text
-    assert button_texts(markup) == ["✅ Save", "🗑 Discard"]
+    # The owner reads what is about to go, plain, not an empty replacement.
+    assert "Entry: День, который уходит." in text
+    assert "<s>" not in text
+    assert button_texts(markup) == ["✅ Delete", "🗑 Discard"]
 
 
-async def test_card_creation_proposal_has_no_proposed_changes_section(sessions) -> None:
+async def test_card_creation_proposal_reads_plain_and_hides_what_was_not_chosen(
+    sessions,
+) -> None:
     store = ProposalStore()
     async with sessions() as session:
         workspace = await session.get(Workspace, 1)
         proposal = store.open_proposal(
-            message="Create a walking Action",
             workspace_revision=workspace.revision,
             changes=[
                 ProposalChange(
@@ -293,12 +295,14 @@ async def test_card_creation_proposal_has_no_proposed_changes_section(sessions) 
     await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
     text, markup = message.edits[-1]
 
-    assert "Card overview" in text
+    assert text.startswith("<b>➕ Create Action</b>")
     assert "Kind: ⭐️ Action" in text
-    assert "Title: <b>Evening walk</b>" in text
+    assert "Title: Evening walk" in text
     assert "Categories: 🌱 Growth" in text
-    assert "<b>Proposed changes</b>" not in text
-    assert button_texts(markup) == ["✅ Save", "🗑 Discard"]
+    # Nothing is marked on a new item, and its defaults and blanks say nothing.
+    assert "<s>" not in text and "Title: <b>" not in text
+    assert "Stage:" not in text and "Priority:" not in text and "Note:" not in text
+    assert button_texts(markup) == ["✅ Create", "🗑 Discard"]
 
 
 async def test_move_proposal_exposes_only_stage_control(sessions) -> None:
@@ -309,7 +313,6 @@ async def test_move_proposal_exposes_only_stage_control(sessions) -> None:
         await session.flush()
         workspace = await session.get(Workspace, 1)
         proposal = store.open_proposal(
-            message="Move the Action to Today",
             workspace_revision=workspace.revision,
             changes=[
                 ProposalChange(
@@ -328,8 +331,8 @@ async def test_move_proposal_exposes_only_stage_control(sessions) -> None:
     await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
     text, markup = message.edits[-1]
 
-    assert "Stage: Backlog → Today" in text
-    assert button_texts(markup) == ["✅ Save", "🗑 Discard"]
+    assert "Stage: <s>Backlog</s> <b>Today</b>" in text
+    assert button_texts(markup) == ["✅ Update", "🗑 Discard"]
 
 
 async def test_saving_card_proposal_applies_every_editable_field(sessions) -> None:
@@ -350,7 +353,6 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
         workspace = await session.get(Workspace, 1)
         nine = "daily 09:00"
         proposal = store.open_proposal(
-            message="Update the Action",
             workspace_revision=workspace.revision,
             changes=[
                 ProposalChange(
@@ -381,7 +383,7 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
     message = FakeMessage(63, bot_message=True)
     await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
     text, _markup = message.edits[-1]
-    assert "Schedule: — → daily 09:00" in text
+    assert "Schedule: <b>daily 09:00</b>" in text
     assert "Every day at 09:00." in text
 
     async with sessions() as session:
@@ -436,7 +438,6 @@ async def test_pr_cite_032_a_review_names_what_it_cites_and_links_none(sessions)
         goal = await create_card(session, kind="goal", title=title)
         workspace = await session.get(Workspace, 1)
         proposal = store.open_proposal(
-            message=f"It serves [Family](value:{value.id}) under [the evening](card:{goal.id}).",
             workspace_revision=workspace.revision,
             changes=[
                 ProposalChange(
@@ -445,7 +446,10 @@ async def test_pr_cite_032_a_review_names_what_it_cites_and_links_none(sessions)
                     values={
                         "kind": "action",
                         "title": "Cook together",
-                        "note": f"For [Family](value:{value.id}), not [gone](tag:999).",
+                        "note": (
+                            f"For [Family](value:{value.id}) under [the evening](card:{goal.id}),"
+                            " not [gone](tag:999)."
+                        ),
                     },
                 )
             ],
@@ -458,5 +462,45 @@ async def test_pr_cite_032_a_review_names_what_it_cites_and_links_none(sessions)
     text, _markup = message.edits[-1]
     assert "<a " not in text
     # The whole title, where an answer would cut it short.
-    assert f"It serves 💎 Family under 🎯 {title} · " in text
-    assert "Note: For 💎 Family, not gone." in text
+    assert f"Note: For 💎 Family under 🎯 {title} · " in text
+    assert ", not gone." in text
+
+
+def test_pr_screen_003_an_edit_strikes_what_goes_and_bolds_what_comes() -> None:
+    """PR-SCREEN-003 — tests/brd/tg_agent_shell/proposals.feature"""
+    # Short values read whole, and so does text that loses more than half of itself.
+    assert marked("Backlog", "Doing") == "<s>Backlog</s> <b>Doing</b>"
+    assert len("One two three four".split()) == SHORT_VALUE_WORDS + 1
+    assert marked("One two three four", "Five six seven eight") == "<b>Five six seven eight</b>"
+    # Otherwise only the part that changes is marked.
+    assert (
+        marked("Walk after dinner every day", "Walk 30 min after dinner every day")
+        == "Walk <b>30 min</b> after dinner every day"
+    )
+    assert (
+        marked("Call mum at nine every evening", "Call dad at nine every evening")
+        == "Call <s>mum</s> <b>dad</b> at nine every evening"
+    )
+    # A citation is one word: a mark never cuts it apart.
+    assert (
+        marked(
+            "Read [Deep work](card:12) before the team meeting every Monday",
+            "Read [Focus](card:13) before the team meeting every Monday",
+        )
+        == "Read <s>[Deep work](card:12)</s> <b>[Focus](card:13)</b> before the team meeting "
+        "every Monday"
+    )
+    assert marked("Old note here", None) == "<s>Old note here</s>"
+    assert marked(None, "A new note") == "<b>A new note</b>"
+    assert marked(("Home", "Work"), ("Work", "Rest")) == "<s>Home</s>, Work, <b>Rest</b>"
+    assert marked("a < b", "a < c") == "<s>a &lt; b</s> <b>a &lt; c</b>"
+
+    # A new item reads plain and without its blanks; an edit shows its anchors and changes.
+    title = ShownField("Title", "Walk", "Walk", anchor=True)
+    note = ShownField("Note", None, "x " * (LONG_TEXT_CHARS // 2 + 1))
+    stage = ShownField("Stage", "Backlog", "Backlog")
+    assert field_line(ShownField("Note"), Effect.CREATE) is None
+    assert field_line(note, Effect.CREATE).startswith("Note:\n<blockquote expandable>x x ")
+    assert field_line(title, Effect.UPDATE) == "Title: Walk"
+    assert field_line(stage, Effect.UPDATE) is None
+    assert field_line(ShownField("Stage", "Backlog", None), Effect.DELETE) == "Stage: Backlog"

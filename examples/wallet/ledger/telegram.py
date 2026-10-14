@@ -125,16 +125,4 @@ class EntryProposalPresenter:
         self, session: AsyncSession, changes: Sequence[ProposalChange]
     ) -> ProposalScreen | None:
         lines = [line for change in changes for line in await self.details(session, change, None)]
-        action = changes[-1].action
-        return ProposalScreen(
-            mode=(
-                "Create"
-                if action is ChangeAction.CREATE
-                else "Remove"
-                if action is ChangeAction.DELETE
-                else "Edit"
-            ),
-            item="Ledger entry",
-            blocks=(html.escape("\n".join(lines)),),
-            diffs=(),
-        )
+        return ProposalScreen(item="Ledger entry", blocks=(html.escape("\n".join(lines)),))

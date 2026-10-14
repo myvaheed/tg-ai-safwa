@@ -228,5 +228,9 @@ async def test_locked_reminder_proposals_are_discarded_and_authenticated_hook_pr
         assert not services.root.reviews.busy
     else:
         assert services.root.reviews.busy
-        assert any("Save" in button.text for row in anchor.markups[-1].inline_keyboard for button in row)
+        assert any(
+            button.text == "✅ Update"
+            for row in anchor.markups[-1].inline_keyboard
+            for button in row
+        )
         assert not any("discarded" in str(call) for call in provider.calls)

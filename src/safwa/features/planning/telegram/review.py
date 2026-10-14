@@ -2,8 +2,8 @@
 
 A Sprint about to start is shown the way the Planning screen would start it: its Success
 criteria, its first and last day and its length, and the plan against the capacity. A
-change to the next Sprint shows each value it changes, as it is and as it becomes. One
-about to finish is shown with the day it is on and what stays open.
+change to the next Sprint marks each value it changes. One about to finish is shown with
+the day it is on and what stays open.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.ai.contracts import AgentChange
 from tg_agent_shell.foundation.clock import utcnow
-from tg_agent_shell.proposals.api import ProposalChange, ProposalScreen
+from tg_agent_shell.proposals.api import ProposalChange, ProposalScreen, ShownField
 from tg_agent_shell.proposals.model import ChangeAction
 
 from ....foundation.workspace import Workspace, require_workspace
@@ -84,31 +84,22 @@ class SprintProposalPresenter:
         if change.action is ChangeAction.UPDATE:
             changed = []
             if criteria is not None:
-                changed.append((
-                    "Success criteria",
-                    workspace.sprint_success_criteria.strip() or "not written yet",
-                    criteria,
+                changed.append(ShownField(
+                    "Success criteria", workspace.sprint_success_criteria.strip() or None, criteria
                 ))
             if "length_days" in values:
-                changed.append((
+                changed.append(ShownField(
                     "Length",
                     f"{workspace.sprint_length_days} days",
                     f"{values['length_days']} days",
                 ))
             if "capacity_effort_points" in values:
-                changed.append((
+                changed.append(ShownField(
                     "Capacity",
                     capacity_label(workspace.sprint_capacity_effort_points),
                     capacity_label(values["capacity_effort_points"]),
                 ))
-            return ProposalScreen(
-                mode="Edit",
-                item="Next Sprint",
-                blocks=tuple(
-                    f"<b>{name}</b>\nNow: {html.escape(was)}\nBecomes: {html.escape(becomes)}"
-                    for name, was, becomes in changed
-                ),
-            )
+            return ProposalScreen(item="Next Sprint", fields=tuple(changed))
         if change.action is ChangeAction.CREATE:
             length = (
                 values["length_days"] if "length_days" in values

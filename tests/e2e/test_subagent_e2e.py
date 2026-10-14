@@ -158,8 +158,7 @@ async def test_an_autoapproved_board_route_hands_back_its_receipt(e2e_harness):
     assert [message["role"] for message in provider.calls[1]] == ["system", "user"]
     receipt = next(receipt for receipt in route_receipts(provider) if receipt["subagent"] == "workspace_mutator")
     assert receipt["did"] == [
-        "⚡ Auto-saved — Edit Action “Купить овсяное молоко” "
-        "(Title: Купить молоко → Купить овсяное молоко)"
+        "⚡ Auto-saved — Edit Action “Купить молоко” (Title: Купить овсяное молоко)"
     ]
     # The receipt line it echoed is the interface's, so its words keep only its own.
     assert receipt["text"] == "Переименовал чек."
@@ -627,8 +626,7 @@ async def test_two_domains_in_one_request_are_both_finished(e2e_harness):
     receipt = route_receipts(provider)[0]
     assert receipt["subagent"] == "workspace_mutator"
     assert receipt["did"] == [
-        "✅ Saved — Edit Action “Приготовить пиццу” "
-        "(Title: Приготовить еду → Приготовить пиццу)"
+        "✅ Saved — Edit Action “Приготовить еду” (Title: Приготовить пиццу)"
     ]
 
 
@@ -695,7 +693,7 @@ async def test_the_second_subagent_reads_what_the_first_one_saved(e2e_harness):
     # The Diary's own context names what the workspace already saved, in the owner's words.
     diary_seen = next(item for item in provider.calls[-1] if item["role"] == "user")
     context = str(diary_seen["content"])
-    assert "✅ Saved — Edit Action “Приготовить пиццу”" in context
+    assert "✅ Saved — Edit Action “Приготовить еду” (Title: Приготовить пиццу)" in context
     # It sits outside the conversation, so the subagent window cannot trim it.
     conversation = context[context.index("<Conversation>") :]
     assert "<User>Переименуй действие и запиши день</User>" in conversation

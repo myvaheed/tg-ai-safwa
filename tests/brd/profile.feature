@@ -111,7 +111,8 @@ Feature: Profile
 
   Scenario: PS-AI-019 — A Profile field is set in words too, through the same check
     Given the owner asks Safwa to set Home after to 45 minutes and the Morning time to 08:00
-    Then one review screen shows both fields, each with what it was and what it becomes
+    Then one review screen shows both fields, each marked from what it was to what it becomes by
+      PR-SCREEN-003
     And Save stores each the way the Profile screen does, one change per field
     When the owner asks for a Home after of 2 minutes
     Then it is refused before any screen, with the range (PS-HOME-018)

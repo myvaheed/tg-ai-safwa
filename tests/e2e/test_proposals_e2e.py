@@ -861,7 +861,7 @@ async def test_pr_expire_029_what_was_saved_before_the_time_ran_out_stays_saved(
         e2e_harness, services, screen, first.proposal_id, "proposal_approve"
     )
     second = next(
-        item for item in advisor.reviews.open_proposals if item.message.startswith("Proposal 2/3")
+        item for item in advisor.reviews.open_proposals if item.place == "2/3"
     )
     # Its own time starts when it is shown, not when the request queued it.
     assert second.shown_at is not None and second.shown_at >= first_shown
@@ -1234,7 +1234,7 @@ async def test_proposal_ui_queues_mutations_and_reports_dependency_failure(e2e_h
     )
     await render_proposal(message, services, first.proposal_id)
     assert "Create Tag" in message.rendered[-1]
-    assert "Proposal 1/2" not in message.rendered[-1]
+    assert "1/2" not in message.rendered[-1]
     assert "Link Card" not in message.rendered[-1]
 
     async with e2e_harness.sessions() as session:
@@ -1539,9 +1539,9 @@ async def test_a_resolved_proposal_leaves_one_readable_line_in_the_dialogue(
     assert proposal is None
     receipt = message.rendered[-1]
     assert heading in receipt
-    # The owner-facing line, not "Updated 1 item(s)".
-    assert "New Tag “VrWalk”" in receipt
-    assert "Name: VrWalk" in receipt
+    # The owner-facing line, not "Updated 1 item(s)", and each field only on the screen.
+    assert receipt.endswith(" — New Tag “VrWalk”")
+    assert "Name:" not in receipt
 
 
 async def test_one_call_setting_several_fields_is_one_proposal(e2e_harness):
@@ -1579,7 +1579,7 @@ async def test_one_call_setting_several_fields_is_one_proposal(e2e_harness):
     assert changes[0].values["stage"] == "today"
     assert changes[0].values["effort_points"] == 5
     # A proposal alone in its queue is not numbered.
-    assert "Proposal 1/" not in proposals[0].message
+    assert proposals[0].place == ""
 
 
 async def _card_and_tag(e2e_harness) -> tuple[int, int]:
@@ -1703,7 +1703,7 @@ async def test_calls_for_one_item_with_another_item_between_stay_apart(e2e_harne
         [other_id],
         [card_id],
     ]
-    assert proposals[0].message.startswith("Proposal 1/3")
+    assert proposals[0].place == "1/3"
 
 
 async def test_saving_one_proposal_leaves_the_queued_ones_saveable(e2e_harness):
@@ -1822,7 +1822,6 @@ async def test_a_failed_save_with_no_waiting_request_brings_the_screen_back(e2e_
         workspace = await session.get(Workspace, 1)
         await session.commit()
         proposal_id = e2e_harness.reviews.open_proposal(
-            message="Link something to the release card",
             workspace_revision=workspace.revision,
             changes=[
                 ProposalChange(
@@ -1847,7 +1846,7 @@ async def test_a_failed_save_with_no_waiting_request_brings_the_screen_back(e2e_
     async with e2e_harness.sessions() as session:
         assert advisor.reviews.proposal(proposal_id) is not None
     assert "needs one relationship type" in message.rendered[-1]
-    assert message.buttons() == ["✅ Save", "🗑 Discard"]
+    assert message.buttons() == ["✅ Update", "🗑 Discard"]
 
 class _ReceiptRefused(QueueTestMessage):
     """A chat that refuses the receipt a decision sends before its follow-up."""

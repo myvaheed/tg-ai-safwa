@@ -595,7 +595,7 @@ async def test_an_open_question_of_any_shape_closes_the_gate(sessions):
 
     reviews = runtime.services.root.reviews
     proposal = reviews.open_proposal(
-        message="Create Reminder", workspace_revision=1, changes=[]
+        workspace_revision=1, changes=[]
     )
     assert await runtime.can_speak() is False
     reviews.end_proposal(proposal.id)
