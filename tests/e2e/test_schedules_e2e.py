@@ -64,7 +64,7 @@ async def test_advisor_reads_a_compiled_quota_and_its_missed_observation(e2e_har
         "passed": 0,
         "missed": 1,
     }
-    assert item["next"]["remaining"] == 4
+    assert item["next_at"]["remaining"] == 4
     assert item["total"] == {"done": 1, "remaining": None, "passed": 0, "missed": 1}
     assert item["id"] == successor.id
     assert "four remaining" in outcome.message

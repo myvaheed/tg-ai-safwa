@@ -546,7 +546,7 @@ async def get_scheduled(
             "title": current.title,
             "schedule": current.schedule,
             "status": "active" if active else "ended",
-            "next": next_event,
+            "next_at": next_event,
             "range": range_summary,
             "sprint": _summary(definitions, facts, *sprint_bounds, tz, model is Check) if sprint else None,
             "total": total,

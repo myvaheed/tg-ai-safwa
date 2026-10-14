@@ -141,7 +141,7 @@ async def test_rule_changes_preserve_old_facts_and_revision_boundaries(sessions)
         assert first.schedule_id == old_revision
         assert first.schedule_record.valid_until is not None
         assert report["items"][0]["id"] == current.id
-        assert report["items"][0]["next"]["remaining"] == 3
+        assert report["items"][0]["next_at"]["remaining"] == 3
 
 
 async def test_weekly_quota_chooses_sprint_and_outside_dates_choose_backlog(sessions):
@@ -242,7 +242,7 @@ async def test_completing_a_future_quota_instance_counts_in_the_actual_day(sessi
         day = today.astimezone(ZoneInfo("Europe/Istanbul")).date()
         report = await get_scheduled(session, day, day + timedelta(days=1), "check")
         assert report["items"][0]["range"]["done"] == 2
-        assert report["items"][0]["next"]["remaining"] == 1
+        assert report["items"][0]["next_at"]["remaining"] == 1
         tomorrow_report = await get_scheduled(
             session, day + timedelta(days=1), day + timedelta(days=1), "check"
         )
@@ -305,7 +305,7 @@ async def test_deleting_last_open_instance_ends_the_plan_but_keeps_history(sessi
         )["items"] == []
         history = (await get_scheduled(session, day, day, entity_type))["items"][0]
         assert history["range"]["done"] == 1
-        assert history["next"] is None and history["total"]["remaining"] == 0
+        assert history["next_at"] is None and history["total"]["remaining"] == 0
 
 
 @pytest.mark.parametrize("last_schedule", [None, "31.12.2099 10:00"])
@@ -422,7 +422,7 @@ async def test_one_compact_item_per_series_with_range_sprint_and_lifetime_counts
         assert item["sprint"]["planned"] == 28 and item["sprint"]["done"] == 1
         assert item["sprint"]["remaining"] == 27
         assert item["total"] == {"done": 2, "remaining": None, "passed": 1, "missed": 1}
-        assert item["next"]["remaining"] == 1
+        assert item["next_at"]["remaining"] == 1
         assert sprint.planned_start_date == today.date()
 
 
@@ -478,7 +478,7 @@ async def test_one_time_plan_reports_its_appointment_and_finite_remainder(sessio
         )
         day = date(2099, 12, 31)
         before = (await get_scheduled(session, day, day, entity_type))["items"][0]
-        assert before["next"] == {"at": "2099-12-31T10:00:00+03:00"}
+        assert before["next_at"] == {"at": "2099-12-31T10:00:00+03:00"}
         assert before["total"]["remaining"] == 1
         if entity_type == "card":
             assert not (await finish_action(session, entity.id)).successor_ids
@@ -487,7 +487,7 @@ async def test_one_time_plan_reports_its_appointment_and_finite_remainder(sessio
         after = (await get_scheduled(session, day, day, entity_type))["items"][0]
         assert after["range"]["done"] == 1 and after["range"]["remaining"] == 0
         assert after["total"]["done"] == 1 and after["total"]["remaining"] == 0
-        assert after["next"] is None
+        assert after["next_at"] is None
 
 
 @pytest.mark.parametrize("entity_type", ["card", "check"])
@@ -519,7 +519,7 @@ async def test_undated_repetition_reports_actual_progress_without_inventing_a_pl
         assert item["range"]["planned"] is None and item["range"]["remaining"] is None
         assert item["range"]["done"] == item["total"]["done"] == 1
         assert item["total"]["remaining"] is None
-        assert item["next"] == {"after_completion": True}
+        assert item["next_at"] == {"after_completion": True}
         assert item["sprint"] is None
 
 
@@ -730,7 +730,7 @@ async def test_a_schedule_without_a_clock_is_an_appointment_for_its_whole_day(
         )
         assert appointment_label(rule, card.scheduled_at, tz, "%d.%m") == "05.10"
         item = (await get_scheduled(session, monday, monday, "card"))["items"][0]
-        assert item["range"]["planned"] == 1 and item["next"] == {"date": "2026-10-05"}
+        assert item["range"]["planned"] == 1 and item["next_at"] == {"date": "2026-10-05"}
         monkeypatch.setattr(
             "safwa.features.schedules.api.utcnow", lambda: noon + timedelta(hours=11)
         )

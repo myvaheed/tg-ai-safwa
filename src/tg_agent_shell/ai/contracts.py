@@ -287,7 +287,7 @@ QUERY_TOOL: dict[str, Any] = {
         "name": "query_data",
         "description": (
             "Read the current data with one read-only SELECT over the ai_* views listed "
-            "in your instructions. Use it before you answer or propose anything."
+            "in your instructions."
         ),
         "parameters": tool_json_schema(QueryToolInput),
     },

@@ -147,10 +147,10 @@ aggregating its source revisions. There is no list of individual occurrences. Th
 carries the timezone, query time and active Sprint dates; `sprint` is null when none is active.
 
 An item identifies the latest instance (`id`) and stable series (`series_id`), with its title,
-Schedule and `status`, `active` or `ended`. `next` is a local timestamp (`at`) for an
+Schedule and `status`, `active` or `ended`. `next_at` is a local timestamp (`at`) for an
 appointment, its local `date` for an all-day appointment, an inclusive date window and
 remaining quota for day/week repetition, or `after_completion: true` for undated repetition.
-Ended plans have `next: null`.
+Ended plans have `next_at: null`.
 
 `range` and `sprint` each contain `planned`, `done` and `remaining`. `planned` uses the same
 prorated windows as the load; an appointment's fact counts on its date and any other fact when
@@ -164,7 +164,7 @@ For example, one Check answered Missed today, with a daily quota of five and no 
 {
   "id": 12, "series_id": 11, "title": "Posture?", "schedule": "five times a day",
   "status": "active",
-  "next": {"start_date": "2026-10-03", "end_date": "2026-10-03", "remaining": 4},
+  "next_at": {"start_date": "2026-10-03", "end_date": "2026-10-03", "remaining": 4},
   "range": {"planned": 5, "done": 1, "remaining": 4, "passed": 0, "missed": 1},
   "sprint": null,
   "total": {"done": 1, "remaining": null, "passed": 0, "missed": 1}
