@@ -640,7 +640,7 @@ interrupts mid-turn all lose nothing: the row is still there, and the next poll 
   off in the Profile drops its rows (`drop_hook_cue`), and switching it on drops whatever a late
   hand-on wrote while it was off.
 - The Cue reaches the Advisor as an ordinary request from the system, answered the way the owner's
-  own would be. A fired Reminder is the one that names items: the prompt tells the Advisor to read
+  own would be. A fired Reminder is the one that names items: its Cue tells the Advisor to read
   their current state with `query_data` before repeating an instruction that may no longer apply.
 
 ### Reminders — the tick is the alarm clock and nothing else
