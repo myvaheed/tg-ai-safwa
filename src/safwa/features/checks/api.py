@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from ...foundation.method import Example, Method
-from ..schedules.api import ACTION_DAILY_EXECUTIONS_MAX
 
 CHECK = Method(
     name="Check",
@@ -19,7 +18,6 @@ CHECK = Method(
     leaves=("Do not judge whether the Check is worth keeping.",),
     writing=(
         "Check title: a short yes/no question, or one part of its Card's result such as Milk.",
-        f"Anything more than {ACTION_DAILY_EXECUTIONS_MAX} times a day is a Check.",
     ),
     examples=(
         Example('"Slept 7 hours?", every evening', clear=True),

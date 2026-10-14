@@ -77,13 +77,11 @@ VALUE = Method(
         "Do not judge whether the Value is right for the user, or how vivid its words are.",
     ),
     writing=(
-        "A Value has a name and a description.",
-        "Value name: short and vivid, in the user's language. An emoji may open it.",
-        "Value description: two or three vivid sentences on why it matters, "
-        "then what the user does for it on an ordinary day.",
-        "Build both from the user's words. Never invent why it matters or what they do.",
         "A Value is not a result, a practice, a feeling, a means or a rule.",
-        "A result is a Goal. A practice is a repeating Action.",
+        "Value name: short and vivid.",
+        "Value description: two or three vivid sentences on why it matters "
+        "and what the user does for it on an ordinary day.",
+        "Build both from the user's words. Never invent why it matters or what they do.",
     ),
     examples=(
         Example('"Health", "Sleep 7 hours, move every day"', clear=True),

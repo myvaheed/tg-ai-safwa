@@ -108,7 +108,7 @@ async def link(session, kind, item_id, value_id):
     return await toggle(session, item_id, value_id)
 
 
-def test_all_three_prompts_teach_the_same_supporting_direction():
+def test_every_prompt_teaches_the_same_supporting_direction():
     """VL-LINK-018 — tests/brd/values.feature"""
     serves = (
         "a Goal, Action or Check serves a Value when achieving the Goal, doing the Action or "
@@ -117,6 +117,7 @@ def test_all_three_prompts_teach_the_same_supporting_direction():
     needed = "Never link because the Value is needed to complete the item."
     for prompt in (SYSTEM_PROMPT, routed_prompt(MUTATOR_AGENT), MANUAL, VALUE_LINK_PROMPT):
         assert serves.lower() in prompt.lower()
+    for prompt in (MANUAL, VALUE_LINK_PROMPT):
         assert needed in prompt
     for example in (
         'Goal "Earn $4k" → Freedom: clear=true',

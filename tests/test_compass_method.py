@@ -56,8 +56,6 @@ def test_every_prompt_that_writes_items_reads_what_each_is_and_how_to_write_one(
         for method in (VALUE, GOAL, ACTION, CHECK, LINK):
             for line in (method.definition, *method.writing):
                 assert f"- {line}" in prompt
-        for line in LINK.criteria:
-            assert f"- {line}" in prompt
 
 
 async def test_onboarding_reads_one_whole_part_of_the_method_when_asked():

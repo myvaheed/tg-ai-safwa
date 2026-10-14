@@ -267,11 +267,12 @@ GOAL = Method(
     ),
     leaves=("Do not judge whether the Goal is attainable or worth doing.",),
     writing=(
-        "A Goal may be root-level or under another Goal. With a parent it is displayed as a Subgoal.",
+        "A Goal may be root-level or under another Goal. With a parent it is displayed as a Subgoal. "
+        "An Action may stand under any Goal or alone and has no children.",
+        "An ongoing practice is a repeating Action, not a Goal.",
         "For a new or reframed Goal or Subgoal, put the result in `title` and an observable "
         "completion criterion in `note`.",
         "Deadline optional. Never invent targets, resources or deadlines.",
-        "An ongoing practice is a repeating Action, not a Goal.",
     ),
     examples=(
         Example('"Run a half marathon"', clear=True),
@@ -337,8 +338,7 @@ ACTION = Method(
     ),
     leaves=("Do not judge whether the Action is worth doing.",),
     writing=(
-        f"An Action may repeat on a Schedule, at most {ACTION_DAILY_EXECUTIONS_MAX} times a day.",
-        "Goals and Actions are Cards.",
+        f"An Action repeats at most {ACTION_DAILY_EXECUTIONS_MAX} times a day; more often is a Check.",
     ),
     examples=(
         Example('"Book a flat viewing", chores, cognitive, Goal "Move to a new flat"', clear=True),

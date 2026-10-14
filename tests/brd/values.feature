@@ -17,8 +17,9 @@
     And a call of Safwa's over it comes back to Safwa refused, with no screen shown
 
   Scenario: VL-LINK-018 — A link means the item makes more of the Value
-    Given Advisor, Mutator and Onboarding explain Value links
-    Then a Goal, Action or Check is linked when achieving it, doing it or its holding makes more of the Value in the owner's life, as the Value's description says, never for needing the Value
+    Given Advisor, Mutator, Onboarding and the link check explain Value links
+    Then a Goal, Action or Check is linked when achieving it, doing it or its holding makes more of the Value in the owner's life, as the Value's description says
+    And Onboarding and the link check add that a link is never made for needing the Value
     And earning $4k serves Freedom through more choices
     And earning $4k serves Health only when the money maintains health
     And needing Health or Perseverance to earn it is not a supporting link
@@ -77,8 +78,8 @@
   Scenario: VL-MEANING-023 — Safwa says what a Value is before proposing one
     Given Advisor and Mutator explain Values
     Then a Value is a direction the owner lives by, with no deadline, and never Done
-    And a Value is not a result, a practice, a feeling, a means or a rule; a result is a Goal and a practice is a repeating Action
-    And a new Value has a short, vivid name and a description of two or three vivid sentences on why it matters, then what the owner does for it on an ordinary day
+    And a Value is not a result, a practice, a feeling, a means or a rule
+    And a new Value has a short, vivid name and a description of two or three vivid sentences on why it matters and what the owner does for it on an ordinary day
     And both are built from the owner's words: Safwa asks why it matters and what they do before proposing it, and never invents either
 
   Scenario: VL-DESC-024 — A Value is not created without a description

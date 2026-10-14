@@ -107,10 +107,9 @@ def test_safwa_says_what_a_value_is_before_proposing_one():
         for line in (
             "- Value: a direction the user lives by, with no deadline. It is never Done.",
             "- A Value is not a result, a practice, a feeling, a means or a rule.",
-            "- A result is a Goal. A practice is a repeating Action.",
-            "- Value name: short and vivid, in the user's language.",
-            "- Value description: two or three vivid sentences on why it matters, "
-            "then what the user does for it on an ordinary day.",
+            "- Value name: short and vivid.",
+            "- Value description: two or three vivid sentences on why it matters "
+            "and what the user does for it on an ordinary day.",
             "- Build both from the user's words. Never invent why it matters or what they do.",
         ):
             assert line in prompt
