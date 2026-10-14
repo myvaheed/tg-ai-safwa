@@ -68,12 +68,16 @@ them. Words the turn sent with `forward` are its own words in the kept turn, and
 result that carried them, so the conversation holds them once.
 
 - **A read's rows are cleared.** The results of `query_data` and `call_helper` (`CLEARED_READS`)
-  are kept as `CLEARED_READ` — the call stays, the rows go, and the result says to read again.
+  are kept as `CLEARED_READ` — the call stays, the rows go, and a note says a new read shows them.
   Rows go stale by the next turn, the workspace state is read fresh every turn, and one read can
   return up to `DEFAULT_CHAR_BUDGET = 12000` characters. A `route` result — the receipt of what was
   done — and an `open` result are kept whole. Because the turn is written once, when its answer
   reaches the chat, the kept chat only ever grows at the end, and every earlier byte of a request
   stays the same from one turn to the next.
+- **An order is for its step.** `next`, `hint` and `notice` (`STEP_ORDERS`) tell the model what to
+  do at the step that got them, and the prompts tell it to obey them over every other rule. A kept
+  turn leaves them behind, so a later turn never obeys an order from an earlier one: a cleared read
+  that said "read again" made a small model read again until the turn ran out of tool calls.
 - **A Cue opens with its cause.** A turn nobody asked for keeps the request that caused it
   (`CUE_REQUEST`) as its first message, on the owner's side, so the model never reads itself
   speaking without a reason and two answers never run together.
@@ -117,7 +121,7 @@ Two requests that saved something, then a question, as the model receives the th
 [4]  assistant  Готово — [Купить молоко](card:1) в Backlog.
 [5]  user       Добавь ещё купить яйца, а молоко переименуй в «Купить молоко 2,5%»
 [6]  assistant  tool_calls: query_data {"sql": "SELECT id, title FROM ai_cards WHERE title LIKE '%молок%'"}
-[7]  tool       {"status": "cleared", "next": "Read again if you need these rows."}
+[7]  tool       {"status": "cleared", "note": "The rows were not kept: a new read shows them."}
 [8]  assistant  tool_calls: route {"name": "workspace_mutator"}
 [9]  tool       {"subagent": "workspace_mutator", "outcome": "done",
                  "did": ["✅ Saved — New Action “Купить яйца” (1 EP)",
@@ -310,7 +314,7 @@ Each lever is one number or one string, and none changes the shape of the histor
 | The window, and when a Summary is written — one number for both | `SUMMARY_TRIGGER_TOKENS = 6000` in [constants.py](../src/safwa/constants.py), overridden by the `summary_trigger_tokens` setting | more turns kept word for word, for a longer request; 8000 keeps the longest request under about 14000 tokens |
 | How long a Summary may be | `SUMMARY_TOKEN_CEILING = 2000`, the same file | how much of the older conversation survives, against room for recent turns |
 | The messages kept beside the Summary | `EDGE_CONTEXT_MESSAGE_LIMIT = 20` in [history.py](../src/tg_agent_shell/history.py) | continuity across a Summary, against its cost |
-| What a cleared read leaves | `CLEARED_READ` in [conversation.py](../src/tg_agent_shell/ai/conversation.py) | about 27 tokens per read; a bare cleared status is about 9, with one line in the Advisor prompt saying to read again |
+| What a cleared read leaves | `CLEARED_READ` in [conversation.py](../src/tg_agent_shell/ai/conversation.py) | about 30 tokens per read; a bare cleared status is about 9, with one line in the Advisor prompt saying to read again |
 | What a `route` receipt carries | `route_receipt` | 55–86 tokens per request that routed; the words and the `did` lines are what the Advisor needs, the rest is framing |
 | The system prompt | `SYSTEM_PROMPT` | about 4450 tokens, the largest block of every request: a line cut there is a line gained in every turn |
 

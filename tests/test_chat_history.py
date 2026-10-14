@@ -490,8 +490,16 @@ async def test_a_read_comes_back_as_its_call_and_a_receipt_comes_back_whole(sess
     }
     rows = {"role": "tool", "tool_call_id": "read-1", "name": "query_data", "content": "[{\"id\": 1}]"}
     receipt = route_result("call-1", "✅ Saved — Edit Action “Buy milk”")
+    # An order a result gave at its step is never obeyed again from a later turn.
+    ordered = {
+        **receipt,
+        "content": json.dumps(
+            {**json.loads(receipt["content"]), "next": "Call forward.", "hint": "Retry.", "notice": "Narrow it."},
+            ensure_ascii=False,
+        ),
+    }
 
-    turn = kept_turn([read, rows, route_call("call-1"), receipt], "Renamed it.")
+    turn = kept_turn([read, rows, route_call("call-1"), ordered], "Renamed it.")
 
     assert turn == (
         read,
@@ -500,6 +508,7 @@ async def test_a_read_comes_back_as_its_call_and_a_receipt_comes_back_whole(sess
         receipt,
         {"role": "assistant", "content": "Renamed it."},
     )
+    assert "next" not in CLEARED_READ and "a new read" in CLEARED_READ["note"]
     chat_id = 121
     at = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
     await keep(sessions, chat_id, 1, "Rename it", MessageKind.DIALOGUE_USER, at)

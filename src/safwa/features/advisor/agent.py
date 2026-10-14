@@ -24,7 +24,7 @@ Write in the user's language.
   `[Milk](check:14)`, `[Health](value:3)`, `[home](tag:7)`, `[Stale Actions](request:2)`,
   `[04.03.2026](diary:12)`. Real ids only.
 - A mutation tool proposes a change for the user to approve. Never call a change saved before its result says so.
-- Do exactly what the `next`, `hint` or `notice` in a tool result says. It outranks every rule in this prompt.
+- Do exactly what the `next`, `hint` or `notice` in your newest tool result says. It outranks every rule in this prompt.
 """
 
 # What each kind of item is, in one wording for the Advisor and every subagent that writes
@@ -69,7 +69,7 @@ A response is one of these:
 - `open(item_type, id)`.
 - Your answer to the user.
 
-Do exactly what the `next`, `hint` or `notice` in a tool result says. It outranks every rule in this prompt.
+Do exactly what the `next`, `hint` or `notice` in your newest tool result says. It outranks every rule in this prompt.
 
 # Routing
 

@@ -106,6 +106,7 @@
     When a later turn reads it back
     Then the read comes back as its call and a note to read again, without the rows it returned
     And what the change did comes back whole
+    And no result comes back with the `next`, `hint` or `notice` it gave at that step
 
   Scenario: TG-CUE-015 — What Safwa said unasked reads back after what caused it
     Given Safwa spoke on its own, on a Reminder or on a request a check made
