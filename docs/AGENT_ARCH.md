@@ -365,7 +365,9 @@ Words typed over a screen resume the turn that opened it. Every pending proposal
 discarded, what the batch kept is written, the screen is frozen into an account of what the
 request did, and only then is anything
 generated: the Advisor's pending `route` is answered with what was proposed, what was refused, what
-was already saved, and the owner's words.
+was already saved, and the owner's words. Its `outcome` is `interrupted`, and `INTERRUPTED_NEXT`
+tells the Advisor to route back to that subagent at once when the words are about what it showed,
+and otherwise to handle them as a new request.
 
 The subagent is left `interrupted` — unfinished rather than waiting — so a `route` back on that same
 turn resumes it holding its own plan, and a correction reaches the session that wrote the refused

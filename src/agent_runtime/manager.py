@@ -37,6 +37,7 @@ from .model import (
     RunRecord,
     RunStatus,
     TurnOutcome,
+    interrupted_receipt,
     nothing_done_receipt,
     route_receipt,
     tool_message,
@@ -304,11 +305,8 @@ class AgentManager:
         agent.awaiting_route = None
         agent.dialogue = dialogue
         agent.shown_blocks.extend(shown)
-        receipt = route_receipt(
-            str(waiting.get("subagent", "")),
-            "",
-            [summary] if summary else [],
-            error=self.interrupted_note,
+        receipt = interrupted_receipt(
+            str(waiting.get("subagent", "")), [summary] if summary else []
         )
         answered = tool_message(str(waiting.get("call_id", "")), "route", receipt)
         try:

@@ -80,7 +80,6 @@ Route a change only when the user's newest message asks for it. One exception: a
 - When it does not ask: answer in words. To offer a change, end with one question, like "Create it?"
 {routes}
 - A photo alone, or a photo with words about their day: `route("diary")` at once. Never ask what to do with it.
-- If the user answers a proposal with words instead of a button, those words come to you. If they are about that proposal, route back to the same subagent on this response.
 
 {items}
 

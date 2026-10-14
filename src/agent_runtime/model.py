@@ -360,6 +360,27 @@ def nothing_done_receipt(name: str, reason: str) -> dict[str, Any]:
     return receipt
 
 
+INTERRUPTED_NEXT = (
+    "The user did not decide what {name} showed: they wrote instead, and their words are the "
+    'newest message. If they are about what {name} showed, call route("{name}") now. '
+    "Otherwise handle them as a new request."
+)
+
+
+def interrupted_receipt(name: str, summaries: list[str]) -> dict[str, Any]:
+    """What the caller waiting on a subagent is handed when the person wrote over that
+    subagent's screen instead of deciding.
+
+    The subagent is left unfinished, so only a route back on this same turn reaches the
+    session that wrote what was refused. The caller proposes nothing itself, so `next` names
+    that route rather than repeating the subagent's own note.
+    """
+    receipt = route_receipt(name, "", summaries)
+    receipt["outcome"] = "interrupted"
+    receipt["next"] = INTERRUPTED_NEXT.format(name=name)
+    return receipt
+
+
 def routed_answers(transcript: Sequence[Mapping[str, Any]]) -> dict[str, tuple[int, str]]:
     """Each routed subagent's newest words in this transcript, with the message holding them.
 

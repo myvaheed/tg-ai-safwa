@@ -766,10 +766,13 @@ async def test_the_resumed_request_is_told_what_was_proposed_and_what_was_refuse
 
     receipt = route_receipts(provider)[0]
     assert receipt["subagent"] == "diary"
-    assert receipt["outcome"] == "error"
+    assert receipt["outcome"] == "interrupted"
     # What became of every change, and that the owner answered with words instead.
     assert any("Discarded" in line for line in receipt["did"])
-    assert "wrote to you instead" in receipt["error"]
+    assert "error" not in receipt
+    assert "they wrote instead" in receipt["next"]
+    # The Advisor proposes nothing itself: it is told to route back to the session that wrote it.
+    assert 'call route("diary") now' in receipt["next"]
     # Those words are the newest thing the resumed request reads.
     assert "то же, но короче" in json.dumps(provider.calls[3], ensure_ascii=False)
 
