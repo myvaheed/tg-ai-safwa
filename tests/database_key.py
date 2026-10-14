@@ -1,8 +1,10 @@
 """The fixed key every test database is encrypted with, so no test ever asks for a passphrase,
-and another process to hold a database the way a running application does."""
+another process to hold a database the way a running application does, and the close a
+running application's shutdown makes."""
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 import subprocess
 import sys
@@ -12,7 +14,7 @@ from pathlib import Path
 
 from sqlalchemy import Engine
 
-from tg_agent_shell.foundation.database import DatabaseFile, sync_engine
+from tg_agent_shell.foundation.database import Database, DatabaseFile, sync_engine
 
 TEST_KEY = bytes(range(32))
 
@@ -31,6 +33,21 @@ def keyed_copy(source: Path, path: Path) -> DatabaseFile:
 def keyed_engine(path: Path) -> Engine:
     """A synchronous engine on the test database at `path`, for a test that builds or inspects it."""
     return sync_engine(keyed(path))
+
+
+async def close_database(database: Database) -> None:
+    """End what the test left running, then dispose of its database: the application's
+    shutdown order.
+
+    A Toast timer or a commit's delivery still holding a connection at the dispose would
+    hand it back to the pool the dispose replaced, where nothing closes it.
+    """
+    current = asyncio.current_task()
+    leftovers = [task for task in asyncio.all_tasks() if task is not current]
+    for task in leftovers:
+        task.cancel()
+    await asyncio.gather(*leftovers, return_exceptions=True)
+    await database.dispose()
 
 
 _HOLDER = """

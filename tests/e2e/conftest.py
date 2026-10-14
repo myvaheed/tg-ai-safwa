@@ -7,7 +7,7 @@ from functools import cache
 from pathlib import Path
 
 import pytest_asyncio
-from database_key import keyed, keyed_copy
+from database_key import close_database, keyed, keyed_copy
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from llm_gateway import CompletionRequest, CompletionTurn
@@ -231,4 +231,4 @@ async def e2e_harness(tmp_path: Path, monkeypatch, workspace_file: Path) -> E2EH
     try:
         yield harness
     finally:
-        await database.dispose()
+        await close_database(database)

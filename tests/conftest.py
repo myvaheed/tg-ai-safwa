@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 from brd_ids import SCENARIO_ID
-from database_key import keyed, keyed_copy
+from database_key import close_database, keyed, keyed_copy
 
 from tg_agent_shell.foundation.database import Database, create_schema
 
@@ -99,7 +99,7 @@ def workspace_file(tmp_path_factory) -> Path:
 async def sessions(tmp_path, workspace_file):
     database = Database(keyed_copy(workspace_file, tmp_path / "sessions.db"))
     yield database.sessions
-    await database.dispose()
+    await close_database(database)
 
 
 @pytest_asyncio.fixture
@@ -126,4 +126,4 @@ async def read_views(tmp_path, workspace_file):
     file = keyed_copy(workspace_file, tmp_path / "views.db")
     database = Database(file)
     yield database.sessions, ReadOnlyQueryRunner(file, ALLOWED_VIEWS, timezone="Europe/Istanbul")
-    await database.dispose()
+    await close_database(database)

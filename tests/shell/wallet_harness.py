@@ -22,7 +22,7 @@ for folder in (REPOSITORY / "examples", REPOSITORY / "tests"):
         sys.path.insert(0, str(folder))
 
 from agent_turns import mutation_turn, route_turn  # noqa: E402
-from database_key import keyed  # noqa: E402
+from database_key import close_database, keyed  # noqa: E402
 from telegram_fakes import QueueTestMessage, spawn_timer  # noqa: E402
 from wallet import app  # noqa: E402
 from wallet.wallets.model import CategoryKind  # noqa: E402
@@ -111,7 +111,7 @@ class WalletHarness:
 
     async def stop(self) -> None:
         if self.database is not None:
-            await self.database.dispose()
+            await close_database(self.database)
             self.database = None
 
 

@@ -18,7 +18,7 @@ from aiogram.types import InlineKeyboardMarkup
 
 
 def spawn_timer(work: Coroutine[None, None, None], name: str) -> asyncio.Task[None]:
-    """The Toast timer a test's host starts: no test shuts down, so no test cancels one."""
+    """The Toast timer a test's host starts, cancelled when the test's database closes."""
     return asyncio.create_task(work, name=name)
 
 

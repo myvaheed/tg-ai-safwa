@@ -9,7 +9,7 @@ import threading
 from pathlib import Path
 
 import pytest
-from database_key import TEST_KEY, keyed
+from database_key import TEST_KEY, close_database, keyed
 from sqlalchemy import exc, text
 
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, UnsafeQueryError
@@ -135,6 +135,26 @@ async def test_a_connection_cancelled_while_opening_leaves_no_thread_after_dispo
     holder.rollback()
     holder.close()
     await database.dispose()
+
+    assert set(_connection_threads()) - already_running == set()
+
+
+async def test_work_a_test_left_running_ends_before_its_database_closes(tmp_path):
+    file = _with_marker(tmp_path / "app.db")
+    already_running = set(_connection_threads())
+    database = Database(file)
+    holding = asyncio.Event()
+
+    # A Toast timer or a commit's delivery a test never waited for, holding a connection.
+    async def read_later() -> None:
+        async with database.sessions() as session:
+            await session.execute(text("SELECT count(*) FROM notes"))
+            holding.set()
+            await asyncio.sleep(60)
+
+    asyncio.create_task(read_later())
+    await holding.wait()
+    await close_database(database)
 
     assert set(_connection_threads()) - already_running == set()
 
