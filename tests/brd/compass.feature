@@ -3,7 +3,7 @@ Feature: Compass
   Actions, Checks. The check on each new item, every prompt that writes items and Compass read
   that one wording; Compass explains it when asked. Compass also reads the owner's whole tree
   of Values, Goals, Actions and Checks and asks about what could be set better, when the owner
-  asks and every nine days.
+  asks and every nine days, and draws that tree as one picture.
 
   Numbers below name the constant they come from; the tests read the constant.
 
@@ -36,3 +36,25 @@ Feature: Compass
     And one request hands the findings to Compass, which reads the current items, leaves out a finding that no longer holds, names each and asks whether to go through them together, changing nothing
     And the request waits like any hook request while access is locked
     And switching Compass review off in Profile → Hooks stops the review
+
+  Scenario: CMP-SKY-004 — Compass shows the tree as one picture
+    Given the owner asks to see their tree, or the part of it one Value or one Goal is on, as a picture
+    When the Advisor routes to Compass and it calls show_constellation
+    Then one picture arrives in the chat as a file, at full size, kept in the chat and read as no words
+    And the Values stand along its top as stars, each in a colour it keeps in every picture, with the Goals and Subgoals below them, each as high as its tree_level, and the Actions at the bottom
+    And a line joins each parent to its child, and each Value to what carries it
+    And a Card carrying "Inbox", an archived Card and an answered Check are not drawn; a finished Card is drawn faint only when asked for
+    And detail goals leaves the Actions out, and detail all adds the Checks
+    And for one Value it draws the Cards that carry it, their parents up to the root and everything under them, with only the Values those carry
+    And for one Goal it draws that Goal's branch
+    And what SQL finds for Compass is ringed in red
+    And a Value or Goal that is not there, a finished Goal asked for without done, or a Value and a Goal together are refused with the call to make instead, and nothing is sent
+    And with no Value and no open Goal or Action nothing is sent, and the answer says there is nothing to draw yet
+
+  Scenario: CMP-SKY-005 — The Dashboard's 🌌 Constellation button sends the whole tree as one picture
+    Given the owner opens 🗂 Dashboard
+    When they press 🌌 Constellation
+    Then the whole tree, drawn as Compass draws it, arrives as a file in place of the Dashboard
+    And below it a message names it, says how many items are ringed in red, and leads back to the Dashboard
+    And going back brings the Dashboard back below the file, which stays in the chat to be opened later
+    And with nothing to draw it says so, and sends nothing

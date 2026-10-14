@@ -203,7 +203,9 @@ async def test_the_dashboard_shows_every_stage_side_by_side(sessions) -> None:
     assert headings == ["🏃 Sprint · 2", "☀️ Today · 1", "✅ Done · 1"]
     assert ">⭐️ Do today</a>" in text and "Do backlog" not in text
     assert "Gone" not in text and "Get fit" not in text
-    assert button_texts(markup) == ["✓ ⭐️ Actions | 🎯 Goals", "📚 Backlog · 1", "↩️ Menu"]
+    assert button_texts(markup) == [
+        "✓ ⭐️ Actions | 🎯 Goals", "📚 Backlog · 1", "🌌 Constellation", "↩️ Menu"
+    ]
 
     # A title opens its Card in the Dashboard's place, and Back comes back to it.
     await tap_link(services, text, "⭐️ Do today", message.bot)

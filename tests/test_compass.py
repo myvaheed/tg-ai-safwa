@@ -96,7 +96,11 @@ def test_the_advisor_routes_a_question_about_the_owners_own_tree_to_compass():
     assert 'or a request starts with "Compass."' in COMPASS_AGENT.purpose
     assert COMPASS_AGENT.mutation_tools == ()
     assert COMPASS_AGENT.views == ("ai_cards", "ai_checks", "ai_values", "ai_tags")
-    assert COMPASS_AGENT.read_tools(None) == (MORE_ABOUT,)
+    tools = COMPASS_AGENT.read_tools(SimpleNamespace(chat=None, bot=None))
+    assert tools[0] is MORE_ABOUT
+    assert [tool.schema["function"]["name"] for tool in tools] == [
+        "get_more_about", "show_constellation",
+    ]
     assert COMPASS_AGENT.answers_questions and COMPASS_AGENT.workspace_state
     prompt = routed_prompt(routed)
     assert "- `ai_tags(" in prompt and "{views}" not in prompt

@@ -121,7 +121,7 @@ async def review_graph(
     if not tree.values and not tree.cards:
         return ()
     found = await context.resources.graph_reviewer.findings(tree_text(tree))
-    return tuple(found or plain_findings(tree)[:COMPASS_FINDINGS_MAX])
+    return tuple(found or [finding.line for finding in plain_findings(tree)[:COMPASS_FINDINGS_MAX]])
 
 
 async def graph_request(session: AsyncSession, items: Sequence[str]) -> str | None:

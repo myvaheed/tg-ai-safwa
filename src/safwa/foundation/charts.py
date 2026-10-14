@@ -31,13 +31,15 @@ def day_month(day: date) -> str:
 
 
 @cache
-def _shapes() -> frozenset[int]:
-    return frozenset(FT2Font(font_manager.findfont(font_manager.FontProperties())).get_charmap())
+def _shapes(family: str | None = None) -> frozenset[int]:
+    font = font_manager.findfont(font_manager.FontProperties(family=family))
+    return frozenset(FT2Font(font).get_charmap())
 
 
-def drawable(text: str) -> str:
-    """`text` without the characters the font has no shape for, such as emoji."""
-    shapes = _shapes()
+def drawable(text: str, families: tuple[str, ...] = ()) -> str:
+    """`text` without the characters the font has no shape for, such as emoji. A picture
+    that writes in `families` of its own keeps what any of them can draw."""
+    shapes = _shapes().union(*(_shapes(family) for family in families))
     return " ".join("".join(ch for ch in text if ch.isspace() or ord(ch) in shapes).split())
 
 

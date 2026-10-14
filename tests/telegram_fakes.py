@@ -39,6 +39,8 @@ class QueueTestBot:
         self.downloads: list[str] = []
         # Every photo message the bot sent, as the list of what each carried.
         self.photos_sent: list[list[object]] = []
+        # Every file the bot sent as a document, with its caption.
+        self.documents_sent: list[tuple[object, str | None]] = []
         # Telegram no longer knowing the file ids it handed out, as after a move to another bot.
         self.forgot_file_ids = False
         # Every change of the buttons alone, by message.
@@ -137,8 +139,10 @@ class QueueTestMessage:
         self.media_group_id: str | None = None
         self.voice = self.audio = self.video_note = None
 
-    async def edit_text(self, text, *, reply_markup=None, parse_mode=None):
+    async def edit_text(self, text=None, *, reply_markup=None, parse_mode=None, rich_message=None):
         del parse_mode
+        if rich_message is not None:
+            text = rich_message.html
         self.rendered.append(text)
         self.markups.append(reply_markup)
         self.bot.drawn.append(text)
@@ -173,6 +177,20 @@ class QueueTestMessage:
 
     async def answer_media_group(self, media):
         return await self._send_photos([item.media for item in media], media[0].caption)
+
+    async def answer_document(self, document, *, caption=None, parse_mode=None):
+        del parse_mode
+        self.bot.documents_sent.append((document, caption))
+        self.bot.drawn.append(caption or "[document]")
+        message = QueueTestMessage(
+            message_id=self.message_id + 1_000 + len(self.sent),
+            owner_id=self.owner_id,
+            answer_as_new=True,
+            parent=self,
+        )
+        message.caption = caption
+        self.sent.append(message)
+        return message
 
     async def _send_photos(self, photos, caption):
         if self.bot.forgot_file_ids and any(isinstance(photo, str) for photo in photos):

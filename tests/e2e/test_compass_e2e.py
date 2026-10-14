@@ -90,4 +90,4 @@ async def test_cmp_review_003_the_morning_findings_are_said_in_compass_own_words
     assert request in read
     assert f"- [Earn $20k](card:{ids.goal}): a root Goal that serves no Value." in read
     offered = {tool["function"]["name"] for tool in provider.options[1]["tools"]}
-    assert offered == {"query_data", "get_more_about"}
+    assert offered == {"query_data", "get_more_about", "show_constellation"}

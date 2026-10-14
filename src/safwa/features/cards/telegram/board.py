@@ -113,6 +113,11 @@ async def render_board(message: Message, services: Services, *, kinds: str = "ac
                     here.child("backlog_page", kinds=kinds, page=0),
                 )
             ],
+            [
+                await place_button(
+                    session, services.owner_id, "🌌 Constellation", here.child("constellation")
+                )
+            ],
             [await back_button(session, services.owner_id, None)],
         ]
         await session.commit()

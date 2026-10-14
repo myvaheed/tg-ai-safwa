@@ -37,8 +37,8 @@ NOT_PROBLEMS = (
 
 @dataclass(frozen=True, slots=True)
 class Tree:
-    """Every Value, and the open Cards and Checks with what they carry. A Card carrying the
-    Inbox Tag is a capture and is left out."""
+    """Every Value, and the open Cards and Checks with what they carry — the finished
+    Cards too, when asked for. A Card carrying the Inbox Tag is a capture and is left out."""
 
     values: list[Value]
     cards: list[Card]
@@ -48,16 +48,17 @@ class Tree:
     check_cards: dict[int, Card]
 
 
-async def read_tree(session: AsyncSession) -> Tree:
+async def read_tree(session: AsyncSession, *, done: bool = False) -> Tree:
     inbox = select(CardTag.card_id).join(Tag, Tag.id == CardTag.tag_id).where(
         Tag.name == INBOX_TAG_NAME
     )
+    finished = [stage.value for stage in TERMINAL_STAGES]
     cards = list(await session.scalars(
         select(Card)
         .where(
             Card.archived_at.is_(None),
-            Card.effective_stage.not_in([stage.value for stage in TERMINAL_STAGES]),
             Card.id.not_in(inbox),
+            *(() if done else (Card.effective_stage.not_in(finished),)),
         )
         .order_by(Card.id)
     ))
@@ -102,24 +103,38 @@ def _card(card: Card) -> str:
     return f"[{card.title}](card:{card.id})"
 
 
-def plain_findings(tree: Tree) -> list[str]:
-    """What needs no model: Goals without a Value or with too many, and Values on paper."""
+@dataclass(frozen=True, slots=True)
+class Finding:
+    """One thing SQL finds, and the item it is about: ("card", id) or ("value", id)."""
+
+    item: tuple[str, int]
+    line: str
+
+
+def plain_findings(tree: Tree) -> list[Finding]:
+    """What needs no model in the open tree: Goals without a Value or with too many, and
+    Values on paper."""
     found = []
     for card in tree.cards:
         if card.kind != CardKind.GOAL.value:
             continue
         carried = tree.card_values.get(card.id, [])
         if card.parent_id is None and not carried:
-            found.append(f"{_card(card)}: a root Goal that serves no Value.")
+            found.append(Finding(("card", card.id), f"{_card(card)}: a root Goal that serves no Value."))
         if len(carried) >= GOAL_VALUES_MANY:
-            found.append(f"{_card(card)}: a Goal carrying {len(carried)} Values.")
+            found.append(
+                Finding(("card", card.id), f"{_card(card)}: a Goal carrying {len(carried)} Values.")
+            )
     live = {
         value_id
         for carried in (*tree.card_values.values(), *tree.check_values.values())
         for value_id in carried
     }
     found += [
-        f"[{value.name}](value:{value.id}): no open Goal, Action or Check carries it."
+        Finding(
+            ("value", value.id),
+            f"[{value.name}](value:{value.id}): no open Goal, Action or Check carries it.",
+        )
         for value in tree.values
         if value.id not in live
     ]
@@ -173,5 +188,5 @@ def tree_text(tree: Tree) -> str:
         )
     found = plain_findings(tree)
     lines.append("Found without a model:")
-    lines += [f"- {line}" for line in found] or ["- nothing"]
+    lines += [f"- {finding.line}" for finding in found] or ["- nothing"]
     return "\n".join(lines)

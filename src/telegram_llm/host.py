@@ -292,6 +292,25 @@ class ChatHost:
             await self._note(photo, kind, uuid4().hex, text=None, related_id=related_id)
         return sent
 
+    async def send_document(
+        self,
+        message: Message,
+        document: str | InputFile,
+        *,
+        kind: str,
+        caption: str | None = None,
+        related_id: int | None = None,
+    ) -> Message:
+        """Put one file in the chat as a document, and keep it.
+
+        A picture sent as a document keeps every pixel, where a photo is scaled down, so
+        zooming into it loses nothing. The caption is HTML. The file is kept with its kind
+        and no words, so it is never part of the conversation.
+        """
+        sent = await message.answer_document(document, caption=caption, parse_mode=ParseMode.HTML)
+        await self._note(sent, kind, uuid4().hex, text=None, related_id=related_id)
+        return sent
+
     async def relay(self, message: Message, name: str, text: str, *, kind: str) -> Message:
         """Put words in the chat as the person's own turn, because they never arrived as one.
 

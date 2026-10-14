@@ -53,6 +53,14 @@ the hook "Compass review" (`compass.graph_review`) writes the tree out for one m
 hands what it finds to Compass; a clear answer still keeps what SQL found, and nothing found asks
 nothing.
 
+Compass also draws the tree as one picture, the Constellation
+([compass/constellation.py](../src/safwa/features/compass/constellation.py)): the Values as stars
+across the top of a night sky, each Goal as high as its `tree_level`, the Actions at the bottom,
+lines from each parent to its child and from each Value to what carries it, and what SQL finds
+ringed in red. It goes to the chat as a file, at full size, so zooming loses nothing. Compass sends
+it when asked, for the whole tree, one Value or one Goal's branch; the Dashboard's
+"🌌 Constellation" sends the whole tree.
+
 ## The Card tree, and what is derived
 
 Advisor and workspace mutator formulate Goals and Subgoals as specific, verifiable results,
