@@ -11,6 +11,8 @@ from ..foundation.errors import DomainError
 from ..foundation.kinds import MessageKind
 from .chat import send_registered
 from .layout import start_link
+from .navigation import place_payload
+from .place import Place
 from .services import Services
 
 logger = logging.getLogger(__name__)
@@ -44,8 +46,15 @@ async def open_citation(message: Message, services: Services, payload: str) -> N
         await report_open_failure(message, services, error)
 
 
-async def render_citations(session: AsyncSession, services: Services, text: str) -> str:
-    """Turn the advisor's `[text](card:12)` citations into links that open the item.
+async def render_citations(
+    session: AsyncSession,
+    services: Services,
+    text: str,
+    *,
+    here: Place | None = None,
+    plain: bool = False,
+) -> str:
+    """Turn `[text](card:12)` citations into links that open the item.
 
     ``text`` is already HTML-escaped: only the href is added, and it is built here from a
     validated id, never taken from the model. An item that no longer exists loses its link
@@ -53,19 +62,32 @@ async def render_citations(session: AsyncSession, services: Services, text: str)
 
     Live Cards and saved item types are also named here rather than by the model.  That keeps
     every link compact and gives its metadata directly from the current saved item.
+
+    In a screen's words `here` is that screen: an item with a view opens in its place and
+    comes back to it (SC-LINK-013). `plain` names each item whole and links none, because a
+    link tapped on a review would leave the review unanswered.
     """
     screens = services.screens
     matches = list(screens.citation.finditer(text))
     if not matches:
         return screens.markup.sub(lambda match: match[1], text)
     live: dict[tuple[str, int], str | None] = {}
-    if services.bot_username:
+    if services.bot_username or plain:
         for item_type, item_id in {(match[2], int(match[3])) for match in matches}:
             spec = screens.by_type[item_type]
             item = await session.get(spec.model, item_id)
             if item is None:
                 continue
-            live[(item_type, item_id)] = await spec.label(session, services, item)
+            live[(item_type, item_id)] = await spec.label(session, services, item, short=not plain)
+    payloads: dict[tuple[str, int], str] = {}
+    if not plain:
+        for item_type, item_id in live:
+            view = screens.by_type[item_type].view
+            payloads[(item_type, item_id)] = (
+                await place_payload(session, services, here.child(view, id=item_id))
+                if here is not None and view is not None
+                else screens.payload(item_type, item_id)
+            )
 
     def build(match: re.Match[str]) -> str:
         label, item_type, item_id = match[1], match[2], int(match[3])
@@ -73,7 +95,9 @@ async def render_citations(session: AsyncSession, services: Services, text: str)
             return label
         override = live[(item_type, item_id)]
         shown = html.escape(override) if override is not None else label
-        return start_link(services.bot_username, shown, screens.payload(item_type, item_id))
+        if plain:
+            return shown
+        return start_link(services.bot_username, shown, payloads[(item_type, item_id)])
 
     # A target that is not an id — a stamp, a date, an invented number — never reached the
     # pass above, and raw Markdown must not stay in a message the chat keeps for good.

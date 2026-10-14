@@ -79,7 +79,9 @@ async def render_entry(
     )
 
 
-async def entry_citation_label(session: AsyncSession, services: Any, entry: Entry) -> str:
+async def entry_citation_label(
+    session: AsyncSession, services: Any, entry: Entry, *, short: bool
+) -> str:
     return await entry_line(session, entry)
 
 

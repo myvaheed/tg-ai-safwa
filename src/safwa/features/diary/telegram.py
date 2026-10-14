@@ -35,6 +35,7 @@ from tg_agent_shell.telegram import (
     paginate,
     paging_row,
     place_button,
+    render_citations,
     send_registered,
 )
 
@@ -233,7 +234,8 @@ async def render_diary(
         if entry is None:
             raise DomainError("Diary entry does not exist")
         label = diary_label(entry.entry_date, entry.feeling_score)
-        body = entry.body
+        here = Place("diary_day", {"date": entry.entry_date.isoformat()}, back)
+        body = await render_citations(session, services, html.escape(entry.body or ""), here=here)
         media_ids = [media_id for media_id, _label in await day_media(session, entry_id)]
         rows = [[await back_button(session, services.owner_id, back)]]
         await session.commit()
@@ -242,7 +244,7 @@ async def render_diary(
         services,
         media_ids,
         "\n\n".join(
-            filter(None, (f"<b>📔 {html.escape(label)}</b>", html.escape(body or "")))
+            filter(None, (f"<b>📔 {html.escape(label)}</b>", body))
         ),
         kind=MessageKind.DASHBOARD,
         markup=InlineKeyboardMarkup(inline_keyboard=rows),
@@ -361,5 +363,7 @@ class DiaryProposalPresenter:
         )
 
 
-async def diary_citation_label(session: AsyncSession, services: Any, entry: DiaryEntry) -> str:
+async def diary_citation_label(
+    session: AsyncSession, services: Any, entry: DiaryEntry, *, short: bool
+) -> str:
     return diary_label(entry.entry_date, entry.feeling_score)

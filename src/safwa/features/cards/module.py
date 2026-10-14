@@ -51,6 +51,7 @@ MODULE = FeatureModule(
             model=Card,
             open=render_card,
             label=card_citation_label,
+            view="card_view",
         ),
     ),
     commands=(

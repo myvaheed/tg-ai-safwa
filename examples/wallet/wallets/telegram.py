@@ -138,7 +138,9 @@ async def open_wallet(
     await render_wallet(message, services, item_id, replace=replace)
 
 
-async def wallet_citation_label(session: AsyncSession, services: Any, wallet: Wallet) -> str:
+async def wallet_citation_label(
+    session: AsyncSession, services: Any, wallet: Wallet, *, short: bool
+) -> str:
     return f"{wallet.name} ({wallet.currency})"
 
 

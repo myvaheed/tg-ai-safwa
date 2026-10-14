@@ -45,7 +45,12 @@ from ..model import (
     minutes_label,
 )
 from ..references import CARD_REFERENCE_SPECS
-from .presentation import card_overview_text, category_expression, energy_expression
+from .presentation import (
+    card_overview_text,
+    category_expression,
+    energy_expression,
+    progress_summary,
+)
 
 CARD_DETAIL_FIELDS = (
     "kind",
@@ -222,14 +227,18 @@ async def _card_display_state(
             state["schedule_rule"], await workspace_zone(session)
         )
     parent = await session.get(Card, state.get("parent_id")) if state.get("parent_id") else None
-    display["parent_name"] = parent.title if parent else None
+    display["parent_html"] = html.escape(parent.title) if parent else None
     display["tree_level"] = await tree_level(session, state.get("kind"), state.get("id"))
     for spec in CARD_REFERENCE_SPECS:
-        display[f"{spec.key}_names"] = await reference_names(
-            session, spec, state.get(spec.field)
-        )
+        display[f"{spec.key}_html"] = [
+            html.escape(name)
+            for name in await reference_names(session, spec, state.get(spec.field))
+        ]
     if display.get("id") and display.get("kind") == CardKind.GOAL.value:
         display.update(await card_progress(session, int(display["id"])))
+        display["children_html"] = html.escape(
+            progress_summary(display, effort_tracking=await effort_tracking_on(session))
+        )
     return display
 
 

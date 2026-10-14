@@ -4,7 +4,15 @@ from __future__ import annotations
 
 import pytest
 from sqlalchemy import select
-from ui_harness import FakeCallback, FakeMessage, button_texts, place_of, services_for
+from ui_harness import (
+    FakeCallback,
+    FakeMessage,
+    button_texts,
+    link_place,
+    place_of,
+    services_for,
+    tap_link,
+)
 
 from safwa.constants import DESCRIPTION_MAX_CHARS
 from safwa.features.cards.model import Card
@@ -40,7 +48,9 @@ async def test_the_value_screen_counts_cards_and_checks(sessions) -> None:
     message = FakeMessage(99, bot_message=True)
     await render_value(message, services, mode="view", item_id=value_id)
     text, markup = message.edits[-1]
-    assert "Linked Cards: 1" in text
+    assert "Linked Cards: <a " in text
+    linked = await link_place(sessions, text, "⭐️1")
+    assert (linked.action, linked.args) == ("value_cards", {"id": value_id})
     assert "Linked Checks: 1" in text
 
 
@@ -129,7 +139,7 @@ async def test_manual_tag_and_value_delete_unlinks_cards(sessions) -> None:
         message = FakeMessage(index, bot_message=True)
         await render(message, services, mode="view", item_id=item_id)
         text, markup = message.edits[-1]
-        assert "Linked Cards: 1" in text
+        assert (await link_place(sessions, text, "⭐️1")).action == f"{entity}_cards"
         assert f"Archive {entity.title()}" not in button_texts(markup)
         remove = next(
             button
@@ -215,3 +225,33 @@ async def test_a_value_is_not_created_without_a_description(sessions) -> None:
             await update_value_fields(session, value.id, description="")
         await session.rollback()
         assert (await session.get(Value, value.id)).description == "Sleep 7 hours, move every day"
+
+
+async def test_vl_link_025_a_values_linked_cards_read_as_children_and_open_as_a_list(sessions, effort_on) -> None:
+    """VL-LINK-025 — tests/brd/values.feature"""
+    async with sessions() as session:
+        goal = await create_card(session, kind="goal", title="Garden")
+        action = await create_card(session, kind="action", title="Water it", effort_points=2)
+        item = await create_value(session, "Growth", "What I tend")
+        await toggle_card_value(session, goal.id, item.id)
+        await toggle_card_value(session, action.id, item.id)
+        empty = await create_value(session, "Rest", "What I keep")
+        await session.commit()
+        item_id, empty_id = item.id, empty.id
+
+    services = services_for(sessions)
+    message = FakeMessage(120, bot_message=True)
+    await render_value(message, services, mode="view", item_id=item_id)
+    text = message.edits[-1][0]
+    here = Place("value_view", {"id": item_id})
+    linked = "🎯1 · ⭐️1 · ⚡0/2 EP"
+    assert await link_place(sessions, text, linked) == here.child("value_cards", id=item_id)
+
+    await tap_link(services, text, linked, message.bot)
+    result, markup = message.bot.edits[-1][1:]
+    assert "<b>Linked Cards of Growth</b>" in result and "2 matching cards" in result
+    assert button_texts(markup)[:2] == ["🎯 Garden · 📚", "⭐️ Water it · 📚"]
+    assert await place_of(sessions, markup, "↩️ Back") == here
+
+    await render_value(message, services, mode="view", item_id=empty_id)
+    assert "Linked Cards: —" in message.edits[-1][0]

@@ -26,7 +26,7 @@ from tg_agent_shell.proposals.render import (
     reference_names,
     result_value,
 )
-from tg_agent_shell.telegram import short_citation_title
+from tg_agent_shell.telegram import citation_title
 
 from ....foundation.marks import title_marks
 from ...schedules.api import rule_summary, workspace_zone
@@ -172,7 +172,7 @@ class CheckProposalPresenter:
 
 
 async def check_citation_label(
-    session: AsyncSession, services: Any, check: Check
+    session: AsyncSession, services: Any, check: Check, *, short: bool
 ) -> str | None:
     """A live Check keeps the model's own words.
 
@@ -180,4 +180,4 @@ async def check_citation_label(
     like the open one it was superseded by.
     """
     marker = await title_marks(session, check)
-    return f"{short_citation_title(check.title)}{marker}" if marker else None
+    return f"{citation_title(check.title, short=short)}{marker}" if marker else None

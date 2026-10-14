@@ -14,12 +14,17 @@ from ui_harness import (
 
 from safwa.bootstrap.main import bootstrap_workspace
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
-from safwa.features.cards.use_cases import create_card
+from safwa.features.cards.telegram import RESULT_LIMIT
+from safwa.features.cards.use_cases import (
+    archive_subtree,
+    create_card,
+    finish_action,
+    finish_card,
+)
 from safwa.features.planning.telegram import render_plan
 from safwa.features.saved_requests.api import request_cards
 from safwa.features.saved_requests.model import SavedRequest
 from safwa.features.saved_requests.telegram import command_requests
-from safwa.features.saved_requests.telegram.screens import REQUEST_RESULT_LIMIT
 from safwa.features.saved_requests.use_cases import (
     create_saved_request,
     delete_saved_request,
@@ -72,7 +77,7 @@ async def test_a_request_is_never_written_by_hand(sessions) -> None:
 
 async def test_the_requests_screen_lists_runs_and_comes_back(sessions) -> None:
     """SR-UI-012 — tests/brd/saved_requests.feature"""
-    request_id = await _one_request_over_actions(sessions, cards=REQUEST_RESULT_LIMIT + 5)
+    request_id = await _one_request_over_actions(sessions, cards=RESULT_LIMIT + 5)
     services = services_for(sessions)
 
     listing = FakeMessage(941, bot_message=True)
@@ -83,10 +88,10 @@ async def test_the_requests_screen_lists_runs_and_comes_back(sessions) -> None:
     await open_item_screen(detail, services, "request", request_id)
     body, markup = detail.edits[-1]
     assert "Everything still open." in body
-    assert f"{REQUEST_RESULT_LIMIT + 5} matching cards" in body
-    assert f"showing first {REQUEST_RESULT_LIMIT}" in body
+    assert f"{RESULT_LIMIT + 5} matching cards" in body
+    assert f"showing first {RESULT_LIMIT}" in body
     labels = button_texts(markup)
-    assert sum(label.startswith("⭐️") for label in labels) == REQUEST_RESULT_LIMIT
+    assert sum(label.startswith("⭐️") for label in labels) == RESULT_LIMIT
     assert "↻ Refresh" in labels
 
     card_button = next(
@@ -219,3 +224,69 @@ async def test_a_request_opened_from_the_list_goes_back_to_it(sessions) -> None:
     back = listing.edits[-1][1].inline_keyboard[-1][0]
     await callback_token_handler(FakeCallback(back.callback_data.split(":", 1)[1], listing), services)
     assert "<b>Requests</b>" in listing.edits[-1][0]
+
+
+async def test_cd_order_054_a_result_reads_as_one_flat_tree(sessions) -> None:
+    """CD-ORDER-054 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        await (await session.connection()).run_sync(
+            lambda connection: create_ai_views(connection, AI_VIEWS)
+        )
+
+        async def card(title: str, kind: str = "action", parent=None):
+            return await create_card(
+                session,
+                kind=kind,
+                title=title,
+                effort_points=1 if kind == "action" else None,
+                parent_id=parent.id if parent is not None else None,
+            )
+
+        await card("Loose")
+        small = await card("Small", "goal")
+        await card("Small step", parent=small)
+        big = await card("Big", "goal")
+        middle = await card("Middle", "goal", big)
+        await card("Middle step", parent=middle)
+        big_done = await card("Big done", parent=big)
+        finished = await card("Finished", "goal")
+        below_finished = await card("Below finished", "goal", finished)
+        finished_step = await card("Finished step", parent=below_finished)
+        old = await card("Old", "goal")
+        old_step = await card("Old step", parent=old)
+        for action in (big_done, finished_step, old_step):
+            await finish_action(session, action.id)
+        await finish_card(session, finished.id)
+        await finish_card(session, old.id)
+        await archive_subtree(session, old.id)
+        request = await create_saved_request(
+            session, "Everything", "SELECT id FROM ai_cards ORDER BY id", views=ALLOWED_VIEWS
+        )
+        await session.commit()
+        request_id = request.id
+
+    screen = FakeMessage(960, bot_message=True)
+    await open_item_screen(screen, services_for(sessions), "request", request_id)
+    labels = [
+        label
+        for label in button_texts(screen.edits[-1][1])
+        if label not in {"↻ Refresh", "↩️ Menu"}
+    ]
+    assert [label.split(" ", 1)[1].rsplit(" · ", 1)[0] for label in labels] == [
+        # Live: the Goal with more levels first, each with its children right under it.
+        "Big",
+        "Middle",
+        "Middle step",
+        "Small",
+        "Small step",
+        "Loose",
+        # Done: a Done Goal keeps its whole branch, and a Done Action leaves its open Goal.
+        "Finished",
+        "Below finished",
+        "Finished step",
+        "Big done",
+        # Archived last.
+        "Old",
+        "Old step",
+    ]
+    assert labels[0].startswith("🎯² ")

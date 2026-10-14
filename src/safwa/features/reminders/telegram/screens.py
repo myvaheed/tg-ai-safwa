@@ -32,6 +32,7 @@ from tg_agent_shell.telegram import (
     paginate,
     paging_row,
     place_button,
+    render_citations,
     render_text_input,
     send_registered,
 )
@@ -113,8 +114,16 @@ async def render_reminder(
         if reminder is None:
             raise DomainError("Reminder does not exist")
         tz = await _timezone(session)
-        text = _detail_text(
-            reminder, await reminder_title(session, services, reminder), tz=tz, now=datetime.now(UTC)
+        text = await render_citations(
+            session,
+            services,
+            _detail_text(
+                reminder,
+                await reminder_title(session, services, reminder),
+                tz=tz,
+                now=datetime.now(UTC),
+            ),
+            here=Place("reminder_view", {"id": reminder.id}, back),
         )
         edit = await place_button(
             session,

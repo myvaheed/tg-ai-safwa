@@ -132,3 +132,14 @@ Feature: Screens
     Then they are told what is happening and that Telegram can stop opening bots for hours,
       because Telegram counts a link tap against the owner's account rather than the bot
     And the tap they just made still opens what it points at
+
+  Scenario: SC-CITE-014 — An item cited in a screen's words opens in place of that screen
+    Given Safwa cited an item in words a screen shows: a Card's Note or Blocked reason, a Value's or
+      a Tag's description, a Check's Note, a Request's description, a Reminder's words, or a
+      Diary day
+    When the screen is drawn
+    Then the item reads as it does in Safwa's answers, as a link
+    And tapping it opens that item in place of the screen, by SC-LINK-013
+    And an item no screen draws in another's place, such as a Diary day or a retro, opens as it
+      does from Safwa's answers
+    And a citation of an item that no longer exists keeps its words and is no link

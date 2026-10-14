@@ -9,6 +9,8 @@ import pytest
 from ui_harness import (
     FakeMessage,
     button_texts,
+    link_place,
+    place_of,
     press,
     services_for,
     tap_link,
@@ -18,7 +20,7 @@ from safwa.bootstrap.modules import (
     AI_VIEWS,
     ALLOWED_VIEWS,
 )
-from safwa.features.cards.telegram import render_board
+from safwa.features.cards.telegram import render_board, render_card
 from safwa.features.cards.use_cases import create_card
 from safwa.features.checks.use_cases import create_check
 from safwa.features.diary.use_cases import create_diary_entry
@@ -32,6 +34,7 @@ from tg_agent_shell.ai.sql import create_ai_views
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.proposals.telegram import render_ai_outcome
 from tg_agent_shell.telegram import (
+    Place,
     open_item_screen,
     render_citations,
 )
@@ -267,3 +270,36 @@ async def test_a_diary_citation_is_named_by_the_entry_and_opens_the_whole_day(se
     assert "Долгий день, но рынок закрыл." in text
     # The Diary is written through proposals alone; its only control is navigation.
     assert button_texts(markup) == ["↩️ Menu"]
+
+
+async def test_sc_cite_014_an_item_cited_in_a_screens_words_opens_in_its_place(sessions) -> None:
+    """SC-CITE-014 — tests/brd/tg_agent_shell/screens.feature"""
+    async with sessions() as session:
+        value = await create_value(session, "Family", "Who I live for")
+        entry = await create_diary_entry(
+            session, entry_date=date(2026, 8, 16), body="Good day.", feeling_score=6
+        )
+        card = await create_card(
+            session,
+            kind="action",
+            title="Call home",
+            note=f"For [Family](value:{value.id}), as on [that day](diary:{entry.id}), "
+            "not [Old plan](card:999).",
+        )
+        await session.commit()
+        value_id, entry_id, card_id = value.id, entry.id, card.id
+
+    services = services_for(sessions)
+    message = FakeMessage(980, bot_message=True)
+    await render_card(message, services, card_id)
+    text = message.edits[-1][0]
+    here = Place("card_view", {"id": card_id})
+    assert await link_place(sessions, text, "💎 Family") == here.child("value_view", id=value_id)
+    # A Diary day is no screen drawn in another's place: it opens as it does from an answer.
+    assert f"?start=diary-{entry_id}\">" in text
+    assert "not Old plan." in text
+
+    await tap_link(services, text, "💎 Family", message.bot)
+    value_text, value_markup = message.bot.edits[-1][1:]
+    assert "Name: Family" in value_text
+    assert await place_of(sessions, value_markup, "↩️ Back") == here

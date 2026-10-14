@@ -18,6 +18,7 @@ from ...constants import DESCRIPTION_MAX_CHARS
 from ...enums import ActorType
 from ...foundation.log_events import CREATE, DELETE, UPDATE, record_log_event, snapshot
 from ...foundation.workspace import bump_workspace
+from ..cards.api import Card, list_order
 from .api import record_unlinked
 from .model import CardValue, CheckValue, Value
 
@@ -92,6 +93,16 @@ async def update_value_fields(
     await _record(session, value, UPDATE, actor, before)
     await bump_workspace(session)
     return value
+
+
+async def value_cards(session: AsyncSession, value_id: int) -> list[Card]:
+    """Every Card carrying this Value, in the order of every Card list but Today."""
+    cards = await session.scalars(
+        select(Card).join(CardValue, CardValue.card_id == Card.id).where(
+            CardValue.value_id == value_id
+        )
+    )
+    return sorted(cards, key=list_order)
 
 
 async def value_link_counts(session: AsyncSession, value_id: int) -> tuple[int, int]:

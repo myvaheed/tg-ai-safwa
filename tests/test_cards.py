@@ -1255,6 +1255,9 @@ async def test_goal_progress_is_recursive_but_children_count_is_direct(sessions)
         progress = await card_progress(session, goal.id)
 
         assert progress == {
+            "goals": 1,
+            "actions": 1,
+            "effort_points": 8,
             "completed_effort": 3,
             "completed_children": 0,
             "total_children": 2,

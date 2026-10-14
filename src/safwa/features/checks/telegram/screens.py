@@ -18,6 +18,7 @@ from tg_agent_shell.telegram import (
     edit_registered_message,
     paginate,
     place_button,
+    render_citations,
     send_registered,
     with_notice,
 )
@@ -245,12 +246,13 @@ async def render_check(
             if linked_value_ids
             else []
         )
+        note = await render_citations(session, services, html.escape(check.note or "—"), here=here)
         await session.commit()
 
     body = "\n".join(
         [
             f"<b>Check</b>: {html.escape(check.title + check_marks)}",
-            f"Note: {html.escape(check.note or '—')}",
+            f"Note: {note}",
             f"Status: {CHECK_STATUS_EMOJIS[check.status]} {CHECK_OUTCOME_LABELS[check.status]}",
             f"Schedule: {html.escape(check.schedule or '—')}",
             f"Card: {html.escape(', '.join(card_titles)) or '—'}",

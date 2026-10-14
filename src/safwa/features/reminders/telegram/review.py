@@ -26,7 +26,7 @@ from tg_agent_shell.proposals.render import (
     field_diffs,
     result_value,
 )
-from tg_agent_shell.telegram import edited_screen, required_text, short_citation_title
+from tg_agent_shell.telegram import citation_title, edited_screen, required_text
 from tg_agent_shell.telegram.contributions import TextInputFlow
 
 from ....foundation.workspace import Workspace
@@ -39,9 +39,9 @@ logger = logging.getLogger(__name__)
 
 
 async def reminder_citation_label(
-    session: AsyncSession, services: Any, reminder: Reminder
+    session: AsyncSession, services: Any, reminder: Reminder, *, short: bool
 ) -> str:
-    return f"⏰ {short_citation_title(await reminder_title(session, services, reminder))}"
+    return f"⏰ {citation_title(await reminder_title(session, services, reminder), short=short)}"
 
 
 def _lines(values: Mapping[str, Any], when_field: str) -> list[str]:

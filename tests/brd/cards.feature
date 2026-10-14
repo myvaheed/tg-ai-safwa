@@ -276,7 +276,8 @@
     Then the screen says what it is, where it stands, its note and what it costs, and on a Goal
       the Values it carries
     And the buttons are the ones an ordinary day needs: finishing it, moving it between stages,
-      and reaching its Checks, its children and its parent
+      and reaching its Checks; its parent, its children, its Values and its Tags are links in its
+      words, by CD-LINK-055
     And the Dashboard, the Backlog and the Sprint list each Card as a link that opens it
     And an open Action has two buttons at the top for moving it to the other live stages,
       in both compact and full editing
@@ -476,3 +477,31 @@
     And the Subgoals down the chain read 3, 2 and 1, and the Action reads 0
     And a chain of seven Goals reads 7 at its root (CARD_TREE_DEPTH_MAX = 7)
     And a move or a deletion in the subtree changes tree_level as it changes the marker
+
+  Scenario: CD-ORDER-054 — A list of Cards a question returned reads as one flat tree
+    Given a list of Cards a question returned: a Request's, a Goal's children, or the Cards
+      carrying a Value or a Tag
+    When it is drawn
+    Then live Cards come first, then Done ones, then archived ones
+    And in each of the three the Goals with the most levels lead, 🎯³ before 🎯² before 🎯, and
+      Actions follow the Goals
+    And each Card's children from the same list come right under it, the same way down
+    And a Done Action leaves its open parent for the Done ones
+    And a Card under a Done or an archived Goal stays under that Goal
+    And a Card whose parent is not in the list stands on its own
+    And where two Cards rank the same, the list's own order decides
+    And the first 25 are buttons, the rest are only counted, and ↻ Refresh draws the list again
+      (RESULT_LIMIT = 25)
+
+  Scenario: CD-LINK-055 — A Card's parent, children, Values and Tags are links in its words
+    Given a Goal under another Goal, with a Subgoal and an Action under it, carrying a Value and a Tag
+    When it is opened
+    Then "Parent:" names the Goal above it as a link that opens that Goal
+    And "Children:" counts its children by kind, as "🎯1 · ⭐️1", and adds "· ⚡3/8 EP", Done of all
+      their Effort Points, while Effort Points are on
+    And that count is a link that opens the children as a list, by CD-ORDER-054, and no Effort line
+      repeats it
+    And a Goal with no children reads "Children: —", with no link
+    And each Value and each Tag is a link by its name alone, with no 💎 or 🏷, that opens its screen
+    And no button repeats the parent, the children or a Value
+    And ↩️ Back on what a link opened returns to the Card

@@ -17,7 +17,7 @@ from tg_agent_shell.proposals.render import (
     named_details,
     named_summary,
 )
-from tg_agent_shell.telegram import short_citation_title, with_citation_fields
+from tg_agent_shell.telegram import citation_title, with_citation_fields
 
 from ..api import request_cards
 from ..model import SavedRequest
@@ -53,10 +53,10 @@ class RequestProposalPresenter:
 
 
 async def request_citation_label(
-    session: AsyncSession, services: Any, request: SavedRequest
+    session: AsyncSession, services: Any, request: SavedRequest, *, short: bool
 ) -> str:
     """A Request is named by how many Cards it currently matches, not by its SQL."""
     matches = await request_cards(session, request.query_sql, services.views)
     return with_citation_fields(
-        f"💬 {short_citation_title(request.name)}", [str(len(matches))]
+        f"💬 {citation_title(request.name, short=short)}", [str(len(matches))]
     )

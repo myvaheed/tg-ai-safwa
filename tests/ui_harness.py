@@ -285,6 +285,14 @@ async def place_of(sessions, markup, text: str) -> Place:
     return Place.of(token.action, token.payload)
 
 
+async def link_place(sessions, body: str, words: str) -> Place:
+    """Where the link reading `words` in `body` leads, read off the token it carries."""
+    token = re.search(rf'\?start=go-([\w-]+)">{re.escape(words)}</a>', body)[1]
+    async with sessions() as session:
+        stored = await session.get(CallbackToken, token)
+    return Place.of(stored.action, stored.payload)
+
+
 def ui_sources() -> list[Path]:
     """Every module that draws a Telegram screen.
 

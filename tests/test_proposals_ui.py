@@ -424,3 +424,39 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
         assert set(
             await session.scalars(select(CardTag.tag_id).where(CardTag.card_id == card_id))
         ) == {tag.id}
+
+
+async def test_pr_cite_032_a_review_names_what_it_cites_and_links_none(sessions) -> None:
+    """PR-CITE-032 — tests/brd/tg_agent_shell/proposals.feature"""
+    store = ProposalStore()
+    title = "Spend one quiet evening a week with the family"
+    async with sessions() as session:
+        value = Value(name="Family", description="Who I live for")
+        session.add(value)
+        goal = await create_card(session, kind="goal", title=title)
+        workspace = await session.get(Workspace, 1)
+        proposal = store.open_proposal(
+            message=f"It serves [Family](value:{value.id}) under [the evening](card:{goal.id}).",
+            workspace_revision=workspace.revision,
+            changes=[
+                ProposalChange(
+                    entity="card",
+                    action=ChangeAction.CREATE,
+                    values={
+                        "kind": "action",
+                        "title": "Cook together",
+                        "note": f"For [Family](value:{value.id}), not [gone](tag:999).",
+                    },
+                )
+            ],
+        )
+        await session.commit()
+        proposal_id = proposal.id
+
+    message = FakeMessage(64, bot_message=True)
+    await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
+    text, _markup = message.edits[-1]
+    assert "<a " not in text
+    # The whole title, where an answer would cut it short.
+    assert f"It serves 💎 Family under 🎯 {title} · " in text
+    assert "Note: For 💎 Family, not gone." in text

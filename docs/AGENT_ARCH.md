@@ -840,6 +840,13 @@ The model writes `[Go to the market](card:12)`. The host resolves it: `render_ci
 up, builds a `t.me` deep link from the **validated** id, and names the item itself. An item that is
 gone keeps its words and loses its link; a target that is not an id leaves the chat as plain words.
 
+Where the words stand decides what the link does. In an answer it opens the item as its own message.
+In a screen's words — a Note, a description — the screen passes itself as `here`, and an item whose
+`ScreenSpec.view` names the callback action that draws it opens in that screen's place with a way
+back (`SC-CITE-014`). A review screen passes `plain`: every item is named, with its whole title, and
+none is a link, because a tap would leave the review unanswered (`PR-CITE-032`). The label is
+asked for `short` everywhere but there.
+
 Types come from the registered screens; Safwa includes `card`, `check`, `tag`, `value`, `request`,
 `reminder`, `diary`, `retro` and `media`.
 

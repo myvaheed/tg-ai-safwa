@@ -20,6 +20,7 @@ from ui_harness import (
 from safwa.bootstrap.modules import (
     FEATURE_TEXT_INPUTS,
     PROPOSALS,
+    SCREENS,
 )
 from safwa.foundation.workspace import Workspace
 from telegram_llm import (
@@ -148,6 +149,7 @@ async def test_proposal_ui_gives_up_the_turn_before_after_turn_work(sessions) ->
         history=History(),
         hooks=run_hooks(close_window),
         features=None,
+        screens=SCREENS,
         search=None,
         usage=None,
         access=None,

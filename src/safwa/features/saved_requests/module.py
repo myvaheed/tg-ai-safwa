@@ -29,6 +29,7 @@ MODULE = FeatureModule(
             model=SavedRequest,
             open=render_saved_request,
             label=telegram.request_citation_label,
+            view="request_view",
         ),
     ),
     commands=(

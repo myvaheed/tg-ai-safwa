@@ -49,7 +49,7 @@ async def test_cd_button_048_goal_markers_show_subgoal_depth_on_every_surface(se
         assert await card_emoji(session, leaf) == "🎯"
         label = await item_button_label(session, goal)
         assert label.startswith(marker + " ") and len(label) == ITEM_BUTTON_LIMIT
-        citation = await card_citation_label(session, services, goal)
+        citation = await card_citation_label(session, services, goal, short=True)
         assert citation.startswith(marker + " ")
         request = await create_saved_request(
             session,

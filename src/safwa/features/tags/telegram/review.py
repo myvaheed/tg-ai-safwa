@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.proposals.render import NamedItemPresenter
-from tg_agent_shell.telegram import short_citation_title
+from tg_agent_shell.telegram import citation_title
 
 from ..model import Tag
 
@@ -21,5 +21,7 @@ class TagProposalPresenter(NamedItemPresenter):
         return {"name": item.name, "description": item.description}
 
 
-async def tag_citation_label(session: AsyncSession, services: Any, tag: Tag) -> str:
-    return f"🏷 {short_citation_title(tag.name)}"
+async def tag_citation_label(
+    session: AsyncSession, services: Any, tag: Tag, *, short: bool
+) -> str:
+    return f"🏷 {citation_title(tag.name, short=short)}"

@@ -4,7 +4,15 @@ from __future__ import annotations
 
 import pytest
 from sqlalchemy import select
-from ui_harness import CALLBACK_ACTIONS, FakeMessage, button_texts, services_for
+from ui_harness import (
+    CALLBACK_ACTIONS,
+    FakeMessage,
+    button_texts,
+    link_place,
+    place_of,
+    services_for,
+    tap_link,
+)
 
 from safwa.constants import DESCRIPTION_MAX_CHARS, INBOX_TAG_NAME
 from safwa.features.cards.use_cases import create_card, toggle_card_tag
@@ -18,6 +26,7 @@ from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.history import TelegramMessage
 from tg_agent_shell.proposals.api import PreparationContext
+from tg_agent_shell.telegram import Place
 from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.model import UiSession
 
@@ -123,7 +132,8 @@ async def test_the_tag_screen_counts_its_cards_and_has_no_focus(sessions) -> Non
     message = FakeMessage(97, bot_message=True)
     await render_tag(message, services, mode="view", item_id=tag_id)
     text, markup = message.edits[-1]
-    assert "Linked Cards: 3" in text
+    linked = await link_place(sessions, text, "⭐️3")
+    assert (linked.action, linked.args) == ("tag_cards", {"id": tag_id})
     # A Tag has no focus, and it never goes on a Check.
     assert "Linked Checks" not in text
     assert not [name for name in button_texts(markup) if "Focus" in name]
@@ -136,7 +146,7 @@ async def test_the_tag_screen_counts_its_cards_and_has_no_focus(sessions) -> Non
         await session.commit()
     message = FakeMessage(98, bot_message=True)
     await render_tag(message, services, mode="view", item_id=tag_id)
-    assert "Linked Cards: 2" in message.edits[-1][0]
+    assert ">⭐️2</a>" in message.edits[-1][0]
 
 
 async def test_the_inbox_tag_screen_offers_neither_rename_nor_delete(sessions) -> None:
@@ -152,3 +162,33 @@ async def test_the_inbox_tag_screen_offers_neither_rename_nor_delete(sessions) -
     text, markup = message.edits[-1]
     assert "cannot be renamed or deleted" in text
     assert button_texts(markup) == ["📝 Description", "↩️ Menu"]
+
+
+async def test_ta_link_012_a_tags_linked_cards_read_as_children_and_open_as_a_list(sessions, effort_on) -> None:
+    """TA-LINK-012 — tests/brd/tags.feature"""
+    async with sessions() as session:
+        goal = await create_card(session, kind="goal", title="Garden")
+        action = await create_card(session, kind="action", title="Water it", effort_points=2)
+        item = await create_tag(session, "garden")
+        await toggle_card_tag(session, goal.id, item.id)
+        await toggle_card_tag(session, action.id, item.id)
+        empty = await create_tag(session, "unused")
+        await session.commit()
+        item_id, empty_id = item.id, empty.id
+
+    services = services_for(sessions)
+    message = FakeMessage(120, bot_message=True)
+    await render_tag(message, services, mode="view", item_id=item_id)
+    text = message.edits[-1][0]
+    here = Place("tag_view", {"id": item_id})
+    linked = "🎯1 · ⭐️1 · ⚡0/2 EP"
+    assert await link_place(sessions, text, linked) == here.child("tag_cards", id=item_id)
+
+    await tap_link(services, text, linked, message.bot)
+    result, markup = message.bot.edits[-1][1:]
+    assert "<b>Linked Cards of garden</b>" in result and "2 matching cards" in result
+    assert button_texts(markup)[:2] == ["🎯 Garden · 📚", "⭐️ Water it · 📚"]
+    assert await place_of(sessions, markup, "↩️ Back") == here
+
+    await render_tag(message, services, mode="view", item_id=empty_id)
+    assert "Linked Cards: —" in message.edits[-1][0]

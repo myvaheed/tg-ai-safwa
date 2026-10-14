@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -17,6 +18,8 @@ from tg_agent_shell.telegram import (
     back_button,
     edit_registered_message,
     place_button,
+    place_link,
+    render_citations,
     send_registered,
     with_notice,
 )
@@ -32,7 +35,7 @@ from ...values.model import CardValue, Value
 from ..api import tree_level
 from ..hierarchy import card_progress
 from ..model import Card, CardCategory, CardEnergyType, CardKind, CardStage
-from .presentation import card_overview_text, card_title_marks
+from .presentation import card_overview_text, card_title_marks, progress_summary
 
 
 async def render_card(
@@ -155,17 +158,6 @@ async def render_card(
         ]
         rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
         relationship_rows: list[list[InlineKeyboardButton]] = []
-        if parent is not None:
-            relationship_rows.append(
-                [
-                    await place_button(
-                        session,
-                        services.owner_id,
-                        f"🌳 Parent: {parent.title}"[:60],
-                        here.child("card_view", id=parent.id),
-                    )
-                ]
-            )
         live_id = await live_repeat_instance_id(session, card) if card.is_closed_repeat() else None
         live_card = await session.get(Card, live_id) if live_id is not None else None
         if live_card is not None:
@@ -179,34 +171,6 @@ async def render_card(
                     )
                 ]
             )
-        if card.kind == CardKind.GOAL.value:
-            relationship_rows.append(
-                [
-                    await place_button(
-                        session,
-                        services.owner_id,
-                        "👥 Children",
-                        here.child("card_children", id=card.id, page=0),
-                    )
-                ]
-            )
-        # Every Value on the Card is a button, so the one on a Goal opens from the Goal.
-        value_buttons = (
-            [
-                await place_button(
-                    session,
-                    services.owner_id,
-                    f"💎 {value.name}"[:60],
-                    here.child("value_view", id=value.id),
-                )
-                for value in direct_values
-            ]
-            if full or (card.kind == CardKind.GOAL.value and card.parent_id is None)
-            else []
-        )
-        relationship_rows.extend(
-            value_buttons[index : index + 2] for index in range(0, len(value_buttons), 2)
-        )
         direct_checks = await card_checks(session, card.id)
         answered_total = sum(1 for check in direct_checks if check.outcome is not None)
         # A Check reaches a Card through a proposal, so an empty list has nothing to offer.
@@ -340,27 +304,61 @@ async def render_card(
                     expires_at=datetime.now(UTC) + timedelta(minutes=30),
                 )
             )
+        # Parent, children, Values and Tags are links in the Card's words (CD-LINK-055).
         progress: dict[str, Any] = {}
+        children_html = ""
         if card.kind != CardKind.ACTION.value:
             progress = dict(await card_progress(session, card.id))
+            children = progress_summary(progress, effort_tracking=effort_tracking)
+            if children:
+                children_html = await place_link(
+                    session,
+                    services,
+                    html.escape(children),
+                    here.child("card_children", id=card.id),
+                )
+        parent_html = (
+            await place_link(
+                session,
+                services,
+                html.escape(parent.title),
+                here.child("card_view", id=parent.id),
+            )
+            if parent is not None
+            else None
+        )
+        # Only what the view shows gets a link: a root Goal's Values even in the compact one.
+        value_html = [
+            await place_link(
+                session, services, html.escape(value.name), here.child("value_view", id=value.id)
+            )
+            for value in direct_values
+            if full or (card.kind == CardKind.GOAL.value and card.parent_id is None)
+        ]
+        tag_html = [
+            await place_link(
+                session, services, html.escape(tag.name), here.child("tag_view", id=tag.id)
+            )
+            for tag in direct_tags
+            if full
+        ]
         workspace = await session.get(Workspace, 1)
         tz = ZoneInfo(workspace.timezone if workspace else "UTC")
         card_marks = await card_title_marks(session, card)
-        check_names = [
-            check.title + await title_marks(session, check) for check in direct_checks
+        check_html = [
+            html.escape(check.title + await title_marks(session, check))
+            for check in direct_checks
         ]
         closed_at = card.completed_at
         summary = await schedule_summary(session, card)
         level = await tree_level(session, card.kind, card.id)
-        await session.commit()
-    text = with_notice(
-        card_overview_text(
+        overview = card_overview_text(
             {
                 "kind": card.kind,
                 "parent_id": card.parent_id,
                 "tree_level": level,
                 "title": card.title + card_marks,
-                "parent_name": parent.title if parent else None,
+                "parent_html": parent_html,
                 "stage": card.effective_stage,
                 "closed_at": f"{closed_at.astimezone(tz):%Y-%m-%d %H:%M}" if closed_at else None,
                 "note": card.note,
@@ -372,16 +370,17 @@ async def render_card(
                 "tracked_mins": card.tracked_mins,
                 "categories": categories,
                 "energy_types": energy_types,
-                "value_names": [value.name for value in direct_values],
-                "tag_names": [tag.name for tag in direct_tags],
-                "check_names": check_names,
+                "value_html": value_html,
+                "tag_html": tag_html,
+                "check_html": check_html,
+                "children_html": children_html,
                 **progress,
             },
             compact=not full,
             effort_tracking=effort_tracking,
-        ),
-        notice,
-    )
+        )
+        text = with_notice(await render_citations(session, services, overview, here=here), notice)
+        await session.commit()
     markup = InlineKeyboardMarkup(inline_keyboard=rows)
     if replace_message_id is not None:
         await edit_registered_message(

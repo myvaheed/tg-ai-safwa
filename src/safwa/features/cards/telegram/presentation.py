@@ -8,11 +8,11 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tg_agent_shell.telegram import Page, paginate, short_citation_title, with_citation_fields
+from tg_agent_shell.telegram import citation_title, with_citation_fields
 
 from ....foundation.marks import REPEAT_OPEN_MARKER, title_marks
 from ...profile.api import effort_tracking_on
-from ..api import list_order, tree_level
+from ..api import tree_level
 from ..hierarchy import card_progress
 from ..model import (
     Card,
@@ -138,8 +138,72 @@ def energy_expression(values: Any) -> str:
     return _typed_expression(values, ENERGY_EMOJIS)
 
 
-def paginate_cards(cards: list[Card], page: int) -> Page:
-    return paginate(sorted(cards, key=list_order), page)
+# A result's three groups, in the order they are listed.
+_LIVE, _DONE, _ARCHIVED = range(3)
+
+
+async def result_order(session: AsyncSession, cards: list[Card]) -> list[Card]:
+    """A list of Cards as one flat tree (CD-ORDER-054).
+
+    Live Cards come first, then Done ones, then archived ones. A Done Action leaves an open
+    parent for the Done group, and a Card under a Done or archived parent stays with it.
+    In each group the Goals with the most levels lead, each with its children from the same
+    list right under it, and Actions follow the Goals. The order the list came in breaks
+    every tie.
+    """
+    by_id = {card.id: card for card in cards}
+    position = {card.id: index for index, card in enumerate(cards)}
+    levels = {card.id: await tree_level(session, card.kind, card.id) for card in cards}
+    groups: dict[int, int] = {}
+
+    def group(card: Card) -> int:
+        if card.id not in groups:
+            own = (
+                _ARCHIVED
+                if card.archived_at is not None
+                else _DONE
+                if card.effective_stage == CardStage.DONE.value
+                else _LIVE
+            )
+            parent = by_id.get(card.parent_id)
+            groups[card.id] = max(own, group(parent)) if parent is not None else own
+        return groups[card.id]
+
+    under: dict[int | None, list[Card]] = {}
+    for card in cards:
+        parent = by_id.get(card.parent_id)
+        anchor = parent.id if parent is not None and group(parent) == group(card) else None
+        under.setdefault(anchor, []).append(card)
+    ordered: list[Card] = []
+
+    def walk(anchor: int | None) -> None:
+        for card in sorted(
+            under.get(anchor, []),
+            key=lambda card: (group(card), -levels[card.id], position[card.id]),
+        ):
+            ordered.append(card)
+            walk(card.id)
+
+    walk(None)
+    return ordered
+
+
+def progress_summary(progress: dict[str, Any], *, effort_tracking: bool) -> str:
+    """Cards counted as a Goal's children are, on one line: 🎯2 · ⭐️4 · ⚡3/10 EP.
+
+    A kind with none is left out, and no Cards at all read as nothing.
+    """
+    parts = [
+        f"{emoji}{progress[key]}"
+        for emoji, key in (("🎯", "goals"), ("⭐️", "actions"))
+        if progress[key]
+    ]
+    if parts and effort_tracking:
+        parts.append(
+            f"⚡{effort_label(progress['completed_effort'])}"
+            f"/{effort_label(progress['effort_points'])} EP"
+        )
+    return " · ".join(parts)
 
 
 def card_overview_text(
@@ -154,6 +218,9 @@ def card_overview_text(
     The compact half is what the owner looks at while working — what this is, where
     it stands, what it costs — and the Values of a Goal, which are the whole reason
     that Goal is there. Everything else is one button away.
+
+    The keys ending in `_html` are already HTML: the Card's screen puts links in them and
+    a review screen plain words.
     """
     kind = str(state.get("kind") or "")
     parent_id = state.get("parent_id")
@@ -161,8 +228,8 @@ def card_overview_text(
         f"Kind: {html.escape(kind_label(kind, parent_id, level=state.get('tree_level', 0)))}",
         f"Title: <b>{html.escape(str(state.get('title') or '—'))}</b>",
     ]
-    if state.get("parent_name"):
-        lines.append(f"Parent: {html.escape(str(state['parent_name']))}")
+    if state.get("parent_html"):
+        lines.append(f"Parent: {state['parent_html']}")
     lines.append(f"Stage: {html.escape(str(state.get('stage') or 'backlog').title())}")
     if state.get("closed_at"):
         lines.append(f"Completed at: {html.escape(str(state['closed_at']))}")
@@ -195,37 +262,27 @@ def card_overview_text(
                 ]
             )
     else:
-        if effort_tracking:
-            lines.append(
-                f"Effort: {effort_label(state.get('completed_effort', 0))}"
-                f"/{effort_label(state.get('effort_points'))} EP"
-            )
-            if state.get("unestimated_actions"):
-                lines.append(f"{state['unestimated_actions']} Actions have no estimate.")
-        lines.append(
-            "Children: "
-            f"{state.get('completed_children', 0)}/{state.get('total_children', 0)} completed"
-        )
+        lines.append(f"Children: {state.get('children_html') or '—'}")
+        if effort_tracking and state.get("unestimated_actions"):
+            lines.append(f"{state['unestimated_actions']} Actions have no estimate.")
         if state.get("tracked_mins"):
             lines.append(f"Time spent: {minutes_label(state['tracked_mins'])}")
     if compact:
         # A Goal keeps its Values even here: an empty list is what the compact view
         # exists to put in front of the owner, not what it hides.
         if kind == CardKind.GOAL.value and parent_id is None:
-            lines.append(
-                f"Values: {html.escape(values_expression(kind, state.get('value_names', [])))}"
-            )
+            lines.append(f"Values: {values_expression(kind, state.get('value_html', []))}")
         return f"<b>{html.escape(heading)}</b>\n" + "\n".join(lines)
     lines.extend(
         [
-            f"Values: {html.escape(values_expression(kind, state.get('value_names', []), parent_id))}",
-            f"Tags: {html.escape(', '.join(state.get('tag_names', [])) or '—')}",
+            f"Values: {values_expression(kind, state.get('value_html', []), parent_id)}",
+            f"Tags: {', '.join(state.get('tag_html', [])) or '—'}",
         ]
     )
     # Only when there are Checks: manual creation cannot link one, and the Card screen
     # already carries the counts on its Checks button.
-    if state.get("check_names"):
-        lines.append(f"Checks: {html.escape(', '.join(state['check_names']))}")
+    if state.get("check_html"):
+        lines.append(f"Checks: {', '.join(state['check_html'])}")
     return f"<b>{html.escape(heading)}</b>\n" + "\n".join(lines)
 
 
@@ -245,11 +302,13 @@ def _emoji_group(values: list[str], emojis: dict[str, str]) -> str:
     return "".join(emoji for field, emoji in emojis.items() if field in present)
 
 
-async def card_citation_label(session: AsyncSession, services: Any, card: Card) -> str:
+async def card_citation_label(
+    session: AsyncSession, services: Any, card: Card, *, short: bool
+) -> str:
     """A Card is named by its own metadata, so a citation never restates what Safwa knows."""
     marker = await card_title_marks(session, card)
     effort_tracking = await effort_tracking_on(session)
-    leading = f"{await card_emoji(session, card)} {short_citation_title(card.title)}{marker}"
+    leading = f"{await card_emoji(session, card)} {citation_title(card.title, short=short)}{marker}"
     if card.kind == CardKind.GOAL.value:
         progress = await card_progress(session, card.id)
         if not effort_tracking:

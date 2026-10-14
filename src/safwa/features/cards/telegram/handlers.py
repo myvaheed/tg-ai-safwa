@@ -62,11 +62,7 @@ async def _on_view(context: CallbackContext) -> None:
 
 async def _on_children(context: CallbackContext) -> None:
     await render_children(
-        context.message,
-        context.services,
-        context.payload["id"],
-        page=int(context.payload.get("page", 0)),
-        back=context.back,
+        context.message, context.services, context.payload["id"], back=context.back
     )
 
 

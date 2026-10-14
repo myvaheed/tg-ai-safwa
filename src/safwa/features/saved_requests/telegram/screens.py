@@ -17,15 +17,13 @@ from tg_agent_shell.telegram import (
     back_button,
     menu_row,
     place_button,
+    render_citations,
     send_registered,
 )
 
-from ...cards.telegram import item_button_label
+from ...cards.telegram import card_results
 from ..api import request_cards
 from ..model import SavedRequest
-
-# How many matching Cards one Request screen lists before it only counts the rest.
-REQUEST_RESULT_LIMIT = 25
 
 # The Requests list, which the menu opens and every Request opened from it goes back to.
 _LIST = Place("request_list")
@@ -105,31 +103,17 @@ async def render_saved_request(
         if request is None:
             raise DomainError("Request no longer exists")
         matches = await request_cards(session, request.query_sql, services.views)
-        cards = matches[:REQUEST_RESULT_LIMIT]
-        rows = [
-            [
-                await place_button(
-                    session,
-                    services.owner_id,
-                    await item_button_label(session, card),
-                    here.child("card_view", id=card.id),
-                )
-            ]
-            for card in cards
-        ]
-        rows.append([await place_button(session, services.owner_id, "↻ Refresh", here)])
-        rows.append([await back_button(session, services.owner_id, back)])
+        count, markup = await card_results(session, services, matches, here, back)
+        description = await render_citations(
+            session, services, html.escape(request.description or "No description."), here=here
+        )
         await session.commit()
-    details = request.description or "No description."
-    details += f"\n\n{len(matches)} matching card{'s' if len(matches) != 1 else ''}"
-    if len(matches) > REQUEST_RESULT_LIMIT:
-        details += f" (showing first {REQUEST_RESULT_LIMIT})"
     await send_registered(
         message,
         services,
-        f"<b>{html.escape(request.name)}</b>\n{html.escape(details)}",
+        f"<b>{html.escape(request.name)}</b>\n{description}\n\n{count}",
         kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        markup=markup,
         related_id=request.id,
         replace=replace,
     )

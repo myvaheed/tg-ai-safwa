@@ -46,8 +46,12 @@ async def place_link(
     session: AsyncSession, services: Services, text: str, place: Place
 ) -> str:
     """`text`, already HTML, as a link that draws `place` in place of its screen."""
-    token = await mint_token(session, services.owner_id, place.action, place.payload)
-    return start_link(services.bot_username, text, LINK_PREFIX + token)
+    return start_link(services.bot_username, text, await place_payload(session, services, place))
+
+
+async def place_payload(session: AsyncSession, services: Services, place: Place) -> str:
+    """The deep-link payload of a link that draws `place` in place of its screen."""
+    return LINK_PREFIX + await mint_token(session, services.owner_id, place.action, place.payload)
 
 
 async def open_home(message: Message, services: Services) -> None:

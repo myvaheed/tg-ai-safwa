@@ -42,10 +42,10 @@ from .commands import (
 )
 from .layout import (
     Page,
+    citation_title,
     home_markup,
     menu_row,
     paginate,
-    short_citation_title,
     start_link,
     start_payload,
     with_citation_fields,
@@ -98,6 +98,7 @@ __all__ = [
     "audio_payload",
     "back_button",
     "callback_token_handler",
+    "citation_title",
     "choice_rows",
     "choice_screen",
     "claimed_link",
@@ -139,7 +140,6 @@ __all__ = [
     "send_registered",
     "send_summary",
     "send_toast",
-    "short_citation_title",
     "start_link",
     "start_payload",
     "sync_bot_commands",

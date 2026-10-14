@@ -110,12 +110,13 @@
     When the owner puts it on a morning run, a dentist appointment and a Goal
     Then all three carry Health, and Health is carried by all three
     And taking Health off one of them leaves it on the other two
-    And the Value's screen says how many Cards and how many Checks carry it right now
+    And the Value's screen sums up the Cards carrying it right now, by VL-LINK-025, and says how
+      many Checks carry it
 
   Scenario: VL-LINK-017 — A Card's screen names the Values on it, and a Goal with none says so
     Given a root Goal carrying no Value, and an Action carrying "Health"
     When each of them is opened
-    Then every Value on the Card is a button that opens that Value
+    Then every Value on the Card is a link by its name alone that opens that Value, by CD-LINK-055
     And a root Goal carries its Values in the compact view, where every other Card shows them in
       full editing, because a Goal is where a Value is what says why the work is there
     And the root Goal with no Value says so with a warning rather than a dash
@@ -182,3 +183,12 @@
     Then the Check on the new Card carries that Value
     And the answered one no longer does
     And so the Value is measured by every cycle, not by one finished Check on an archived Card
+
+  Scenario: VL-LINK-025 — A Value's Linked Cards read as a Goal's children do, and open as a list
+    Given a Value carried by a Goal and by an Action
+    When its screen is opened
+    Then "Linked Cards:" counts those Cards as CD-LINK-055 counts a Goal's children: "🎯1 · ⭐️1",
+      with Done of all their Effort Points while Effort Points are on
+    And it is a link that opens those Cards as a list, by CD-ORDER-054
+    And ↩️ Back on that list returns to the Value
+    And a Value no Card carries reads "Linked Cards: —", with no link

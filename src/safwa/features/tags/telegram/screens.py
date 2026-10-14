@@ -25,6 +25,7 @@ from tg_agent_shell.telegram import (
     edited_screen,
     menu_row,
     place_button,
+    render_citations,
     render_text_input,
     required_text,
     send_registered,
@@ -33,10 +34,12 @@ from tg_agent_shell.telegram.contributions import TextInputFlow
 from tg_agent_shell.telegram.model import UiSession
 
 from ....constants import DESCRIPTION_MAX_CHARS
+from ...cards.telegram import card_results, cards_link
 from ..model import Tag
 from ..use_cases import (
     create_tag,
     delete_tag,
+    tag_cards,
     tag_description,
     tag_link_count,
     update_tag_fields,
@@ -92,7 +95,8 @@ async def render_tag(
     """One Tag, or one being created. `back` is where it was opened from."""
     if mode not in {"create", "view"}:
         raise DomainError("Unsupported Tag editor")
-    carried_by = 0
+    here = Place("tag_view", {"id": item_id}, back)
+    linked = ""
     async with services.sessions() as session:
         tag: Tag | None = None
         if mode == "view":
@@ -100,7 +104,13 @@ async def render_tag(
             if tag is None:
                 raise DomainError("Tag does not exist")
             editor_values = {"name": tag.name, "description": tag.description}
-            carried_by = await tag_link_count(session, tag.id)
+            cards = await cards_link(
+                session,
+                services,
+                await tag_cards(session, tag.id),
+                here.child("tag_cards", id=tag.id),
+            )
+            linked = f"\nLinked Cards: {cards}"
         else:
             editor_values = {"name": "", "description": "", **(values or {})}
 
@@ -161,13 +171,16 @@ async def render_tag(
                 ]
             )
         rows.append([await back_button(session, services.owner_id, back)])
+        description = html.escape(editor_values["description"] or "—")
+        if tag is not None:
+            description = await render_citations(session, services, description, here=here)
         await session.commit()
 
     body = (
         f"<b>{'Create Tag' if mode == 'create' else 'Tag'}</b>\n"
         f"Name: {html.escape(editor_values['name'] or '—')}\n"
-        f"Description: {html.escape(editor_values['description'] or '—')}"
-        + (f"\nLinked Cards: {carried_by}" if mode == "view" else "")
+        f"Description: {description}"
+        + linked
         + ("\nThis built-in Tag cannot be renamed or deleted." if tag and tag.is_inbox else "")
     )
     markup = InlineKeyboardMarkup(inline_keyboard=rows)
@@ -191,6 +204,28 @@ async def render_tag(
             related_id=item_id,
             replace=replace,
         )
+
+
+async def render_tag_cards(
+    message: Message, services: Services, tag_id: int, *, back: Place | None = None
+) -> None:
+    """The Cards carrying one Tag, as a result. `back` is that Tag's screen."""
+    here = Place("tag_cards", {"id": tag_id}, back)
+    async with services.sessions() as session:
+        tag = await session.get(Tag, tag_id)
+        if tag is None:
+            raise DomainError("Tag does not exist")
+        cards = await tag_cards(session, tag.id)
+        count, markup = await card_results(session, services, cards, here, back)
+        await session.commit()
+    await send_registered(
+        message,
+        services,
+        f"<b>Linked Cards of {html.escape(tag.name)}</b>\n\n{count}",
+        kind=MessageKind.DASHBOARD,
+        markup=markup,
+        related_id=tag.id,
+    )
 
 
 async def open_tag(
@@ -287,6 +322,12 @@ async def _on_view(context: CallbackContext) -> None:
         mode="view",
         item_id=context.payload["id"],
         back=context.back,
+    )
+
+
+async def _on_cards(context: CallbackContext) -> None:
+    await render_tag_cards(
+        context.message, context.services, context.payload["id"], back=context.back
     )
 
 
@@ -394,6 +435,7 @@ async def _on_list(context: CallbackContext) -> None:
 TAG_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "tag_create_prompt": _on_create_prompt,
     "tag_view": _on_view,
+    "tag_cards": _on_cards,
     "tag_edit_text": _on_edit_text,
     "tag_text_back": _on_text_back,
     "tag_create": _on_create,

@@ -45,7 +45,8 @@ MANUAL = f"""# Safwa
 - In words: the user asks the Advisor. It shows a review screen with "✅ Save" and "🗑 Discard". Nothing is saved before Save.
 - Several changes to one item, such as a new title and a Tag, come on one screen. Save and Discard take them all.
 - Several screens come one at a time. Save marks a screen "☑️ Will be saved"; all saved ones are written when the last is decided. Discard ends the chain: the screens after it are not shown, and those saved before it are written. If one of them cannot be written, none are, and Safwa proposes them again.
-- A screen that creates an item lists up to 3 open items of its type most like it, under "Similar items already exist". Open one to use it instead of a new one.
+- A screen that creates an item lists up to 3 open items of its type most like it, under "Similar items already exist", by full title. To use one instead, say so while the screen is open.
+- Items named on a review screen are not links. On other screens, an item named in a Note or a description is a link that opens it.
 - Words sent while a review screen is open rework that proposal.
 - A small edit that is exactly what the user asked for may be saved with no screen. The answer then says it was saved.
 - With buttons: a screen saves at once, through the same operations as Save.
@@ -77,7 +78,7 @@ MANUAL = f"""# Safwa
 - A Done Card is archived two Sprints later, or by hand. It still counts.
 - In words: create, change, move, finish, place under another Card, delete.
 - Deleting a Card with children offers its whole tree or only that Card. Deleting only it gives its children its parent; without a parent, the children become root-level.
-- With buttons: "➕ Add" creates a Goal or an Action. "🗂 Dashboard" shows Sprint, Today and Done side by side, the 10 changed last in each; one button switches between Actions and Goals, ✓ marking the one shown. Its "📚 Backlog · N" lists the Backlog 10 to a page. Its "🌌 Constellation" sends the whole tree as one picture, a file to zoom into: the Values as stars above, the Goals under them, the Actions at the bottom, and what Compass would ask about ringed in red. Each title there is a link that opens its Card. On a Card: "✅ Done", "📍 Stage", "☑️ Checks", and "✏️ Full editing" for every field, its Values and Tags, "Archive" and "Delete".
+- With buttons: "➕ Add" creates a Goal or an Action. "🗂 Dashboard" shows Sprint, Today and Done side by side, the 10 changed last in each; one button switches between Actions and Goals, ✓ marking the one shown. Its "📚 Backlog · N" lists the Backlog 10 to a page. Its "🌌 Constellation" sends the whole tree as one picture, a file to zoom into: the Values as stars above, the Goals under them, the Actions at the bottom, and what Compass would ask about ringed in red. Each title there is a link that opens its Card. On a Card: "✅ Done", "📍 Stage", "☑️ Checks", and "✏️ Full editing" for every field, its Values and Tags, "Archive" and "Delete". Its Parent, Values and Tags are links in its words. "Children" counts 🎯 Goals and ⭐️ Actions under it, with EP done of all while EP are on, and opens them as a list.
 - Not with buttons: placing a Card under another Card, or making a Subgoal. Ask the Advisor.
 - Not at all: moving an Action straight to Done. Finish it with "✅ Done".
 
@@ -116,10 +117,11 @@ MANUAL = f"""# Safwa
 - Every {COMPASS_REVIEW_DAYS} days in the Morning, Safwa looks at the whole tree. If something stands out, Compass names it and asks whether to go through it together. Compass review in Profile → Hooks switches this off or on.
 - A Tag is a free label on Cards, to find them together later.
 - In words: create, rename, put on a Card, delete.
-- With buttons: "💎 Values" or /values, and "🏷 Tags" or /tags: "➕ Add Value", "➕ Add Tag", rename and delete. A Value is created once it has a name and a description. On a Card, "✏️ Full editing" puts them on.
+- With buttons: "💎 Values" or /values, and "🏷 Tags" or /tags: "➕ Add Value", "➕ Add Tag", rename and delete. A Value is created once it has a name and a description. On a Card, "✏️ Full editing" puts them on. "Linked Cards" on a Value or a Tag counts its Cards as "Children" does and opens them as a list.
 
 # Requests
 - A Request is a saved query over Cards, such as "All Goals". It lists the Cards it finds, and it filters the Backlog when a Sprint is planned.
+- A list of Cards, such as a Request's or a Goal's children, shows live Cards, then Done, then archived. Goals with more levels come first, each with its children under it.
 - In words: ask the Advisor to make one or rename one. Its screen shows the query.
 - With buttons: "🔎 Requests" or /requests: open one to see its Cards, or delete it.
 - Not with buttons: making or changing a Request.

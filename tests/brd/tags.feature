@@ -14,7 +14,7 @@
     Then all three carry Family, and Family is on all three
     And that is what a Tag is for: finding those Cards together later
     And taking Family off one of them leaves it on the other two
-    And the Tag's screen says how many Cards carry it right now
+    And the Tag's screen sums up the Cards carrying it right now, by TA-LINK-012
     And a Tag has no focus, and a Tag never goes on a Check — a Tag is for finding Cards
 
   Scenario: TA-NAME-002 — A Tag's name is taken whatever the capitals, and is never blank
@@ -63,3 +63,12 @@
     Then the change is refused, and its Cards keep their links
     And its screen offers neither renaming nor deletion
     But its description can be edited, and the Tag can be put on a Card and taken off it
+
+  Scenario: TA-LINK-012 — A Tag's Linked Cards read as a Goal's children do, and open as a list
+    Given a Tag on a Goal and on an Action
+    When its screen is opened
+    Then "Linked Cards:" counts those Cards as CD-LINK-055 counts a Goal's children: "🎯1 · ⭐️1",
+      with Done of all their Effort Points while Effort Points are on
+    And it is a link that opens those Cards as a list, by CD-ORDER-054
+    And ↩️ Back on that list returns to the Tag
+    And a Tag no Card carries reads "Linked Cards: —", with no link

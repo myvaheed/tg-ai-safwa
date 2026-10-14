@@ -29,6 +29,7 @@ MODULE = FeatureModule(
             model=Tag,
             open=telegram.open_tag,
             label=telegram.tag_citation_label,
+            view="tag_view",
         ),
     ),
     commands=(

@@ -29,8 +29,12 @@ class ScreenSpec:
     model: type[Any]
     # (message, services, item_id, *, replace) — the manual screen, buttons included.
     open: Callable[..., Awaitable[None]]
-    # (session, services, item) -> the fixed compact label, or None to keep the model's words.
+    # (session, services, item, *, short) -> the fixed compact label, or None to keep the
+    # model's words. `short` cuts a long title, as a reply needs and a review does not.
     label: Callable[..., Awaitable[str | None]]
+    # The callback action that draws one item from {"id": n} in place of another screen, so
+    # a citation in a screen's words opens there and comes back (SC-LINK-013).
+    view: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

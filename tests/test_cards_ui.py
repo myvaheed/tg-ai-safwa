@@ -14,6 +14,7 @@ from ui_harness import (
     FakeCallback,
     FakeMessage,
     button_texts,
+    link_place,
     place_of,
     press,
     services_for,
@@ -51,6 +52,7 @@ from safwa.features.cards.use_cases import (
     move_card,
     set_card_parent,
     toggle_card_check,
+    toggle_card_tag,
     toggle_card_value,
 )
 from safwa.features.checks.use_cases import resolve_check
@@ -609,18 +611,9 @@ async def test_cd_tree_005_no_screen_can_change_a_cards_parent(sessions) -> None
         child.id,
         replace_message_id=card_message.message_id,
     )
-    # The one Parent button on the Card screen opens the parent; it does not choose one.
-    parent_button = next(
-        button
-        for row in bot.edits[-1][2].inline_keyboard
-        for button in row
-        if button.text.startswith("🌳 Parent")
-    )
-    async with sessions() as session:
-        token = await session.get(
-            CallbackToken, parent_button.callback_data.removeprefix("cb:")
-        )
-        assert token is not None and token.action == "card_view"
+    # The one Parent link on the Card screen opens the parent; it does not choose one.
+    parent = await link_place(sessions, bot.edits[-1][1], "Ship product")
+    assert (parent.action, parent.args) == ("card_view", {"id": goal.id})
 
     # And no screen in the whole application writes one either.
     for path in ui_sources():
@@ -773,18 +766,23 @@ async def test_card_overview_uses_derived_progress_and_relationship_navigation(s
     goal_text, goal_markup = bot.edits[-1][1:]
     assert "Kind: 🎯² Goal" in goal_text
     assert "Stage: Backlog" in goal_text
-    assert "Effort: 3/8 EP" in goal_text
-    assert "Children: 0/2 completed" in goal_text
+    # The children are counted by kind, and the effort is in the same link: no line repeats it.
+    assert "Effort:" not in goal_text
+    children = await link_place(sessions, goal_text, "🎯1 · ⭐️1 · ⚡3/8 EP")
+    assert (children.action, children.args) == ("card_children", {"id": goal.id})
     assert "Parent:" not in goal_text
-    assert "👥 Children" in button_texts(goal_markup)
-    assert not any(text.startswith("🌳 Parent:") for text in button_texts(goal_markup))
+    assert not any("Children" in text or "Parent" in text for text in button_texts(goal_markup))
 
     children_message = FakeMessage(73, bot_message=True)
     await render_children(children_message, services_for(sessions), goal.id)
-    children_texts = button_texts(children_message.edits[-1][1])
-    assert "🎯 Prepare release · 📚" in children_texts
-    assert any(text.startswith("⭐️ Write announcement · ") for text in children_texts)
-    assert not any("Publish build" in text for text in children_texts)
+    children_text, children_markup = children_message.edits[-1]
+    assert "<b>Children of Ship product</b>" in children_text
+    assert "2 matching cards" in children_text
+    assert button_texts(children_markup)[:2] == [
+        "🎯 Prepare release · 📚",
+        "⭐️ Write announcement · 📚",
+    ]
+    assert not any("Publish build" in text for text in button_texts(children_markup))
 
     child_message = FakeMessage(71, bot_message=True, bot=bot)
     await render_card(
@@ -795,9 +793,10 @@ async def test_card_overview_uses_derived_progress_and_relationship_navigation(s
     )
     child_text, child_markup = bot.edits[-1][1:]
     assert "Kind: ⭐️ Action" in child_text
-    assert "Parent: Ship product" in child_text
-    assert "🌳 Parent: Ship product" in button_texts(child_markup)
-    assert "👥 Children" not in button_texts(child_markup)
+    parent = await link_place(sessions, child_text, "Ship product")
+    assert (parent.action, parent.args) == ("card_view", {"id": goal.id})
+    assert "Children:" not in child_text
+    assert not any("Children" in text or "Parent" in text for text in button_texts(child_markup))
 
 
 async def test_a_card_on_a_button_is_named_by_emoji(sessions) -> None:
@@ -811,7 +810,11 @@ async def test_a_card_on_a_button_is_named_by_emoji(sessions) -> None:
 
     await render_children(message, services_for(sessions), goal.id)
 
-    labels = [label for label in button_texts(message.edits[-1][1]) if label != "↩️ Menu"]
+    labels = [
+        label
+        for label in button_texts(message.edits[-1][1])
+        if label not in {"↻ Refresh", "↩️ Menu"}
+    ]
     assert sorted(labels) == ["⭐️ Run · 🏃", "🎯 Sleep better · 📚"]
     words = ("Goal", "Subgoal", "Action", "Backlog", "Sprint", "Today", "Done")
     assert not any(word in label for label in labels for word in words)
@@ -829,7 +832,8 @@ async def test_cd_tree_002_the_parent_controls_the_label_and_root_values(session
     message = FakeMessage(75, bot_message=True)
     await render_card(message, services, nested_id)
     text, _ = message.edits[-1]
-    assert "Kind: 🎯 Subgoal" in text and "Parent: Health" in text
+    assert "Kind: 🎯 Subgoal" in text
+    assert (await link_place(sessions, text, "Health")).args == {"id": root.id}
     assert "Values:" not in text
     await render_card(message, services, nested_id, full=True)
     assert "Values: —" in message.edits[-1][0]
@@ -1040,7 +1044,7 @@ async def test_cd_delete_025_a_card_with_children_is_deleted_whole_or_alone(sess
 async def test_vl_link_017_a_goal_shows_its_values_and_says_when_it_has_none(sessions) -> None:
     """VL-LINK-017 — tests/brd/values.feature"""
     async with sessions() as session:
-        goal = await create_card(session, kind="goal", title="Health")
+        goal = await create_card(session, kind="goal", title="Get fit")
         action = await create_card(
             session, kind="action", title="Run", effort_points=1, parent_id=goal.id
         )
@@ -1055,22 +1059,19 @@ async def test_vl_link_017_a_goal_shows_its_values_and_says_when_it_has_none(ses
     text, markup = message.edits[-1]
     # The link stays optional, so the Goal is saved and opened; it only reads as missing.
     assert "Values: ⚠️ None" in text
-    assert "💎 Health" not in button_texts(markup)
+    assert not any("Health" in label for label in button_texts(markup))
 
     await render_card(message, services, action_id, full=True)
     text, markup = message.edits[-1]
-    assert "Values: Health" in text
-    opener = next(
-        button
-        for row in markup.inline_keyboard
-        for button in row
-        if button.text == "💎 Health"
-    )
-    await callback_token_handler(
-        FakeCallback(opener.callback_data.split(":", 1)[1], message), services
-    )
-    text, _ = message.edits[-1]
+    # The Value is a link by its name alone, and no button repeats it.
+    assert re.search(r'Values: <a href="[^"]+">Health</a>', text)
+    assert "💎 Health" not in button_texts(markup)
+    await tap_link(services, text, "Health", message.bot)
+    text, markup = message.bot.edits[-1][1:]
     assert "<b>Value</b>" in text and "Name: Health" in text
+    assert await place_of(sessions, markup, "↩️ Back") == Place(
+        "card_view", {"id": action_id}
+    )
 
 
 async def test_cd_view_031_a_card_opens_compact_with_full_editing_one_button_away(sessions, effort_on) -> None:
@@ -1103,10 +1104,11 @@ async def test_cd_view_031_a_card_opens_compact_with_full_editing_one_button_awa
         "🏃 Into Sprint",
         "☀️ Into Today",
         "✅ Done",
-        "🌳 Parent: Health",
         "✏️ Full editing",
         "↩️ Menu",
     ]
+    # Its parent is reached by the link in its words.
+    assert (await link_place(sessions, text, "Health")).action == "card_view"
 
     opener = next(
         button
@@ -1158,7 +1160,9 @@ async def test_cd_repeat_032_the_open_instance_of_a_repeating_action_says_it_rep
         assert await card_title_marks(session, live) == " [🔄]"
         # The finished one says how it ended and where the open one is, and nothing more.
         assert await card_title_marks(session, finished) == f" [✅1, 🔄#{live_id}]"
-        assert (await card_citation_label(session, services, live)).startswith("⭐️ Run [🔄]")
+        assert (await card_citation_label(session, services, live, short=True)).startswith(
+            "⭐️ Run [🔄]"
+        )
 
     message = FakeMessage(380, bot_message=True)
     await render_board(message, services)
@@ -1256,3 +1260,54 @@ async def test_cd_deadline_043_a_goal_offers_a_deadline_where_an_action_offers_a
         assert created.schedule_record.rule == deadline
         assert created.deadline_at is not None
     assert [target for _, target in compiler.calls] == ["deadline", "deadline"]
+
+
+async def test_cd_link_055_a_cards_relations_are_links_in_its_words(sessions, effort_on) -> None:
+    """CD-LINK-055 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        above = await create_card(session, kind="goal", title="Life")
+        goal = await create_card(session, kind="goal", title="Health", parent_id=above.id)
+        below = await create_card(session, kind="goal", title="Sleep", parent_id=goal.id)
+        await create_card(
+            session, kind="action", title="Dim lights", effort_points=5, parent_id=below.id
+        )
+        run = await create_card(
+            session, kind="action", title="Run", effort_points=3, parent_id=goal.id
+        )
+        await finish_action(session, run.id)
+        empty = await create_card(session, kind="goal", title="Empty")
+        value = await create_value(session, "Vitality", "Energy for the day")
+        tag = await create_tag(session, "outdoors")
+        await toggle_card_value(session, goal.id, value.id)
+        await toggle_card_tag(session, goal.id, tag.id)
+        await session.commit()
+        above_id, goal_id, empty_id = above.id, goal.id, empty.id
+        value_id, tag_id = value.id, tag.id
+
+    services = services_for(sessions)
+    message = FakeMessage(390, bot_message=True)
+    await render_card(message, services, goal_id, full=True)
+    text, markup = message.edits[-1]
+    here = Place("card_view", {"id": goal_id})
+    assert await link_place(sessions, text, "Life") == here.child("card_view", id=above_id)
+    children = "🎯1 · ⭐️1 · ⚡3/8 EP"
+    assert "Children: <a " in text
+    assert await link_place(sessions, text, children) == here.child("card_children", id=goal_id)
+    assert "Effort:" not in text
+    assert await link_place(sessions, text, "Vitality") == here.child("value_view", id=value_id)
+    assert await link_place(sessions, text, "outdoors") == here.child("tag_view", id=tag_id)
+    assert "💎" not in text and "🏷" not in text
+    assert not any(
+        word in label
+        for label in button_texts(markup)
+        for word in ("Parent", "Children", "Life", "Vitality", "outdoors")
+    )
+
+    # The children open as a list, and its Back comes back to the Card.
+    await tap_link(services, text, children, message.bot)
+    children_text, children_markup = message.bot.edits[-1][1:]
+    assert "<b>Children of Health</b>" in children_text
+    assert await place_of(sessions, children_markup, "↩️ Back") == here
+
+    await render_card(message, services, empty_id)
+    assert "Children: —" in message.edits[-1][0]

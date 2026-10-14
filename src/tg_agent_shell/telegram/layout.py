@@ -14,10 +14,13 @@ PAGE_SIZE = 5
 CITATION_TITLE_LIMIT = 25
 
 
-def short_citation_title(value: str) -> str:
-    """Keep a citation recognisable without letting it consume an advisor reply."""
+def citation_title(value: str, *, short: bool) -> str:
+    """Keep a citation recognisable without letting it consume an advisor reply; `short`
+    False keeps the whole title, for a review that names the item and nothing else."""
     title = value.strip()
-    return f"{title[: CITATION_TITLE_LIMIT - 1]}…" if len(title) > CITATION_TITLE_LIMIT else title
+    if short and len(title) > CITATION_TITLE_LIMIT:
+        return f"{title[: CITATION_TITLE_LIMIT - 1]}…"
+    return title
 
 
 def with_citation_fields(leading: str, fields: list[str]) -> str:

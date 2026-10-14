@@ -24,6 +24,7 @@ from tg_agent_shell.proposals.store import ProposalStore
 from tg_agent_shell.proposals.telegram import render_proposal
 from tg_agent_shell.proposals.telegram.screens import SIMILAR_HEADING, SIMILAR_ITEMS_SHOWN
 from tg_agent_shell.search.index import SearchIndex
+from tg_agent_shell.telegram.layout import CITATION_TITLE_LIMIT
 
 TZ = ZoneInfo("UTC")
 
@@ -125,7 +126,7 @@ async def test_pr_similar_030_a_new_card_lists_open_cards_of_any_kind_closest_fi
     async with sessions() as session:
         family = await create_card(session, kind="goal", title="Family")
         mother = await create_card(session, kind="goal", title="Mother", parent_id=family.id)
-        phone = await create_card(
+        await create_card(
             session, kind="action", title="Phone mother", stage="sprint", effort_points=1,
             parent_id=mother.id,
         )
@@ -166,9 +167,11 @@ async def test_pr_similar_030_a_new_card_lists_open_cards_of_any_kind_closest_fi
     )
 
     heading, block = text.split(SIMILAR_HEADING)
-    assert block.count("<a href=") == SIMILAR_ITEMS_SHOWN
-    cited = [block.index(f'?start=card-{card.id}"') for card in (mother, phone, family)]
-    assert cited == sorted(cited)
+    # Each is named, never linked: a tap would leave the review unanswered.
+    assert "<a href=" not in block
+    assert block.count("\n• ") == SIMILAR_ITEMS_SHOWN
+    named = [block.index(title) for title in ("🎯 Mother", "⭐️ Phone mother", "🎯² Family")]
+    assert named == sorted(named)
     for title in ("Gift for mom", "Ring mum", "Call mother", "Called mom", "Buy bread"):
         assert title not in block
 
@@ -215,17 +218,19 @@ async def test_pr_similar_030_only_open_items_of_each_type_are_compared(sessions
     }
 
 
-async def test_pr_similar_030_a_reminder_is_cited_like_the_rest(sessions, tmp_path):
+async def test_pr_similar_030_a_reminder_is_named_whole_like_the_rest(sessions, tmp_path):
     """PR-SIMILAR-030 — tests/brd/tg_agent_shell/proposals.feature"""
+    words = "Take a <walk> outside after tea."
+    assert len(words) > CITATION_TITLE_LIMIT
     async with sessions() as session:
-        walk = await create_reminder(
+        await create_reminder(
             session,
-            instruction="Take a <walk> outside.",
+            instruction=words,
             schedule=resolve(interval_minutes=120, now=datetime.now(UTC), tz=TZ),
             tz=TZ,
         )
         await session.commit()
-    search = await loaded(tmp_path, Scored("Go for a walk.", {"Take a <walk> outside.": 0.9}))
+    search = await loaded(tmp_path, Scored("Go for a walk.", {words: 0.9}))
 
     text = await _create_screen(
         sessions,
@@ -234,7 +239,8 @@ async def test_pr_similar_030_a_reminder_is_cited_like_the_rest(sessions, tmp_pa
     )
 
     block = text.split(SIMILAR_HEADING)[1]
-    assert f'?start=reminder-{walk.id}">⏰ Take a &lt;walk&gt; outside.</a>' in block
+    assert "\n• ⏰ Take a &lt;walk&gt; outside after tea." in block
+    assert "<a href=" not in block
 
 
 async def test_pr_similar_030_no_list_when_nothing_is_alike_for_a_change_or_unloaded(

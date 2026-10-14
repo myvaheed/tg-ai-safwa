@@ -371,7 +371,9 @@ async def send_charts(
     )
 
 
-async def retro_citation_label(session: AsyncSession, services: Any, sprint: Sprint) -> str:
+async def retro_citation_label(
+    session: AsyncSession, services: Any, sprint: Sprint, *, short: bool
+) -> str:
     return f"📊 Sprint {sprint.number} retro"
 
 

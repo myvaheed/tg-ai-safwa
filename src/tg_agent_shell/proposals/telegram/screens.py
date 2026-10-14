@@ -71,8 +71,11 @@ async def render_proposal(
                 ),
             ]
         ]
+        # An item a review names is not a link: tapping it would leave the review unanswered.
+        text = await render_citations(
+            session, services, "\n\n".join(part for part in text_parts if part), plain=True
+        )
         await session.commit()
-    text = "\n\n".join(part for part in text_parts if part)
     markup = InlineKeyboardMarkup(inline_keyboard=rows)
     # Its time to be answered starts now, whether this is its first drawing or a redraw
     # after a press that failed.
@@ -117,4 +120,4 @@ async def similar_items(session: AsyncSession, services: Services, change: Propo
         f"• [{html.escape(result_value(words[item_id]))}]({change.entity}:{item_id})"
         for item_id in ids[:SIMILAR_ITEMS_SHOWN]
     ]
-    return await render_citations(session, services, "\n".join([SIMILAR_HEADING, *lines]))
+    return "\n".join([SIMILAR_HEADING, *lines])

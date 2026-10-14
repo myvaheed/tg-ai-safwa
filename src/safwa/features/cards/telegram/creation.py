@@ -141,8 +141,8 @@ async def render_card_creation(
         display = {
             **state,
             "schedule_summary": rule_summary(rule, await workspace_zone(session)) if rule else None,
-            "value_names": [value.name for value in values],
-            "tag_names": [tag.name for tag in tags],
+            "value_html": [html.escape(value.name) for value in values],
+            "tag_html": [html.escape(tag.name) for tag in tags],
         }
         text = card_overview_text(
             display, heading="Create Card", effort_tracking=await effort_tracking_on(session)

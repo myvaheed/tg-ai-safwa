@@ -239,7 +239,7 @@ Feature: Proposals
     Then its screen lists, under "Similar items already exist", up to 3 open items of the same
       type whose words are closest in meaning to the new one's, closest first
       (SIMILAR_ITEMS_SHOWN = 3)
-    And each is cited
+    And each is named by PR-CITE-032, its title whole
     And a Card is compared with every open Card, a Goal, a Subgoal or an Action alike
     And an item is listed only when it is at least 0.80 alike (TEXT_MODEL.alike = 0.80)
     And an open item is a Card not Done and not archived, a Check not answered, any Value, Tag
@@ -250,3 +250,11 @@ Feature: Proposals
     Then the screen has no such list
     When the text model has not finished loading, or fails
     Then the screen comes without the list
+
+  Scenario: PR-CITE-032 — A review screen names the items it cites and links none
+    Given a review screen whose words cite an item: Safwa's reason, or a Note or a description it
+      proposes
+    When it is drawn
+    Then the item reads as it does in Safwa's answers, with its emoji and its whole title
+    And it is not a link
+    And a citation of an item that no longer exists keeps its words

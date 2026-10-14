@@ -30,6 +30,7 @@ MODULE = FeatureModule(
             model=Check,
             open=render_check,
             label=telegram.check_citation_label,
+            view="check_view",
         ),
     ),
     callback_actions=CHECK_CALLBACK_ACTIONS,

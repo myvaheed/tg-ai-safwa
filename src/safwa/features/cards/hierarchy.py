@@ -12,6 +12,7 @@ Reading a branch is here too, because the same walk answers what its Actions hav
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -123,25 +124,39 @@ async def card_children(session: AsyncSession, card_id: int) -> list[Card]:
     return list(await session.scalars(select(Card).where(Card.parent_id == card_id)))
 
 
-async def card_progress(session: AsyncSession, card_id: int) -> dict[str, int]:
-    """Completed Action effort and direct-child completion for a Goal or a Subgoal.
-
-    The branch total is not here: it is `effort_points` on the Card itself, written by
-    `propagate_ancestors`, so a query reads the same number the screens do.
-    """
-    actions = await branch_actions(session, card_id)
+async def card_progress(session: AsyncSession, card_id: int) -> dict[str, Any]:
+    """What a Goal or a Subgoal adds up to: its children counted by `cards_progress`, and
+    how many of them are Done."""
     direct_children = await card_children(session, card_id)
     return {
-        "completed_effort": sum(
-            action.effort_points or 0
-            for action in actions
-            if action.effective_stage == CardStage.DONE.value
-        ),
+        **await cards_progress(session, direct_children),
         "completed_children": sum(
             child.effective_stage == CardStage.DONE.value for child in direct_children
         ),
         "total_children": len(direct_children),
-        "unestimated_actions": sum(action.effort_points is None for action in actions),
+    }
+
+
+async def cards_progress(session: AsyncSession, cards: list[Card]) -> dict[str, Any]:
+    """Goals and Actions among `cards`, and the effort their branches took of what they hold.
+
+    Counted as a Goal counts its children: the total is the Cards' own `effort_points`, a
+    Goal's being the sum `propagate_ancestors` wrote, and Done effort is the Actions' below.
+    """
+    actions = [card for card in cards if card.kind == CardKind.ACTION.value]
+    goals = [card for card in cards if card.kind == CardKind.GOAL.value]
+    branch = actions + [action for goal in goals for action in await branch_actions(session, goal.id)]
+    effort = [card.effort_points for card in cards if card.effort_points is not None]
+    return {
+        "goals": len(goals),
+        "actions": len(actions),
+        "effort_points": sum(effort) if effort else None,
+        "completed_effort": sum(
+            action.effort_points or 0
+            for action in branch
+            if action.effective_stage == CardStage.DONE.value
+        ),
+        "unestimated_actions": sum(action.effort_points is None for action in branch),
     }
 
 

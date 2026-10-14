@@ -32,6 +32,7 @@ MODULE = FeatureModule(
             model=Value,
             open=telegram.open_value,
             label=telegram.value_citation_label,
+            view="value_view",
         ),
     ),
     commands=(

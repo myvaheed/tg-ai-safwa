@@ -25,6 +25,7 @@ from tg_agent_shell.telegram import (
     edited_screen,
     menu_row,
     place_button,
+    render_citations,
     render_text_input,
     required_text,
     send_registered,
@@ -33,11 +34,13 @@ from tg_agent_shell.telegram.contributions import TextInputFlow
 from tg_agent_shell.telegram.model import UiSession
 
 from ....constants import DESCRIPTION_MAX_CHARS
+from ...cards.telegram import card_results, cards_link
 from ..model import Value
 from ..use_cases import (
     create_value,
     delete_value,
     update_value_fields,
+    value_cards,
     value_description,
     value_link_counts,
 )
@@ -97,7 +100,8 @@ async def render_value(
     """One Value, or one being created. `back` is where it was opened from."""
     if mode not in {"create", "view"}:
         raise DomainError("Unsupported Value editor")
-    carried_by: tuple[int, int] = (0, 0)
+    here = Place("value_view", {"id": item_id}, back)
+    linked = ""
     async with services.sessions() as session:
         value: Value | None = None
         if mode == "view":
@@ -105,7 +109,14 @@ async def render_value(
             if value is None:
                 raise DomainError("Value does not exist")
             editor_values = {"name": value.name, "description": value.description}
-            carried_by = await value_link_counts(session, value.id)
+            _cards, checks = await value_link_counts(session, value.id)
+            cards = await cards_link(
+                session,
+                services,
+                await value_cards(session, value.id),
+                here.child("value_cards", id=value.id),
+            )
+            linked = f"\nLinked Cards: {cards}\nLinked Checks: {checks}"
         else:
             editor_values = {"name": "", "description": "", **(values or {})}
 
@@ -164,17 +175,16 @@ async def render_value(
                 ]
             )
         rows.append([await back_button(session, services.owner_id, back)])
+        description = html.escape(editor_values["description"] or "—")
+        if value is not None:
+            description = await render_citations(session, services, description, here=here)
         await session.commit()
 
     body = (
         f"<b>{'Create Value' if mode == 'create' else 'Value'}</b>\n"
         f"Name: {html.escape(editor_values['name'] or '—')}\n"
-        f"Description: {html.escape(editor_values['description'] or '—')}"
-        + (
-            f"\nLinked Cards: {carried_by[0]}\nLinked Checks: {carried_by[1]}"
-            if mode == "view"
-            else "\nA Value is created once it has a name and a description."
-        )
+        f"Description: {description}"
+        + (linked or "\nA Value is created once it has a name and a description.")
     )
     markup = InlineKeyboardMarkup(inline_keyboard=rows)
     if replace_message_id is not None:
@@ -197,6 +207,28 @@ async def render_value(
             related_id=item_id,
             replace=replace,
         )
+
+
+async def render_value_cards(
+    message: Message, services: Services, value_id: int, *, back: Place | None = None
+) -> None:
+    """The Cards carrying one Value, as a result. `back` is that Value's screen."""
+    here = Place("value_cards", {"id": value_id}, back)
+    async with services.sessions() as session:
+        value = await session.get(Value, value_id)
+        if value is None:
+            raise DomainError("Value does not exist")
+        cards = await value_cards(session, value.id)
+        count, markup = await card_results(session, services, cards, here, back)
+        await session.commit()
+    await send_registered(
+        message,
+        services,
+        f"<b>Linked Cards of {html.escape(value.name)}</b>\n\n{count}",
+        kind=MessageKind.DASHBOARD,
+        markup=markup,
+        related_id=value.id,
+    )
 
 
 async def open_value(
@@ -296,6 +328,12 @@ async def _on_view(context: CallbackContext) -> None:
         mode="view",
         item_id=context.payload["id"],
         back=context.back,
+    )
+
+
+async def _on_cards(context: CallbackContext) -> None:
+    await render_value_cards(
+        context.message, context.services, context.payload["id"], back=context.back
     )
 
 
@@ -404,6 +442,7 @@ async def _on_list(context: CallbackContext) -> None:
 VALUE_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "value_create_prompt": _on_create_prompt,
     "value_view": _on_view,
+    "value_cards": _on_cards,
     "value_edit_text": _on_edit_text,
     "value_text_back": _on_text_back,
     "value_create": _on_create,

@@ -210,5 +210,7 @@ async def open_media(
     )
 
 
-async def media_citation_label(session: AsyncSession, services: Any, media: ChatMedia) -> str:
+async def media_citation_label(
+    session: AsyncSession, services: Any, media: ChatMedia, *, short: bool
+) -> str:
     return media.meta

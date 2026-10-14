@@ -34,6 +34,7 @@ MODULE = FeatureModule(
             model=Reminder,
             open=render_reminder,
             label=telegram.reminder_citation_label,
+            view="reminder_view",
         ),
     ),
     commands=(
