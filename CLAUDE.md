@@ -82,7 +82,7 @@ Run affected tests first. A broad change runs the complete local suite and Ruff;
 tests are already included in that suite.
 
 ```powershell
-rtk proxy uv run pytest -q
+rtk proxy uv run pytest -q -n auto
 rtk proxy uv run ruff check .
 rtk proxy uv run python scripts/architecture_metrics.py
 rtk proxy uv run python scripts/architecture_metrics.py cards

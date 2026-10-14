@@ -7,11 +7,10 @@ from functools import cache
 from pathlib import Path
 
 import pytest_asyncio
-from database_key import keyed
+from database_key import keyed, keyed_copy
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from llm_gateway import CompletionRequest, CompletionTurn
-from safwa.bootstrap.main import bootstrap_workspace
 from safwa.bootstrap.modules import (
     AGENTS,
     AI_VIEWS,
@@ -29,11 +28,10 @@ from safwa.features.advisor.agent import ADVISOR_ROW_LIMITS, ADVISOR_VIEWS
 from safwa.features.memory.use_cases import MemoryReader
 from safwa.features.schedules.agent import scheduled_tool
 from safwa.features.workspace_mutator.state import workspace_context
-from safwa.foundation.models import Base
-from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views
+from tg_agent_shell.ai.sql import ReadOnlyQueryRunner
 from tg_agent_shell.ai.subagents import RoutedSubagent
 from tg_agent_shell.ai.tools import IMMEDIATE_TOOLS, HelperPort
-from tg_agent_shell.foundation.database import Database, upgrade_database
+from tg_agent_shell.foundation.database import Database
 from tg_agent_shell.hooks.contracts import HookSpec
 from tg_agent_shell.hooks.registry import HookRegistry
 from tg_agent_shell.media.library import MediaLibrary
@@ -218,20 +216,13 @@ def search_index(database_path: Path, load: Callable[[], object]) -> SearchIndex
 
 
 @pytest_asyncio.fixture
-async def e2e_harness(tmp_path: Path, monkeypatch) -> E2EHarness:
+async def e2e_harness(tmp_path: Path, monkeypatch, workspace_file: Path) -> E2EHarness:
     """Real migrated SQLite plus real services; only remote APIs are replaced."""
 
     repository_root = Path(__file__).parents[2]
     monkeypatch.chdir(repository_root)
     database_path = tmp_path / "safwa-e2e.db"
-    upgrade_database(keyed(database_path), Base.metadata)
-    database = Database(keyed(database_path))
-    async with database.sessions() as session:
-        await bootstrap_workspace(session, 42, TIMEZONE)
-        await session.run_sync(
-            lambda sync_session: create_ai_views(sync_session.connection(), AI_VIEWS)
-        )
-        await session.commit()
+    database = Database(keyed_copy(workspace_file, database_path))
 
     harness = E2EHarness(
         database.sessions, database, database_path, MemoryReader(database.sessions)

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+from pathlib import Path
+
 import pytest
 import pytest_asyncio
 from brd_ids import SCENARIO_ID
-from database_key import keyed
+from database_key import keyed, keyed_copy
 
 from tg_agent_shell.foundation.database import Database, create_schema
 
@@ -63,22 +66,38 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
                 item.add_marker(skip)
 
 
-@pytest_asyncio.fixture
-async def sessions(tmp_path):
+@pytest.fixture(scope="session")
+def workspace_file(tmp_path_factory) -> Path:
+    """A bootstrapped workspace with the `ai_*` views, built once per test process.
+
+    Building the schema is most of a test's setup, so each test opens a copy of this file.
+    """
     from safwa.bootstrap.main import bootstrap_workspace
     from safwa.bootstrap.modules import AI_VIEWS
     from safwa.foundation.models import Base
     from tg_agent_shell.ai.sql import create_ai_views
 
-    database = Database(keyed(tmp_path / "sessions.db"))
-    async with database.engine.begin() as connection:
-        await connection.run_sync(create_schema, Base.metadata)
-        # A saved query is compiled against the `ai_*` views before it is stored, so a test
-        # database without them is not the database the code under test runs on.
-        await connection.run_sync(lambda sync: create_ai_views(sync, AI_VIEWS))
-    async with database.sessions() as session:
-        await bootstrap_workspace(session, 42, "Europe/Istanbul")
-        await session.commit()
+    path = tmp_path_factory.mktemp("workspace") / "workspace.db"
+
+    async def build() -> None:
+        database = Database(keyed(path))
+        async with database.engine.begin() as connection:
+            await connection.run_sync(create_schema, Base.metadata)
+            # A saved query is compiled against the `ai_*` views before it is stored, so a
+            # test database without them is not the database the code under test runs on.
+            await connection.run_sync(lambda sync: create_ai_views(sync, AI_VIEWS))
+        async with database.sessions() as session:
+            await bootstrap_workspace(session, 42, "Europe/Istanbul")
+            await session.commit()
+        await database.dispose()
+
+    asyncio.run(build())
+    return path
+
+
+@pytest_asyncio.fixture
+async def sessions(tmp_path, workspace_file):
+    database = Database(keyed_copy(workspace_file, tmp_path / "sessions.db"))
     yield database.sessions
     await database.dispose()
 
@@ -95,24 +114,16 @@ async def effort_on(sessions):
 
 
 @pytest_asyncio.fixture
-async def read_views(tmp_path):
+async def read_views(tmp_path, workspace_file):
     """A workspace on disk plus the `ai_*` views: what a test reads when Safwa reads.
 
-    The views are dropped and rebuilt from the feature declarations, so a test that asks
-    what Safwa sees asks the real catalogue rather than a copy of it.
+    The views are built from the feature declarations, so a test that asks what Safwa sees
+    asks the real catalogue rather than a copy of it.
     """
-    from safwa.bootstrap.main import bootstrap_workspace
-    from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
-    from safwa.foundation.models import Base
-    from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views
+    from safwa.bootstrap.modules import ALLOWED_VIEWS
+    from tg_agent_shell.ai.sql import ReadOnlyQueryRunner
 
-    file = keyed(tmp_path / "views.db")
+    file = keyed_copy(workspace_file, tmp_path / "views.db")
     database = Database(file)
-    async with database.engine.begin() as connection:
-        await connection.run_sync(create_schema, Base.metadata)
-        await connection.run_sync(lambda sync: create_ai_views(sync, AI_VIEWS))
-    async with database.sessions() as session:
-        await bootstrap_workspace(session, 42, "Europe/Istanbul")
-        await session.commit()
     yield database.sessions, ReadOnlyQueryRunner(file, ALLOWED_VIEWS, timezone="Europe/Istanbul")
     await database.dispose()

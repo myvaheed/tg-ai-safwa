@@ -3,6 +3,7 @@ and another process to hold a database the way a running application does."""
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 from collections.abc import Iterator
@@ -19,6 +20,12 @@ TEST_KEY = bytes(range(32))
 def keyed(path: Path) -> DatabaseFile:
     """The test database at `path`, opened with the test key."""
     return DatabaseFile(path, TEST_KEY)
+
+
+def keyed_copy(source: Path, path: Path) -> DatabaseFile:
+    """The test database at `path`, a copy of the closed test database at `source`."""
+    shutil.copyfile(source, path)
+    return keyed(path)
 
 
 def keyed_engine(path: Path) -> Engine:

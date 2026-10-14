@@ -146,16 +146,21 @@ snapshot or a review.
 | 11 | The schema did not change outside a schema batch | Rule J, snapshot under `tests/snapshots/` |
 | 12 | The prompt prefix is byte-stable | Rule I, snapshot under `tests/snapshots/` |
 | 13 | No old path running beside a new one | counted by the scanner |
-| 14 | `ruff check .` and `pytest -q` | run by hand before a batch is finished. There is no CI in this repository, so nothing runs them for you |
+| 14 | `ruff check .` and `pytest -q -n auto` | run by hand before a batch is finished. There is no CI in this repository, so nothing runs them for you |
 
 ## Tests
 
 ```powershell
-uv run pytest -q
+uv run pytest -q -n auto
 uv run pytest tests\e2e -q
 uv run pytest tests\shell -q
 uv run ruff check .
 ```
+
+`-n auto` spreads the suite over one worker process per CPU (pytest-xdist); each worker pays
+the imports and collection once, so a single file or test runs faster without it. The
+`sessions`, `read_views` and `e2e_harness` fixtures each open a copy of one workspace database
+built once per process (`workspace_file` in `tests/conftest.py`) instead of building the schema.
 
 The E2E suite uses a real SQLite database and real Safwa application services while replacing
 Telegram and the AI provider at their network boundaries. It never reads `.env` or contacts live services.
