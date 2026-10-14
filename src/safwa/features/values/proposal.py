@@ -42,7 +42,7 @@ class ValueProposalHandler:
             value = await create_value(
                 session,
                 name,
-                change.values.get("description"),
+                str(change.values.get("description") or ""),
                 actor=ActorType.AI,
             )
             await session.flush()

@@ -41,8 +41,9 @@ from ..features.cards.module import (
     TODAY_STALE_HOOK,
 )
 from ..features.cards.module import MODULE as CARDS
-from ..features.checks.module import MISSED_RUN_HOOK
+from ..features.checks.module import CHECK_REVIEW_HOOK, MISSED_RUN_HOOK
 from ..features.checks.module import MODULE as CHECKS
+from ..features.compass.module import MODULE as COMPASS
 from ..features.diagnostics.module import MODULE as DIAGNOSTICS
 from ..features.diary.module import DIARY_HOOK, DIARY_READ_HOOK
 from ..features.diary.module import MODULE as DIARY
@@ -98,6 +99,7 @@ MODULES: tuple[FeatureModule, ...] = (
     CHECKS,
     VALUES,
     TAGS,
+    COMPASS,
     PLANNING,
     RETRO,
     LIFE,
@@ -145,6 +147,7 @@ HOOKS = (
     MISSED_RUN_HOOK,
     GOAL_CLARIFICATION_HOOK,
     ACTION_REVIEW_HOOK,
+    CHECK_REVIEW_HOOK,
     VALUE_CLARIFICATION_HOOK,
     VALUE_LINK_HOOK,
     VALUE_UNLINK_HOOK,

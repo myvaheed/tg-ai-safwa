@@ -13,7 +13,7 @@ declares the same `FeatureModule`, and a role is only what its declaration turns
 | Role | What one owns | In `MODULES` |
 |---|---|---|
 | a domain feature | its own rows, the operations every adapter calls, its screens, and the `ai_*` views it publishes | `cards`, `checks`, `values`, `tags`, `planning`, `retro`, `life`, `diary`, `profile`, `reminders`, `saved_requests`, `memory` |
-| a reader or a writer for the model | a subagent or a helper, the views its own list names and the tools it may call — no rows of its own | `workspace_mutator`, `heavy_analyzer`, the subagent `diary` declares beside its rows, and `onboarding` — a subagent and hooks, with only the rows those hooks keep |
+| a reader or a writer for the model | a subagent or a helper, the views its own list names and the tools it may call — no rows of its own | `workspace_mutator`, `heavy_analyzer`, the subagent `diary` declares beside its rows, `onboarding` — a subagent and hooks, with only the rows those hooks keep — and `compass`, which reads and explains the method each feature words for its items |
 | a screen with no rows behind it | a command, the menu, a report the owner reads | `home`, `diagnostics`, `summary` |
 | a process of the shell | a flow the shell runs for every feature, registered the way a feature is | `proposals` |
 
@@ -210,8 +210,9 @@ directly. The dependency points down throughout; no extra facade is needed.
 
 The consequence is what a door may not hold: **the entity's own operation, which is asked for at
 the operations layer.** So `checks/model.py` says what a Check is called — a name another feature
-has to type comes from `model.py`, which every layer may reach, and there is no `api.py` standing
-in front of it — while closing an Action asks `checks/use_cases.py` to answer one. Screens are the
+has to type comes from `model.py`, which every layer may reach, and its `api.py` holds only the
+method a Check is worded by, not a door in front of the model — while closing an Action asks
+`checks/use_cases.py` to answer one. Screens are the
 top door because a screen is public already: `FeatureModule.screens` hands `render_card` to the
 composition root. Planning reads Cards through their API and draws the Sprint's selected list itself.
 

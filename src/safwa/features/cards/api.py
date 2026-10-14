@@ -21,6 +21,8 @@ from tg_agent_shell.ai.sql import UnsafeQueryError, validated_read
 from tg_agent_shell.foundation.errors import DomainError
 
 from ...foundation.marks import title_marks
+from ...foundation.method import Example, Method
+from ..schedules.api import ACTION_DAILY_EXECUTIONS_MAX
 from .model import TERMINAL_STAGES as TERMINAL_STAGES
 from .model import Card as Card
 from .model import CardKind, Priority
@@ -249,3 +251,120 @@ async def tree_level(session: AsyncSession, kind: str | None, card_id: int | Non
     )
     return 1 + max([await tree_level(session, kind, child) for child in children], default=0)
 
+
+GOAL = Method(
+    name="Goal",
+    definition=(
+        "Goal: one specific result that takes more than one day and can be Done, "
+        "attainable with the user's resources and meaningful to them."
+    ),
+    criteria=(
+        "names one concrete result, not a direction;",
+        "is a result, not an ongoing practice or a rule;",
+        "takes more than one day; work for one day is an Action;",
+        "has an observable Done: the title or Note says what fact shows it;",
+        "as a Subgoal, its result moves its parent's result forward.",
+    ),
+    leaves=("Do not judge whether the Goal is attainable or worth doing.",),
+    writing=(
+        "A Goal may be root-level or under another Goal. With a parent it is displayed as a Subgoal.",
+        "For a new or reframed Goal or Subgoal, put the result in `title` and an observable "
+        "completion criterion in `note`.",
+        "Deadline optional. Never invent targets, resources or deadlines.",
+        "An ongoing practice is a repeating Action, not a Goal.",
+    ),
+    examples=(
+        Example('"Run a half marathon"', clear=True),
+        Example('"Improve my English", Note "Pass IELTS with 7.0"', clear=True),
+        Example(
+            '"Learn Spanish"',
+            clear=False,
+            verdict="Done is not observable.",
+            ask="Ask what result shows it, such as passing DELE B2.",
+        ),
+        Example(
+            '"Get fit"',
+            clear=False,
+            verdict="A direction, not a result.",
+            ask="Ask what result would show it, such as a 5 km run under 30 minutes; "
+            "else suggest a Value such as Health.",
+        ),
+        Example(
+            '"Meditate daily"',
+            clear=False,
+            verdict="An ongoing practice.",
+            ask="Suggest a repeating Action; ask whether a result is behind it, "
+            "such as 30 days in a row.",
+        ),
+        Example(
+            '"Never be late"',
+            clear=False,
+            verdict="A rule kept every day.",
+            ask="Suggest a repeating Check such as On time?; ask whether a result is behind "
+            "it, such as 30 meetings on time in a row.",
+        ),
+        Example(
+            '"Call the bank"',
+            clear=False,
+            verdict="Fits in one day.",
+            ask="Suggest an Action instead.",
+        ),
+        Example(
+            '"Launch the shop and find a job"',
+            clear=False,
+            verdict="Two results.",
+            ask="Suggest two Goals.",
+        ),
+        Example(
+            '"Holiday in Bali", parent "Earn $20k"',
+            clear=False,
+            verdict="Does not move its parent forward: it is what the money is for.",
+            ask="Suggest a Goal of its own, or ask how it helps earn $20k.",
+        ),
+    ),
+)
+
+ACTION = Method(
+    name="Action",
+    definition=(
+        "Action: work that fits in one day. A repeating Action fits in one day each time."
+    ),
+    criteria=(
+        "fits in one day; a result that takes longer is a Goal;",
+        "one concrete step that can be started, not a direction such as Work on my health;",
+        "work to do, not a state to observe; a state such as Back straight is a Check;",
+        "moves its Goal forward, when it has one.",
+    ),
+    leaves=("Do not judge whether the Action is worth doing.",),
+    writing=(
+        f"An Action may repeat on a Schedule, at most {ACTION_DAILY_EXECUTIONS_MAX} times a day.",
+        "Goals and Actions are Cards.",
+    ),
+    examples=(
+        Example('"Book a flat viewing", chores, cognitive, Goal "Move to a new flat"', clear=True),
+        Example(
+            '"Write the thesis"',
+            clear=False,
+            verdict="Takes more than one day, so a Goal.",
+            ask="Suggest a Goal with Actions under it, such as Write chapter 1.",
+        ),
+        Example(
+            '"Work on my health"',
+            clear=False,
+            verdict="A direction, not a step.",
+            ask="Ask what one step to take, such as Book a check-up.",
+        ),
+        Example(
+            '"Back straight"',
+            clear=False,
+            verdict="A state to observe, not work.",
+            ask="Suggest a Check instead.",
+        ),
+        Example(
+            '"Buy a new phone", Goal "Save $5k"',
+            clear=False,
+            verdict="Works against its Goal.",
+            ask="Ask whether it belongs under another Goal or on its own.",
+        ),
+    ),
+)

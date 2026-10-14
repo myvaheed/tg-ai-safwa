@@ -65,24 +65,24 @@ async def value_card_ids(session, value_id: int) -> list[int]:
 async def test_a_value_name_is_taken_whatever_the_capitals(sessions, name, duplicate):
     """VL-NAME-005 — tests/brd/values.feature"""
     async with sessions() as session:
-        await create_value(session, name)
-        other = await create_value(session, "Tidiness")
+        await create_value(session, name, "What matters to me")
+        other = await create_value(session, "Tidiness", "What matters to me")
         await session.commit()
 
         with pytest.raises(DomainError, match="already exists"):
-            await create_value(session, duplicate)
+            await create_value(session, duplicate, "What matters to me")
         with pytest.raises(DomainError, match="already exists"):
             await update_value_fields(session, other.id, name=duplicate)
         with pytest.raises(DomainError, match="cannot be empty"):
             await update_value_fields(session, other.id, name="   ")
         with pytest.raises(DomainError, match="cannot be empty"):
-            await create_value(session, "  ")
+            await create_value(session, "  ", "What matters to me")
 
 
 async def test_a_value_unicode_name_is_unique_in_storage_and_resolves_in_proposals(sessions):
     """VL-NAME-005 — tests/brd/values.feature"""
     async with sessions() as session:
-        value = await create_value(session, "Здоровье")
+        value = await create_value(session, "Здоровье", "What matters to me")
         await update_value_fields(session, value.id, name="СЕМЬЯ")
         await session.commit()
         resolved = await resolve_references(session, VALUE_REFERENCE, {"values": "семья"})
@@ -96,8 +96,8 @@ async def test_a_value_unicode_name_is_unique_in_storage_and_resolves_in_proposa
 async def test_a_check_can_carry_a_value_of_its_own(sessions):
     """VL-CHECK-010 — tests/brd/values.feature"""
     async with sessions() as session:
-        health = await create_value(session, "Health")
-        tidiness = await create_value(session, "Tidiness")
+        health = await create_value(session, "Health", "What matters to me")
+        tidiness = await create_value(session, "Tidiness", "What matters to me")
         card = await _action(session, "Morning run")
         check = await create_check(session, title="Did I sleep seven hours?")
         await toggle_card_check(session, card.id, check.id)
@@ -120,7 +120,7 @@ async def test_a_check_can_carry_a_value_of_its_own(sessions):
 async def test_archiving_a_check_keeps_its_values_and_deleting_takes_them(sessions):
     """VL-CHECK-011 — tests/brd/values.feature"""
     async with sessions() as session:
-        value = await create_value(session, "Health")
+        value = await create_value(session, "Health", "What matters to me")
         card = await _action(session, "Morning run")
         check = await create_check(session, title="Did I sleep seven hours?")
         await toggle_card_check(session, card.id, check.id)
@@ -141,7 +141,7 @@ async def test_archiving_a_check_keeps_its_values_and_deleting_takes_them(sessio
 async def test_an_answered_repeat_hands_its_values_to_its_successor(sessions):
     """VL-CHECK-012 — tests/brd/values.feature"""
     async with sessions() as session:
-        value = await create_value(session, "Health")
+        value = await create_value(session, "Health", "What matters to me")
         card = await _action(session, "Morning run")
         repeating = await create_check(
             session, title="Did I sleep seven hours?", schedule="after completion"
@@ -169,7 +169,7 @@ async def test_safwa_sees_the_values_a_check_is_about(sessions):
     """VL-READ-013 — tests/brd/values.feature"""
     async with sessions() as session:
         await _views(session)
-        health = await create_value(session, "Health")
+        health = await create_value(session, "Health", "What matters to me")
         check = await create_check(session, title="Did I sleep seven hours?")
         plain = await create_check(session, title="Did the audit pass?")
         await toggle_check_value(session, check.id, health.id)
@@ -189,7 +189,7 @@ async def test_safwa_can_start_from_a_value_and_find_what_is_behind_it(sessions)
     """VL-READ-014 — tests/brd/values.feature"""
     async with sessions() as session:
         await _views(session)
-        health = await create_value(session, "Health")
+        health = await create_value(session, "Health", "What matters to me")
         run = await _action(session, "Morning run")
         stale = await _action(session, "Old plan")
         await toggle_card_value(session, run.id, health.id)
@@ -228,9 +228,9 @@ async def test_safwa_can_start_from_a_value_and_find_what_is_behind_it(sessions)
 async def test_a_value_is_in_focus_while_a_card_in_today_carries_it(sessions):
     """VL-FOCUS-001 — tests/brd/values.feature"""
     async with sessions() as session:
-        health = await create_value(session, "Health")
-        family = await create_value(session, "Family")
-        craft = await create_value(session, "Craft")
+        health = await create_value(session, "Health", "What matters to me")
+        family = await create_value(session, "Family", "What matters to me")
+        craft = await create_value(session, "Craft", "What matters to me")
         run = await _action(session, "Morning run", stage="today", value_ids={health.id})
         home = await create_domain_card(
             session, kind="goal", title="Home", value_ids={family.id}
@@ -258,7 +258,7 @@ async def test_safwa_is_handed_every_value(sessions):
     """VL-FOCUS-002 — tests/brd/values.feature"""
     async with sessions() as session:
         fitness = await create_value(session, "Fitness", description="Daily movement")
-        tidiness = await create_value(session, "Tidiness")
+        tidiness = await create_value(session, "Tidiness", "A tidy desk every evening")
         await _action(session, "Walk", stage="today", value_ids={fitness.id})
         family = await create_tag(session, "Family")
         await session.commit()
@@ -269,7 +269,7 @@ async def test_safwa_is_handed_every_value(sessions):
     start = lines.index("Values:") + 1
     assert lines[start : start + 2] == [
         f"- [Fitness](value:{fitness.id}): Daily movement",
-        f"- [Tidiness](value:{tidiness.id})",
+        f"- [Tidiness](value:{tidiness.id}): A tidy desk every evening",
     ]
     assert lines[lines.index("Available Tags:") + 1] == f"- [Family](tag:{family.id})"
 
@@ -277,7 +277,7 @@ async def test_safwa_is_handed_every_value(sessions):
 async def test_a_value_is_deleted_not_archived(sessions):
     """VL-DELETE-015 — tests/brd/values.feature"""
     async with sessions() as session:
-        value = await create_value(session, "Health")
+        value = await create_value(session, "Health", "What matters to me")
         card = await _action(session, "Morning run")
         check = await create_check(session, title="Did I sleep seven hours?")
         await toggle_card_check(session, card.id, check.id)
@@ -316,18 +316,18 @@ async def test_a_deleted_value_frees_its_name(sessions):
         await delete_value(session, first_id)
         await session.commit()
 
-        again = await create_value(session, "FITNESS")
+        again = await create_value(session, "FITNESS", "A new start")
         await session.commit()
 
         # A new Value under the freed name, not the old one coming back.
-        assert again.description == ""
+        assert again.description == "A new start"
         assert len(list(await session.scalars(select(Value)))) == 1
 
 
 async def test_a_repeating_card_hands_the_checks_values_to_the_next_cycle(sessions):
     """VL-CHECK-016 — tests/brd/values.feature"""
     async with sessions() as session:
-        value = await create_value(session, "Health")
+        value = await create_value(session, "Health", "What matters to me")
         card = await _action(session, "Pull-ups", stage="today", schedule="after completion")
         check = await create_check(session, title="Did 20 pull-ups?")
         await toggle_card_check(session, card.id, check.id)

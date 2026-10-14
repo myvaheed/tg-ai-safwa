@@ -28,7 +28,7 @@ from tg_agent_shell.telegram.model import UiSession
 async def test_the_value_screen_counts_cards_and_checks(sessions) -> None:
     """VL-LINK-004 — tests/brd/values.feature"""
     async with sessions() as session:
-        value = await create_value(session, "Health")
+        value = await create_value(session, "Health", "What matters to me")
         card = await create_card(session, kind="action", title="Morning run", effort_points=1)
         check = await create_check(session, title="Did I sleep seven hours?")
         await toggle_card_value(session, card.id, value.id)
@@ -47,8 +47,8 @@ async def test_the_value_screen_counts_cards_and_checks(sessions) -> None:
 async def test_no_screen_sets_a_values_focus_by_hand(sessions) -> None:
     """VL-FOCUS-001 — tests/brd/values.feature"""
     async with sessions() as session:
-        value = await create_value(session, "Health")
-        await create_value(session, "Tidiness")
+        value = await create_value(session, "Health", "What matters to me")
+        await create_value(session, "Tidiness", "What matters to me")
         await session.commit()
         value_id = value.id
 
@@ -161,7 +161,7 @@ async def test_manual_tag_and_value_delete_unlinks_cards(sessions) -> None:
 async def test_a_value_goes_back_where_it_was_opened_from(sessions) -> None:
     """SC-BACK-012 — tests/brd/tg_agent_shell/screens.feature"""
     async with sessions() as session:
-        value = await create_value(session, "Health")
+        value = await create_value(session, "Health", "What matters to me")
         card = await create_card(session, kind="goal", title="Get fit")
         await toggle_card_value(session, card.id, value.id)
         await session.commit()
@@ -183,3 +183,35 @@ async def test_a_value_goes_back_where_it_was_opened_from(sessions) -> None:
     goal = Place("card_view", {"id": card_id})
     await render_value(listing, services, mode="view", item_id=value_id, back=goal)
     assert await place_of(sessions, listing.edits[-1][1], "↩️ Back") == goal
+
+
+async def test_a_value_is_not_created_without_a_description(sessions) -> None:
+    """VL-DESC-024 — tests/brd/values.feature"""
+    services = services_for(sessions)
+    named = FakeMessage(50, bot_message=True)
+    await render_value(named, services, mode="create", values={"name": "Health"})
+    text, markup = named.edits[-1]
+    assert "✅ Create Value" not in button_texts(markup)
+    assert "A Value is created once it has a name and a description." in text
+    await render_value_text_prompt(named, services, mode="create", item_id=None, field="description")
+    assert "why this Value matters to you and what you do for it" in named.bot.edits[-1][1]
+
+    described = FakeMessage(51, bot_message=True)
+    await render_value(
+        described, services, mode="create",
+        values={"name": "Health", "description": "Sleep 7 hours, move every day"},
+    )
+    assert "✅ Create Value" in button_texts(described.edits[-1][1])
+
+    with pytest.raises(ValueError, match="a new Value needs description"):
+        ValueToolInput.model_validate({"mode": "create", "name": "Health"})
+
+    async with sessions() as session:
+        with pytest.raises(DomainError, match="A Value needs a description"):
+            await create_value(session, "Health", "   ")
+        value = await create_value(session, "Health", "Sleep 7 hours, move every day")
+        await session.commit()
+        with pytest.raises(DomainError, match="A Value needs a description"):
+            await update_value_fields(session, value.id, description="")
+        await session.rollback()
+        assert (await session.get(Value, value.id)).description == "Sleep 7 hours, move every day"

@@ -41,6 +41,7 @@ from ..config import Settings
 from ..features.advisor.agent import ADVISOR_ROW_LIMITS, ADVISOR_VIEWS
 from ..features.cards.action_review import ActionReviewer
 from ..features.cards.goal_review import GoalReviewer
+from ..features.checks.check_review import CheckReviewer
 from ..features.diagnostics.module import SHOW_ANSWER_SOURCE
 from ..features.home.motivation import Motivator
 from ..features.memory.absorb import PatternReviewer
@@ -94,6 +95,7 @@ class SafwaFeatures:
     key_actions: KeyActions
     goal_reviewer: GoalReviewer
     action_reviewer: ActionReviewer
+    check_reviewer: CheckReviewer
     value_reviewer: ValueReviewer
     value_link_reviewer: ValueLinkReviewer
     analyst: SprintAnalyst
@@ -320,6 +322,7 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
             action_reviewer=ActionReviewer(
                 provider, history, settings.telegram_owner_id, search
             ),
+            check_reviewer=CheckReviewer(provider),
             value_reviewer=ValueReviewer(provider),
             value_link_reviewer=ValueLinkReviewer(provider),
             analyst=SprintAnalyst(provider),

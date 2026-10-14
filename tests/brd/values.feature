@@ -16,12 +16,13 @@
     And Safwa's value tool says the limit in the description field
     And a call of Safwa's over it comes back to Safwa refused, with no screen shown
 
-  Scenario: VL-LINK-018 — A link means the item supports the Value
+  Scenario: VL-LINK-018 — A link means the item makes more of the Value
     Given Advisor, Mutator and Onboarding explain Value links
-    Then a Goal, Action or Check is linked for supporting the Value, not for needing it
-    And earning $4k supports Freedom through more choices
-    And earning $4k supports Health only when the money maintains health
+    Then a Goal, Action or Check is linked when achieving it, doing it or its holding makes more of the Value in the owner's life, as the Value's description says, never for needing the Value
+    And earning $4k serves Freedom through more choices
+    And earning $4k serves Health only when the money maintains health
     And needing Health or Perseverance to earn it is not a supporting link
+    And earning $20k does not serve Punctuality kept for the owner's self-respect, while a Check "On time?" does
     And the owner's own clear supporting explanation can establish a different connection
     And a link is unclear when supporting and reversed meanings are both plausible and no context resolves them
 
@@ -58,25 +59,34 @@
     Given a Value is created, by hand or by a saved proposal
     When the change commits
     Then one mini session reads only its name and description
-    And it answers clear for a direction the owner acts on whose name or description says what exactly matters
-    And it answers unclear, with what is unclear and one advice, for a result, a feeling, a means, a rule, a turn away from something, what others decide, or a Value that does not say what exactly matters
-    And the advice may hold a short exercise, such as asking "what for?" again or how the Value looks on an ordinary weekday
-    And it does not judge whether the Value is right for the owner
+    And it answers clear for a direction the owner lives by whose description says what they do for it on an ordinary day
+    And it answers unclear, with what is unclear and one advice, for a result, one practice, a feeling or a rule in the name, a turn away from something, a means whose description says only what it buys, or a description that does not say what the owner does
+    And a name about others, such as their smile, is clear when the description says what the owner does
+    And the advice may hold a short exercise, such as asking "what for?" again or how the Value looks on an ordinary day
+    And it does not judge whether the Value is right for the owner, or how vivid its words are
     And a clear Value produces no question or change
     And a rename, a new description or a rollback starts no review
     And a Value renamed, described anew or deleted during review produces no queued request
     And one request carries every Value still there, each with its advice, and tells the Advisor to read current data before asking
     And the Advisor says it looked at the new Value again and it could be improved, says what could be clearer, and asks one question following its advice
     And it offers each suggestion as a possibility and to update the Value, and nothing changes before the owner answers
-    And the answer updates the Value, or proposes a Goal for a Value that is a result
+    And the answer updates the Value, or proposes a Goal or a repeating Action instead
     And the request waits like any hook request while access is locked
     And switching Value clarification off in Profile → Hooks stops the check and drops what is pending
 
   Scenario: VL-MEANING-023 — Safwa says what a Value is before proposing one
     Given Advisor and Mutator explain Values
-    Then a Value is a direction the owner acts on, with no deadline, and never Done
-    And a Value is not a result, a feeling, a means or a rule, and a result is a Goal
-    And a new Value's description holds what exactly matters to the owner, in the owner's words, never invented
+    Then a Value is a direction the owner lives by, with no deadline, and never Done
+    And a Value is not a result, a practice, a feeling, a means or a rule; a result is a Goal and a practice is a repeating Action
+    And a new Value has a short, vivid name and a description of two or three vivid sentences on why it matters, then what the owner does for it on an ordinary day
+    And both are built from the owner's words: Safwa asks why it matters and what they do before proposing it, and never invents either
+
+  Scenario: VL-DESC-024 — A Value is not created without a description
+    Given the owner writes a new Value on its screen, or Safwa proposes one
+    When it has a name and no description
+    Then its screen offers no way to create it yet, says it needs a name and a description, and the description editor asks why the Value matters and what the owner does for it
+    And Safwa's value tool refuses a new Value without a description, with no screen shown
+    And a description cannot be emptied later: the Value keeps the one it had
 
   Scenario: VL-FOCUS-001 — A Value is in focus while a Card in Today carries it
     Given "Health" is on an Action in Today

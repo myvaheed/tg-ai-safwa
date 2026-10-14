@@ -93,7 +93,7 @@ async def pending(sessions):
         return list(await session.scalars(select(Cue)))
 
 
-async def created(sessions, name, description=""):
+async def created(sessions, name, description="What matters to me"):
     async with sessions() as session:
         value = await create_value(session, name, description)
         await session.commit()
@@ -104,11 +104,19 @@ def test_safwa_says_what_a_value_is_before_proposing_one():
     """VL-MEANING-023 — tests/brd/values.feature"""
     mutator = routed_prompt(MUTATOR_AGENT)
     for prompt in (SYSTEM_PROMPT, mutator):
-        assert "- Value: a direction the user acts on, with no deadline. It is never Done." in prompt
-        assert "- A Value is not a result, a feeling, a means or a rule. A result is a Goal." in prompt
+        for line in (
+            "- Value: a direction the user lives by, with no deadline. It is never Done.",
+            "- A Value is not a result, a practice, a feeling, a means or a rule.",
+            "- A result is a Goal. A practice is a repeating Action.",
+            "- Value name: short and vivid, in the user's language.",
+            "- Value description: two or three vivid sentences on why it matters, "
+            "then what the user does for it on an ordinary day.",
+            "- Build both from the user's words. Never invent why it matters or what they do.",
+        ):
+            assert line in prompt
     assert (
-        "- A new Value: write in `description` what exactly matters to the user, in their words. "
-        "Never invent it." in mutator
+        "- A new Value: if the user has not said why it matters or what they do for it, "
+        "call nothing_to_do with what needs clarification." in mutator
     )
 
 
@@ -125,17 +133,24 @@ def test_the_review_knows_every_criterion_and_advises_with_exercises():
     """VL-CLARIFY-022 — tests/brd/values.feature"""
     for criterion in (
         "not a result that can be Done",
-        "not a feeling to have",
-        "not what others do or think",
+        "not one practice such as running",
+        "no feeling to have in its name",
         "not away from something",
-        "not a means such as money or a skill",
-        "not a rule with must, always, never or perfect",
-        "says what exactly matters to the user",
+        "an end, not a means",
+        "not a rule with must, always, never or perfect in its name",
+        "the name may be about others, such as their smile, when the description says what "
+        "the user does",
+        "the description says what the user does for it on an ordinary day",
     ):
         assert criterion in VALUE_REVIEW_PROMPT
-    assert "Ask what it is for, and again" in VALUE_REVIEW_PROMPT
-    assert "how it looks on an ordinary weekday" in VALUE_REVIEW_PROMPT
-    assert "Do not judge whether the Value is right for the user." in VALUE_REVIEW_PROMPT
+    assert "how it looks on an ordinary day" in VALUE_REVIEW_PROMPT
+    assert "a description of what it gives the user in itself, not only what it buys" in (
+        VALUE_REVIEW_PROMPT
+    )
+    assert (
+        "Do not judge whether the Value is right for the user, or how vivid its words are."
+        in VALUE_REVIEW_PROMPT
+    )
 
 
 @pytest.mark.parametrize("clear", [True, False])
@@ -164,7 +179,7 @@ async def test_new_value_is_reviewed_alone_and_asked_about_only_when_unclear(ses
             assert "Read the current Values first" in words
             assert "you looked at the new Values again and they could be improved" in words
             assert "Offer to update the Value with their answer" in words
-            assert "update the Value or propose a Goal" in words
+            assert "update the Value, or to propose a Goal or a repeating Action instead" in words
             assert "Change nothing until they answer" in words
             assert await pending(sessions) == []
     finally:
@@ -177,7 +192,7 @@ async def test_a_rename_a_new_description_or_a_rollback_starts_no_review(session
     sink = bound(sessions, provider)
     try:
         async with sessions() as session:
-            await create_value(session, "Money")
+            await create_value(session, "Money", "What matters to me")
             await session.rollback()
         await sink.drain()
         assert provider.calls == []

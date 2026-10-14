@@ -36,7 +36,7 @@ async def test_saved_unlink_leads_to_a_proposed_note_without_the_value(e2e_harne
     ))
     try:
         async with sessions() as session:
-            value = await create_value(session, "Health")
+            value = await create_value(session, "Health", "What matters to me")
             action = await create_card(
                 session, kind="action", title="Run 5 km",
                 note="Route along the river. Keeps my health up.", value_ids={value.id},

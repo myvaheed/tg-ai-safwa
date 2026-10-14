@@ -33,6 +33,7 @@ from safwa.bootstrap.modules import (
     SYSTEM_PROMPT,
 )
 from safwa.features.advisor.agent import ITEMS, PERSONA
+from safwa.features.compass.agent import MORE_ABOUT_TOOL
 from safwa.features.schedules.agent import (
     DEADLINE_PARSER_PROMPT,
     SCHEDULE_PARSER_PROMPT,
@@ -286,6 +287,7 @@ def _tool_schemas() -> dict[str, dict]:
         "relook": relook_tool(None).schema,
         "get_scheduled": scheduled_tool(None).schema,
         "value_link_review": VALUE_LINK_TERMINAL.schema(),
+        "get_more_about": MORE_ABOUT_TOOL,
     }
     tools.update({name: tool.schema() for name, tool in PROPOSALS.tools.items()})
     return tools

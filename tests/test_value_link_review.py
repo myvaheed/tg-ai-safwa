@@ -15,9 +15,8 @@ from safwa.features.checks.model import Check
 from safwa.features.checks.use_cases import resolve_check, toggle_check_value, update_check_fields
 from safwa.features.onboarding.agent import MANUAL
 from safwa.features.profile.api import hook_switched_on, set_hook_switch
-from safwa.features.values.api import VALUE_LINK_MEANING
 from safwa.features.values.hooks import VALUE_LINK_HOOK, VALUE_UNLINK_HOOK
-from safwa.features.values.link_review import ValueLinkReviewer
+from safwa.features.values.link_review import VALUE_LINK_PROMPT, ValueLinkReviewer
 from safwa.features.values.use_cases import create_value, update_value_fields
 from safwa.features.values.value_review import VALUE_CLARIFICATION_HOOK
 from safwa.features.workspace_mutator.agent import MUTATOR_AGENT
@@ -111,9 +110,23 @@ async def link(session, kind, item_id, value_id):
 
 def test_all_three_prompts_teach_the_same_supporting_direction():
     """VL-LINK-018 — tests/brd/values.feature"""
-    assert VALUE_LINK_MEANING in SYSTEM_PROMPT
-    assert VALUE_LINK_MEANING in routed_prompt(MUTATOR_AGENT)
-    assert VALUE_LINK_MEANING in MANUAL
+    serves = (
+        "a Goal, Action or Check serves a Value when achieving the Goal, doing the Action or "
+        "the Check holding makes more of the Value in the user's life, as its description says"
+    )
+    needed = "Never link because the Value is needed to complete the item."
+    for prompt in (SYSTEM_PROMPT, routed_prompt(MUTATOR_AGENT), MANUAL, VALUE_LINK_PROMPT):
+        assert serves.lower() in prompt.lower()
+        assert needed in prompt
+    for example in (
+        'Goal "Earn $4k" → Freedom: clear=true',
+        'Goal "Earn $4k", Note "Pays for my healthcare" → Health: clear=true',
+        'Goal "Earn $4k", Note "I need good health to work" → Health: clear=false',
+        'Goal "Earn $4k" → Perseverance: clear=false',
+        'Goal "Earn $20k" → Punctuality, "I respect myself when I am on time": clear=false',
+        'Check "On time?" → Punctuality, "I respect myself when I am on time": clear=true',
+    ):
+        assert example in VALUE_LINK_PROMPT
 
 
 def test_one_hook_checks_the_link_and_asks_under_its_own_switch():
@@ -204,7 +217,7 @@ async def test_unclear_links_are_asked_together_in_one_request(sessions):
     ))
     try:
         async with sessions() as session:
-            second = await create_value(session, "Perseverance")
+            second = await create_value(session, "Perseverance", "What matters to me")
             second_id = second.id
             await link(session, "goal", item_id, first_id)
             await session.commit()

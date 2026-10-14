@@ -131,3 +131,20 @@ Feature: Checks
     And two series whose runs came due before it is said make one question about both
     And a Check deleted before then is left out; with none left, nothing is asked
     And a Check that does not repeat has one answer, so it is never raised
+
+  Scenario: CH-REVIEW-019 — A new Check gets one small check before any question
+    Given a Check is created, by hand or by a saved proposal
+    When the change commits
+    Then one mini session reads only its title, Note, Schedule and the Card it is on
+    And it answers clear for a state or a result answered yes or no that some fact shows and that, on a Card, is about that Card's result
+    And it answers unclear, with what to change, why and one advice, for work done, such as "Did my morning exercises?" every morning, work that takes time, a question not answered yes or no, an answer no fact shows, or a Check on a Card that is not about that Card's result
+    And not doing something, such as "No sweets today?", is a state and is clear
+    And it does not judge whether the Check is worth keeping
+    And a Check that fits produces no question or change
+    And the next instance of a repeating Check, a rollback, or editing a Check starts no review
+    And a Check changed, answered or deleted during review produces no queued request
+    And one request carries every Check still open, each with its advice, and tells the Advisor to read current data before asking
+    And the Advisor says it looked at the new Check again and it could be improved, says what to change and why, and asks whether to make the change
+    And nothing changes before the owner answers; the answer updates the Check or proposes an Action instead
+    And the request waits like any hook request while access is locked
+    And switching Check review off in Profile → Hooks stops the check and drops what is pending

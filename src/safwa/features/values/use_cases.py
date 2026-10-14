@@ -26,8 +26,11 @@ VALUE_CREATED = "value.created"
 
 
 def value_description(text: str) -> str:
-    """A description as it is kept: trimmed, and at most `DESCRIPTION_MAX_CHARS` long."""
+    """A description as it is kept: trimmed, never empty, and at most `DESCRIPTION_MAX_CHARS`
+    long."""
     described = text.strip()
+    if not described:
+        raise DomainError("A Value needs a description: why it matters and what you do for it.")
     if len(described) > DESCRIPTION_MAX_CHARS:
         raise DomainError(
             f"Value description holds at most {DESCRIPTION_MAX_CHARS} characters; "
@@ -39,7 +42,7 @@ def value_description(text: str) -> str:
 async def create_value(
     session: AsyncSession,
     name: str,
-    description: str | None = None,
+    description: str,
     *,
     actor: ActorType = ActorType.USER_UI,
 ) -> Value:
@@ -49,7 +52,7 @@ async def create_value(
     existing = await session.scalar(select(Value).where(Value.name == normalized))
     if existing is not None:
         raise DomainError("A Value with this name already exists")
-    value = Value(name=normalized, description=value_description(description or ""))
+    value = Value(name=normalized, description=value_description(description))
     session.add(value)
     await session.flush()
     await _record(session, value, CREATE, actor)

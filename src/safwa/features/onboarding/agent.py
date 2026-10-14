@@ -1,6 +1,6 @@
 """The onboarding subagent: a manual of Safwa, answered from as it is.
 
-It reads no data. The manual is its prompt, the items a tip is about are cited in the
+It reads no data. The manual is its prompt, the method for each item kind is read on demand, the items a tip is about are cited in the
 request that routed it, and the rest is the workspace state. The Advisor forwards its words
 to the user as it wrote them, rather than retelling them.
 """
@@ -17,8 +17,9 @@ from ..cards.model import (
     ENERGY_MEANINGS,
     effort_label,
 )
+from ..compass.agent import MORE_ABOUT
 from ..schedules.api import ACTION_DAILY_EXECUTIONS_MAX
-from ..values.api import VALUE_LINK_MEANING
+from ..values.api import LINK
 
 # Enough of the conversation to see its own recent tips.
 ONBOARDING_HISTORY_MESSAGES = 30
@@ -30,6 +31,8 @@ _CATEGORIES = ", ".join(
     f"{kind.title()} ({meaning})" for kind, meaning in CATEGORY_MEANINGS.items()
 )
 _ENERGY = ", ".join(f"{kind.title()} ({meaning})" for kind, meaning in ENERGY_MEANINGS.items())
+_SERVES = LINK.definition.removeprefix("Value link: ")
+_LINK = " ".join((_SERVES[0].upper() + _SERVES[1:], *LINK.criteria))
 
 MANUAL = f"""# Safwa
 - Safwa is a personal agile advisor in Telegram. The user keeps a workspace of Cards, commits to a Sprint of a fixed number of days, and learns from each Sprint in its retro.
@@ -50,7 +53,7 @@ MANUAL = f"""# Safwa
 - Goal markers count Goal levels including the Card itself: 🎯 for one level, 🎯² for two, 🎯³ for three, and so on. Actions do not count.
 - The tree has at most {CARD_TREE_DEPTH_MAX} levels, counting the root as 1 and including Actions. A Card cannot be placed under itself or its descendants.
 - Goals name a specific, attainable, meaningful result, with a verifiable completion criterion in Note; Deadline is optional. A Subgoal contributes to its parent's result. Unclear results or criteria are clarified before proposing. Directions are Values; ongoing practices are repeating Actions.
-- After a Goal or Subgoal is created, Safwa silently checks that it is one concrete result that takes more than one day, with an observable Done. If not, the Advisor says the Goal could be improved and asks with advice. It may suggest a criterion, a Value, a repeating Action or an Action instead, for the user to confirm. A Goal tagged "{INBOX_TAG_NAME}" is not checked. Goal clarification in Profile → Hooks switches this off or on.
+- After a Goal or Subgoal is created, Safwa silently checks that it is one concrete result that takes more than one day, with an observable Done, and that a Subgoal moves its parent forward. If not, the Advisor says the Goal could be improved and asks with advice. It may suggest a criterion, a Value, a repeating Action or an Action instead, for the user to confirm. A Goal tagged "{INBOX_TAG_NAME}" is not checked. Goal clarification in Profile → Hooks switches this off or on.
 - An Action has a stage: Backlog, Sprint, Today, Done. It goes to Sprint or Today when the user takes it on; it need not pass every stage. An open Goal shows its children's live stage. Goals and Subgoals close only by an explicit Done or approved proposal after their Actions are finished; an open Action reopens them.
 - After all Actions under a Goal or Subgoal are Done, the Advisor asks whether to close it too or create a new Action. Goal completion follow-up in Profile → Hooks switches this question off or on.
 - Priority: Critical, Medium, Low.
@@ -59,7 +62,7 @@ MANUAL = f"""# Safwa
 - Categories say what an Action gives: {_CATEGORIES}.
 - Energy says what an Action costs: {_ENERGY}.
 - An Action may carry several Categories and several Energy types. Their selectors show these words on each button.
-- After an Action is created, by hand or by a saved proposal, Safwa silently checks that it fits in one day and that its Categories, Energy types and, with EP on, Effort Points fit it. EP are compared with similar Actions, finished ones first. What the user named in the last messages is left alone. If something clearly does not fit, the Advisor says the Action could be improved, suggests the change with its reason, and asks. It may suggest a Goal instead. An Action tagged "{INBOX_TAG_NAME}" is not checked. Action review in Profile → Hooks switches this off or on.
+- After an Action is created, by hand or by a saved proposal, Safwa silently checks that it is one concrete step that fits in one day and moves its Goal forward, and that its Categories, Energy types and, with EP on, Effort Points fit it. EP are compared with similar Actions, finished ones first. What the user named in the last messages is left alone. If something clearly does not fit, the Advisor says the Action could be improved, suggests the change with its reason, and asks. It may suggest a Goal instead. An Action tagged "{INBOX_TAG_NAME}" is not checked. Action review in Profile → Hooks switches this off or on.
 - Schedule holds an Action's timing in plain words: every evening, every Monday, five times a day, Tuesday at 15:00. No clock is needed: a day without one is due by its end. Calendar weeks start Monday in the workspace timezone.
 - A Schedule is read before it is saved. Typed into "⏱ Schedule", the Card shows how it was understood, and a missing detail is asked on the same screen. Proposed in words, the review screen shows how it was understood, and the Advisor asks for a missing detail in the same reply.
 - An Action repeats at most {ACTION_DAILY_EXECUTIONS_MAX} times a day; more often is a Check.
@@ -99,16 +102,17 @@ MANUAL = f"""# Safwa
 - In words: create, rename, put on a Card, answer, delete.
 - With buttons: "☑️ Checks" on its Card, counting answered of all; on the Check, "✅ Yes" answers Passed and "❌ No" answers Missed, "📝 Note", "⏱ Schedule", "💎 Values", "🗑 Delete".
 - Not with buttons: creating a Check, or putting it on a Card. Ask the Advisor.
+- After a Check is created, Safwa silently checks that it observes a state or a result rather than work done, is answered yes or no, and is about its Card's result. "Did I exercise?" every morning is a repeating Action; "No sweets?" is a Check. If something clearly does not fit, the Advisor says the Check could be improved, suggests the change with its reason, and asks. Check review in Profile → Hooks switches this off or on.
 
 # Values and Tags
-- A Value is what the user cares about: "Health". A Card carries a Value when it serves it; a Check carries one when it shows how well it is held. A Value is in focus while a Card in Today carries it: an Action in Today, or a Goal or Subgoal above one. The Advisor reads every Value. A Value's or a Tag's description holds at most {DESCRIPTION_MAX_CHARS} characters.
-- {VALUE_LINK_MEANING} Explain unclear links in Note.
-- After a Value is created, Safwa silently checks that it is a direction the user acts on, not a result, a feeling, a means or a rule, and that it says what exactly matters. If not, the Advisor says the Value could be improved and asks with advice. It may offer a short exercise. Value clarification in Profile → Hooks switches this off or on.
+- A Value is what the user lives by: "📖 Endless learning". It has a name and a description: why it matters and what the user does for it on an ordinary day. A vivid name and description make it clearer what the user wants; the Advisor helps word them from the user's own words. A Card carries a Value when it serves it; a Check carries one when it shows how well it is held. A Value is in focus while a Card in Today carries it: an Action in Today, or a Goal or Subgoal above one. The Advisor reads every Value. A Value's or a Tag's description holds at most {DESCRIPTION_MAX_CHARS} characters.
+- {_LINK} Explain unclear links in Note.
+- After a Value is created, Safwa silently checks that it is a direction the user lives by, not a result, a practice, a feeling, a means or a rule, and that its description says what the user does for it. If not, the Advisor says the Value could be improved and asks with advice. It may offer a short exercise. Value clarification in Profile → Hooks switches this off or on.
 - After linking a Value, Safwa silently checks this direction. If unclear or reversed, it asks the user to clarify Note. It may suggest a possible explanation for the user to confirm. Value link clarification in Profile → Hooks switches this off or on.
 - After a Value is taken off an item or deleted, Safwa silently reads each Note that may still mention it. If one does, the Advisor proposes that Note without that part, for Save or Discard. Value unlink cleanup in Profile → Hooks switches this off or on.
 - A Tag is a free label on Cards, to find them together later.
 - In words: create, rename, put on a Card, delete.
-- With buttons: "💎 Values" or /values, and "🏷 Tags" or /tags: "➕ Add Value", "➕ Add Tag", rename and delete. On a Card, "✏️ Full editing" puts them on.
+- With buttons: "💎 Values" or /values, and "🏷 Tags" or /tags: "➕ Add Value", "➕ Add Tag", rename and delete. A Value is created once it has a name and a description. On a Card, "✏️ Full editing" puts them on.
 
 # Requests
 - A Request is a saved query over Cards, such as "All Goals". It lists the Cards it finds, and it filters the Backlog when a Sprint is planned.
@@ -156,7 +160,7 @@ MANUAL = f"""# Safwa
 - Safwa speaks first on its own: about a blocked Action, an Action finished without its time or effort estimate, a day holding too much, Goals with no Action, scheduled Actions the plan does not hold, energy and rest in the Sprint and its Actions without a Category or Energy type, an Action stuck in Today, a Check Missed again and again, the Diary, the day's summary, a Sprint's end, a Success criterion out of reach, a read too heavy for the Advisor, what stands in Today and the Sprint when the user writes after 14 days or more away, and these onboarding tips.
 - An onboarding tip leaves the chat a minute after it comes. A message that says something else too stays.
 - Open "⚙️ Profile" → "🔔 Hooks" to list the reactions by title and state. Choose one to read its description and switch it off or on on its own screen.
-- Hooks: "Helper offer", "Blocker follow-up", "Time tracking reminder", "Effort Points reminder", "Goal completion follow-up", "Today overload", "Goals without Actions", "Schedule outside the plan", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Goal clarification", "Action review", "Value clarification", "Value link clarification", "Value unlink cleanup", "Diary nudge", "Daily summary", "Sprint end warning", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
+- Hooks: "Helper offer", "Blocker follow-up", "Time tracking reminder", "Effort Points reminder", "Goal completion follow-up", "Today overload", "Goals without Actions", "Schedule outside the plan", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Goal clarification", "Action review", "Check review", "Value clarification", "Value link clarification", "Value unlink cleanup", "Diary nudge", "Daily summary", "Sprint end warning", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
 - "Time tracking reminder" is in Hooks only while Time tracking is on, and asks nothing while it is off.
 - "Today overload" and "Effort Points reminder" are in Hooks only while Effort Points are on, and ask nothing while they are off.
 
@@ -187,6 +191,7 @@ ONBOARDING_PROMPT = f"""You explain Safwa to the user from the manual below. You
 
 # A question about Safwa
 Answer what was asked, about one thing, from the manual above. A tour is one short paragraph: what Safwa is and three first things to do; offer to go on.
+Asked what makes a good Value, Goal, Action, Check or Value link, or how to word one: call `get_more_about` with that topic and answer from it.
 When it helps, name the user's own Values, Tags or Sprint from the workspace state, with citations.
 Offer one concrete next thing to do.
 Promise nothing the manual does not have. Name a button exactly as the manual does.
@@ -210,6 +215,7 @@ ONBOARDING_AGENT = AgentSpec(
     ),
     instructions=ONBOARDING_PROMPT,
     workspace_state=True,
+    read_tools=lambda context: (MORE_ABOUT,),
     history_messages=ONBOARDING_HISTORY_MESSAGES,
     answers_questions=True,
 )

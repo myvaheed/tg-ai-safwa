@@ -155,7 +155,7 @@ async def render_value(
                     )
                 ]
             )
-        elif editor_values["name"].strip():
+        elif editor_values["name"].strip() and editor_values["description"].strip():
             rows.append(
                 [
                     await place_button(
@@ -173,7 +173,7 @@ async def render_value(
         + (
             f"\nLinked Cards: {carried_by[0]}\nLinked Checks: {carried_by[1]}"
             if mode == "view"
-            else ""
+            else "\nA Value is created once it has a name and a description."
         )
     )
     markup = InlineKeyboardMarkup(inline_keyboard=rows)
@@ -242,7 +242,10 @@ async def render_value_text_prompt(
 
 _INSTRUCTIONS = {
     "name": "Send the new name.",
-    "description": f"Send the new description, at most {DESCRIPTION_MAX_CHARS} characters.",
+    "description": (
+        "Send why this Value matters to you and what you do for it on an ordinary day, "
+        f"at most {DESCRIPTION_MAX_CHARS} characters."
+    ),
 }
 
 
@@ -331,10 +334,7 @@ async def _on_create(context: CallbackContext) -> None:
         if editor is None or editor.kind != "item_editor":
             raise DomainError("Item editor expired")
         values = dict(editor.state.get("values", {}))
-        # A description box the owner never typed into is not a description they gave.
-        value = await create_value(
-            session, values.get("name", ""), values.get("description", "").strip() or None
-        )
+        value = await create_value(session, values.get("name", ""), values.get("description", ""))
         await session.commit()
     await render_value(
         context.message, context.services, mode="view", item_id=value.id, back=context.back

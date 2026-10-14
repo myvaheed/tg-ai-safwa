@@ -343,7 +343,7 @@ async def test_checks_button_is_on_the_card_only(sessions) -> None:
     """CH-ANSWER-004 — tests/brd/checks.feature"""
     async with sessions() as session:
         card = await create_card(session, kind="action", title="Card", effort_points=1)
-        value = await create_value(session, "Value")
+        value = await create_value(session, "Value", "What matters to me")
         tag = await create_tag(session, "Tag")
         await session.commit()
         card_id, value_id, tag_id = card.id, value.id, tag.id
@@ -1042,7 +1042,7 @@ async def test_vl_link_017_a_goal_shows_its_values_and_says_when_it_has_none(ses
         action = await create_card(
             session, kind="action", title="Run", effort_points=1, parent_id=goal.id
         )
-        value = await create_value(session, "Health")
+        value = await create_value(session, "Health", "What matters to me")
         await toggle_card_value(session, action.id, value.id)
         await session.commit()
         goal_id, action_id = goal.id, action.id

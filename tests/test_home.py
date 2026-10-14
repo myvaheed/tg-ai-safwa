@@ -125,7 +125,7 @@ async def test_the_dashboard_reads_in_one_order(sessions) -> None:
     """HM-ORDER-014 — tests/brd/home.feature"""
     async with sessions() as session:
         await set_profile_field(session, ProfileField.TIME_TRACKING, True)
-        health = await create_value(session, "Health")
+        health = await create_value(session, "Health", "What matters to me")
         await create_card(session, kind="goal", title="Get fit", priority="critical")
         await _action(session, "Run", stage="today", value_ids={health.id})
         await session.commit()
@@ -178,8 +178,8 @@ async def test_each_value_in_focus_carries_the_words_written_for_it(sessions) ->
     async with sessions() as session:
         await set_profile_field(session, ProfileField.ABOUT_ME, "I run in the mornings.")
         health = await create_value(session, "Health", "Body first")
-        family = await create_value(session, "Family")
-        tidy = await create_value(session, "Tidiness")
+        family = await create_value(session, "Family", "Calls home every Sunday")
+        tidy = await create_value(session, "Tidiness", "What matters to me")
         marathon = await create_card(
             session, kind="goal", title="Run a marathon", value_ids={health.id}
         )
@@ -219,7 +219,7 @@ async def test_each_value_in_focus_carries_the_words_written_for_it(sessions) ->
     # Sprint is not in focus.
     assert context.endswith(
         "Values, numbered:\n"
-        "1. Family (carried today by: Call home)\n"
+        "1. Family — Calls home every Sunday (carried today by: Call home)\n"
         "2. Health — Body first (carried today by: Run a marathon)"
     )
 
@@ -233,7 +233,7 @@ async def test_each_value_in_focus_carries_the_words_written_for_it(sessions) ->
 
 async def _in_focus(session, name: str) -> int:
     """A Value in focus: an Action in Today carries it."""
-    value = await create_value(session, name)
+    value = await create_value(session, name, "What matters to me")
     await _action(session, f"Walk for {name}", stage="today", value_ids={value.id})
     return value.id
 

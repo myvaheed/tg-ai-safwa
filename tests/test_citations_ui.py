@@ -44,7 +44,7 @@ async def test_open_item_screen_renders_the_manual_screen_of_every_item(sessions
             lambda connection: create_ai_views(connection, AI_VIEWS)
         )
         card = await create_card(session, kind="action", title="Pull-ups", effort_points=1)
-        value = await create_value(session, "Health")
+        value = await create_value(session, "Health", "What matters to me")
         tag = await create_tag(session, "Training")
         check = await create_check(session, title="Form is safe")
         request = await create_saved_request(
@@ -162,7 +162,7 @@ async def test_citations_use_compact_labels_from_saved_items(sessions, effort_on
             categories={"growth"},
             energy_types={"physical", "emotional"},
         )
-        value = await create_value(session, "Свобода")
+        value = await create_value(session, "Свобода", "What matters to me")
         tag = await create_tag(session, "Здоровье")
         long_tag = await create_tag(session, "x" * 26)
         request = await create_saved_request(

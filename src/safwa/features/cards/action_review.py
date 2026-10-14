@@ -1,8 +1,8 @@
-"""Advise on a new Action only when it does not fit in one day or its labels clearly miss.
+"""Advise on a new Action only when it misses the Action criteria or its labels clearly miss.
 
-The hook's work reads each new Action, the last exchanges of the conversation and, with
-Effort Points on, the closest Actions that carry an estimate, finished ones first; one small
-model call answers clear, or unclear with its advice. The unclear one is kept with that
+The hook's work reads each new Action with its Goal, the last exchanges of the conversation
+and, with Effort Points on, the closest Actions that carry an estimate, finished ones first;
+one small model call answers clear, or unclear with its advice. The unclear one is kept with that
 advice as its pending request; every pending Action is worded in one request, which waits
 behind the Cue gate like any hook's, and the hook's switch drops what is still pending. Only
 creation starts the check, so the change made from the owner's answer asks nothing again.
@@ -26,7 +26,9 @@ from tg_agent_shell.ai.mini import TerminalTool, run_mini_session
 from tg_agent_shell.ai.sql import Ranking
 from tg_agent_shell.hooks.contracts import HookSpec, OnCommitted, RunAndAdvise, RunContext
 
+from ...foundation.method import bullets, lines, review_examples
 from ..profile.api import effort_tracking_on
+from .api import ACTION
 from .goal_review import created_card, open_card
 from .model import (
     CATEGORY_MEANINGS,
@@ -54,11 +56,11 @@ _RUNGS = "".join(f"- {effort_label(points)}: {words}\n" for points, words in EFF
 
 # Whether the Action is worth doing is the owner's to know: its title cannot show it.
 ACTION_REVIEW_PROMPT = (
-    "You review one new Action: its title, Note, Schedule and labels, "
+    "You review one new Action: its title, Note, Schedule, Goal and labels, "
     "with the recent conversation.\n"
-    "An Action is work that fits in one day. A repeating Action fits in one day each time.\n\n"
+    f"{ACTION.definition}\n\n"
     "A good Action:\n"
-    "- fits in one day; a result that takes longer is a Goal;\n"
+    f"{bullets(ACTION.criteria)}"
     f"- has `categories` that fit, what it gives: {_CATEGORIES};\n"
     f"- has `energy_types` that fit, what it costs: {_ENERGY};\n"
     "- has `effort_points` that fit, when the field is given.\n"
@@ -71,16 +73,15 @@ ACTION_REVIEW_PROMPT = (
     "name them and their effort points.\n"
     "`effort_points` null means not set: suggest one, from `similar` when there are any.\n"
     "Never advise changing what the user named in the conversation.\n"
-    "Do not judge whether the Action is worth doing.\n\n"
+    f"{lines(ACTION.leaves)}\n"
     "Examples:\n"
+    f"{review_examples(ACTION)}"
     '- "Run 5 km", rest, physical: clear()\n'
     '- "Pay the rent", chores, cognitive: clear()\n'
     '- "Run 5 km", rest, cognitive: unclear("Running costs the body, not focus. '
     'Suggest physical instead of cognitive.")\n'
     '- "Call mom", no labels: unclear("The main labels are missing. '
     'Suggest people and emotional.")\n'
-    '- "Write the thesis": unclear("Takes more than one day, so a Goal. '
-    'Suggest a Goal with Actions under it, such as Write chapter 1.")\n'
     '- "Run 20 km", 1 EP, similar finished "Run 15 km" with 5 EP: unclear("1 EP looks low: '
     'the finished Run 15 km took 5. Suggest 5 or 8.")\n'
     '- "Run 20 km", 1 EP, the user asked for 1 EP: clear()\n'
@@ -168,10 +169,12 @@ async def _read_action(session: AsyncSession, card_id: int) -> dict[str, Any] | 
     card = await open_card(session, card_id, CardKind.ACTION)
     if card is None:
         return None
+    goal = await session.get(Card, card.parent_id) if card.parent_id else None
     action: dict[str, Any] = {
         "title": card.title,
         "note": card.note,
         "schedule": card.schedule or "",
+        "goal": goal.title if goal else "",
         "categories": list(await session.scalars(
             select(CardCategory.category)
             .where(CardCategory.card_id == card_id)
@@ -270,8 +273,8 @@ ACTION_REVIEW_HOOK = HookSpec(
     effect=RunAndAdvise(run=review_action, prepare=action_review_request),
     title="Action review",
     description=(
-        "After an Action is created, checks that it fits in one day and that its Categories, "
-        "Energy types and Effort Points fit it. Suggests changes, with reasons, only when "
-        "something clearly does not."
+        "After an Action is created, checks that it is one concrete step that fits in one "
+        "day and moves its Goal forward, and that its Categories, Energy types and Effort "
+        "Points fit it. Suggests changes, with reasons, only when something clearly does not."
     ),
 )

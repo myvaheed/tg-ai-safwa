@@ -218,7 +218,7 @@ async def test_batch_is_reviewed_head_first_without_a_bulk_block(e2e_harness):
     """PR-AUTO-027 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
         tag = await create_tag(session, name="Work")
-        value = await create_value(session, name="Freedom")
+        value = await create_value(session, name="Freedom", description="What matters to me")
         await session.commit()
     advisor, provider = e2e_harness.advisor(
         [
@@ -255,7 +255,7 @@ async def test_next_head_is_autoapproved_after_a_manual_save(e2e_harness):
     """PR-AUTO-027 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
         tag = await create_tag(session, name="Work")
-        value = await create_value(session, name="Freedom")
+        value = await create_value(session, name="Freedom", description="What matters to me")
         await session.commit()
     advisor, provider = e2e_harness.advisor(
         [
@@ -395,7 +395,7 @@ async def test_the_third_in_a_queue_is_not_read_while_the_second_is_on_screen(e2
     """PR-AUTO-027 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
         tag = await create_tag(session, name="Work")
-        value = await create_value(session, name="Freedom")
+        value = await create_value(session, name="Freedom", description="What matters to me")
         await session.commit()
     card = await action(e2e_harness)
     advisor, provider = e2e_harness.advisor(

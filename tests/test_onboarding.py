@@ -272,7 +272,7 @@ async def test_ob_tip_002_a_value_saved_by_hand_or_by_proposal_is_owed_a_tip(ses
     """OB-TIP-002 — tests/brd/onboarding.feature"""
     sink = bind_committed(sessions, REGISTRY.hooks)
     async with sessions() as session:
-        by_hand = await create_value(session, "Health")
+        by_hand = await create_value(session, "Health", "What matters to me")
         await session.commit()
     # One in-memory connection: what a commit hands on is let finish before the next write.
     await sink.drain()
@@ -282,7 +282,7 @@ async def test_ob_tip_002_a_value_saved_by_hand_or_by_proposal_is_owed_a_tip(ses
     proposal = reviews.open_proposal(
         message="A Value.",
         workspace_revision=revision,
-        changes=[ProposalChange(entity="value", action=ChangeAction.CREATE, values={"name": "Calm"})],
+        changes=[ProposalChange(entity="value", action=ChangeAction.CREATE, values={"name": "Calm", "description": "What matters to me"})],
     )
     async with sessions() as session:
         (proposed,) = await approve_proposal(session, reviews, PROPOSALS, proposal.id)
@@ -307,7 +307,7 @@ async def test_ob_tip_002_a_value_saved_by_hand_or_by_proposal_is_owed_a_tip(ses
 async def test_ob_tip_002_many_items_are_cited_up_to_five_and_the_rest_counted(sessions):
     """OB-TIP-002 — tests/brd/onboarding.feature"""
     async with sessions() as session:
-        values = [await create_value(session, f"Value {index}") for index in range(7)]
+        values = [await create_value(session, f"Value {index}", "What matters to me") for index in range(7)]
         await session.commit()
         words = await onboarding_request(
             session, [["value.created", value.id] for value in values]
@@ -328,7 +328,7 @@ async def test_ob_tip_002_each_item_is_one_line_with_its_state_as_it_is_now(sess
             session, kind="action", title="Go to the market", stage="today", effort_points=1,
             check_ids={milk.id},
         )
-        gone = await create_value(session, "Gone")
+        gone = await create_value(session, "Gone", "What matters to me")
         await session.flush()
         await session.delete(gone)
         await finish_action(session, market.id, check_outcomes={milk.id: "passed"})
@@ -356,7 +356,7 @@ async def test_ob_tip_002_each_item_is_one_line_with_its_state_as_it_is_now(sess
 async def test_ob_tip_002_a_turn_that_does_not_route_loses_the_tip(sessions):
     """OB-TIP-002 — tests/brd/onboarding.feature"""
     async with sessions() as session:
-        value = await create_value(session, "Health")
+        value = await create_value(session, "Health", "What matters to me")
         await add_hook_cue(session, hook=ONBOARDING_HOOK.name, items=[["value.created", value.id]])
         await session.commit()
     said: list[str] = []
@@ -385,7 +385,7 @@ async def test_ob_tip_002_a_turn_that_does_not_route_loses_the_tip(sessions):
 async def test_ob_tip_003_a_tip_waits_behind_an_open_screen(sessions):
     """OB-TIP-003 — tests/brd/onboarding.feature"""
     async with sessions() as session:
-        value = await create_value(session, "Health")
+        value = await create_value(session, "Health", "What matters to me")
         await add_hook_cue(session, hook=ONBOARDING_HOOK.name, items=[["value.created", value.id]])
         await session.commit()
     reviews = ProposalStore()

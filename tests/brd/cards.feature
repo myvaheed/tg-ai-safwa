@@ -308,9 +308,9 @@
     Given a Goal or Subgoal is created, by hand or by a saved proposal
     When the change commits
     Then one mini session reads only its title, Note, Deadline and parent Goal
-    And it answers clear for one concrete result that takes more than one day and whose Done is observable
-    And it answers unclear, with what is unclear and one advice, for a direction, an ongoing practice, work for one day, two results, or a Done nothing shows
-    And it does not judge whether the Goal is attainable or worth doing, or how a Subgoal serves its parent
+    And it answers clear for one concrete result that takes more than one day, whose Done is observable and which, as a Subgoal, moves its parent's result forward
+    And it answers unclear, with what is unclear and one advice, for a direction, an ongoing practice or a rule, work for one day, two results, a Done nothing shows, or a Subgoal that does not move its parent forward
+    And it does not judge whether the Goal is attainable or worth doing
     And a clear Goal produces no question or change
     And creating an Action or a Goal carrying "Inbox", a rollback, or editing a Goal starts no review
     And a Goal changed, closed or deleted during review produces no queued request
@@ -321,12 +321,12 @@
     And the request waits like any hook request while access is locked
     And switching Goal clarification off in Profile → Hooks stops the check and drops what is pending
 
-  Scenario: CD-ACTION-052 — A new Action gets one small check of its size and labels before any question
+  Scenario: CD-ACTION-052 — A new Action gets one small check of what it is and its labels before any question
     Given an Action is created, by hand or by a saved proposal
     When the change commits
-    Then one mini session reads its title, Note, Schedule, Categories and Energy types, and the owner's last five messages with what answered each (ACTION_REVIEW_EXCHANGES = 5)
+    Then one mini session reads its title, Note, Schedule, the title of its Goal, its Categories and Energy types, and the owner's last five messages with what answered each (ACTION_REVIEW_EXCHANGES = 5)
     And with Effort Points on it also reads the Action's Effort Points and up to ten Actions with Effort Points close to its title by words or meaning (SIMILAR_ACTIONS = 10), finished ones first, one of each repeat series; with Effort Points off it reads neither and searches nothing
-    And it answers unclear, with what to change, why and one advice, for an Action that takes more than one day, a Category or Energy type that clearly does not fit, a clearly missing main one, Effort Points clearly apart from the similar Actions, or Effort Points not set while they are on
+    And it answers unclear, with what to change, why and one advice, for an Action that takes more than one day, a direction rather than one step that can be started, a state to observe rather than work, one that does not move its Goal forward, a Category or Energy type that clearly does not fit, a clearly missing main one, Effort Points clearly apart from the similar Actions, or Effort Points not set while they are on
     And it never advises changing what the owner named in those messages, and does not judge whether the Action is worth doing
     And an Action that fits produces no question or change
     And creating a Goal or an Action carrying "Inbox", a rollback, or editing an Action starts no review

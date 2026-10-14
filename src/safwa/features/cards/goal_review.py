@@ -1,4 +1,4 @@
-"""Clarify a new Goal only when it is not one concrete result with an observable Done.
+"""Clarify a new Goal only when it does not meet the Goal criteria.
 
 The hook's work checks each new Goal or Subgoal with one small model call, which answers
 clear or unclear with its advice, and keeps the unclear one with that advice as its pending
@@ -24,34 +24,14 @@ from tg_agent_shell.foundation.changes import Committed
 from tg_agent_shell.hooks.contracts import HookSpec, OnCommitted, RunAndAdvise, RunContext
 
 from ...constants import INBOX_TAG_NAME
+from ...foundation.method import review_prompt
 from ..tags.model import CardTag, Tag
+from .api import GOAL
 from .model import TERMINAL_STAGES, Card, CardKind, card_kind_name
 from .use_cases import CARD_CREATED
 
 # Attainable and meaningful are the owner's to know: the title and Note cannot show them.
-GOAL_REVIEW_PROMPT = (
-    "You review one new Goal: its title, Note, Deadline and parent Goal.\n"
-    "A Goal is one result that takes more than one day and can be Done.\n\n"
-    "A clear Goal:\n"
-    "- names one concrete result, not a direction;\n"
-    "- is a result, not an ongoing practice;\n"
-    "- takes more than one day; work for one day is an Action;\n"
-    "- has an observable Done: the title or Note says what fact shows it.\n"
-    "Do not judge whether the Goal is attainable or worth doing.\n\n"
-    "Examples:\n"
-    '- "Run a half marathon": clear()\n'
-    '- "Improve my English", Note "Pass IELTS with 7.0": clear()\n'
-    '- "Learn Spanish": unclear("Done is not observable. '
-    'Ask what result shows it, such as passing DELE B2.")\n'
-    '- "Get fit": unclear("A direction, not a result. Ask what result would show it, '
-    'such as a 5 km run under 30 minutes; else suggest a Value such as Health.")\n'
-    '- "Meditate daily": unclear("An ongoing practice. Suggest a repeating Action; '
-    'ask whether a result is behind it, such as 30 days in a row.")\n'
-    '- "Call the bank": unclear("Fits in one day. Suggest an Action instead.")\n'
-    '- "Launch the shop and find a job": unclear("Two results. Suggest two Goals.")\n'
-    "Call clear when every point holds.\n"
-    "Otherwise call unclear with what is unclear and one advice."
-)
+GOAL_REVIEW_PROMPT = review_prompt(GOAL, "its title, Note, Deadline and parent Goal")
 
 CLARIFY_REQUEST = (
     "New Goals to clarify, each with advice:\n"
@@ -184,7 +164,7 @@ GOAL_CLARIFICATION_HOOK = HookSpec(
     title="Goal clarification",
     description=(
         "After a Goal or Subgoal is created, checks whether it is one concrete result that "
-        "takes more than one day, with an observable Done. Asks to clarify it, with advice, "
-        "only when it is not."
+        "takes more than one day, with an observable Done, and whether a Subgoal moves its "
+        "parent forward. Asks to clarify it, with advice, only when it is not."
     ),
 )

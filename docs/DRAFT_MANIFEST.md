@@ -33,49 +33,55 @@ While there is value in the items on the right, we value the items on the left m
 
 ### Values first
 
-1. **Each level means one thing.** A Value is a direction the person acts on and is never done.
+1. **Each level means one thing.** A Value is a direction the person lives by and is never done.
    A Goal is one concrete result with an observable Done. An Action fits in one day; what does
-   not is a Goal. An ongoing practice is a repeating Action.
-2. **An Action serves the Value it supports, not the Value it needs.** Earning money can serve
-   Freedom; needing perseverance to earn it does not make it serve Perseverance.
+   not is a Goal. An ongoing practice is a repeating Action. A Check observes a state or a
+   result; it is never work done.
+2. **An item serves the Value it makes more of, not the Value it needs.** Earning money can
+   serve Freedom; needing perseverance to earn it does not make it serve Perseverance. What a
+   result needs belongs under it, never above it.
+3. **How vividly a Value is worded matters.** A short, vivid name and a few vivid sentences on
+   why it matters and what the person does for it make clear what they want, and the agent
+   helps word them from the person's own words.
 
 ### Owned and secured
 
-3. **The person keeps their own data.** Their Values, Goals, plans and Diary are kept by them and
+4. **The person keeps their own data.** Their Values, Goals, plans and Diary are kept by them and
    encrypted with their own passphrase. The agent reads them to help and owns none of them.
 
 ### AI-first, the human decides
 
-4. **The agent does the work.** It reads the whole picture, advises, checks and prepares every
+5. **The agent does the work.** It reads the whole picture, advises, checks and prepares every
    change, so the person spends attention on deciding rather than on filling forms.
-5. **Nothing changes without the person's Save.** One Discard ends the whole chain of proposals,
+6. **Nothing changes without the person's Save.** One Discard ends the whole chain of proposals,
    and the changes a request saved are written together or not at all.
-6. **The agent asks rather than guesses.** It invents no goals, deadlines or reasons, and it does
+7. **The agent asks rather than guesses.** It invents no goals, deadlines or reasons, and it does
    not argue with what the person named themselves.
-7. **The agent checks quietly and speaks only when it matters.** After a Value, a Goal or an
-   Action is created, the agent looks at it again and asks only when something is unclear.
+8. **The agent checks quietly and speaks only when it matters.** After a Value, a Goal, an
+   Action or a Check is created, the agent looks at it again and asks only when something is
+   unclear.
 
 ### Visible
 
-8. **Chat is the interface, not the memory.** A decision made in a chat lands in a structure the
+9. **Chat is the interface, not the memory.** A decision made in a chat lands in a structure the
    person can see on a screen: Home, the Dashboard, the Sprint, Today.
-9. **The past is visible whole.** Each ended Sprint keeps its retro and draws its charts, Life in
+10. **The past is visible whole.** Each ended Sprint keeps its retro and draws its charts, Life in
    weeks shows the whole life week by week, and the Diary keeps each day in the person's own voice.
 
 ### Rhythm and reflection
 
-10. **Work in Sprints of fixed length with Success criteria.** A running Sprint is not extended,
+11. **Work in Sprints of fixed length with Success criteria.** A running Sprint is not extended,
     paused or rewritten. It ends with a retro: Met or Not met, and one experiment for the next.
     Memory keeps the patterns the retros found, not grades.
-11. **Today is a small window.** An Action that stands in Today morning after morning is a signal
+12. **Today is a small window.** An Action that stands in Today morning after morning is a signal
     to rethink it, not a failure. Rest is planned too: each Action names what it gives and what
     it costs.
-12. **Observe state apart from work.** A Check is an observation, not a task, and no answer is not
+13. **Observe state apart from work.** A Check is an observation, not a task, and no answer is not
     a Missed.
 
 ### Measure only what helps
 
-13. **Effort Points and time are optional instruments.** The person switches them on when they
+14. **Effort Points and time are optional instruments.** The person switches them on when they
     help; without them the framework works on plain counts of Actions.
 
 ## The framework

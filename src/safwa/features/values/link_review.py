@@ -13,22 +13,26 @@ from llm_gateway import LlmProvider
 from tg_agent_shell.ai.contracts import ToolInput
 from tg_agent_shell.ai.mini import TerminalTool, run_mini_session
 
+from ...foundation.method import bullets, lines
+from .api import LINK
+
 VALUE_LINK_PROMPT = (
     "You review one saved Value link.\n"
-    "Decide whether it is sufficiently clear how the item supports the Value.\n\n"
-    "Support means that achieving the Goal or doing the Action maintains or strengthens the Value.\n"
-    "The Value is what the work is for, not what is needed to do the work.\n"
-    "A Check observes whether such support holds.\n\n"
-    'Example Goal: "Earn $4k".\n'
-    "- Freedom: VALID — obviously, money gives more choices.\n"
-    "- Health: VALID IF money pays for healthcare.\n"
-    "- Health: INVALID IF health is needed to earn money.\n"
-    "- Perseverance: INVALID by itself — earning money does not strengthen Perseverance.\n"
-    "The same link can be VALID or INVALID depending on the user's meaning.\n"
+    "Decide whether it is sufficiently clear how the item serves the Value.\n\n"
+    f"{LINK.definition}\n"
+    f"{lines(LINK.criteria)}"
+    "A Check serves a Value when it observes that the Value holds.\n"
     "Use the title, Note and Value description.\n"
-    "An obvious benefit needs no written explanation.\n"
-    "Call value_link_review with clear=false when the item needs the Value instead of supporting it.\n"
-    "Call value_link_review with clear=false when it could either support or need the Value, "
+    f"{lines(LINK.leaves)}\n"
+    "Examples:\n"
+    + bullets(tuple(
+        f"{example.item}: clear={'true' if example.clear else 'false'}"
+        + (f". {example.verdict}" if example.verdict else "")
+        for example in LINK.examples
+    ))
+    + "The same link can be clear or not depending on the user's meaning.\n"
+    "Call value_link_review with clear=false when the item needs the Value instead of serving it.\n"
+    "Call value_link_review with clear=false when it could either serve or need the Value, "
     "and the title, Note and Value description do not say which.\n"
     "Otherwise call value_link_review with clear=true."
 )
@@ -50,7 +54,7 @@ VALUE_MENTION_PROMPT = (
 
 
 class ValueLinkInput(ToolInput):
-    clear: bool = Field(description="It is sufficiently clear how the item supports the Value.")
+    clear: bool = Field(description="It is sufficiently clear how the item serves the Value.")
 
 
 class ValueMentionInput(ToolInput):

@@ -7,6 +7,7 @@ from tg_agent_shell.proposals.api import SimilarItems
 from tg_agent_shell.telegram.manifest import FeatureModule, ProposalContribution
 
 from . import agent, proposal, telegram, views
+from .check_review import CHECK_REVIEW_HOOK as CHECK_REVIEW_HOOK
 from .hooks import MISSED_RUN_HOOK as MISSED_RUN_HOOK
 from .model import Check
 from .telegram import CHECK_CALLBACK_ACTIONS, CHECK_TEXT_INPUTS, render_check

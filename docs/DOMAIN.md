@@ -22,6 +22,23 @@ A Card is not "planning data". Say Card, Check, Value, Tag, Sprint — or say th
 model reads it under that name. The `Workspace mode:` line inside it is the other word: there
 `planning` is the mode with no Sprint.
 
+## The method, said once
+
+What a good Value, Goal, Action, Check and Value link are is written once, by the feature
+that owns each, as one `Method` on its `api.py`: Values and Value links in
+[values/api.py](../src/safwa/features/values/api.py), Goals and Actions in
+[cards/api.py](../src/safwa/features/cards/api.py), Checks in
+[checks/api.py](../src/safwa/features/checks/api.py). Each holds what the item is, the criteria a
+check reads it against, how to write one, and examples. The feature's check on a new item reads
+its criteria and examples, the Advisor and every subagent that writes items read what each is
+and how to write one, and Compass reads the whole of one when asked: the onboarding subagent
+calls `get_more_about` for it.
+
+The tree reads in two directions. Down it, a child moves its parent's result forward: that is
+how. Up to a Value, an item makes more of the Value in the owner's life: that is why. What a
+result needs, such as punctuality to earn money, belongs under it as a Subgoal, a practice or a
+Check, never above it as its Value.
+
 ## The Card tree, and what is derived
 
 Advisor and workspace mutator formulate Goals and Subgoals as specific, verifiable results,
@@ -37,7 +54,8 @@ After a Goal or Subgoal is created, by hand or by a saved proposal, a mini sessi
 title, Note, Deadline and parent Goal and answers clear, or unclear with what is unclear and
 one advice: whether it names one concrete result rather than a direction, an ongoing practice
 or two results, takes more than one day, and has an observable Done. Attainable and
-meaningful are the owner's to know, so the check leaves them to the conversation. A clear
+meaningful are the owner's to know, so the check leaves them to the conversation. It also
+asks whether a Subgoal moves its parent's result forward. A clear
 Goal says nothing; an unclear one is kept with its advice by the hook "Goal clarification"
 (`cards.goal_clarification`), rechecked before keeping, and one request asks about every
 Goal still open: the Advisor says it looked at the new Goals again and they could be
@@ -48,11 +66,13 @@ answer is an update, so the answer never asks again. Nothing changes before the 
 
 After an Action is created, by hand or by a saved proposal, the hook "Action review"
 (`cards.action_review`) checks it the same way: a mini session reads its title, Note,
-Schedule, Categories and Energy types and the owner's last five messages with their answers,
-and, with Effort Points on, its Effort Points and up to ten similar Actions with an estimate
-from the search index, finished ones first. It answers unclear only for an Action that takes
-more than one day, a label that clearly does not fit, a clearly missing main one, or Effort
-Points clearly apart from the similar Actions or not set. What the owner named in those
+Schedule, the title of its Goal, Categories and Energy types and the owner's last five
+messages with their answers, and, with Effort Points on, its Effort Points and up to ten
+similar Actions with an estimate from the search index, finished ones first. It answers
+unclear only for an Action that takes more than one day, a direction rather than one step, a
+state to observe rather than work, one that does not move its Goal forward, a label that
+clearly does not fit, a clearly missing main one, or Effort Points clearly apart from the
+similar Actions or not set. What the owner named in those
 messages is theirs and is never advised on. The Advisor says it looked at the new Actions
 again and they could be improved, names each change with its reason, and asks; an Action
 carrying the Inbox Tag is not checked, and only creation starts the check.
@@ -146,6 +166,13 @@ Priority, derived stage, `tree_level` and compiled Deadline. The Advisor starts 
   gates Done, follows the Action cycle and resets when its ordinary Action is reopened.
   Answering an independent scheduled Check opens one successor according to its rule.
   Passed and Missed both count as observations; absence of an answer is not Missed.
+- A Check observes a state or a result; it is never work done. When the honest answer is "I did
+  it", the item is an Action, a repeating one if it recurs; not doing something, such as no
+  sweets today, has nothing to do and stays a Check. After a Check is created, by hand or by a
+  saved proposal, the hook "Check review" (`checks.check_review`) reads its title, Note,
+  Schedule and the Card it is on, and asks only when it is work done, takes time, is not
+  answered yes or no, has no fact to show its answer, or is not about its Card's result. The
+  next instance of a repeating Check is not a creation and is not checked.
 
 ## Deleted, and archived
 
@@ -197,35 +224,46 @@ whose derived stage is Today because an Action under it is. Nothing sets it by h
 `values_in_focus` in the Planning door reads it. A Value's and a Tag's description hold at most
 400 characters (`DESCRIPTION_MAX_CHARS`).
 
-A Value is a direction the owner acts on, never Done: not a result, which is a Goal, nor a
-feeling, a means or a rule, and its description says what exactly matters to the owner.
+A Value is a direction the owner lives by, never Done: not a result, which is a Goal, nor
+one practice, which is a repeating Action, nor a feeling, a means or a rule. It has a name and
+a description, and is not created without one. The name is short and may be vivid; the
+description says, in two or three vivid sentences built from the owner's words, why it
+matters, then what the owner does for it on an ordinary day. How vividly a Value is worded
+matters: it makes clear what the owner wants. A name may be about others, such as their
+parents' smile, when the description says what the owner does; a means such as money is a
+Value when its description says what it gives the owner in itself, not only what it buys.
 After a Value is created, by hand or by a saved proposal, a mini session reads its name and
 description and answers clear, or unclear with what is unclear and one advice, which may
 hold a short exercise such as asking "what for?" again. Whether the Value is right for the
-owner is theirs to know. A clear Value says nothing; an unclear one is kept with its advice
-by the hook "Value clarification" (`values.value_clarification`), rechecked before keeping,
+owner, and how vivid its words are, is theirs to know. A clear Value says nothing; an unclear
+one is kept with its advice by the hook "Value clarification" (`values.value_clarification`),
+rechecked before keeping,
 and one request asks about every Value still there: the Advisor says it looked at the new
 Values again and they could be improved, and follows each advice. Only creation
 starts the check: the description written from the owner's answer is an update. A Value
-that is a result may be proposed as a Goal. Nothing changes before the owner answers.
+that is a result may be proposed as a Goal, and one that is a practice as a repeating Action.
+Nothing changes before the owner answers.
 
-A Value link runs from the Goal, Action or Check to the Value it supports, never merely from
-a needed Value to the work. Earning $4k supports Freedom through more choices; it supports
-Health if the money maintains health, but needing health to earn it is the reverse direction.
-Needing Perseverance to earn it does not make earning support Perseverance. The owner's own
+A Value link runs from the Goal, Action or Check to the Value it serves: achieving the Goal,
+doing the Action or the Check holding makes more of the Value in the owner's life, as the
+Value's description says. It never runs merely from a needed Value to the work. Earning $4k
+serves Freedom through more choices; it serves Health if the money maintains health, but
+needing health to earn it is the reverse direction. Needing Perseverance to earn it does not
+make earning serve Perseverance, and earning $20k does not serve Punctuality the owner keeps
+for their self-respect, while a Check "On time?" does. The owner's own
 clear supporting explanation can establish a different connection. If supporting and reversed
 meanings are both plausible and the supplied text does not resolve them, the link is unclear.
 Unclear reasons belong in Note on both Cards and Checks. A Check keeps its Note when copied.
 A Goal's Note holds its completion criterion and its reasons at once, and an update replaces a
 Note whole, so the Card and Check tools tell the model to write what it holds, then the new words.
 
-After a new direct link is saved, a mini session checks that pair using its title, Note and the
-Value's description, with one repair of a malformed answer and no more. An obvious supporting link says nothing; an
-unclear or reversed link is kept by the same hook, and one request asks to clarify Note for
-every pair still linked. The check rechecks the pair before keeping it, and the request waits
-behind the Cue gate like any hook's and tells the Advisor to read current data before asking.
-The hook's switch is "Value link clarification" in Profile → Hooks. The
-Advisor may suggest a possible supporting explanation and ask whether it fits the owner's
+After a new direct link is saved, the hook "Value link clarification"
+(`values.link_clarification`) runs a mini session that checks that pair using its title, Note
+and the Value's description, with one repair of a malformed answer and no more. An obvious
+supporting link says nothing; an unclear or reversed link is kept by the same hook, and one
+request asks to clarify Note for every pair still linked. The check rechecks the pair before
+keeping it, and the request waits behind the Cue gate like any hook's and tells the Advisor to
+read current data before asking. The Advisor may suggest a possible supporting explanation and ask whether it fits the owner's
 meaning; it never treats that suggestion as the owner's reason.
 Nothing changes before the owner answers. The hook edits or removes no link.
 

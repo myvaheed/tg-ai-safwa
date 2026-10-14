@@ -634,7 +634,7 @@ async def test_ai_create_value_and_link_are_reviewed_as_separate_proposals(e2e_h
         await session.commit()
 
     response = mutation_turn(
-        ("value", {"mode": "create", "name": "Health"}),
+        ("value", {"mode": "create", "name": "Health", "description": "What matters to me"}),
         ("action", {"mode": "link", "id": action.id, "values": "Health"}),
     )
     repaired_turn = mutation_turn(
@@ -676,7 +676,7 @@ async def test_independent_mutations_are_reviewed_in_order_before_one_resume(e2e
             route_turn("workspace_mutator"),
             mutation_turn(
                 ("tag", {"mode": "create", "name": "VrWalk"}),
-                ("value", {"mode": "create", "name": "Health"}),
+                ("value", {"mode": "create", "name": "Health", "description": "What matters to me"}),
             ),
             "Both decisions are resolved.",
             "Both decisions are resolved.",
@@ -707,7 +707,7 @@ async def test_a_discard_ends_the_queue_and_writes_the_saves_before_it(e2e_harne
             route_turn("workspace_mutator"),
             mutation_turn(
                 ("tag", {"mode": "create", "name": "Keep me"}),
-                ("value", {"mode": "create", "name": "Skip me"}),
+                ("value", {"mode": "create", "name": "Skip me", "description": "What matters to me"}),
                 ("tag", {"mode": "create", "name": "Not shown"}),
             ),
             "Kept the Tag; the last one was not shown.",
@@ -749,7 +749,7 @@ async def test_new_dialogue_cancels_every_unresolved_item_in_suspended_batch(e2e
             route_turn("workspace_mutator"),
             mutation_turn(
                 ("tag", {"mode": "create", "name": "VrWalk"}),
-                ("value", {"mode": "create", "name": "Health"}),
+                ("value", {"mode": "create", "name": "Health", "description": "What matters to me"}),
             )
         ]
     )
@@ -781,7 +781,7 @@ async def test_pr_expire_029_a_review_nobody_answered_closes_the_request_for_goo
             route_turn("workspace_mutator"),
             mutation_turn(
                 ("tag", {"mode": "create", "name": "VrWalk"}),
-                ("value", {"mode": "create", "name": "Health"}),
+                ("value", {"mode": "create", "name": "Health", "description": "What matters to me"}),
             ),
             "A new request, answered afresh.",
         ]

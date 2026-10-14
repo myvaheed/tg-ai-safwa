@@ -13,11 +13,15 @@ from ...constants import DESCRIPTION_MAX_CHARS
 
 class ValueToolInput(RecordToolInput):
     content_fields = frozenset({"name", "description"})
-    create_requires = ("name",)
+    create_requires = ("name", "description")
 
     name: str | None = None
     description: str | None = Field(
-        default=None, description=f"At most {DESCRIPTION_MAX_CHARS} characters."
+        default=None,
+        description=(
+            "Why it matters and what the user does for it. "
+            f"At most {DESCRIPTION_MAX_CHARS} characters."
+        ),
     )
 
 

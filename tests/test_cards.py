@@ -311,9 +311,9 @@ async def test_cd_field_007_a_proposal_has_no_field_for_them_and_refuses_them_on
 async def test_one_link_names_its_items_by_id_and_by_name_together(sessions):
     async with sessions() as session:
         card = await create_card(session, kind="action", title="Walk")
-        sleep = await create_value(session, "Sleep")
-        health = await create_value(session, "Здоровье")
-        calm = await create_value(session, "Calm")
+        sleep = await create_value(session, "Sleep", "What matters to me")
+        health = await create_value(session, "Здоровье", "What matters to me")
+        calm = await create_value(session, "Calm", "What matters to me")
         await session.commit()
 
         change = PROPOSALS.change_from_tool(
@@ -429,7 +429,7 @@ async def test_cd_stage_011_a_new_card_starts_in_the_backlog(sessions):
 async def test_cd_link_012_a_card_is_created_with_all_of_its_links_or_not_at_all(sessions):
     """CD-LINK-012 — tests/brd/cards.feature"""
     async with sessions() as session:
-        health = await create_value(session, "Health")
+        health = await create_value(session, "Health", "What matters to me")
         home = await create_tag(session, "home")
         slept = await create_check(session, title="Slept 7 hours")
         await session.commit()
@@ -958,7 +958,7 @@ async def test_cd_delete_025_deleting_a_card_deletes_everything_under_it(session
         closed = await create_card(
             session, kind="action", title="Book the doctor", effort_points=1, parent_id=goal.id
         )
-        value = await create_value(session, "Health")
+        value = await create_value(session, "Health", "What matters to me")
         tag = await create_tag(session, "home")
         await toggle_card_value(session, live.id, value.id)
         await toggle_card_tag(session, live.id, tag.id)
@@ -1183,7 +1183,7 @@ async def test_committed_card_relationships_are_validated_propagated_and_audited
             expected_parent_version=first_goal.version,
             root_confirmed=False,
         )
-        value = await create_value(session, "Health")
+        value = await create_value(session, "Health", "What matters to me")
         await move_card(session, action.id, CardStage.TODAY)
 
         await set_card_parent(session, action.id, second_goal.id)

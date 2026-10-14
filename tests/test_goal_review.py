@@ -116,14 +116,16 @@ def test_the_review_knows_every_criterion_and_advises():
     """CD-GOAL-051 — tests/brd/cards.feature"""
     for criterion in (
         "names one concrete result, not a direction",
-        "is a result, not an ongoing practice",
+        "is a result, not an ongoing practice or a rule",
         "takes more than one day; work for one day is an Action",
         "has an observable Done",
+        "as a Subgoal, its result moves its parent's result forward",
         "Two results. Suggest two Goals.",
+        '"Never be late": unclear("A rule kept every day.',
+        '"Holiday in Bali", parent "Earn $20k": unclear("Does not move its parent forward',
         "Do not judge whether the Goal is attainable or worth doing.",
     ):
         assert criterion in GOAL_REVIEW_PROMPT
-    assert "parent Goal's result" not in GOAL_REVIEW_PROMPT
 
 
 @pytest.mark.parametrize("subgoal", [False, True])

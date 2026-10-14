@@ -1,5 +1,5 @@
-"""Follow a Value link both ways: clarify a saved one only when its supporting direction is
-unclear, and propose a Note without the Value once the link is removed.
+"""Follow a Value link both ways: clarify a saved one only when it is unclear how the
+item serves it, and propose a Note without the Value once the link is removed.
 
 Each hook's work checks with a small model and keeps what needs words as its pending request;
 every pending item is worded in one request, which waits behind the Cue gate like any hook's,
@@ -27,8 +27,8 @@ CLARIFY_REQUEST = (
     "Saved Value links that are unclear or reversed:\n"
     "{links}\n"
     "Read the current items and Values first.\n"
-    "If a link is gone or its Note already makes the supporting direction clear, skip it.\n"
-    "Briefly ask how each item supports its Value and help clarify Note.\n"
+    "If a link is gone or its Note already makes clear how the item serves the Value, skip it.\n"
+    "Briefly ask how each item serves its Value and help clarify Note.\n"
     "If you have a useful possible explanation, suggest it briefly and ask "
     "whether it fits the user's meaning.\n"
     "Present it as a possibility, not as the user's reason.\n"
@@ -123,7 +123,7 @@ VALUE_LINK_HOOK = HookSpec(
     effect=RunAndAdvise(run=review_link, prepare=clarification_request),
     title="Value link clarification",
     description=(
-        "After linking a Value, checks whether the Goal, Action or Check supports it. "
+        "After linking a Value, checks whether the Goal, Action or Check serves it. "
         "Asks to clarify Note only when the link is unclear or reversed."
     ),
 )

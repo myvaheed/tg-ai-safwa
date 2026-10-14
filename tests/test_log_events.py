@@ -49,7 +49,7 @@ QUERY = "SELECT id FROM ai_cards"
 CREATED = {
     "card": {"kind": "action", "title": "Walk", "effort_points": 1},
     "check": {"title": "Walk"},
-    "value": {"name": "Walk"},
+    "value": {"name": "Walk", "description": "What matters to me"},
     "tag": {"name": "Walk"},
     "request": {"name": "Walk", "query_sql": QUERY},
     "reminder": {"instruction": "Walk"},
@@ -76,7 +76,7 @@ async def _by_hand(session) -> dict[str, int]:
     check = await create_check(session, title="Walk")
     await update_check_fields(session, check.id, {"title": "Walk far"})
     await delete_check(session, check.id)
-    value = await create_value(session, "Walk")
+    value = await create_value(session, "Walk", "What matters to me")
     await update_value_fields(session, value.id, name="Walk far")
     await delete_value(session, value.id)
     tag = await create_tag(session, "Walk")

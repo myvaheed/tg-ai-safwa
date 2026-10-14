@@ -70,7 +70,7 @@ async def test_rt_open_001_a_sprint_that_ended_keeps_a_screen_of_its_own(session
 async def test_rt_stats_003_the_retro_adds_the_sprint_up_from_its_record(sessions, effort_on) -> None:
     """RT-STATS-003 — tests/brd/retro.feature"""
     async with sessions() as session:
-        health = await create_value(session, "Health")
+        health = await create_value(session, "Health", "What matters to me")
         shipped, stuck, dropped = [
             await create_card(session, kind="action", title=title, stage="sprint", effort_points=points)
             for title, points in (("Ship it", 5), ("Stuck", 3), ("Dropped", 2))

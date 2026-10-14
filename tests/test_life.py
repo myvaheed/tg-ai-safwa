@@ -409,7 +409,7 @@ async def test_lf_share_005_an_action_serves_the_values_of_its_goal_and_subgoal(
     """LF-SHARE-005 — tests/brd/life.feature"""
     async with sessions() as session:
         health, family, craft = [
-            await create_value(session, name) for name in ("Health", "Family", "Craft")
+            await create_value(session, name, "What matters to me") for name in ("Health", "Family", "Craft")
         ]
         goal = await create_card(session, kind="goal", title="Be well", value_ids={health.id})
         subgoal = await create_card(
@@ -551,7 +551,7 @@ async def test_lf_ask_008_a_picture_asked_for_in_words_goes_to_the_chat_before_s
 
     async with sessions() as session:
         await set_birth_date(session, BORN, await local_today(session, utcnow()))
-        health = await create_value(session, "Health")
+        health = await create_value(session, "Health", "What matters to me")
         card = await create_card(
             session, kind="action", title="Walk", categories={"growth"}, value_ids={health.id}
         )

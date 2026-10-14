@@ -9,8 +9,10 @@ from __future__ import annotations
 
 from ...constants import INBOX_TAG_NAME
 from ...foundation.log_events import LOG_EVENTS_SHOWN
-from ..schedules.api import ACTION_DAILY_EXECUTIONS_MAX
-from ..values.api import VALUE_LINK_MEANING
+from ...foundation.method import bullets, items
+from ..cards.api import ACTION, GOAL
+from ..checks.api import CHECK
+from ..values.api import LINK, VALUE
 
 # Voice, language and citations are one block for every routed subagent: three copies of
 # these rules would drift into three dialects of Safwa.
@@ -27,19 +29,9 @@ Write in the user's language.
 
 # What each kind of item is, in one wording for the Advisor and every subagent that writes
 # them: two copies of a definition drift apart. Filled into `{items}`.
+# A Value link's criteria are rules for whoever links, so they are told with the rest.
 ITEMS = f"""# Safwa items
-- Goal: a specific, verifiable result taking more than one day, attainable with the user's resources and meaningful to them. Deadline optional.
-- A Goal may be root-level or under another Goal. With a parent it is displayed as a Subgoal and contributes to its parent's result.
-- For a new or reframed Goal or Subgoal, put the result in `title` and an observable completion criterion in `note`.
-- Never invent targets, resources or deadlines.
-- Ongoing practice is a repeating Action, not a Goal.
-- Action: work that fits in one day. It may repeat on a Schedule, at most {ACTION_DAILY_EXECUTIONS_MAX} times a day.
-- Goals and Actions are Cards.
-- Check: a yes/no observation with no duration, on one Card or on none. Anything more than {ACTION_DAILY_EXECUTIONS_MAX} times a day is a Check.
-- Value: a direction the user acts on, with no deadline. It is never Done.
-- A Value is not a result, a feeling, a means or a rule. A result is a Goal.
-- {VALUE_LINK_MEANING} If unclear, ask how it supports the Value; explain in `note`.
-- Tag: a free label for finding things.
+{items(GOAL, ACTION, CHECK, VALUE)}{bullets((LINK.definition, *LINK.criteria, *LINK.writing))}- Tag: a free label for finding things.
 - Request: a saved Card query the user reruns.
 - Reminder: a message at a set time, not work.
 - A title ending in ` [✅2, 🔄#7]` is a finished repeat; #7 is the open one. ❌ in place of ✅: a Check answered Missed.

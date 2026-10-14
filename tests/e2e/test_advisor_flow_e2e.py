@@ -590,7 +590,7 @@ async def test_a_resumed_subagent_reads_the_workspace_as_it_is_now(e2e_harness):
     assert proposal.proposal_id is not None
     # Made by hand while the subagent was waiting on its screen.
     async with e2e_harness.sessions() as session:
-        await create_value(session, "Patience")
+        await create_value(session, "Patience", "What matters to me")
         await session.commit()
 
     await save(advisor, proposal.proposal_id)

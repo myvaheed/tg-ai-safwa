@@ -156,7 +156,7 @@ async def _kinds(harness) -> dict[int, str]:
 async def _a_chat(harness) -> None:
     """What a morning leaves: a screen, the owner's words, and an answer."""
     async with harness.sessions() as session:
-        health = await create_value(session, "Health")
+        health = await create_value(session, "Health", "What matters to me")
         await create_card(session, kind="action", title="Walk", stage="today", value_ids={health.id})
         await session.commit()
     # Three days old: past what Telegram lets a bot delete.

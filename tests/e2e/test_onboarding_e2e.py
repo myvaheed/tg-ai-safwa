@@ -83,7 +83,7 @@ def a_cue_turn(text: str) -> list[DialogueMessage]:
 async def test_ob_tip_002_the_tip_opens_the_message_in_the_subagents_own_words(e2e_harness):
     """OB-TIP-002 — tests/brd/onboarding.feature"""
     async with e2e_harness.sessions() as session:
-        value = await create_value(session, "Health")
+        value = await create_value(session, "Health", "What matters to me")
         await session.commit()
     request = await REGISTRY.hooks.prepare(
         e2e_harness.sessions, ONBOARDING_HOOK.name, [["value.created", value.id]]
@@ -99,12 +99,12 @@ async def test_ob_tip_002_the_tip_opens_the_message_in_the_subagents_own_words(e
     assert outcome.kind is AIOutcomeKind.ANSWER
     assert outcome.message == TIP
     assert [receipt["text"] for receipt in route_receipts(provider)] == [TIP]
-    # The subagent reads the request as the newest message, reads no data, and was not made
-    # to call any tool.
+    # The subagent reads the request as the newest message, reads no data, is offered only
+    # the method, and was not made to call it.
     read = "\n".join(str(message["content"]) for message in provider.calls[1])
     assert read.rstrip().endswith(f"<User>{request}</User>\n</Conversation></system>")
     offered = [tool["function"]["name"] for tool in provider.options[1]["tools"]]
-    assert offered == []
+    assert offered == ["get_more_about"]
     assert provider.options[1]["tool_choice"] is None
 
 
@@ -249,7 +249,7 @@ async def test_ob_stop_005_a_turn_safwa_took_on_its_own_is_reviewed_against_its_
 ):
     """OB-STOP-005 — tests/brd/onboarding.feature"""
     async with e2e_harness.sessions() as session:
-        value = await create_value(session, "Health")
+        value = await create_value(session, "Health", "What matters to me")
         await session.commit()
     request = await REGISTRY.hooks.prepare(
         e2e_harness.sessions, ONBOARDING_HOOK.name, [["value.created", value.id]]

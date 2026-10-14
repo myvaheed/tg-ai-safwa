@@ -1,4 +1,4 @@
-"""Clarify a new Value only when it is not a clear direction the owner acts on.
+"""Clarify a new Value only when it does not meet the Value criteria.
 
 The hook's work checks each new Value with one small model call, which answers clear or
 unclear with its advice, and keeps the unclear one with that advice as its pending request;
@@ -22,43 +22,12 @@ from tg_agent_shell.ai.mini import TerminalTool, run_mini_session
 from tg_agent_shell.foundation.changes import Committed
 from tg_agent_shell.hooks.contracts import HookSpec, OnCommitted, RunAndAdvise, RunContext
 
+from ...foundation.method import review_prompt
+from .api import VALUE
 from .model import Value
 from .use_cases import VALUE_CREATED
 
-# Whether the Value is right for the owner is theirs to know: the name and description cannot show it.
-VALUE_REVIEW_PROMPT = (
-    "You review one new Value: its name and description.\n"
-    "A Value is a direction the user acts on. It is never Done.\n\n"
-    "A clear Value is:\n"
-    "- a direction, not a result that can be Done;\n"
-    "- how the user acts, not a feeling to have;\n"
-    "- in the user's hands, not what others do or think;\n"
-    "- toward something, not away from something;\n"
-    "- an end, not a means such as money or a skill;\n"
-    "- chosen, not a rule with must, always, never or perfect;\n"
-    "- specific: the name or description says what exactly matters to the user.\n"
-    "Do not judge whether the Value is right for the user.\n\n"
-    "Examples:\n"
-    '- "Health", "Sleep 7 hours, move every day": clear()\n'
-    '- "Family", "Evenings with the kids, calls to my parents": clear()\n'
-    '- "Family", no description: unclear("Does not say what exactly matters. '
-    'Ask what in Family touches the user, and how it looks on an ordinary weekday.")\n'
-    '- "Learn Spanish": unclear("A result that can be Done, so a Goal. '
-    'Suggest a Goal and ask which Value it serves, such as Growth or Freedom.")\n'
-    '- "Money": unclear("A means. Ask what it is for, and again, '
-    'until a direction such as Security or Freedom.")\n'
-    '- "Be happy": unclear("A feeling. Ask what the user does on a day they live it.")\n'
-    '- "Always be productive": unclear("A rule with always. '
-    'Ask whether it is want or must; suggest Craft.")\n'
-    '- "Not be like my father": unclear("Away from something. '
-    'Ask what the user wants instead.")\n'
-    '- "Be respected": unclear("Others decide it. '
-    "Ask what is in the user's hands, such as Dignity or Honesty.\")\n"
-    '- "Running": unclear("A practice, a repeating Action. '
-    'Ask what it serves, such as Health.")\n'
-    "Call clear when every point holds.\n"
-    "Otherwise call unclear with what is unclear and one advice."
-)
+VALUE_REVIEW_PROMPT = review_prompt(VALUE, "its name and description")
 
 CLARIFY_REQUEST = (
     "New Values to clarify, each with advice:\n"
@@ -70,7 +39,8 @@ CLARIFY_REQUEST = (
     "following its advice.\n"
     "Offer each suggestion as a possibility, not as the user's meaning.\n"
     "Offer to update the Value with their answer.\n"
-    "When they answer, route to workspace_mutator to update the Value or propose a Goal.\n"
+    "When they answer, route to workspace_mutator to update the Value, "
+    "or to propose a Goal or a repeating Action instead.\n"
     "Change nothing until they answer."
 )
 
@@ -162,7 +132,8 @@ VALUE_CLARIFICATION_HOOK = HookSpec(
     effect=RunAndAdvise(run=review_value, prepare=clarification_request),
     title="Value clarification",
     description=(
-        "After a Value is created, checks whether it is a clear direction the user acts on. "
-        "Asks to clarify it, with advice, only when it is not."
+        "After a Value is created, checks whether it is a direction the user lives by and "
+        "whether its description says what they do for it. Asks to clarify it, with advice, "
+        "only when it does not."
     ),
 )

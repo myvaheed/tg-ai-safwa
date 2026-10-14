@@ -122,7 +122,7 @@ async def test_ch_delete_014_the_owner_deletes_a_check_from_its_screen(sessions)
         card = await create_card(
             session, kind="action", title="Go to the market", effort_points=2, stage="today"
         )
-        value = await create_value(session, "Health")
+        value = await create_value(session, "Health", "What matters to me")
         check = await create_check(session, title="Milk")
         await toggle_card_check(session, card.id, check.id)
         await toggle_check_value(session, check.id, value.id)

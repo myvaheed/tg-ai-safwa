@@ -40,7 +40,7 @@ async def test_saved_mutator_link_is_reviewed_and_note_can_be_corrected(e2e_harn
     try:
         async with sessions() as session:
             check = await create_check(session, title="Earned $4k?")
-            value = await create_value(session, "Health")
+            value = await create_value(session, "Health", "What matters to me")
             await session.commit()
             check_id, value_id = check.id, value.id
         advisor, _ = e2e_harness.advisor([

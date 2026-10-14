@@ -171,7 +171,7 @@ async def test_a_deleted_value_asks_once_about_every_note_that_still_mentions_it
     sink = bound(sessions, provider, registry)
     try:
         async with sessions() as session:
-            value = await create_value(session, "Health")
+            value = await create_value(session, "Health", "What matters to me")
             notes = ("For my health", "Health first", "Route along the river", "")
             cards = [
                 await create_card(

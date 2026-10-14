@@ -164,6 +164,10 @@ def test_the_review_knows_every_criterion_and_leaves_the_owner_s_words_alone():
     """CD-ACTION-052 — tests/brd/cards.feature"""
     for criterion in (
         "fits in one day; a result that takes longer is a Goal",
+        "one concrete step that can be started, not a direction such as Work on my health",
+        "work to do, not a state to observe; a state such as Back straight is a Check",
+        "moves its Goal forward, when it has one",
+        '"Buy a new phone", Goal "Save $5k": unclear("Works against its Goal.',
         "has `categories` that fit, what it gives: growth: skills, learning;",
         "has `energy_types` that fit, what it costs: physical: body;",
         "- 3: able to carry on only after a break",
@@ -175,6 +179,19 @@ def test_the_review_knows_every_criterion_and_leaves_the_owner_s_words_alone():
         '"Run 20 km", 1 EP, the user asked for 1 EP: clear()',
     ):
         assert criterion in ACTION_REVIEW_PROMPT
+
+
+async def test_an_action_under_a_goal_is_read_with_that_goal_s_title(sessions):
+    """CD-ACTION-052 — tests/brd/cards.feature"""
+    goal_id = await created(sessions, kind="goal", title="Save $5k")
+    provider = ReviewProvider(clear=True)
+    sink = bound(sessions, provider)
+    try:
+        await created(sessions, title="Buy a new phone", parent_id=goal_id)
+        await sink.drain()
+        assert provider.context()["goal"] == "Save $5k"
+    finally:
+        await sink.close()
 
 
 @pytest.mark.parametrize("clear", [True, False])
@@ -205,6 +222,7 @@ async def test_new_action_is_read_with_the_last_exchanges_and_asked_about_only_w
             "title": "Run 5 km",
             "note": "Around the park",
             "schedule": "20.12.2026 18:00",
+            "goal": "",
             "categories": ["rest"],
             "energy_types": ["cognitive"],
         }

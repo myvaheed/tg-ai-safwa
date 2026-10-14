@@ -38,7 +38,7 @@ async def test_saved_mutator_value_is_reviewed_and_its_description_written_asks_
     try:
         advisor, _ = e2e_harness.advisor([
             route_turn("workspace_mutator"),
-            mutation_turn(("value", {"mode": "create", "name": "Money"})),
+            mutation_turn(("value", {"mode": "create", "name": "Money", "description": "What matters to me"})),
             "Proposed the Value.",
         ])
         outcome = await advisor.handle("Add a Value: money")
