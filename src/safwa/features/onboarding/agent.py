@@ -18,6 +18,8 @@ from ..cards.model import (
     effort_label,
 )
 from ..compass.agent import MORE_ABOUT
+from ..compass.graph import COMPASS_FINDINGS_MAX, GOAL_VALUES_MANY
+from ..compass.graph_review import COMPASS_REVIEW_DAYS
 from ..schedules.api import ACTION_DAILY_EXECUTIONS_MAX
 from ..values.api import LINK
 
@@ -110,6 +112,8 @@ MANUAL = f"""# Safwa
 - After a Value is created, Safwa silently checks that it is a direction the user lives by, not a result, a practice, a feeling, a means or a rule, and that its description says what the user does for it. If not, the Advisor says the Value could be improved and asks with advice. It may offer a short exercise. Value clarification in Profile → Hooks switches this off or on.
 - After linking a Value, Safwa silently checks this direction. If unclear or reversed, it asks the user to clarify Note. It may suggest a possible explanation for the user to confirm. Value link clarification in Profile → Hooks switches this off or on.
 - After a Value is taken off an item or deleted, Safwa silently reads each Note that may still mention it. If one does, the Advisor proposes that Note without that part, for Save or Discard. Value unlink cleanup in Profile → Hooks switches this off or on.
+- Compass looks at the whole tree of Values, Goals, Actions and Checks: a root Goal that serves no Value, a Goal with {GOAL_VALUES_MANY} Values or more, a Value no open item carries, a Value that is really a Goal, a practice or a rule, a reversed link, two Values with one root. Ask the Advisor whether the Values, Goals or links are set right, which Value an item serves, or where it belongs. Compass names at most {COMPASS_FINDINGS_MAX} things, asks about each, and changes nothing itself.
+- Every {COMPASS_REVIEW_DAYS} days in the Morning, Safwa looks at the whole tree. If something stands out, Compass names it and asks whether to go through it together. Compass review in Profile → Hooks switches this off or on.
 - A Tag is a free label on Cards, to find them together later.
 - In words: create, rename, put on a Card, delete.
 - With buttons: "💎 Values" or /values, and "🏷 Tags" or /tags: "➕ Add Value", "➕ Add Tag", rename and delete. A Value is created once it has a name and a description. On a Card, "✏️ Full editing" puts them on.
@@ -157,10 +161,10 @@ MANUAL = f"""# Safwa
 - Deleting is the only way to stop one.
 
 # Automatic reactions
-- Safwa speaks first on its own: about a blocked Action, an Action finished without its time or effort estimate, a day holding too much, Goals with no Action, scheduled Actions the plan does not hold, energy and rest in the Sprint and its Actions without a Category or Energy type, an Action stuck in Today, a Check Missed again and again, the Diary, the day's summary, a Sprint's end, a Success criterion out of reach, a read too heavy for the Advisor, what stands in Today and the Sprint when the user writes after 14 days or more away, and these onboarding tips.
+- Safwa speaks first on its own: about a blocked Action, an Action finished without its time or effort estimate, a day holding too much, Goals with no Action, scheduled Actions the plan does not hold, energy and rest in the Sprint and its Actions without a Category or Energy type, an Action stuck in Today, a Check Missed again and again, the whole tree of Values and Goals every {COMPASS_REVIEW_DAYS} days, the Diary, the day's summary, a Sprint's end, a Success criterion out of reach, a read too heavy for the Advisor, what stands in Today and the Sprint when the user writes after 14 days or more away, and these onboarding tips.
 - An onboarding tip leaves the chat a minute after it comes. A message that says something else too stays.
 - Open "⚙️ Profile" → "🔔 Hooks" to list the reactions by title and state. Choose one to read its description and switch it off or on on its own screen.
-- Hooks: "Helper offer", "Blocker follow-up", "Time tracking reminder", "Effort Points reminder", "Goal completion follow-up", "Today overload", "Goals without Actions", "Schedule outside the plan", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Goal clarification", "Action review", "Check review", "Value clarification", "Value link clarification", "Value unlink cleanup", "Diary nudge", "Daily summary", "Sprint end warning", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
+- Hooks: "Helper offer", "Blocker follow-up", "Time tracking reminder", "Effort Points reminder", "Goal completion follow-up", "Today overload", "Goals without Actions", "Schedule outside the plan", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Goal clarification", "Action review", "Check review", "Value clarification", "Value link clarification", "Value unlink cleanup", "Compass review", "Diary nudge", "Daily summary", "Sprint end warning", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
 - "Time tracking reminder" is in Hooks only while Time tracking is on, and asks nothing while it is off.
 - "Today overload" and "Effort Points reminder" are in Hooks only while Effort Points are on, and ask nothing while they are off.
 

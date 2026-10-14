@@ -42,6 +42,7 @@ from ..features.advisor.agent import ADVISOR_ROW_LIMITS, ADVISOR_VIEWS
 from ..features.cards.action_review import ActionReviewer
 from ..features.cards.goal_review import GoalReviewer
 from ..features.checks.check_review import CheckReviewer
+from ..features.compass.graph_review import GraphReviewer
 from ..features.diagnostics.module import SHOW_ANSWER_SOURCE
 from ..features.home.motivation import Motivator
 from ..features.memory.absorb import PatternReviewer
@@ -98,6 +99,7 @@ class SafwaFeatures:
     check_reviewer: CheckReviewer
     value_reviewer: ValueReviewer
     value_link_reviewer: ValueLinkReviewer
+    graph_reviewer: GraphReviewer
     analyst: SprintAnalyst
     motivator: Motivator
     # The turn's lease, for work on a tick that must wait for the chat to be free: a tick's
@@ -325,6 +327,7 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
             check_reviewer=CheckReviewer(provider),
             value_reviewer=ValueReviewer(provider),
             value_link_reviewer=ValueLinkReviewer(provider),
+            graph_reviewer=GraphReviewer(provider),
             analyst=SprintAnalyst(provider),
             motivator=Motivator(provider, spawn=spawn),
             run_background=turn.run_background,

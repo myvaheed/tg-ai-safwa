@@ -39,6 +39,20 @@ how. Up to a Value, an item makes more of the Value in the owner's life: that is
 result needs, such as punctuality to earn money, belongs under it as a Subgoal, a practice or a
 Check, never above it as its Value.
 
+Compass reads the owner's whole tree, which the checks on new items each see one item of. The
+Advisor routes to it when the owner asks whether their own Values, Goals, Actions, Checks or
+links are set right, which Value an item serves or where an item belongs, and when a request
+starts with "Compass.". It reads Cards, Checks, Values and Tags and changes nothing. What may be
+set better is one list in [compass/graph.py](../src/safwa/features/compass/graph.py): a root Goal
+that serves no Value, a Goal carrying `GOAL_VALUES_MANY = 4` Values or more and a Value no open
+Goal, Action or Check carries, which SQL finds; a Value that is really a Goal, a practice or a
+rule, a reversed link and two Values with one root, which a model finds. An Action carrying its
+Goal's Value is fine. One answer names at most `COMPASS_FINDINGS_MAX = 3` findings, each with a
+question. Every `COMPASS_REVIEW_DAYS = 9` days after the workspace's first day, in the Morning,
+the hook "Compass review" (`compass.graph_review`) writes the tree out for one mini session and
+hands what it finds to Compass; a clear answer still keeps what SQL found, and nothing found asks
+nothing.
+
 ## The Card tree, and what is derived
 
 Advisor and workspace mutator formulate Goals and Subgoals as specific, verifiable results,

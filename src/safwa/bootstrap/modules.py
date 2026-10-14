@@ -43,6 +43,7 @@ from ..features.cards.module import (
 from ..features.cards.module import MODULE as CARDS
 from ..features.checks.module import CHECK_REVIEW_HOOK, MISSED_RUN_HOOK
 from ..features.checks.module import MODULE as CHECKS
+from ..features.compass.module import GRAPH_REVIEW_HOOK
 from ..features.compass.module import MODULE as COMPASS
 from ..features.diagnostics.module import MODULE as DIAGNOSTICS
 from ..features.diary.module import DIARY_HOOK, DIARY_READ_HOOK
@@ -151,6 +152,7 @@ HOOKS = (
     VALUE_CLARIFICATION_HOOK,
     VALUE_LINK_HOOK,
     VALUE_UNLINK_HOOK,
+    GRAPH_REVIEW_HOOK,
     DIARY_HOOK,
     DAILY_SUMMARY_HOOK,
     SPRINT_END_HOOK,
