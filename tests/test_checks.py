@@ -7,7 +7,13 @@ from schedule_helpers import create_check
 from sqlalchemy import select
 
 from safwa.features.cards.model import Card, CardStage
-from safwa.features.cards.use_cases import finish_action, move_card, toggle_card_check
+from safwa.features.cards.use_cases import (
+    finish_action,
+    finish_card,
+    move_card,
+    reopen_card,
+    toggle_card_check,
+)
 from safwa.features.checks.agent import CheckToolInput
 from safwa.features.checks.hooks import MISSED_RUN, MISSED_RUN_HOOK, missed_run_request
 from safwa.features.checks.model import Check, CheckOutcome
@@ -253,6 +259,34 @@ async def test_a_repeating_check_on_no_card_opens_the_next_one_just_the_same(ses
 
         assert successor is not None
         assert await check_card_id(session, successor.id) is None
+
+
+async def test_a_scheduled_check_on_a_goal_watches_it_while_the_goal_is_open(sessions):
+    """CH-GOAL-020 — tests/brd/checks.feature"""
+    async with sessions() as session:
+        goal = await create_domain_card(session, kind="goal", title="Weigh 75 kg")
+        check = await linked_check(
+            session, goal.id, title="Under 80 kg?", schedule="after completion"
+        )
+        _, successor = await resolve_check(session, check.id, CheckOutcome.MISSED)
+        assert await check_card_id(session, check.id) == goal.id
+        assert await check_card_id(session, successor.id) == goal.id
+        assert await card_checks(session, goal.id) == [successor]
+
+        with pytest.raises(DomainError, match="Under 80 kg"):
+            await finish_card(session, goal.id)
+        await finish_card(session, goal.id, check_outcomes={successor.id: CheckOutcome.PASSED})
+        series = await session.scalars(
+            select(Check.id).where(Check.series_id == check.id).order_by(Check.id)
+        )
+        assert list(series) == [check.id, successor.id]
+        late = await linked_check(
+            session, goal.id, title="Waist under 90 cm?", schedule="after completion"
+        )
+        assert (await resolve_check(session, late.id, CheckOutcome.PASSED))[1] is None
+
+        await reopen_card(session, goal.id)
+        assert (check.outcome, successor.outcome) == (CheckOutcome.MISSED.value, None)
 
 
 async def test_closing_a_card_keeps_its_answer_and_does_not_touch_independent_checks(sessions):

@@ -18,6 +18,7 @@ from safwa.features.cards.use_cases import (
     edit_card_text,
     finish_action,
     finish_card,
+    toggle_card_check,
 )
 from safwa.features.checks.telegram import render_check
 from safwa.features.checks.use_cases import create_check, delete_check, resolve_check
@@ -219,11 +220,15 @@ async def test_remind_ends_with_its_item(sessions) -> None:
         check = await create_check(
             session, title="Posture?", schedule="daily 09:00", schedule_rule=await rule_for(session, "daily 09:00")
         )
-        for item in (once, goal, deleted, check):
+        on_goal = await create_check(
+            session, title="Shipped?", schedule="daily 19:00", schedule_rule=await rule_for(session, "daily 19:00")
+        )
+        await toggle_card_check(session, goal.id, on_goal.id)
+        for item in (once, goal, deleted, check, on_goal):
             await set_remind(session, item, True)
 
         await finish_action(session, once.id)
-        await finish_card(session, goal.id)
+        await finish_card(session, goal.id, check_outcomes={on_goal.id: "passed"})
         await delete_one_card(session, deleted.id)
         _answered, next_check = await resolve_check(session, check.id, "passed")
         assert [(item.item_type, item.item_id) for item in await session.scalars(select(Reminder))] == [

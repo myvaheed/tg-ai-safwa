@@ -1,6 +1,6 @@
 # Schedule
 
-An Action or an independent Check carries one `schedule` text field: when it repeats or
+An Action or a Check carries one `schedule` text field: when it repeats or
 happens, in the owner's words. On a Goal or a Subgoal the same field is its Deadline.
 Reminders are separate messages to Safwa and do not use it; [Remind](#remind) makes one from a
 Schedule.
@@ -69,7 +69,7 @@ Actions under its Goal.
 
 ```mermaid
 flowchart TD
-    A[Finish Action or answer independent Check] --> B[Validate ready Schedule]
+    A[Finish Action or answer scheduled Check] --> B[Validate ready Schedule]
     B --> C[Record completion against revision and period]
     C --> D{Another occurrence?}
     D -->|No| E[Keep completed instance]
@@ -200,7 +200,7 @@ open item has: a `fixed` rule that is not all-day, or a Deadline with a time, wi
 set to the open instance's moment, and nothing for a one-time moment already past. While it
 has one, or Remind is on, the "⏱ Schedule" or "⏰ Deadline" button opens a screen with how the
 Schedule was read, `🔔 Remind: Off|On`, `✏️ Edit` and `↩️ Back`; otherwise it opens the editor
-at once. Every kind is offered it alike: Action, Goal (including nested Goals) and independent Check.
+at once. Every kind is offered it alike: Action, Goal (including nested Goals) and scheduled Check.
 
 Remind On is an ordinary Reminder, fired by the Reminders' tick, with the words of
 `REMIND_TEXT` naming the item by `#id` and title. Its `item_type` and `item_id` name the item.

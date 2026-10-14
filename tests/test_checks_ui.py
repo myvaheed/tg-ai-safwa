@@ -65,6 +65,26 @@ async def test_an_independent_check_schedule_is_compiled_in_its_text_editor(sess
     assert [target for _, target in compiler.calls] == ["check", "check"]
 
 
+async def test_the_schedule_button_shows_on_a_goal_and_never_on_an_action(sessions):
+    """CH-WRITE-002 — tests/brd/checks.feature"""
+    async with sessions() as session:
+        goal = await create_card(session, kind="goal", title="Weigh 75 kg")
+        action = await create_card(session, kind="action", title="Walk")
+        on_goal = await create_check(session, title="Under 80 kg?")
+        on_action = await create_check(session, title="Shoes?")
+        await toggle_card_check(session, goal.id, on_goal.id)
+        await toggle_card_check(session, action.id, on_action.id)
+        check_ids = (on_goal.id, on_action.id)
+        await session.commit()
+    services = services_for(sessions)
+    shown = []
+    for check_id in check_ids:
+        message = FakeMessage(600 + check_id, bot_message=True)
+        await render_check(message, services, check_id)
+        shown.append("⏱ Schedule" in button_texts(message.edits[-1][1]))
+    assert shown == [True, False]
+
+
 async def test_note_is_edited_from_the_check_screen(sessions):
     """CH-WRITE-018 — tests/brd/checks.feature"""
     async with sessions() as session:

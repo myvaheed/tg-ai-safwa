@@ -26,6 +26,7 @@ from ...foundation.log_events import CREATE, DELETE, UPDATE, record_log_event, s
 from ...foundation.workspace import bump_workspace
 from ..checks.model import Check
 from ..checks.use_cases import (
+    SCHEDULED_CHECK_PLACE,
     check_card_id,
     clone_checks_for_successor,
     delete_checks_of_cards,
@@ -151,8 +152,8 @@ async def create_card(
         check = await session.get(Check, check_id)
         if check is None or check.archived_at is not None:
             raise DomainError(f"Check #{check_id} does not exist or is archived")
-        if check.schedule:
-            raise DomainError("A Check with its own Schedule must stay independent")
+        if check.schedule and card_kind is CardKind.ACTION:
+            raise DomainError(SCHEDULED_CHECK_PLACE)
         if (held_by := await check_card_id(session, check_id)) is not None:
             raise DomainError(f"Check #{check_id} already belongs to Card #{held_by}")
 
@@ -423,8 +424,8 @@ async def toggle_card_check(
     if check is None or check.archived_at is not None:
         raise DomainError("Check does not exist or is archived")
     link = await session.get(CardCheck, (card_id, check_id))
-    if link is None and check.schedule:
-        raise DomainError("A Check with its own Schedule must stay independent")
+    if link is None and check.schedule and card.kind == CardKind.ACTION.value:
+        raise DomainError(SCHEDULED_CHECK_PLACE)
     if link is None and (held_by := await check_card_id(session, check_id)) is not None:
         raise DomainError(f"Check #{check_id} already belongs to Card #{held_by}")
     before = snapshot(card)

@@ -94,7 +94,7 @@ Route a change only when the user's newest message asks for it. One exception: a
 - A Card owns three links — Values, Tags, and Checks.
 - Stages: 📚 Backlog, 🏃 Sprint, ☀️ Today, ✅ Done.
 - Priority: Critical, Medium, Low.
-- Schedule is when an Action or an independent Check repeats or happens, in plain words. On a Goal or Subgoal it is the deadline.
+- Schedule is when an Action or a Check repeats or happens, in plain words. On a Goal or Subgoal it is the deadline.
 - Blocked is a warning on an Action, and its description says why.
 - Categories say what an Action gives and may overlap: 🌱 Growth, 🫂 People, 💰 Work, 🧺 Chores, 🔋 Rest.
 - Energy says what an Action costs and may overlap: 💪 Physical, 🧠 Cognitive, 🎭 Emotional, 🕊️ Spiritual.

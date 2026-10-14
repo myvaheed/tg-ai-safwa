@@ -28,7 +28,7 @@ from ...cards.api import card_labels, card_title
 from ...schedules.api import schedule_summary
 from ...values.model import Value
 from ..model import CHECK_OUTCOME_LABELS, PENDING, Check, CheckOutcome
-from ..use_cases import card_checks, check_card_id, check_value_ids
+from ..use_cases import card_checks, check_card_id, check_value_ids, schedulable
 
 # How many Checks one Card's screen lists before it only counts the rest.
 CHECK_LIST_LIMIT = 25
@@ -163,7 +163,7 @@ async def render_check(
         linked_value_ids = await check_value_ids(session, check.id)
         rows: list[list[InlineKeyboardButton]] = []
         if not archived:
-            if linked_card_id is None and check.outcome is None:
+            if check.outcome is None and await schedulable(session, check.id):
                 rows.append(
                     [
                         await place_button(

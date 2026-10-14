@@ -36,7 +36,7 @@ class CheckToolInput(ToolInput):
         default=None,
         description=(
             "When it is asked on its own, in the user's words: 'every evening'. On update, "
-            "null removes it. A Check with a Schedule stays off Cards."
+            "null removes it. A Check with a Schedule hangs on a Goal or on no Card."
         ),
     )
     values: Reference | list[Reference] | None = Field(

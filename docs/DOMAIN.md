@@ -113,7 +113,7 @@ carrying the Inbox Tag is not checked, and only creation starts the check.
   level, `🎯²` for two, `🎯³` for three, and so on. Actions do not count. Screens,
   lists, citations and proposal previews read the subtree without storing a depth, and
   Safwa reads the same index as `tree_level` in `ai_cards`, 0 on an Action.
-- **Schedule** is plain-language timing on an Action or independent Check, and the
+- **Schedule** is plain-language timing on an Action or a Check, and the
   **Deadline** of a Goal or Subgoal: one date, never repeating, never gating Done and never
   planned. Its compiled revisions live in `schedules`; instances retain their revision and
   assigned period. A Schedule is compiled before it is saved, typed or proposed, and a day
@@ -184,10 +184,13 @@ Priority, derived stage, `tree_level` and compiled Deadline. The Advisor starts 
 
 - A Check records a state observation, never planned work: no effort, never in a Sprint, and Pending
   is derived rather than stored. A Check hangs on **one** Card or on none.
-- A scheduled Check is independent and cannot be attached to a Card. A plain linked Check
-  gates Done, follows the Action cycle and resets when its ordinary Action is reopened.
-  Answering an independent scheduled Check opens one successor according to its rule.
-  Passed and Missed both count as observations; absence of an answer is not Missed.
+- A plain linked Check gates Done, follows the Action cycle and resets when its ordinary
+  Action is reopened. A scheduled Check hangs on a Goal or on no Card, never on an Action.
+  Answering one opens one successor according to its rule: on no Card, or on its Goal while
+  that Goal is open. A Card shows, gates and resets only the newest instance of each series
+  on it, so finishing a Goal takes one last answer and ends its series, and reopening the Goal
+  asks that last instance again. Passed and Missed both count as observations; absence of an
+  answer is not Missed.
 - A Check observes a state or a result; it is never work done. When the honest answer is "I did
   it", the item is an Action, a repeating one if it recurs; not doing something, such as no
   sweets today, has nothing to do and stays a Check. After a Check is created, by hand or by a

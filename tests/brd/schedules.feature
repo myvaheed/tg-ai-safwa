@@ -1,4 +1,4 @@
-Feature: One plain-language Schedule for Actions and independent Checks
+Feature: One plain-language Schedule for Actions and Checks
 
   Scenario: SCH-QUOTA-001 — A calendar quota opens one current instance
     Given an Action scheduled five times a day
@@ -12,11 +12,11 @@ Feature: One plain-language Schedule for Actions and independent Checks
     Then 2 answers are planned for the five days and 1 for the two: the quota times the days covered, divided by 7, rounded
     And no appointment time is invented
 
-  Scenario: SCH-CHECK-003 — A scheduled Check is an independent observation series
+  Scenario: SCH-CHECK-003 — A scheduled Check is an observation series
     Given a Check with its own Schedule
     When it is answered Missed
     Then the answer counts as an observation and the next instance is opened
-    And the Check cannot be attached to a Card
+    And the Check can be attached to a Goal, never to an Action
 
   Scenario: SCH-COMPILE-004 — A Schedule proposed in words is read before it is saved
     Given a Schedule proposed in words on an Action or a Check
@@ -133,4 +133,5 @@ Feature: One plain-language Schedule for Actions and independent Checks
     And a changed Schedule moves the Reminder to it, and a Schedule without a clock deletes it
     And a renamed item rewrites the Reminder's words
     And finishing a one-time Action, closing a Goal, or deleting the item deletes the Reminder
+    And closing a Goal deletes the Reminder of a scheduled Check on it
     And deleting the Reminder in /reminders turns Remind off

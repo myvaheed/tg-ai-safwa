@@ -24,7 +24,7 @@ LINK_FIELDS = frozenset({"values", "tags", "checks"})
 VALUES_DESCRIPTION = "Each an exact Value name or an id."
 TAGS_DESCRIPTION = "Each an exact Tag name or an id."
 CHECKS_DESCRIPTION = (
-    "Each an exact Check title or an id. A Check with its own Schedule cannot be linked. "
+    "Each an exact Check title or an id. A Check with its own Schedule links only to a Goal. "
     "A Check on another Card: unlink it there first."
 )
 LINK_MODES = (

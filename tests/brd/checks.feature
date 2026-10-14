@@ -16,7 +16,7 @@ Feature: Checks
   Scenario: CH-WRITE-002 — Safwa writes a Check, and either of them answers it
     Given a Check that exists
     Then writing one, renaming one and linking one to a Card are proposals the owner saved
-    And its own screen answers it, edits Note and edits its Schedule when independent
+    And its own screen answers it, edits Note and edits its Schedule when it hangs on a Goal or on no Card
     And Safwa may propose the answer too, and it reaches the owner as a screen to save
     And a Check title that is empty, or nothing but spaces, is refused
 
@@ -71,6 +71,17 @@ Feature: Checks
     Then it keeps its answer and one Pending successor opens in the same series
     And neither instance belongs to a Card
     And correcting the old answer opens no second successor
+
+  Scenario: CH-GOAL-020 — A scheduled Check on a Goal watches it while the Goal is open
+    Given a Goal carrying a Check with a compiled recurring Schedule
+    When the Check is answered while the Goal is open
+    Then one Pending successor opens on the same Goal, and the answered instance stays on it
+    And the Goal lists, and its Done asks for, only the newest instance of each Check series
+    When the Goal is finished
+    Then that newest instance is answered in the same act, and no successor opens
+    When the Goal is reopened
+    Then that last instance returns to Pending, and the earlier answers stay as they were
+    And a Check with its own Schedule is refused on an Action, and so is a Schedule on a Check an Action carries
 
   Scenario: CH-CLOSE-010 — Closing a Card preserves its answers and independent observations
     Given an Action with a linked Check and a separate independent scheduled Check

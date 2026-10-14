@@ -19,6 +19,7 @@ from safwa.features.cards.use_cases import (
     toggle_card_check,
 )
 from safwa.features.checks.use_cases import (
+    check_card_id,
     create_check,
     delete_check,
     resolve_check,
@@ -73,13 +74,15 @@ async def test_a_partly_covered_week_plans_its_share_of_the_quota(sessions):
         assert "partial" not in late
 
 
-async def test_missed_is_an_answer_and_scheduled_checks_stay_independent(sessions):
+async def test_missed_is_an_answer_and_a_scheduled_check_hangs_on_a_goal_or_on_none(sessions):
     """SCH-CHECK-003 — tests/brd/schedules.feature"""
     async with sessions() as session:
         check = await create_check(session, title="Straight posture?", schedule="twice a day", schedule_rule={"kind": "quota", "period": "day", "count": 2})
         action = await create_card(session, kind="action", title="Walk")
-        with pytest.raises(DomainError, match="independent"):
+        with pytest.raises(DomainError, match="hangs on a Goal or on no Card"):
             await toggle_card_check(session, action.id, check.id)
+        with pytest.raises(DomainError, match="hangs on a Goal or on no Card"):
+            await create_card(session, kind="action", title="Run", check_ids={check.id})
         _, successor = await resolve_check(session, check.id, "missed")
         assert successor is not None
         day = check.period_start.astimezone(ZoneInfo("Europe/Istanbul")).date()
@@ -93,8 +96,10 @@ async def test_missed_is_an_answer_and_scheduled_checks_stay_independent(session
         )
         plain = await create_check(session, title="Shoes?")
         await toggle_card_check(session, action.id, plain.id)
-        with pytest.raises(DomainError, match="independent"):
+        with pytest.raises(DomainError, match="hangs on a Goal or on no Card"):
             await update_check_fields(session, plain.id, {"schedule": "daily"})
+        goal = await create_card(session, kind="goal", title="Straight back", check_ids={successor.id})
+        assert await check_card_id(session, successor.id) == goal.id
 
 
 def test_local_calendar_week_and_dst_do_not_use_utc_days():

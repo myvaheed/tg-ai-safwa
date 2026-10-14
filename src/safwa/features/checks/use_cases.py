@@ -1,7 +1,8 @@
 """Writing, answering and ending a Check.
 
 Linked Checks gate Done and reset when their ordinary Card reopens.
-Independent scheduled Checks open successors according to their compiled rule.
+A scheduled Check opens its successor by its compiled rule: on no Card, or on its Goal while
+that Goal is open.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from tg_agent_shell.foundation.errors import DomainError
 from ...enums import ActorType
 from ...foundation.log_events import CREATE, DELETE, UPDATE, record_log_event, snapshot
 from ...foundation.workspace import bump_workspace
-from ..cards.model import CardCheck
+from ..cards.model import TERMINAL_STAGES, Card, CardCheck, CardKind
 from ..schedules.api import (
     close_deleted_schedules,
     prepare_occurrence,
@@ -38,22 +39,26 @@ CHECK_CREATED = "check.created"
 CHECK_ANSWERED = "check.answered"
 CHECK_MISSED = "check.missed"
 
+SCHEDULED_CHECK_PLACE = "A Check with its own Schedule hangs on a Goal or on no Card"
+
 
 async def card_checks(session: AsyncSession, card_id: int) -> list[Check]:
-    """Every Check on this Card, an archived one included.
+    """The newest instance of each Check series on this Card, an archived one included.
 
-    Archiving is a matter of sight, so an answer that was archived is still an answer and
-    a series that was archived is still a series. Completion and reopening read this, and
-    so does the screen — which marks the archived ones instead of leaving them out.
+    A scheduled Check on a Goal leaves its answered instances on that Goal; only the newest
+    is still asked. Archiving is a matter of sight, so an answer that was archived is still
+    an answer. Completion and reopening read this, and so does the screen — which marks the
+    archived ones instead of leaving them out.
     """
-    return list(
-        await session.scalars(
-            select(Check)
-            .join(CardCheck, CardCheck.check_id == Check.id)
-            .where(CardCheck.card_id == card_id)
-            .order_by(Check.id)
-        )
-    )
+    newest: dict[int, Check] = {}
+    for check in await session.scalars(
+        select(Check)
+        .join(CardCheck, CardCheck.check_id == Check.id)
+        .where(CardCheck.card_id == card_id)
+        .order_by(Check.id)
+    ):
+        newest[check.series_id or check.id] = check
+    return sorted(newest.values(), key=lambda check: check.id)
 
 
 async def pending_checks(session: AsyncSession, card_id: int) -> list[Check]:
@@ -64,6 +69,16 @@ async def pending_checks(session: AsyncSession, card_id: int) -> list[Check]:
 async def check_card_id(session: AsyncSession, check_id: int) -> int | None:
     """The one Card a Check hangs on, or None."""
     return await session.scalar(select(CardCheck.card_id).where(CardCheck.check_id == check_id))
+
+
+async def schedulable(session: AsyncSession, check_id: int) -> bool:
+    """Whether this Check may carry its own Schedule: on a Goal or on no Card."""
+    kind = await session.scalar(
+        select(Card.kind)
+        .join(CardCheck, CardCheck.card_id == Card.id)
+        .where(CardCheck.check_id == check_id)
+    )
+    return kind != CardKind.ACTION.value
 
 
 async def check_value_ids(session: AsyncSession, check_id: int) -> list[int]:
@@ -152,8 +167,8 @@ async def update_check_fields(
         check.note = str(fields["note"]).strip()
     if "schedule" in fields:
         text = fields["schedule"]
-        if text and await check_card_id(session, check.id) is not None:
-            raise DomainError("A Check with its own Schedule must stay independent")
+        if text and not await schedulable(session, check.id):
+            raise DomainError(SCHEDULED_CHECK_PLACE)
         await set_schedule(session, check, text, fields.get("schedule_rule"))
     check.version += 1
     await _record(session, check, UPDATE, actor, before)
@@ -234,7 +249,14 @@ async def _copy_check(
 async def _spawn_check_successor(
     session: AsyncSession, check: Check, slot: datetime | None
 ) -> Check | None:
-    """Open one independent instance of the scheduled series."""
+    """Open the next instance of the scheduled series, on the Goal it hangs on while that
+    Goal is open. A closed Goal ends the series."""
+    card_id = await check_card_id(session, check.id)
+    card = await session.get(Card, card_id) if card_id is not None else None
+    if card is not None and (
+        card.effective_stage in TERMINAL_STAGES or card.archived_at is not None
+    ):
+        return None
     series_id = check.series_id or check.id
     live_in_series = await session.scalar(
         select(func.count())
@@ -247,7 +269,7 @@ async def _spawn_check_successor(
     )
     if live_in_series:
         return None
-    successor = await _copy_check(session, check, series_id, None)
+    successor = await _copy_check(session, check, series_id, card_id)
     successor.period_start = slot
     return successor
 
@@ -394,5 +416,7 @@ async def settle_checks(
 ) -> None:
     """Write the answers a closing Card gave."""
     for check, outcome in answers:
-        # The Card closing is what carries the series on, so no successor opens here.
+        # The Card closing decides what follows: a repeating Action carries its Checks on, and
+        # a closed Goal ends their series. So no successor opens here, and Remind ends.
         await _answer(session, check, outcome, actor, spawn=False)
+        await follow_remind(session, check, actor=actor)
