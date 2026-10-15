@@ -60,7 +60,7 @@ def section(heading: str, items: list[str]) -> list[str]:
 async def workspace_context(session: AsyncSession) -> StateBlocks:
     workspace = await session.get(Workspace, 1)
     profile = await session.get(UserProfile, 1)
-    values = list(await session.scalars(select(Value).order_by(Value.name)))
+    values = list(await session.scalars(select(Value).order_by(Value.order)))
     tags = list(
         await session.scalars(select(Tag).order_by(Tag.name))
     )

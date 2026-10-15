@@ -33,6 +33,7 @@ from safwa.features.values.model import CardValue, CheckValue, Value
 from safwa.features.values.use_cases import create_value, delete_value, update_value_fields
 from safwa.features.workspace_mutator.remove import RemoveToolInput
 from safwa.features.workspace_mutator.state import workspace_context
+from safwa.foundation.log_events import LogEvent
 from tg_agent_shell.ai.sql import create_ai_views
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.references import resolve_references
@@ -59,6 +60,106 @@ async def value_card_ids(session, value_id: int) -> list[int]:
         await session.scalars(select(CardValue.card_id).where(CardValue.value_id == value_id))
     )
 
+
+@pytest.mark.parametrize("old, new", [(5, 2), (2, 5), (1, 5), (5, 1), (3, 3)])
+async def test_setting_one_value_order_shifts_only_the_intervening_values(sessions, old, new):
+    """VL-ORDER-026 — tests/brd/values.feature"""
+    async with sessions() as session:
+        values = [await create_value(session, name, "What matters") for name in "ABCDE"]
+        await session.commit()
+        expected = list("ABCDE")
+        expected.insert(new - 1, expected.pop(old - 1))
+        await update_value_fields(session, values[old - 1].id, order=new)
+        await session.commit()
+
+    async with sessions() as session:
+        ordered = list(await session.scalars(select(Value).order_by(Value.order)))
+        assert [value.name for value in ordered] == expected
+        assert [value.order for value in ordered] == [1, 2, 3, 4, 5]
+        shifted = {
+            name for index, name in enumerate(expected, 1) if index != "ABCDE".index(name) + 1
+        }
+        logs = list(await session.scalars(select(LogEvent).where(LogEvent.operation == "update")))
+        assert shifted <= {event.title for event in logs}
+        assert all(event.after["order"] > 0 for event in logs)
+        assert all(
+            value.version == 1
+            for value in ordered
+            if value.name not in shifted and value.id != values[old - 1].id
+        )
+
+
+@pytest.mark.parametrize("place", [1, 3, 5])
+async def test_value_creation_appends_and_deletion_closes_the_gap(sessions, place):
+    """VL-ORDER-026 — tests/brd/values.feature"""
+    async with sessions() as session:
+        values = [await create_value(session, name, "What matters") for name in "ABCDE"]
+        assert [value.order for value in values] == [1, 2, 3, 4, 5]
+        await delete_value(session, values[place - 1].id)
+        added = await create_value(session, "New", "What matters")
+        await session.commit()
+        ordered = list(await session.scalars(select(Value).order_by(Value.order)))
+        assert [value.order for value in ordered] == [1, 2, 3, 4, 5]
+        assert ordered[-1].id == added.id
+        assert [value.name for value in ordered[:-1]] == [
+            name for index, name in enumerate("ABCDE", 1) if index != place
+        ]
+
+
+@pytest.mark.parametrize("place", [1, 3, 6])
+async def test_a_new_value_can_be_inserted_at_a_given_place(sessions, place):
+    """VL-ORDER-026 — tests/brd/values.feature"""
+    async with sessions() as session:
+        for name in "ABCDE":
+            await create_value(session, name, "What matters")
+        await create_value(session, "New", "What matters", order=place)
+        await session.commit()
+        values = list(await session.scalars(select(Value).order_by(Value.order)))
+        expected = list("ABCDE")
+        expected.insert(place - 1, "New")
+        assert [value.name for value in values] == expected
+        assert [value.order for value in values] == list(range(1, 7))
+
+
+@pytest.mark.parametrize("place", [0, -1, 4, 1.5, True])
+async def test_an_invalid_order_leaves_all_values_unchanged(sessions, place):
+    """VL-ORDER-026 — tests/brd/values.feature"""
+    async with sessions() as session:
+        values = [await create_value(session, name, "What matters") for name in "ABC"]
+        await session.commit()
+        with pytest.raises(DomainError, match="order"):
+            await update_value_fields(session, values[0].id, name="Changed", order=place)
+        await session.commit()
+        assert [
+            (value.name, value.order)
+            for value in await session.scalars(select(Value).order_by(Value.order))
+        ] == [("A", 1), ("B", 2), ("C", 3)]
+
+
+async def test_reordering_values_rolls_back_as_one_change(sessions):
+    """VL-ORDER-026 — tests/brd/values.feature"""
+    async with sessions() as session:
+        for name in "ABC":
+            await create_value(session, name, "What matters")
+        await session.commit()
+        first = await session.scalar(select(Value).where(Value.name == "A"))
+        await update_value_fields(session, first.id, order=3)
+        await session.rollback()
+    async with sessions() as session:
+        assert [
+            (value.name, value.order)
+            for value in await session.scalars(select(Value).order_by(Value.order))
+        ] == [("A", 1), ("B", 2), ("C", 3)]
+
+
+async def test_two_values_cannot_share_a_place_in_storage(sessions):
+    """VL-ORDER-026 — tests/brd/values.feature"""
+    async with sessions() as session:
+        await create_value(session, "A", "What matters")
+        session.add(Value(name="B", order=1))
+        with pytest.raises(IntegrityError):
+            await session.flush()
+        await session.rollback()
 
 
 @pytest.mark.parametrize("name, duplicate", [("Fitness", "FITNESS"), ("Здоровье", "ЗДОРОВЬЕ"), ("Straße", "STRASSE")])
@@ -87,7 +188,7 @@ async def test_a_value_unicode_name_is_unique_in_storage_and_resolves_in_proposa
         await session.commit()
         resolved = await resolve_references(session, VALUE_REFERENCE, {"values": "семья"})
         assert resolved.ids == {value.id}
-        session.add(Value(name="Семья"))
+        session.add(Value(name="Семья", order=2))
         with pytest.raises(IntegrityError):
             await session.flush()
         await session.rollback()
@@ -263,13 +364,15 @@ async def test_safwa_is_handed_every_value(sessions):
         family = await create_tag(session, "Family")
         await session.commit()
 
+        await update_value_fields(session, tidiness.id, order=1)
+        await session.commit()
         context = await workspace_context(session)
 
     lines = context.state.splitlines()
     start = lines.index("Values:") + 1
     assert lines[start : start + 2] == [
-        f"- [Fitness](value:{fitness.id}): Daily movement",
         f"- [Tidiness](value:{tidiness.id}): A tidy desk every evening",
+        f"- [Fitness](value:{fitness.id}): Daily movement",
     ]
     assert lines[lines.index("Available Tags:") + 1] == f"- [Family](tag:{family.id})"
 

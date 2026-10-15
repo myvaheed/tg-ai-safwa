@@ -10,6 +10,7 @@ from ui_harness import (
     button_texts,
     link_place,
     place_of,
+    press,
     services_for,
     tap_link,
 )
@@ -31,6 +32,147 @@ from tg_agent_shell.proposals.api import PreparationContext
 from tg_agent_shell.telegram import Place, callback_token_handler
 from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.model import UiSession
+
+
+async def test_values_prioritizing_toggles_selection_moves_and_follows_pages(sessions):
+    """VL-ORDER-027 — tests/brd/values.feature"""
+    async with sessions() as session:
+        for name in "ABCDEFG":
+            await create_value(session, name, "What matters")
+        await session.commit()
+    services = services_for(sessions)
+    message = FakeMessage(800, bot_message=True)
+    await command_values(message, services)
+
+    async def tap(text):
+        await press(services, message, message.edits[-1][1], text)
+
+    await tap("↕️ Prioritize")
+    assert button_texts(message.edits[-1][1])[-3:] == ["←", "→", "↩️ Back"]
+    assert len(button_texts(message.edits[-1][1])) == 8
+    await tap("5. 💎 E")
+    assert "✓ 5. 💎 E" in button_texts(message.edits[-1][1])
+    assert button_texts(message.edits[-1][1])[-5:] == ["↑", "↓", "←", "→", "↩️ Back"]
+    await tap("1. 💎 A")
+    assert "✓ 1. 💎 A" in button_texts(message.edits[-1][1])
+    assert "5. 💎 E" in button_texts(message.edits[-1][1])
+    await tap("✓ 1. 💎 A")
+    assert len(button_texts(message.edits[-1][1])) == 8
+    await tap("5. 💎 E")
+    await tap("→")
+    assert "Selected: E" in message.edits[-1][0]
+    assert button_texts(message.edits[-1][1])[-5:] == ["↑", "↓", "←", "→", "↩️ Back"]
+    await tap("←")
+    await tap("↓")
+    assert "page 2/2" in message.edits[-1][0]
+    assert "✓ 6. 💎 E" in button_texts(message.edits[-1][1])
+    await tap("↓")
+    await tap("↓")
+    assert "✓ 7. 💎 E" in button_texts(message.edits[-1][1])
+    await tap("→")
+    assert "page 2/2" in message.edits[-1][0]
+    await tap("↩️ Back")
+    assert "Prioritization" not in message.edits[-1][0]
+    assert "↕️ Prioritize" in button_texts(message.edits[-1][1])
+    async with sessions() as session:
+        assert [
+            value.name for value in await session.scalars(select(Value).order_by(Value.order))
+        ] == list("ABCDFGE")
+
+
+async def test_prioritizing_arrows_keep_the_first_value_and_page_in_bounds(sessions):
+    """VL-ORDER-027 — tests/brd/values.feature"""
+    async with sessions() as session:
+        value = await create_value(session, "<Family>", "What matters")
+        await session.commit()
+        value_id = value.id
+    services = services_for(sessions)
+    message = FakeMessage(801, bot_message=True)
+    await command_values(message, services)
+    for text in ("↕️ Prioritize", "1. 💎 <Family>", "↑", "←", "→", "↓"):
+        await press(services, message, message.edits[-1][1], text)
+    assert "Selected: &lt;Family&gt; · position 1." in message.edits[-1][0]
+    assert button_texts(message.edits[-1][1]) == ["✓ 1. 💎 <Family>", "↑", "↓", "←", "→", "↩️ Back"]
+    async with sessions() as session:
+        assert (await session.get(Value, value_id)).order == 1
+
+
+async def test_safwa_sets_one_value_order_through_a_reviewed_proposal(sessions):
+    """VL-ORDER-028 — tests/brd/values.feature"""
+    from safwa.bootstrap.modules import PROPOSALS
+    from safwa.features.values.telegram.review import ValueProposalPresenter
+    from tg_agent_shell.proposals.prepare import ChangePreparer
+    from tg_agent_shell.proposals.store import ProposalStore
+    from tg_agent_shell.proposals.use_cases import approve_proposal, prepare_change
+
+    store = ProposalStore()
+    async with sessions() as session:
+        values = [
+            await create_value(session, name, "What matters")
+            for name in ("Health", "Freedom", "Growth", "Faith", "Family")
+        ]
+        await session.commit()
+        preparer = ChangePreparer(None, None, PROPOSALS)
+        change = await prepare_change(
+            session,
+            preparer,
+            VALUE_TOOL.change_from({"mode": "update", "id": values[-1].id, "order": 2}),
+        )
+        assert dict(change.values) == {"order": 2}
+        screen = await ValueProposalPresenter().screen(session, [change])
+        field = next(field for field in screen.fields if field.label == "Order")
+        assert (field.before, field.after) == ("5", "2")
+        proposal = store.open_proposal(
+            workspace_revision=(await preparer.world(session)).revision, changes=[change]
+        )
+        await approve_proposal(session, store, PROPOSALS, proposal.id)
+    async with sessions() as session:
+        assert [
+            (value.name, value.order)
+            for value in await session.scalars(select(Value).order_by(Value.order))
+        ] == [("Health", 1), ("Family", 2), ("Freedom", 3), ("Growth", 4), ("Faith", 5)]
+
+
+async def test_safwa_refuses_invalid_and_stale_value_orders(sessions):
+    """VL-ORDER-028 — tests/brd/values.feature"""
+    from safwa.bootstrap.modules import PROPOSALS
+    from tg_agent_shell.foundation.errors import StaleStateError
+    from tg_agent_shell.proposals.prepare import ChangePreparer
+    from tg_agent_shell.proposals.store import ProposalStore
+    from tg_agent_shell.proposals.use_cases import approve_proposal, prepare_change
+
+    store = ProposalStore()
+    async with sessions() as session:
+        values = [await create_value(session, name, "What matters") for name in "ABC"]
+        await session.commit()
+        preparer = ChangePreparer(None, None, PROPOSALS)
+        with pytest.raises(DomainError, match="order"):
+            await prepare_change(
+                session,
+                preparer,
+                VALUE_TOOL.change_from({"mode": "update", "id": values[0].id, "order": 4}),
+            )
+        change = await prepare_change(
+            session,
+            preparer,
+            VALUE_TOOL.change_from({"mode": "update", "id": values[-1].id, "order": 1}),
+        )
+        proposal = store.open_proposal(
+            workspace_revision=(await preparer.world(session)).revision, changes=[change]
+        )
+        await update_value_fields(session, values[0].id, order=3)
+        await session.commit()
+        with pytest.raises(StaleStateError):
+            await approve_proposal(session, store, PROPOSALS, proposal.id)
+
+
+@pytest.mark.parametrize("order", [0, -1, 1.5, True])
+def test_the_value_tool_accepts_only_positive_integer_orders(order):
+    """VL-ORDER-028 — tests/brd/values.feature"""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        ValueToolInput.model_validate({"mode": "update", "id": 1, "order": order})
 
 
 async def test_the_value_screen_counts_cards_and_checks(sessions) -> None:
@@ -69,7 +211,7 @@ async def test_no_screen_sets_a_values_focus_by_hand(sessions) -> None:
 
     listing = FakeMessage(97, bot_message=True)
     await command_values(listing, services)
-    assert button_texts(listing.edits[-1][1])[:2] == ["💎 Health", "💎 Tidiness"]
+    assert button_texts(listing.edits[-1][1])[:2] == ["1. 💎 Health", "2. 💎 Tidiness"]
 
 
 async def test_a_value_description_holds_at_most_description_max_chars(sessions) -> None:
@@ -120,7 +262,7 @@ async def test_manual_tag_and_value_delete_unlinks_cards(sessions) -> None:
     async with sessions() as session:
         card = Card(kind="action", title="Family walk", effort_points=2)
         tag = Tag(name="Family")
-        value = Value(name="Connection")
+        value = Value(name="Connection", order=1)
         session.add_all([card, tag, value])
         await session.flush()
         session.add_all(

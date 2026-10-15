@@ -82,7 +82,7 @@ async def test_ai_card_proposal_reaches_the_sprint_it_was_planned_into(e2e_harne
             kind="goal",
             effort_points=None,
         )
-        fitness = Value(name="Fitness", description="Build a healthy body")
+        fitness = Value(name="Fitness", description="Build a healthy body", order=1)
         family = Tag(name="Family")
         session.add(fitness)
         session.add(family)

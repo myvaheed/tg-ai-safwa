@@ -17,6 +17,7 @@ class Value(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(200, collation="UNICODE_NOCASE"), unique=True)
     description: Mapped[str] = mapped_column(Text, default="")
+    order: Mapped[int] = mapped_column(Integer, unique=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
 
 

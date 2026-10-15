@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.errors import DomainError, StaleStateError
@@ -19,7 +19,13 @@ from tg_agent_shell.proposals.api import (
 
 from ...enums import ActorType
 from .model import Value
-from .use_cases import create_value, delete_value, update_value_fields, value_description
+from .use_cases import (
+    create_value,
+    delete_value,
+    update_value_fields,
+    validate_value_order,
+    value_description,
+)
 
 
 class ValueProposalHandler:
@@ -30,6 +36,11 @@ class ValueProposalHandler:
         _value, expected_version = await require_target(context, change, Value)
         if change.values.get("description") is not None:
             value_description(change.values["description"])
+        if change.values.get("order") is not None:
+            count = await context.session.scalar(select(func.count()).select_from(Value))
+            validate_value_order(
+                change.values["order"], count + (change.action is ChangeAction.CREATE)
+            )
         return PreparedChange(values=dict(change.values), expected_version=expected_version)
 
     async def apply(self, context: ApplyContext, change: ProposalChange) -> list[int]:
@@ -43,6 +54,7 @@ class ValueProposalHandler:
                 session,
                 name,
                 str(change.values.get("description") or ""),
+                order=change.values.get("order"),
                 actor=ActorType.AI,
             )
             await session.flush()
@@ -55,6 +67,7 @@ class ValueProposalHandler:
                     value.id,
                     name=change.values.get("name"),
                     description=change.values.get("description"),
+                    order=change.values.get("order"),
                     actor=ActorType.AI,
                 )
             elif change.action is ChangeAction.DELETE:

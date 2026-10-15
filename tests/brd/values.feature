@@ -8,6 +8,41 @@
   Background:
     Given a workspace where a Value can be written by the owner or proposed by Safwa
 
+  Scenario: VL-ORDER-026 — Every Value has a unique place in the Values list
+    Given N Values
+    Then their places are the integers 1 through N, and 1 is highest
+    When a Value is put at another place
+    Then the Values between its old and new places shift by one, and the others keep their places
+    And a place outside 1 through N or not a whole number is refused
+    When a Value is created without a place
+    Then it is added at the end
+    When a Value is created at a given place
+    Then the Values at that place and below shift down
+    When a Value is deleted
+    Then the Values below it move up to close the gap
+    And every change is saved together or rolled back together
+    And these places order the Values list and the Values handed to Safwa
+
+  Scenario: VL-ORDER-027 — The owner prioritizes Values by selecting one and moving it
+    Given the Values list in order, five to a page
+    When the owner presses "↕️ Prioritize"
+    Then tapping a Value selects it with the same tick as other selectors
+    And tapping it again clears the selection; tapping another selects that one alone
+    And with no selection the only controls are previous page, next page and Back
+    And with a selection there are also up and down, moving it by one place immediately
+    And turning a page keeps the selection, and moving follows the Value onto its new page
+    And the arrows remain at the first and last places and pages and do nothing past an edge
+    And Back leaves prioritizing and keeps the saved order
+
+  Scenario: VL-ORDER-028 — Safwa sets one Value's place and the others shift automatically
+    Given a Value called "Family" at place 5
+    When the owner asks to put Family second
+    Then Safwa proposes updating Family with order 2 alone
+    And the review shows its old and new places
+    And saving puts Family second and shifts the former places 2 through 4 down by one
+    And an invalid place is refused before review
+    And a proposal is refused if the order changed after it was prepared
+
   Scenario: VL-DESC-020 — A Value's description holds at most 400 characters
     Given a Value
     When its description is written with 401 characters, on its screen or by Safwa (DESCRIPTION_MAX_CHARS = 400)
@@ -101,7 +136,7 @@
   Scenario: VL-FOCUS-002 — Safwa is handed every Value
     Given "Fitness" and "Tidiness", only Fitness in focus
     When Safwa answers the owner
-    Then Safwa has been handed both, by name and in alphabetical order
+    Then Safwa has been handed both, by name and in their order, highest first
     And each comes with its description on its own line
     And each arrives as something Safwa can hand straight back to the owner as a link
 

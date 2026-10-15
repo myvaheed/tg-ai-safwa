@@ -259,6 +259,10 @@ whose derived stage is Today because an Action under it is. Nothing sets it by h
 `values_in_focus` in the Planning door reads it. A Value's and a Tag's description hold at most
 400 characters (`DESCRIPTION_MAX_CHARS`).
 
+Values have unique integer `order` positions from 1 through their count; 1 is highest.
+Moving one shifts the intervening Values; a new Value goes last by default, and deletion
+closes the gap. The Values list and the Values in Advisor context use this order.
+
 A Value is a direction the owner lives by, never Done: not a result, which is a Goal, nor
 one practice, which is a repeating Action, nor a feeling, a means or a rule. It has a name and
 a description, and is not created without one. The name is short and may be vivid; the

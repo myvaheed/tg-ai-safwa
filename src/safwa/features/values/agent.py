@@ -16,6 +16,12 @@ class ValueToolInput(RecordToolInput):
     create_requires = ("name", "description")
 
     name: str | None = None
+    order: int | None = Field(
+        default=None,
+        ge=1,
+        strict=True,
+        description="Set this Value's place: 1..N, 1 highest. Other Values shift automatically.",
+    )
     description: str | None = Field(
         default=None,
         description=(

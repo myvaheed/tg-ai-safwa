@@ -173,7 +173,7 @@ async def test_ai_can_query_saved_requests_through_the_safe_view(e2e_harness):
 async def test_ai_request_query_values_and_marks_archived_cards(e2e_harness):
     """SR-RUN-006 — tests/brd/saved_requests.feature"""
     async with e2e_harness.sessions() as session:
-        value = Value(name="Family")
+        value = Value(name="Family", order=1)
         session.add(value)
         await session.flush()
         live = await create_manual_card(session, title="Call parents", effort_points=1)

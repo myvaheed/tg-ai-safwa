@@ -21,9 +21,11 @@ from tg_agent_shell.telegram import (
     TextInputScreen,
     TextValidator,
     back_button,
+    choice_rows,
     edit_registered_message,
     edited_screen,
     menu_row,
+    paginate,
     place_button,
     render_citations,
     render_text_input,
@@ -31,6 +33,7 @@ from tg_agent_shell.telegram import (
     send_registered,
 )
 from tg_agent_shell.telegram.contributions import TextInputFlow
+from tg_agent_shell.telegram.layout import PAGE_SIZE
 from tg_agent_shell.telegram.model import UiSession
 
 from ....constants import DESCRIPTION_MAX_CHARS
@@ -52,37 +55,109 @@ _EDITOR_TTL = timedelta(minutes=30)
 _LIST = Place("value_list")
 
 
-async def command_values(message: Message, services: Services) -> None:
+async def command_values(
+    message: Message,
+    services: Services,
+    *,
+    page: int = 0,
+    prioritizing: bool = False,
+    selected_id: int | None = None,
+) -> None:
     async with services.sessions() as session:
-        values = list(await session.scalars(select(Value).order_by(Value.name)))
-        rows = [
-            [
-                await place_button(
-                    session,
-                    services.owner_id,
-                    f"💎 {value.name}",
-                    _LIST.child("value_view", id=value.id),
-                )
-            ]
-            for value in values
-        ]
-        rows.append(
-            [
-                await place_button(
-                    session,
-                    services.owner_id,
-                    "➕ Add Value",
-                    _LIST.child("value_create_prompt"),
-                )
-            ]
+        values = list(await session.scalars(select(Value).order_by(Value.order)))
+        current = paginate(values, page)
+        normal = _LIST.but(page=current.index) if current.index else _LIST
+        selected = (
+            next((value for value in values if value.id == selected_id), None)
+            if prioritizing
+            else None
         )
+        here = (
+            _LIST.but(
+                prioritizing=True, page=current.index, selected_id=selected.id if selected else None
+            )
+            if prioritizing
+            else normal
+        )
+        options = [(f"{value.order}. 💎 {value.name}", value.id) for value in current.items]
+        choices = choice_rows(
+            options,
+            {selected.id} if selected else set(),
+            lambda value_id: (
+                here.but(selected_id=None if selected and selected.id == value_id else value_id)
+                if prioritizing
+                else here.child("value_view", id=value_id)
+            ),
+        )
+        rows = [
+            [await place_button(session, services.owner_id, text, place)] for text, place in choices
+        ]
+        if selected is not None:
+            rows.append(
+                [
+                    await place_button(
+                        session,
+                        services.owner_id,
+                        text,
+                        here.child("value_order", id=selected.id, offset=offset),
+                    )
+                    for text, offset in (("↑", -1), ("↓", 1))
+                ]
+            )
+        if prioritizing or current.count > 1:
+            rows.append(
+                [
+                    await place_button(
+                        session,
+                        services.owner_id,
+                        text,
+                        here.but(page=max(0, min(current.count - 1, current.index + offset))),
+                    )
+                    for text, offset in (("←", -1), ("→", 1))
+                ]
+            )
+        if prioritizing:
+            rows.append([await back_button(session, services.owner_id, normal)])
+        else:
+            if values:
+                rows.append(
+                    [
+                        await place_button(
+                            session,
+                            services.owner_id,
+                            "↕️ Prioritize",
+                            here.but(prioritizing=True, selected_id=None),
+                        )
+                    ]
+                )
+            rows.append(
+                [
+                    await place_button(
+                        session,
+                        services.owner_id,
+                        "➕ Add Value",
+                        here.child("value_create_prompt"),
+                    )
+                ]
+            )
+            rows.append(menu_row())
         await session.commit()
+    title = "💎 Values" + (" · Prioritization" if prioritizing else "")
+    if prioritizing or current.count > 1:
+        title += f" · {current.label}"
+    description = "A Value is in focus while a Card in Today carries it."
+    if prioritizing:
+        description = (
+            f"Selected: {html.escape(selected.name)} · position {selected.order}."
+            if selected
+            else "No Value selected."
+        )
     await send_registered(
         message,
         services,
-        "<b>💎 Values</b>\nA Value is in focus while a Card in Today carries it.",
+        f"<b>{title}</b>\n{description}",
         kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=rows + [menu_row()]),
+        markup=InlineKeyboardMarkup(inline_keyboard=rows),
     )
 
 
@@ -436,7 +511,33 @@ async def _on_list(context: CallbackContext) -> None:
     async with context.sessions() as session:
         await session.execute(delete(UiSession).where(UiSession.owner_id == context.owner_id))
         await session.commit()
-    await command_values(context.message, context.services)
+    await command_values(
+        context.message,
+        context.services,
+        page=context.payload.get("page", 0),
+        prioritizing=context.payload.get("prioritizing", False),
+        selected_id=context.payload.get("selected_id"),
+    )
+
+
+async def _on_order(context: CallbackContext) -> None:
+    async with context.sessions() as session:
+        value = await session.get(Value, context.payload["id"])
+        if value is None:
+            raise DomainError("Value does not exist")
+        count = len(list(await session.scalars(select(Value.id))))
+        order = max(1, min(count, value.order + context.payload["offset"]))
+        if order != value.order:
+            await update_value_fields(session, value.id, order=order)
+        value_id = value.id
+        await session.commit()
+    await command_values(
+        context.message,
+        context.services,
+        page=(order - 1) // PAGE_SIZE,
+        prioritizing=True,
+        selected_id=value_id,
+    )
 
 
 VALUE_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
@@ -449,4 +550,5 @@ VALUE_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "value_delete_prompt": _on_delete_prompt,
     "value_delete_confirm": _on_delete_confirm,
     "value_list": _on_list,
+    "value_order": _on_order,
 }

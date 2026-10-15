@@ -348,7 +348,7 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
     async with sessions() as session:
         parent = Card(kind="goal", title="Be healthy")
         card = Card(kind="action", title="Walk", effort_points=2)
-        value = Value(name="Health")
+        value = Value(name="Health", order=1)
         tag = Tag(name="Outside")
         session.add_all([parent, card, value, tag])
         await session.flush()
@@ -441,7 +441,7 @@ async def test_pr_cite_032_a_review_names_what_it_cites_and_links_none(sessions)
     store = ProposalStore()
     title = "Spend one quiet evening a week with the family"
     async with sessions() as session:
-        value = Value(name="Family", description="Who I live for")
+        value = Value(name="Family", description="Who I live for", order=1)
         session.add(value)
         goal = await create_card(session, kind="goal", title=title)
         workspace = await session.get(Workspace, 1)

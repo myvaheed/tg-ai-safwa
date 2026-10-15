@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.changes import record_change
@@ -24,6 +24,11 @@ from .model import CardValue, CheckValue, Value
 
 # The change a hook may follow up on: a Value was created, however it was saved.
 VALUE_CREATED = "value.created"
+
+
+def validate_value_order(order: int, count: int) -> None:
+    if type(order) is not int or not 1 <= order <= count:
+        raise DomainError(f"Value order must be an integer from 1 to {count}.")
 
 
 def value_description(text: str) -> str:
@@ -45,6 +50,7 @@ async def create_value(
     name: str,
     description: str,
     *,
+    order: int | None = None,
     actor: ActorType = ActorType.USER_UI,
 ) -> Value:
     normalized = name.strip()
@@ -53,9 +59,14 @@ async def create_value(
     existing = await session.scalar(select(Value).where(Value.name == normalized))
     if existing is not None:
         raise DomainError("A Value with this name already exists")
-    value = Value(name=normalized, description=value_description(description))
+    count = await session.scalar(select(func.count()).select_from(Value))
+    if order is not None:
+        validate_value_order(order, count + 1)
+    value = Value(name=normalized, description=value_description(description), order=count + 1)
     session.add(value)
     await session.flush()
+    if order is not None:
+        await _move_value(session, value, order, actor)
     await _record(session, value, CREATE, actor)
     record_change(session, VALUE_CREATED, value.id)
     await bump_workspace(session)
@@ -68,11 +79,14 @@ async def update_value_fields(
     *,
     name: str | None = None,
     description: str | None = None,
+    order: int | None = None,
     actor: ActorType = ActorType.USER_UI,
 ) -> Value:
     value = await session.get(Value, value_id)
     if value is None:
         raise DomainError("Value does not exist")
+    if order is not None:
+        validate_value_order(order, await session.scalar(select(func.count()).select_from(Value)))
     before = snapshot(value)
     if name is not None:
         normalized = name.strip()
@@ -89,6 +103,8 @@ async def update_value_fields(
         value.name = normalized
     if description is not None:
         value.description = value_description(description)
+    if order is not None:
+        await _move_value(session, value, order, actor)
     value.version += 1
     await _record(session, value, UPDATE, actor, before)
     await bump_workspace(session)
@@ -143,8 +159,45 @@ async def delete_value(
     await session.execute(delete(CheckValue).where(CheckValue.value_id == value.id))
     record_unlinked(session, value, items)
     await session.delete(value)
+    await session.flush()
+    following = list(
+        await session.scalars(select(Value).where(Value.order > value.order).order_by(Value.order))
+    )
+    await _shift_orders(session, following, -1, actor)
     await bump_workspace(session)
     return value, len(items)
+
+
+async def _move_value(
+    session: AsyncSession, value: Value, order: int, actor: ActorType
+) -> None:
+    previous = value.order
+    if order == previous:
+        return
+    # Open a gap before shifting, so SQLite's immediate unique constraint always holds.
+    value.order = 0
+    await session.flush()
+    upward = order < previous
+    following = list(
+        await session.scalars(
+            select(Value)
+            .where(Value.order.between(min(previous, order), max(previous, order)))
+            .order_by(Value.order.desc() if upward else Value.order)
+        )
+    )
+    await _shift_orders(session, following, 1 if upward else -1, actor)
+    value.order = order
+
+
+async def _shift_orders(
+    session: AsyncSession, values: list[Value], step: int, actor: ActorType
+) -> None:
+    for value in values:
+        before = snapshot(value)
+        value.order += step
+        value.version += 1
+        await session.flush()
+        await _record(session, value, UPDATE, actor, before)
 
 
 async def _record(

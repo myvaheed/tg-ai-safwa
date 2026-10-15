@@ -121,6 +121,7 @@ MANUAL = f"""# Safwa
 - A Tag is a free label on Cards, to find them together later.
 - In words: create, rename, put on a Card, delete.
 - With buttons: "💎 Values" or /values, and "🏷 Tags" or /tags: "➕ Add Value", "➕ Add Tag", rename and delete. A Value is created once it has a name and a description. On a Card, "✏️ Full editing" puts them on. "Linked Cards" on a Value or a Tag counts its Cards as "Children" does and opens them as a list.
+- Set a Value's place by asking the Advisor or pressing "↕️ Prioritize" on Values. Tap a Value to select it; tap it again to clear. ↑/↓ saves a move; ←/→ turns pages; Back exits. Places are 1..N, 1 highest; other Values shift automatically. Values and Advisor context follow this order.
 
 # Requests
 - A Request is a saved query over Cards, such as "All Goals". It lists the Cards it finds, and it filters the Backlog when a Sprint is planned.
