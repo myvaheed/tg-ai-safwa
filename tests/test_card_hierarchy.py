@@ -2,23 +2,25 @@ from __future__ import annotations
 
 import pytest
 from hook_helpers import changes_of
+from pydantic import ValidationError
 from schedule_helpers import create_card, create_check
 from sqlalchemy import select
 
 from safwa.bootstrap.modules import PROPOSALS
-from safwa.features.cards.hierarchy import card_progress
+from safwa.features.cards.hierarchy import card_parent_ids, card_progress
 from safwa.features.cards.hooks import parent_completion_request
 from safwa.features.cards.model import CARD_TREE_DEPTH_MAX, Card, CardKind
 from safwa.features.cards.use_cases import (
     CARD_ACTIONS_FINISHED,
+    CARD_ORPHANED,
     archive_subtree,
-    delete_one_card,
-    delete_subtree,
+    delete_card,
     finish_action,
     finish_card,
     reopen_card,
-    set_card_parent,
     toggle_card_check,
+    toggle_card_parent,
+    update_card_fields,
 )
 from safwa.features.checks.model import CheckOutcome
 from safwa.foundation.log_events import LogEvent
@@ -35,10 +37,16 @@ async def _goals(session, depth):
                 session,
                 kind="goal",
                 title=f"Goal {level}",
-                parent_id=goals[-1].id if goals else None,
+                parent_ids={goals[-1].id} if goals else set(),
             )
         )
     return goals
+
+
+async def _prepare(session, kind, arguments):
+    return await ChangePreparer(None, None, PROPOSALS).prepare(  # type: ignore[arg-type]
+        session, PROPOSALS.change_from_tool(kind, arguments)
+    )
 
 
 @pytest.mark.parametrize("kind", ["goal", "action"])
@@ -47,50 +55,44 @@ async def test_cd_tree_049_creation_counts_every_card_level(sessions, kind):
     assert set(CardKind) == {CardKind.GOAL, CardKind.ACTION}
     async with sessions() as session:
         goals = await _goals(session, CARD_TREE_DEPTH_MAX)
-        leaf = await create_card(session, kind=kind, title="Last level", parent_id=goals[-2].id)
+        leaf = await create_card(session, kind=kind, title="Last level", parent_ids={goals[-2].id})
         assert leaf.kind == kind
         with pytest.raises(DomainError, match="at most.*levels"):
-            await create_card(session, kind=kind, title="Too deep", parent_id=goals[-1].id)
+            await create_card(session, kind=kind, title="Too deep", parent_ids={goals[-1].id})
         with pytest.raises(ToolPreparationError, match="at most.*levels"):
-            await ChangePreparer(None, None, PROPOSALS).prepare(
-                session,
-                PROPOSALS.change_from_tool(
-                    kind, {"mode": "create", "title": "Too deep", "parent": goals[-1].id}
-                ),
-            )
+            await _prepare(session, kind, {"mode": "create", "title": "Too deep", "parent": goals[-1].id})
 
 
-async def test_cd_tree_049_a_move_counts_the_whole_branch_and_repairs_both_roots(sessions):
+async def test_cd_tree_049_a_new_parent_counts_every_path_and_repairs_every_goal_above(sessions):
     """CD-TREE-049 — tests/brd/cards.feature"""
     async with sessions() as session:
         goals = await _goals(session, CARD_TREE_DEPTH_MAX - 1)
         source = await create_card(session, kind="goal", title="Source")
-        branch = await create_card(session, kind="goal", title="Branch", parent_id=source.id)
+        branch = await create_card(session, kind="goal", title="Branch", parent_ids={source.id})
         action = await create_card(
             session,
             kind="action",
             title="Work",
-            parent_id=branch.id,
+            parent_ids={branch.id},
             stage="today",
             effort_points=3,
         )
-        original = (branch.parent_id, branch.version)
+        version = branch.version
         with pytest.raises(DomainError, match="at most.*levels"):
-            await set_card_parent(session, branch.id, goals[-1].id)
+            await toggle_card_parent(session, branch.id, goals[-1].id)
         with pytest.raises(ToolPreparationError, match="at most.*levels"):
-            await ChangePreparer(None, None, PROPOSALS).prepare(
-                session,
-                PROPOSALS.change_from_tool(
-                    "goal", {"mode": "update", "id": branch.id, "parent": goals[-1].id}
-                ),
-            )
-        assert (branch.parent_id, branch.version) == original
-        await set_card_parent(session, branch.id, goals[-2].id)
-        assert (source.effective_stage, source.effort_points) == ("backlog", None)
+            await _prepare(session, "goal", {"mode": "link", "id": branch.id, "parent": goals[-1].id})
+        assert (await card_parent_ids(session, branch.id), branch.version) == ([source.id], version)
+
+        await toggle_card_parent(session, branch.id, goals[-2].id)
         assert (goals[0].effective_stage, goals[0].effort_points) == ("today", 3)
-        assert action.parent_id == branch.id and branch.kind == "goal"
-        await set_card_parent(session, branch.id, None)
+        assert (source.effective_stage, source.effort_points) == ("today", 3)
+        await toggle_card_parent(session, branch.id, source.id)
+        assert (source.effective_stage, source.effort_points) == ("backlog", None)
+        assert await card_parent_ids(session, action.id) == [branch.id]
+        await toggle_card_parent(session, branch.id, goals[-2].id)
         assert goals[0].effort_points is None and branch.effort_points == 3
+        assert await card_parent_ids(session, branch.id) == []
 
 
 @pytest.mark.parametrize("parent_index", [0, 2])
@@ -98,20 +100,90 @@ async def test_cd_tree_050_cycles_are_refused_before_review_and_on_save(sessions
     """CD-TREE-050 — tests/brd/cards.feature"""
     async with sessions() as session:
         goals = await _goals(session, 3)
-        original = [(goal.parent_id, goal.version) for goal in goals]
+        original = [
+            (await card_parent_ids(session, goal.id), goal.version) for goal in goals
+        ]
         with pytest.raises(ToolPreparationError, match="itself or its descendant"):
-            await ChangePreparer(None, None, PROPOSALS).prepare(
-                session,
-                PROPOSALS.change_from_tool(
-                    "goal", {"mode": "update", "id": goals[0].id, "parent": goals[parent_index].id}
-                ),
+            await _prepare(
+                session, "goal", {"mode": "link", "id": goals[0].id, "parent": goals[parent_index].id}
             )
         with pytest.raises(DomainError, match="itself or its descendant"):
-            await set_card_parent(session, goals[0].id, goals[parent_index].id)
-        assert [(goal.parent_id, goal.version) for goal in goals] == original
+            await toggle_card_parent(session, goals[0].id, goals[parent_index].id)
+        assert [
+            (await card_parent_ids(session, goal.id), goal.version) for goal in goals
+        ] == original
 
 
-async def test_cd_stage_017_every_level_derives_progress_archive_and_reopening(sessions):
+async def test_cd_tree_056_a_card_stands_under_several_goals(sessions):
+    """CD-TREE-056 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        blog = await create_card(session, kind="goal", title="Launch the blog")
+        audience = await create_card(session, kind="goal", title="Grow audience")
+        post = await create_card(session, kind="goal", title="First post", parent_ids={blog.id})
+        write = await create_card(session, kind="action", title="Write it", parent_ids={post.id})
+        await session.commit()
+
+        linked = await _prepare(
+            session, "goal", {"mode": "link", "id": post.id, "parent": "Grow audience"}
+        )
+        assert linked.values["parents"] == "Grow audience"
+        assert await toggle_card_parent(session, post.id, audience.id) is True
+        assert await card_parent_ids(session, post.id) == sorted([blog.id, audience.id])
+        assert await session.scalar(
+            select(LogEvent.operation)
+            .where(LogEvent.item_type == "card", LogEvent.item_id == post.id)
+            .order_by(LogEvent.id.desc())
+        ) == "link_parent"
+        await toggle_card_parent(session, write.id, audience.id)
+        assert await card_parent_ids(session, write.id) == sorted([post.id, audience.id])
+
+        created = await _prepare(
+            session, "action", {"mode": "create", "title": "Edit it", "parent": post.id}
+        )
+        assert created.values["parents"] == post.id
+        with pytest.raises(ValidationError, match="use link or unlink"):
+            PROPOSALS.change_from_tool("goal", {"mode": "update", "id": post.id, "parent": blog.id})
+        with pytest.raises(ValidationError):
+            PROPOSALS.change_from_tool(
+                "goal", {"mode": "link", "id": post.id, "parent": [blog.id, audience.id]}
+            )
+
+        assert await toggle_card_parent(session, post.id, blog.id) is False
+        assert await card_parent_ids(session, post.id) == [audience.id]
+
+
+async def test_cd_effort_021_an_action_reached_along_two_paths_counts_once(sessions):
+    """CD-EFFORT-021 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        goal = await create_card(session, kind="goal", title="Launch")
+        first = await create_card(session, kind="goal", title="Write", parent_ids={goal.id})
+        second = await create_card(session, kind="goal", title="Publish", parent_ids={goal.id})
+        shared = await create_card(
+            session, kind="action", title="Draft", effort_points=5, parent_ids={first.id, second.id}
+        )
+        await create_card(session, kind="action", title="Upload", effort_points=3, parent_ids={second.id})
+        assert (first.effort_points, second.effort_points, goal.effort_points) == (5, 8, 8)
+        await update_card_fields(session, shared.id, {"effort_points": 8})
+        assert (first.effort_points, second.effort_points, goal.effort_points) == (8, 11, 11)
+        assert (await card_progress(session, goal.id))["effort_points"] == 11
+
+
+async def test_cd_time_040_an_action_reached_along_two_paths_counts_once(sessions):
+    """CD-TIME-040 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        goal = await create_card(session, kind="goal", title="Launch")
+        first = await create_card(session, kind="goal", title="Write", parent_ids={goal.id})
+        second = await create_card(session, kind="goal", title="Publish", parent_ids={goal.id})
+        shared = await create_card(
+            session, kind="action", title="Draft", parent_ids={first.id, second.id}
+        )
+        other = await create_card(session, kind="action", title="Upload", parent_ids={second.id})
+        await finish_action(session, shared.id, tracked_mins=30)
+        await finish_action(session, other.id, tracked_mins=45)
+        assert (first.tracked_mins, second.tracked_mins, goal.tracked_mins) == (30, 75, 75)
+
+
+async def test_cd_stage_017_reopening_an_action_leaves_closed_goals_closed(sessions):
     """CD-STAGE-017 — tests/brd/cards.feature"""
     async with sessions() as session:
         goals = await _goals(session, CARD_TREE_DEPTH_MAX - 1)
@@ -124,7 +196,7 @@ async def test_cd_stage_017_every_level_derives_progress_archive_and_reopening(s
             session,
             kind="action",
             title="Work",
-            parent_id=goals[-1].id,
+            parent_ids={goals[-1].id},
             stage="today",
             effort_points=3,
         )
@@ -142,35 +214,67 @@ async def test_cd_stage_017_every_level_derives_progress_archive_and_reopening(s
         assert all(goal.archived_at is not None for goal in goals)
         await reopen_card(session, action.id)
         assert all(
-            goal.completed_at is None
+            goal.effective_stage == "done"
+            and goal.completed_at is not None
             and goal.archived_at is None
-            and goal.manual_stage == "backlog"
             for goal in goals
         )
-        assert all(check.outcome is None for check in checks)
-        assert await delete_subtree(session, goals[0].id) == CARD_TREE_DEPTH_MAX
+        assert all(check.outcome == CheckOutcome.PASSED.value for check in checks)
+        await delete_card(session, goals[0].id)
+        assert await card_parent_ids(session, goals[1].id) == []
 
 
-async def test_cd_delete_025_children_take_the_deleted_goals_parent(sessions):
+async def test_cd_stage_015_a_goal_closes_over_open_cards_and_stays_closed(sessions):
+    """CD-STAGE-015 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        goal = await create_card(session, kind="goal", title="Launch")
+        subgoal = await create_card(session, kind="goal", title="Write", parent_ids={goal.id})
+        action = await create_card(
+            session, kind="action", title="Draft", stage="today", parent_ids={subgoal.id}
+        )
+        await finish_card(session, goal.id)
+        assert (goal.effective_stage, subgoal.effective_stage, action.effective_stage) == (
+            "done", "today", "today",
+        )
+        await finish_action(session, action.id)
+        await reopen_card(session, action.id)
+        assert (goal.effective_stage, subgoal.effective_stage) == ("done", "backlog")
+        await create_card(session, kind="action", title="Edit", parent_ids={goal.id})
+        assert goal.effective_stage == "done"
+
+
+async def test_cd_delete_025_children_lose_the_deleted_parent_and_keep_their_others(sessions):
     """CD-DELETE-025 — tests/brd/cards.feature"""
     async with sessions() as session:
         root, middle, child = await _goals(session, 3)
         direct = await create_card(
-            session, kind="action", title="Direct", parent_id=middle.id, effort_points=2
+            session,
+            kind="action",
+            title="Direct",
+            parent_ids={middle.id, root.id},
+            effort_points=2,
         )
         deep = await create_card(
-            session, kind="action", title="Deep", parent_id=child.id, stage="today", effort_points=3
+            session, kind="action", title="Deep", parent_ids={child.id}, stage="today", effort_points=3
         )
-        before = root.effort_points
-        assert await delete_one_card(session, middle.id) == 1
+        assert (root.effective_stage, root.effort_points) == ("today", 5)
+        await delete_card(session, middle.id)
+        orphaned = changes_of(session, CARD_ORPHANED)
         await session.commit()
         assert await session.get(Card, middle.id) is None
-        assert (child.parent_id, direct.parent_id, deep.parent_id) == (root.id, root.id, child.id)
-        assert (root.effective_stage, root.effort_points) == ("today", before)
+        assert [await card_parent_ids(session, card.id) for card in (child, direct, deep)] == [
+            [],
+            [root.id],
+            [child.id],
+        ]
+        assert (root.effective_stage, root.effort_points) == ("backlog", 2)
+        assert [(change.subject_id, dict(change.data)) for change in orphaned] == [
+            (middle.id, {"title": "Goal 1", "parent_ids": [root.id], "children": [child.id]})
+        ]
         for moved in (child, direct):
             event = await session.scalar(
                 select(LogEvent)
                 .where(LogEvent.item_type == "card", LogEvent.item_id == moved.id)
                 .order_by(LogEvent.id.desc())
             )
-            assert event.operation == "set_parent"
+            assert event.operation == "unlink_parent"

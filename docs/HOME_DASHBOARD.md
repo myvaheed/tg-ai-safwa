@@ -52,9 +52,10 @@ The day and the time it was drawn head it (HM-ORDER-014), then:
   hands its id to the next item.
 - **Values in focus** (`values_in_focus`): every Value a Card in Today carries, by name, each
   with the words written for it, or its name alone when none could be written.
-- **Today**, every Action in it under its Goal and Subgoal (`today_tree`, PL-KEY-025): a Goal
+- **Today**, every Action in it under its Goals and Subgoals (`today_tree`, PL-KEY-025): a Goal
   stands once, where its first Action stands in Today's order (`today_actions`), and its later
-  Actions come up under it; an Action with no Goal keeps its own place. The heading counts the
+  Actions come up under it; a Card under several Goals stands under the last of them, and
+  `· ↖` names the others as links; an Action with no Goal keeps its own place. The heading counts the
   Actions; the line under it gives the planned executions of the local day and, with EP on, their
   load; repeating rows show × quantity. With Today empty it says so, and no other list stands in for it: the Sprint and
   the Backlog are the Dashboard's (`📊 Dashboard` in the menu).

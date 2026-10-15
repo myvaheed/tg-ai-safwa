@@ -114,7 +114,7 @@ AI_LOG_EVENTS = SqlView(
   - `item_id` is the item's id, or NULL once the item was deleted
   - `title` is the item's title or name at that moment
   - `mode` created | updated | deleted
-  - `operation` create | update | delete | edit_<field> | set_parent | move | done | archive | restore | link_<kind> | unlink_<kind> | passed | missed | reschedule
+  - `operation` create | update | delete | edit_<field> | move | done | archive | restore | link_<kind> | unlink_<kind> | passed | missed | reschedule
   - `actor` user_ui | ai — the user on a screen, or a proposal the user approved
   - `sprint_id` is the Sprint that was running then, or NULL
   - `date` is the local day, `YYYY-MM-DD`

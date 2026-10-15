@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from safwa.bootstrap.modules import ALLOWED_VIEWS, PROPOSALS
 from safwa.constants import INBOX_TAG_NAME
+from safwa.features.cards.hierarchy import card_parent_ids
 from safwa.features.cards.model import Card, CardCategory, CardEnergyType
 from safwa.features.cards.use_cases import create_card, edit_card_text, toggle_card_tag
 from safwa.features.profile.model import ProfileField
@@ -60,7 +61,8 @@ async def test_a_capture_request_reaches_save_with_only_the_thought_and_inbox_ta
         tag = await session.scalar(select(Tag).where(Tag.name == INBOX_TAG_NAME))
         assert card.note == thought and card.kind == "action"
         assert card.effective_stage == "backlog"
-        assert card.effort_points is None and card.schedule is None and card.parent_id is None
+        assert card.effort_points is None and card.schedule is None
+        assert await card_parent_ids(session, card.id) == []
         assert await session.get(CardTag, (card.id, tag.id)) is not None
         assert await session.get(CardTag, (ordinary_id, tag.id)) is None
         assert list(await session.scalars(select(CardCategory))) == []

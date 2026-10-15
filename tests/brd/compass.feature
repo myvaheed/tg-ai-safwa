@@ -21,7 +21,7 @@ Feature: Compass
     And each step it is told what SQL finds: a root Goal that serves no Value, a Goal carrying four Values or more (GOAL_VALUES_MANY = 4), and a Value no open Goal, Action or Check carries
     And a Card carrying "Inbox", a finished or archived Card and an answered Check count for none of them
     And it also looks for a Value that is really a Goal, a practice or a rule, a reversed link, and two Values with one root
-    And an Action carrying the same Value as its Goal is not a finding
+    And an Action carrying the same Value as a Goal above it is not a finding
     And it names at most three findings, the most important first (COMPASS_FINDINGS_MAX = 3), cites each item and asks one question about each
     And it offers every change as a possibility, and a change is proposed only once the owner agrees
 
@@ -43,6 +43,7 @@ Feature: Compass
     Then one picture arrives in the chat as a file, at full size, kept in the chat and read as no words
     And the Values stand along its top as stars, each in a colour it keeps in every picture, with the Goals and Subgoals below them, each as high as its tree_level, and the Actions at the bottom
     And a line joins each parent to its child, and each Value to what carries it
+    And a Card under several Goals is drawn once, with a line from each of them
     And a Card carrying "Inbox", an archived Card and an answered Check are not drawn; a finished Card is drawn faint only when asked for
     And detail goals leaves the Actions out, and detail all adds the Checks
     And for one Value it draws the Cards that carry it, their parents up to the root and everything under them, with only the Values those carry

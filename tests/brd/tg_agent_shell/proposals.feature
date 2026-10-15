@@ -96,7 +96,7 @@ Feature: Proposals
     Given a proposal to move an Action to Done
     When the owner saves it
     Then the Action moves exactly as it would if the owner had pressed Done on its own screen
-    And everything that follows from that follows too, its Card tree and its Sprint included
+    And everything that follows from that follows too, the Goals above it and its Sprint included
     And the proposal is recorded as saved, and its screen can no longer be acted on
     When a proposal holds more than one edit
     Then they are applied in the order the review screen listed them

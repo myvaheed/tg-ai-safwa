@@ -1,6 +1,7 @@
 ﻿Feature: Cards
   A Card is one thing the owner means to do. Its kind is Goal or Action.
-  Goals form a tree; a Goal with a parent is displayed as a Subgoal, and Actions are its leaves.
+  A Card may stand under one Goal or several, its parents; a Goal with a parent is displayed as
+  a Subgoal, and nothing stands under an Action.
   What a Card may carry depends on its kind.
 
   Numbers below name the constant they come from; the tests read the constant.
@@ -13,18 +14,27 @@
     When the owner or Safwa tries to make it an Action
     Then the change is refused and the Card is still a Goal displayed as a Subgoal
     And the only way to have an Action instead is to create one
-    And changing or removing its parent never changes its kind
+    And adding or removing a parent never changes its kind
 
   Scenario: CD-TREE-002 — A Goal with a parent is displayed as a Subgoal
     Given the owner has Goals "Health" and "Life"
     When a Goal is proposed with a parent
     Then it is created as a Goal and displayed as a Subgoal under that parent
     When "Health" is placed under "Life"
-    Then "Health" is displayed as a Subgoal under "Life", and its history records the change of parent
+    Then "Health" is displayed as a Subgoal under "Life", and its history records the parent it gained
     And the review screen showed the new parent and the Subgoal label before Save, without a change of kind
     When a Goal with a Subgoal under it is placed under a Goal
-    Then its whole branch moves with it, within the depth limit (CD-TREE-049)
+    Then its whole branch comes with it, within the depth limit (CD-TREE-049)
     And a Goal may be placed under another Subgoal, but never under an Action or its own descendant
+
+  Scenario: CD-TREE-056 — A Card may stand under several Goals at once
+    Given the Goals "Launch the blog" and "Grow audience", and a Goal "First post" under "Launch the blog"
+    When "First post" is placed under "Grow audience" too
+    Then it stands under both, displayed as a Subgoal, and its history records the parent it gained
+    And an Action may stand under several Goals the same way
+    And one proposal gives a Card one parent or takes one away, and an edit of its fields changes none
+    And a Card proposed new stands under one Goal at most
+    And a Goal is never a Card's parent twice
 
   Scenario: CD-TREE-003 — Nested Goals can have children or become root-level
     Given a Goal "Health" and a Subgoal "Sleep better"
@@ -32,27 +42,29 @@
     Then it is placed there
     When another Subgoal is placed under "Sleep better"
     Then it is accepted within the depth limit
-    When a Subgoal's parent is removed
+    When one of a Subgoal's two parents is taken away
+    Then it stays under the other one
+    When its last parent is taken away
     Then it is root-level, displayed as a Goal, with its children still attached
     And no screen offers Subgoal as a separate kind
 
-  Scenario: CD-TREE-004 — An Action belongs to a Goal, a Subgoal or no one, and nothing belongs to an Action
+  Scenario: CD-TREE-004 — An Action stands under Goals, Subgoals or nothing, and nothing stands under an Action
     Given a Goal, a Subgoal under it, and an Action "Buy a pillow"
-    When "Buy a pillow" is placed under the Goal, then under the Subgoal, then under nothing
-    Then each of the three is accepted
+    When "Buy a pillow" is placed under the Goal, then under the Subgoal as well, then taken from both
+    Then each step is accepted
     When any Card is placed under "Buy a pillow"
     Then it is refused, and the refusal says an Action cannot have children
 
-  Scenario: CD-TREE-005 — A Card's place in the tree is only ever set by a proposal the owner saved
+  Scenario: CD-TREE-005 — A Card's parents are only ever set by a proposal the owner saved
     Given the owner is looking at a Card
-    When they look for a way to move it under another Card, or to give it a child
+    When they look for a way to place it under another Card, or to give it a child
     Then there is none: the screens create, edit, link, and move a Card between stages
     And the only path that changes a parent is a Card proposal the owner saved, by PR-WRITE-002
 
   Scenario: CD-TREE-006 — A parent that is archived, or that is not there, is not a parent
     Given a Goal that the owner archived
-    When a Card is proposed under it, or an existing Card is moved under it
-    Then it is refused, and the Card keeps the parent it had
+    When a Card is proposed under it, or an existing Card is placed under it
+    Then it is refused, and the Card keeps the parents it had
     And a parent that matches no Card is refused the same way
 
   Scenario: CD-FIELD-007 — Effort, categories, energy and Blocked belong to an Action alone
@@ -133,13 +145,14 @@
   Scenario: CD-STAGE-015 — Goals and Subgoals close only by explicit choice
     Given a Goal whose children have all been finished
     Then the Goal stays open in Backlog until the owner closes it with Done or saves a completion proposal
-    And closing a Subgoal does not close its Goal
-    And closing a Goal does not close its Subgoals
-    And a Goal or Subgoal with open Actions cannot be closed
-    And a Goal with one Done Action and one live Action shows the live one's stage
-    And a Subgoal with nothing in it holds the Goal above it in Backlog
+    And closing a Subgoal does not close its Goals
+    And closing a Goal does not close its Subgoals or Actions
+    And a Goal or Subgoal with open Cards under it can be closed, and they stay open
+    And an open Goal with one Done Action and one live Action shows the live one's stage
+    And a Subgoal with nothing in it holds the Goals above it in Backlog
     And a Goal with nothing under it stays in Backlog until explicitly closed
-    And a closed Goal or Subgoal may be reopened explicitly without reopening its Actions
+    And a closed Goal or Subgoal stays closed whatever happens under it, until it is reopened explicitly
+    And reopening it does not reopen its Actions
 
   Scenario: CD-STAGE-016 — Done comes from finishing, not from moving
     Given an Action in Today
@@ -152,9 +165,8 @@
     When the owner reopens it
     Then the completion time is cleared
     And the Checks it was closed on are given back to it, by CH-REOPEN-012
-    And the Goal above it shows a live stage again
-    And every closed parent is reopened, clearing its completion time and resetting its Checks
-    And a new open Action under a closed branch does the same
+    And an open Goal above it shows a live stage again
+    And a closed Goal above it stays closed, with its completion time and its Checks
     Given instead an Action that repeats and has been finished
     When anything tries to reopen it
     Then it is refused
@@ -181,6 +193,7 @@
     When one of them changes to 8
     Then the Goal shows 18
     And a Subgoal between them shows the total of its own branch
+    And an Action under two Subgoals of the Goal counts once in the Goal
     And a Goal and a Subgoal still refuse an effort set by hand
     And a Goal with no Action under it shows no effort
 
@@ -201,7 +214,7 @@
     Given a live Action
     When the owner or Safwa asks for it to be archived
     Then it is refused: only a Card that is Done may be archived
-    And a Goal a child keeps out of Done is refused the same way, and nothing under it is archived
+    And a Goal with an open Card under it is refused the same way, closed or not, and nothing under it is archived
     Given instead an Action that is Done
     When the owner archives it
     Then it is archived at once, without waiting for the two Sprints
@@ -247,23 +260,33 @@
     And a Goal and a Subgoal offer none: they leave the archive when a Card under them is reopened
     And deleting it is offered, and deletes it
 
-  Scenario: CD-DELETE-025 — Deleting a Card is the whole branch, or that Card on its own
+  Scenario: CD-DELETE-025 — Deleting a Card deletes that Card alone
     Given a Goal with Subgoals and Actions under it
     When the owner asks for the Goal to be deleted
-    Then they are offered both: the branch, and the Goal alone
-    And deleting the branch leaves nothing of it, open or closed, archived or not
-    And deleting one Card alone gives its direct children its parent, if it has one
-    And without a parent its direct children become root-level
-    And the children's descendants stay attached, their kinds stay the same, and history records the new parents
-    And the remaining ancestors still show the effort, time and stages of the surviving Actions
-    And a Card with nothing under it is deleted without the choice, the two being the same
+    Then one confirmation says the Cards under it stay, and only the Goal is deleted
+    And each Card directly under it loses that parent and keeps its other parents
+    And one left with no parent becomes root-level
+    And the Cards under them stay attached, their kinds stay the same, and history records the parent each one lost
+    And the remaining Goals still show the effort, time and stages of the surviving Actions
     And a Check that was on a deleted Card is deleted with it, answered or Pending
     And a Check that carries a Value stays instead, with no Card
     And the Values and Tags a deleted Card carried lose the link and nothing else
     And its Sprint commitments and its history go too
     And archiving is never substituted for it
-    And Safwa only ever asks for the branch, and Cards calls that destructive, so a proposal
-      to do it is confirmed a second time
+    And Cards calls deleting a Card destructive, so a proposal to do it is confirmed a second time
+
+  Scenario: CD-ORPHAN-059 — Cards a deletion leaves without a parent are asked about
+    Given a Subgoal "First post" under the Goals "Launch the blog" and "Grow audience", with a
+      Subgoal and an Action that stand under it alone, and Cards without a parent switched on
+    When "First post" is deleted, by hand or by a proposal the owner saved, and the chat is free
+    Then the Advisor is asked once, in one message, where to put the Cards it left without a parent
+    And the request names "First post" and the Goals it stood under, as a place for them
+    And nothing is moved before the owner's answer, and a Card left as it is stays root-level
+    And a Card that still has a parent is not asked about
+    And a Card given a parent, deleted or archived before the question is said is left out, and a
+      question with nothing in it is not asked
+    And a Goal the deleted Card stood under that is gone by then is not offered
+    And switching the hook off stops the question and drops what is pending
 
   Scenario: CD-CONTEXT-028 — The Priority Goals Safwa is handed are the ones still open
     Given Goals of every Priority, some of them Done and some still open
@@ -276,7 +299,7 @@
     Then the screen says what it is, where it stands, its note and what it costs, and on a Goal
       the Values it carries
     And the buttons are the ones an ordinary day needs: finishing it, moving it between stages,
-      and reaching its Checks; its parent, its children, its Values and its Tags are links in its
+      and reaching its Checks; its parents, its children, its Values and its Tags are links in its
       words, by CD-LINK-055
     And the Dashboard, the Backlog and the Sprint list each Card as a link that opens it
     And an open Action has two buttons at the top for moving it to the other live stages,
@@ -308,9 +331,9 @@
   Scenario: CD-GOAL-051 — A new Goal gets one small check before any question
     Given a Goal or Subgoal is created, by hand or by a saved proposal
     When the change commits
-    Then one mini session reads only its title, Note, Deadline and parent Goal
-    And it answers clear for one concrete result that takes more than one day, whose Done is observable and which, as a Subgoal, moves its parent's result forward
-    And it answers unclear, with what is unclear and one advice, for a direction, an ongoing practice or a rule, work for one day, two results, a Done nothing shows, or a Subgoal that does not move its parent forward
+    Then one mini session reads only its title, Note, Deadline and the titles of its parent Goals
+    And it answers clear for one concrete result that takes more than one day, whose Done is observable and which, as a Subgoal, moves each parent's result forward
+    And it answers unclear, with what is unclear and one advice, for a direction, an ongoing practice or a rule, work for one day, two results, a Done nothing shows, or a Subgoal that does not move a parent forward
     And it does not judge whether the Goal is attainable or worth doing
     And a clear Goal produces no question or change
     And creating an Action or a Goal carrying "Inbox", a rollback, or editing a Goal starts no review
@@ -325,9 +348,9 @@
   Scenario: CD-ACTION-052 — A new Action gets one small check of what it is and its labels before any question
     Given an Action is created, by hand or by a saved proposal
     When the change commits
-    Then one mini session reads its title, Note, Schedule, the title of its Goal, its Categories and Energy types, and the owner's last five messages with what answered each (ACTION_REVIEW_EXCHANGES = 5)
+    Then one mini session reads its title, Note, Schedule, the titles of its Goals, its Categories and Energy types, and the owner's last five messages with what answered each (ACTION_REVIEW_EXCHANGES = 5)
     And with Effort Points on it also reads the Action's Effort Points and up to ten Actions with Effort Points close to its title by words or meaning (SIMILAR_ACTIONS = 10), finished ones first, one of each repeat series; with Effort Points off it reads neither and searches nothing
-    And it answers unclear, with what to change, why and one advice, for an Action that takes more than one day, a direction rather than one step that can be started, a state to observe rather than work, one that does not move its Goal forward, a Category or Energy type that clearly does not fit, a clearly missing main one, Effort Points clearly apart from the similar Actions, or Effort Points not set while they are on
+    And it answers unclear, with what to change, why and one advice, for an Action that takes more than one day, a direction rather than one step that can be started, a state to observe rather than work, one that does not move its Goals forward, a Category or Energy type that clearly does not fit, a clearly missing main one, Effort Points clearly apart from the similar Actions, or Effort Points not set while they are on
     And it never advises changing what the owner named in those messages, and does not judge whether the Action is worth doing
     And an Action that fits produces no question or change
     And creating a Goal or an Action carrying "Inbox", a rollback, or editing an Action starts no review
@@ -384,6 +407,7 @@
   Scenario: CD-TIME-040 — A Goal shows the time of the Actions under it
     Given a Goal with two Actions under it, of 30 and 45 minutes, and a third with no time
     Then the Goal shows 1h 15m, and so does a Subgoal between them for its own branch
+    And an Action under two Subgoals of the Goal counts once in the Goal
     And an archived Action's time still counts
     And a Goal with no time on any Action under it shows none
 
@@ -408,6 +432,34 @@
     And a parent with no Actions asks nothing
     And rolling back completion asks nothing
     And switching the hook off prevents new questions and suppresses pending ones
+
+  Scenario: CD-CLOSE-057 — A Goal closed over open Cards is asked about
+    Given a Goal with an open Subgoal and an open Action under it, and Open Cards under a closed Goal switched on
+    When the Goal is closed, by hand or by a proposal the owner saved, and the chat is free
+    Then the Advisor is asked once, in one message, whether to keep it closed, reopen it, or close
+      the open Cards the request names
+    And it names an open Card under it, at any depth, when each of the Card's parents is that
+      Goal, another Card it names, or a closed Goal
+    And a Card that also stands under another open Goal is not named, and nothing is asked when
+      no Card is named
+    And a repeating Action is named as repeating, with its Schedule to be removed before it is closed
+    And nothing is closed or reopened before the owner's answer
+    And a Goal reopened or deleted before the question is said, or with nothing to name by then,
+      is left out, and a question with nothing in it is not asked
+    And switching the hook off stops the question and drops what is pending
+
+  Scenario: CD-REOPEN-058 — An open Card whose parents are all closed asks whether to reopen them
+    Given a Card under closed Goals only, and Closed parents switched on
+    When it is reopened, by hand or by a proposal the owner saved, or a saved proposal creates it
+      there, and the chat is free
+    Then the Advisor is asked once, in one message, whether to reopen those Goals, naming them
+    And a closed Goal above one of them is named too, while every parent of the Goal below it is closed
+    And a Card with an open parent, or with none, asks nothing
+    And nothing is reopened before the owner's answer
+    And a Card closed, deleted or given an open parent before the question is said is left out,
+      and a question with nothing in it is not asked
+    And the next instance of a finished repeating Action asks nothing
+    And switching the hook off stops the question and drops what is pending
 
   Scenario: CD-DEADLINE-043 — A Goal or a Subgoal has a Deadline where an Action has a Schedule
     Given a Goal or a Subgoal, written by hand, open on its screen, or proposed
@@ -457,17 +509,20 @@
     And the same Goal marker is shown in its screen, lists, citations and proposal preview, following moves and deletions in its subtree
     And a list of one stage, such as the Backlog, does not name that stage at all
 
-  Scenario: CD-TREE-049 — The tree has at most seven levels, including Actions
-    Given a Card tree, counting a root Card as level 1
+  Scenario: CD-TREE-049 — Cards stand at most seven levels deep, including Actions
+    Given Cards under Goals, counting a root Card as level 1 and a Card's level by its longest
+      path up
     When a Goal or Action is created at level 7 (CARD_TREE_DEPTH_MAX = 7)
     Then it is accepted
-    When a Card would be created below level 7, or moving a branch would put any descendant below it
+    When a Card would be created below level 7, or a new parent would put anything under the Card
+      below it along any path
     Then it is refused before review and again on Save, without changing the branch
-    And a branch moved within the limit keeps its children and repairs both its previous and new ancestors
+    And a Card given or losing a parent within the limit keeps its children, and every Goal above
+      it, along every path, shows what is under it now
 
   Scenario: CD-TREE-050 — A Card cannot be placed under itself or any descendant
     Given a Goal with several nested Goals under it
-    When the Goal is proposed as its own parent, or moved under any of its descendants
+    When the Goal is proposed as its own parent, or placed under any of its descendants
     Then it is refused before review and again on Save, without changing any parent or version
 
   Scenario: CD-TREE-053 — Safwa reads a Goal's marker as its tree_level
@@ -485,23 +540,24 @@
     Then live Cards come first, then Done ones, then archived ones
     And in each of the three the Goals with the most levels lead, 🎯³ before 🎯² before 🎯, and
       Actions follow the Goals
-    And each Card's children from the same list come right under it, the same way down
-    And a Done Action leaves its open parent for the Done ones
+    And a Card comes right under the last of its parents from the same list, the same way down
+    And a Done Action leaves its open parents for the Done ones
     And a Card under a Done or an archived Goal stays under that Goal
-    And a Card whose parent is not in the list stands on its own
+    And a Card none of whose parents is in the list stands on its own
     And where two Cards rank the same, the list's own order decides
     And the first 25 are buttons, the rest are only counted, and ↻ Refresh draws the list again
       (RESULT_LIMIT = 25)
 
-  Scenario: CD-LINK-055 — A Card's parent, children, Values and Tags are links in its words
+  Scenario: CD-LINK-055 — A Card's parents, children, Values and Tags are links in its words
     Given a Goal under another Goal, with a Subgoal and an Action under it, carrying a Value and a Tag
     When it is opened
     Then "Parent:" names the Goal above it as a link that opens that Goal
+    And a Card under two Goals or more reads "Parents:", with a link to each
     And "Children:" counts its children by kind, as "🎯1 · ⭐️1", and adds "· ⚡3/8 EP", Done of all
       their Effort Points, while Effort Points are on
     And that count is a link that opens the children as a list, by CD-ORDER-054, and no Effort line
       repeats it
     And a Goal with no children reads "Children: —", with no link
     And each Value and each Tag is a link by its name alone, with no 💎 or 🏷, that opens its screen
-    And no button repeats the parent, the children or a Value
+    And no button repeats the parents, the children or a Value
     And ↩️ Back on what a link opened returns to the Card

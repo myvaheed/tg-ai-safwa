@@ -27,14 +27,16 @@ _GOAL = CardKind.GOAL.value
 
 
 def _goal_chain_below(length: int) -> str:
-    """True when `length` Goals hang under the row's Card, each the parent of the next."""
+    """True when `length` Goals hang under the row's Card, each a parent of the next."""
     joins = "".join(
-        f" JOIN cards g{n} ON g{n}.parent_id = g{n - 1}.id AND g{n}.kind = '{_GOAL}'"
+        f" JOIN card_parents p{n} ON p{n}.parent_id = g{n - 1}.id"
+        f" JOIN cards g{n} ON g{n}.id = p{n}.card_id AND g{n}.kind = '{_GOAL}'"
         for n in range(2, length + 1)
     )
     return (
-        f"EXISTS (SELECT 1 FROM cards g1{joins} "
-        f"WHERE g1.parent_id = c.id AND g1.kind = '{_GOAL}')"
+        f"EXISTS (SELECT 1 FROM card_parents p1"
+        f" JOIN cards g1 ON g1.id = p1.card_id AND g1.kind = '{_GOAL}'{joins}"
+        f" WHERE p1.parent_id = c.id)"
     )
 
 
@@ -70,7 +72,10 @@ AI_CARDS = SqlView(
                NULLIF(c.blocked_description, '') AS blocked_description,
                CASE WHEN (SELECT effort_tracking FROM user_profile WHERE id=1)
                     THEN c.effort_points END AS effort_points,
-               c.tracked_mins, c.parent_id, {_TREE_LEVEL} AS tree_level,
+               c.tracked_mins,
+               (SELECT group_concat(cp.parent_id, ',') FROM card_parents cp
+                WHERE cp.card_id=c.id) AS parent_ids,
+               {_TREE_LEVEL} AS tree_level,
                COALESCE(c.repeat_series_id, c.id) AS series_id,
                (SELECT group_concat(cc.category, ',') FROM card_categories cc
                 WHERE cc.card_id=c.id) AS categories,
@@ -82,14 +87,15 @@ AI_CARDS = SqlView(
                 JOIN tags t ON t.id=ct.tag_id WHERE ct.card_id=c.id) AS direct_tags,
                c.created_at, c.updated_at, relevance('card', c.id) AS relevance
         FROM cards c LEFT JOIN schedules s ON s.id=c.schedule_id""",
-    doc="""- `ai_cards(id, title, note, kind, stage, priority, schedule, blocked_description, effort_points, tracked_mins, parent_id, tree_level, series_id, categories, energy_types, direct_values, direct_tags, created_at, updated_at, relevance)`
-  - `kind` goal | action; a goal with `parent_id` is displayed as a Subgoal
+    doc="""- `ai_cards(id, title, note, kind, stage, priority, schedule, blocked_description, effort_points, tracked_mins, parent_ids, tree_level, series_id, categories, energy_types, direct_values, direct_tags, created_at, updated_at, relevance)`
+  - `kind` goal | action; a goal with `parent_ids` is displayed as a Subgoal
+  - `parent_ids` are the comma-joined ids of the goals a card stands under, NULL at the root; match one with `',' || parent_ids || ',' LIKE '%,<id>,%'`
   - `tree_level` counts up from the bottom: an action is 0; a goal is 1 + the highest `tree_level` of its child goals, 1 with none. Goal → subgoal → action reads 2, 1, 0
   - `stage` backlog | sprint | today | done
   - `priority` critical | medium | low
   - `effort_points` 0.5 | 1 | 2 | 3 | 5 | 8 | 13, cost of one execution; NULL when unestimated or Effort Points are off
   - `tracked_mins` is the minutes the user spent on an action, NULL when not recorded
-  - on a goal or a subgoal, `stage`, `effort_points` and `tracked_mins` are what the cards under it add up to
+  - on a goal or a subgoal, `stage`, `effort_points` and `tracked_mins` are what the cards under it add up to, each action counted once
   - to total effort or time, add `WHERE kind = 'action'`
   - open Card rows are not planned execution counts; use `ai_current_sprint_metrics` for Sprint load and `get_scheduled` for calendar quantities
   - `categories` growth | people | work | chores | rest

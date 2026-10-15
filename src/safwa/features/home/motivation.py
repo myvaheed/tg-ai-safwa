@@ -95,9 +95,15 @@ async def owner_context(session: AsyncSession) -> str:
         "", "Current Sprint's Success criteria:",
         sprint.success_criteria.strip() if sprint else "No Sprint is running.",
     ]
-    lines += ["", "Today Actions, in Today's order, each under its Goal and Subgoal:"]
+    lines += ["", "Today Actions, in Today's order, each under its Goals and Subgoals:"]
     lines += [
-        f"{'  ' * depth}- {card.title} (priority={card.priority})" for depth, card in today
+        f"{'  ' * row.depth}- {row.card.title} (priority={row.card.priority})"
+        + (
+            f" (also under: {', '.join(parent.title for parent in row.also_under)})"
+            if row.also_under
+            else ""
+        )
+        for row in today
     ] or ["None."]
     lines += ["", "Actions finished last, newest first:"]
     lines += [f"- {card.completed_at:%Y-%m-%d} {card.title}" for card in done] or ["None."]

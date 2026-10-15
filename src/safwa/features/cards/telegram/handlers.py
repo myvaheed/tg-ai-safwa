@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from sqlalchemy import func, select
+from aiogram.types import InlineKeyboardMarkup
 
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
@@ -24,11 +23,11 @@ from ...checks.use_cases import pending_checks
 from ...profile.api import effort_tracking_on
 from ...schedules.api import DEADLINE_INSTRUCTION, SCHEDULE_INSTRUCTION
 from ...schedules.telegram import render_schedule
+from ..hierarchy import card_children
 from ..model import Card, CardKind, CardStage, minutes_label
 from ..use_cases import (
     archive_subtree,
-    delete_one_card,
-    delete_subtree,
+    delete_card,
     finish_card,
     move_card,
     reopen_card,
@@ -250,46 +249,28 @@ async def _on_restore(context: CallbackContext) -> None:
 async def _on_delete_prompt(context: CallbackContext) -> None:
     card_id = int(context.payload["id"])
     async with context.sessions() as session:
-        children = await session.scalar(
-            select(func.count()).select_from(Card).where(Card.parent_id == card_id)
-        )
-        rows: list[list[InlineKeyboardButton]] = []
-        if children:
-            rows.append(
-                [
-                    await token_button(
-                        session,
-                        context.owner_id,
-                        "🗑 Delete this Card only",
-                        "card_delete_confirm",
-                        {"id": card_id, "subtree": False},
-                    )
-                ]
-            )
-        rows.append(
+        children = await card_children(session, card_id)
+        rows = [
             [
                 await token_button(
                     session,
                     context.owner_id,
-                    "🗑 Permanently delete tree" if children else "🗑 Permanently delete",
+                    "🗑 Permanently delete",
                     "card_delete_confirm",
-                    {"id": card_id, "subtree": True},
+                    {"id": card_id},
                 )
-            ]
-        )
-        rows.append(
+            ],
             [
                 await back_button(
                     session, context.owner_id, Place("card_view", {"id": card_id}, context.back)
                 )
-            ]
-        )
+            ],
+        ]
         await session.commit()
-    text = "<b>Final confirmation</b>\nThis removes the tree and its historical contribution."
+    text = "<b>Final confirmation</b>\nThis removes this Card and its historical contribution."
     if children:
         text += (
-            "\nDeleting this Card alone gives its children its parent. "
-            "If it has no parent, its children become root-level."
+            "\nThe Cards under it stay. One left without a parent becomes root-level."
         )
     await send_registered(
         context.message,
@@ -301,15 +282,13 @@ async def _on_delete_prompt(context: CallbackContext) -> None:
 
 
 async def _on_delete_confirm(context: CallbackContext) -> None:
-    # Safwa only ever proposes the branch, so a payload with no answer means the branch.
-    delete = delete_subtree if context.payload.get("subtree", True) else delete_one_card
     async with context.sessions() as session:
-        count = await delete(session, context.payload["id"])
+        await delete_card(session, context.payload["id"])
         await session.commit()
     await send_registered(
         context.message,
         context.services,
-        f"Permanently deleted {count} card(s).",
+        "Permanently deleted the Card.",
         kind=MessageKind.RECEIPT,
         markup=InlineKeyboardMarkup(inline_keyboard=[menu_row()]),
     )

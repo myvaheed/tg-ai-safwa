@@ -11,7 +11,7 @@ from safwa.features.cards.hooks import PARENT_COMPLETION_HOOK
 from safwa.features.cards.model import Card, CardStage
 from safwa.features.cards.use_cases import (
     create_card,
-    delete_subtree,
+    delete_card,
     finish_action,
     finish_card,
     move_card,
@@ -39,12 +39,12 @@ async def test_finished_actions_ask_once_and_the_owners_choice_closes_only_the_g
     async with sessions() as session:
         await set_hook_switch(session, ONBOARDING_HOOK.name, on=False)
         goal = await create_card(session, kind="goal", title="Learn Spanish")
-        subgoal = await create_card(session, kind="goal", title="Read a book", parent_id=goal.id)
+        subgoal = await create_card(session, kind="goal", title="Read a book", parent_ids={goal.id})
         first = await create_card(
-            session, kind="action", title="Buy the book", effort_points=1, parent_id=subgoal.id
+            session, kind="action", title="Buy the book", effort_points=1, parent_ids={subgoal.id}
         )
         last = await create_card(
-            session, kind="action", title="Read it", effort_points=2, parent_id=subgoal.id
+            session, kind="action", title="Read it", effort_points=2, parent_ids={subgoal.id}
         )
         await session.commit()
         goal_id, subgoal_id, first_id, last_id = goal.id, subgoal.id, first.id, last.id
@@ -134,7 +134,7 @@ async def test_finished_actions_ask_once_and_the_owners_choice_closes_only_the_g
         await finish_card(session, goal_id)
         await move_card(session, last_id, CardStage.TODAY)
         await session.commit()
-        assert (await session.get(Card, goal_id)).effective_stage == "today"
+        assert (await session.get(Card, goal_id)).effective_stage == "done"
 
 
 @pytest.mark.parametrize(
@@ -148,7 +148,7 @@ async def test_pending_question_is_rechecked_before_delivery(e2e_harness, change
         await set_hook_switch(session, ONBOARDING_HOOK.name, on=False)
         goal = await create_card(session, kind="goal", title="Health")
         action = await create_card(
-            session, kind="action", title="Walk", effort_points=1, parent_id=goal.id
+            session, kind="action", title="Walk", effort_points=1, parent_ids={goal.id}
         )
         await session.commit()
         goal_id, action_id = goal.id, action.id
@@ -165,14 +165,14 @@ async def test_pending_question_is_rechecked_before_delivery(e2e_harness, change
     async with sessions() as session:
         if change == "new_action":
             await create_card(
-                session, kind="action", title="Swim", effort_points=1, parent_id=goal_id
+                session, kind="action", title="Swim", effort_points=1, parent_ids={goal_id}
             )
         elif change == "reopen_action":
             await move_card(session, action_id, CardStage.BACKLOG)
         elif change == "close_parent":
             await finish_card(session, goal_id)
         elif change == "delete":
-            await delete_subtree(session, goal_id)
+            await delete_card(session, goal_id)
         else:
             await set_hook_switch(session, PARENT_COMPLETION_HOOK.name, on=False)
         await session.commit()

@@ -577,21 +577,21 @@ async def test_ob_return_007_actions_stand_under_their_goal_and_subgoal(sessions
     """OB-RETURN-007 — tests/brd/onboarding.feature"""
     async with sessions() as session:
         health = await create_card(session, kind="goal", title="Health")
-        sleep = await create_card(session, kind="goal", title="Sleep", parent_id=health.id)
+        sleep = await create_card(session, kind="goal", title="Sleep", parent_ids={health.id})
         bed = await create_card(
             session, kind="action", title="Bed at ten", stage="today", effort_points=1,
-            parent_id=sleep.id,
+            parent_ids={sleep.id},
         )
         walk = await create_card(
             session, kind="action", title="Walk", stage="sprint", effort_points=1,
-            parent_id=health.id,
+            parent_ids={health.id},
         )
         await create_card(
-            session, kind="action", title="Someday", effort_points=1, parent_id=health.id
+            session, kind="action", title="Someday", effort_points=1, parent_ids={health.id}
         )
         done = await create_card(
             session, kind="action", title="Ran", stage="today", effort_points=1,
-            parent_id=health.id,
+            parent_ids={health.id},
         )
         await finish_action(session, done.id)
         taxes = await create_card(
@@ -618,6 +618,25 @@ async def test_ob_return_007_actions_stand_under_their_goal_and_subgoal(sessions
     )
 
 
+async def test_ob_return_007_a_card_under_two_goals_stands_once(sessions):
+    """OB-RETURN-007 — tests/brd/onboarding.feature"""
+    async with sessions() as session:
+        health = await create_card(session, kind="goal", title="Health")
+        rest = await create_card(session, kind="goal", title="Rest")
+        bed = await create_card(
+            session, kind="action", title="Bed at ten", stage="today", effort_points=1,
+            parent_ids={health.id, rest.id},
+        )
+        await session.commit()
+        said = await return_request(session, [20])
+
+    assert said.block.splitlines()[2:] == [
+        f"[Health](card:{health.id})",
+        f"[Rest](card:{rest.id})",
+        f"    [Bed at ten](card:{bed.id}) — Today · ↖ [Health](card:{health.id})",
+    ]
+
+
 async def test_ob_return_007_every_ancestor_of_a_deep_action_is_cited(sessions):
     """OB-RETURN-007 — tests/brd/onboarding.feature"""
     async with sessions() as session:
@@ -625,9 +644,9 @@ async def test_ob_return_007_every_ancestor_of_a_deep_action_is_cited(sessions):
         for level in range(6):
             goals.append(await create_card(
                 session, kind="goal", title=f"Level {level + 1}",
-                parent_id=goals[-1].id if goals else None,
+                parent_ids={goals[-1].id} if goals else set(),
             ))
-        action = await create_card(session, kind="action", title="Work", stage="today", parent_id=goals[-1].id)
+        action = await create_card(session, kind="action", title="Work", stage="today", parent_ids={goals[-1].id})
         said = await return_request(session, [20])
         lines = said.block.splitlines()
         for depth, goal in enumerate(goals):

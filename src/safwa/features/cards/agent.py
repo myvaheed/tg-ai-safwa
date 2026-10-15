@@ -19,7 +19,7 @@ from .model import (
     CardKind,
 )
 
-LINK_FIELDS = frozenset({"values", "tags", "checks"})
+LINK_FIELDS = frozenset({"values", "tags", "checks", "parent"})
 
 VALUES_DESCRIPTION = "Each an exact Value name or an id."
 TAGS_DESCRIPTION = "Each an exact Tag name or an id."
@@ -27,8 +27,12 @@ CHECKS_DESCRIPTION = (
     "Each an exact Check title or an id. A Check with its own Schedule links only to a Goal. "
     "A Check on another Card: unlink it there first."
 )
+PARENT_DESCRIPTION = (
+    "One Goal, by exact title or id. A Card may stand under several Goals: create sets one, "
+    "link adds one, unlink removes one; one per call."
+)
 LINK_MODES = (
-    "link and unlink take `values`, `tags` or `checks`, one per call. "
+    "link and unlink take `values`, `tags`, `checks` or `parent`, one per call. "
     "Deleting is the remove tool."
 )
 REPEAT_INSTANCE = "For a finished repeat ` [✅2, 🔄#7]`, send it with that instance's id."
@@ -49,10 +53,12 @@ def _validate_call(
         raise ValueError(f"{label} mode '{call.mode}' needs an id")
     if call.mode == "update" and not supplied:
         raise ValueError(f"an updated {label} needs at least one proposed field")
+    if call.mode == "update" and "parent" in supplied:
+        raise ValueError(f"{label} update does not change parent; use link or unlink")
     if call.mode in {"link", "unlink"}:
         linked = supplied & LINK_FIELDS
         if len(linked) != 1 or supplied - LINK_FIELDS or not getattr(call, linked.pop()):
-            raise ValueError(f"{label} {call.mode} needs exactly one of values, tags or checks")
+            raise ValueError(f"{label} {call.mode} needs exactly one of values, tags, checks or parent")
         return
     if call.mode in only and (unsupported := supplied - only[call.mode]):
         raise ValueError(
@@ -62,11 +68,11 @@ def _validate_call(
 
 class GoalToolInput(ToolInput):
     content_fields = frozenset({"title", "note", "deadline"})
-    semantic_null_fields = frozenset({"deadline", "parent"})
+    semantic_null_fields = frozenset({"deadline"})
 
     mode: Literal["create", "update", "complete", "reopen", "link", "unlink"] = Field(
         description=(
-            "complete only when the user asks and all its Actions are Done. " + LINK_MODES
+            "complete only when the user asks. " + LINK_MODES
         )
     )
     id: PositiveInt | None = None
@@ -91,10 +97,7 @@ class GoalToolInput(ToolInput):
     checks: Reference | list[Reference] | None = Field(
         default=None, description=CHECKS_DESCRIPTION
     )
-    parent: Reference | None = Field(
-        default=None,
-        description="A Goal, by exact title or id. On update, null makes it root-level.",
-    )
+    parent: Reference | None = Field(default=None, description=PARENT_DESCRIPTION)
 
     @model_validator(mode="after")
     def validate_target(self) -> GoalToolInput:
@@ -105,14 +108,14 @@ class GoalToolInput(ToolInput):
 class ActionToolInput(ToolInput):
     content_fields = frozenset({"title", "note", "blocked_description", "schedule"})
     semantic_null_fields = frozenset(
-        {"parent", "schedule", "tracked_mins", "effort_points", "blocked_description"}
+        {"schedule", "tracked_mins", "effort_points", "blocked_description"}
     )
 
     mode: Literal["create", "update", "move", "complete", "reopen", "link", "unlink"] = Field(
         description=(
             "move changes only `stage`. complete finishes it, with `tracked_mins` when the user "
             "said how long it took; its Goal stays open. reopen brings it back to `stage`, "
-            "Backlog when omitted, and reopens its closed Goal and Subgoal. " + LINK_MODES
+            "Backlog when omitted. " + LINK_MODES
         )
     )
     id: PositiveInt | None = None
@@ -174,10 +177,7 @@ class ActionToolInput(ToolInput):
     checks: Reference | list[Reference] | None = Field(
         default=None, description=CHECKS_DESCRIPTION
     )
-    parent: Reference | None = Field(
-        default=None,
-        description="A Goal, by exact title or id. On update, null makes it root-level.",
-    )
+    parent: Reference | None = Field(default=None, description=PARENT_DESCRIPTION)
 
     @model_validator(mode="after")
     def validate_target(self) -> ActionToolInput:
@@ -206,6 +206,9 @@ def _card_change(kind: CardKind) -> Callable[[BaseModel], AgentChange]:
         # A Goal's Schedule is its Deadline.
         if "deadline" in values:
             values["schedule"] = values.pop("deadline")
+        # One parent per call, written into the link set every parent of the Card is in.
+        if "parent" in values:
+            values["parents"] = values.pop("parent")
         values["kind"] = kind.value
         return change.model_copy(update={"values": values})
 
@@ -252,7 +255,8 @@ def _repair(model: type[ToolInput]) -> Callable[[dict[str, Any]], dict[str, Any]
 
 
 CARD_AUTOAPPROVALS = {
-    "link": AutoApprovalRule(RELATIONSHIP_LINK, LINK_FIELDS),
+    # A parent always takes the review screen.
+    "link": AutoApprovalRule(RELATIONSHIP_LINK, frozenset({"values", "tags", "checks"})),
     "move": AutoApprovalRule(SCALAR_UPDATE, frozenset({"stage"})),
     "update": AutoApprovalRule(
         SCALAR_UPDATE,

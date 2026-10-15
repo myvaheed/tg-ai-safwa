@@ -14,6 +14,7 @@ from safwa.bootstrap.modules import (
     PROPOSALS,
     SYSTEM_PROMPT,
 )
+from safwa.features.cards.hierarchy import card_parent_ids
 from safwa.features.cards.model import Card, CardCategory, CardEnergyType, CardStage
 from safwa.features.cards.use_cases import finish_action, move_card
 from safwa.features.planning.use_cases import finish_sprint, sprint_metrics, start_sprint
@@ -67,7 +68,7 @@ async def test_placeholder_heavy_card_tool_payload_stays_a_root_action(e2e_harne
     assert outcome.kind is AIOutcomeKind.PROPOSAL
     change = e2e_harness.reviews.proposal(outcome.proposal_id).changes[0]
     assert change.values["title"] == "Подтянуться 20 раз"
-    assert "parent_id" not in change.values
+    assert "parents" not in change.values
     assert "parent" not in change.values
 
 
@@ -123,7 +124,7 @@ async def test_ai_card_proposal_reaches_the_sprint_it_was_planned_into(e2e_harne
 
         assert action is not None
         assert action.title == "Push ups 30 times"
-        assert action.parent_id == goal.id
+        assert await card_parent_ids(session, action.id) == [goal.id]
         assert action.schedule == "after completion"
         assert action.schedule_record.rule == {"kind": "after_completion"}
         assert action.effort_points == 2
@@ -162,7 +163,7 @@ async def test_ai_card_proposal_reaches_the_sprint_it_was_planned_into(e2e_harne
         successor = await session.get(Card, completion.successor_ids[0])
         assert successor is not None
         assert successor.effective_stage == CardStage.TODAY.value
-        assert successor.parent_id == goal.id
+        assert await card_parent_ids(session, successor.id) == [goal.id]
         current_goal = await session.get(Card, goal.id)
         assert current_goal is not None
         assert current_goal.effective_stage == CardStage.TODAY.value

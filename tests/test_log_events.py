@@ -13,7 +13,7 @@ from safwa.features.advisor.agent import ADVISOR_ROW_LIMITS, ADVISOR_VIEWS
 from safwa.features.cards.model import CardStage
 from safwa.features.cards.use_cases import (
     create_card,
-    delete_subtree,
+    delete_card,
     finish_action,
     move_card,
     update_card_fields,
@@ -72,7 +72,7 @@ async def _by_hand(session) -> dict[str, int]:
     """Each of the six made, renamed and deleted through the calls its screens make."""
     card = await create_card(session, kind="action", title="Walk", effort_points=1)
     await update_card_fields(session, card.id, {"title": "Walk far"})
-    await delete_subtree(session, card.id)
+    await delete_card(session, card.id)
     check = await create_check(session, title="Walk")
     await update_check_fields(session, check.id, {"title": "Walk far"})
     await delete_check(session, check.id)
@@ -204,7 +204,7 @@ async def test_ad_log_004_a_row_reads_as_its_mode_and_its_local_day(read_views):
         card = await create_card(session, kind="action", title="Walk", effort_points=1)
         await move_card(session, card.id, CardStage.TODAY)
         await finish_action(session, card.id)
-        await delete_subtree(session, card.id)
+        await delete_card(session, card.id)
         await session.commit()
         stamped = await session.scalar(select(LogEvent.at).where(LogEvent.item_id == card.id))
 

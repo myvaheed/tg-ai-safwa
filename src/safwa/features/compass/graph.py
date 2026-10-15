@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...constants import INBOX_TAG_NAME
+from ..cards.api import forest_rows, parents_of
 from ..cards.model import TERMINAL_STAGES, Card, CardCheck, CardKind, card_kind_name
 from ..checks.model import Check
 from ..tags.model import CardTag, Tag
@@ -30,7 +31,7 @@ PROBLEMS = (
     "Two Values share one root: one is what the other is for, or both say the same.",
 )
 NOT_PROBLEMS = (
-    "An Action carrying the same Value as its Goal is fine.",
+    "An Action carrying the same Value as a Goal above it is fine.",
     "Whether a Value, Goal or Action is right for the user is theirs to say.",
 )
 
@@ -46,6 +47,8 @@ class Tree:
     card_values: dict[int, list[int]]
     check_values: dict[int, list[int]]
     check_cards: dict[int, Card]
+    # Every Goal each Card stands under, whether it is in `cards` or not.
+    card_parents: dict[int, list[int]]
 
 
 async def read_tree(session: AsyncSession, *, done: bool = False) -> Tree:
@@ -96,6 +99,7 @@ async def read_tree(session: AsyncSession, *, done: bool = False) -> Tree:
         card_values=card_values,
         check_values=check_values,
         check_cards=check_cards,
+        card_parents=await parents_of(session, [card.id for card in cards]),
     )
 
 
@@ -119,7 +123,7 @@ def plain_findings(tree: Tree) -> list[Finding]:
         if card.kind != CardKind.GOAL.value:
             continue
         carried = tree.card_values.get(card.id, [])
-        if card.parent_id is None and not carried:
+        if not tree.card_parents.get(card.id) and not carried:
             found.append(Finding(("card", card.id), f"{_card(card)}: a root Goal that serves no Value."))
         if len(carried) >= GOAL_VALUES_MANY:
             found.append(
@@ -154,29 +158,22 @@ def tree_text(tree: Tree) -> str:
             text = text[: TREE_NOTE_MAX_CHARS - 1].rstrip() + "…"
         return f" Note: {text}" if text else ""
 
-    open_ids = {card.id for card in tree.cards}
-    children: dict[int | None, list[Card]] = {}
-    for card in tree.cards:
-        parent = card.parent_id if card.parent_id in open_ids else None
-        children.setdefault(parent, []).append(card)
-
     lines = ["Values:"]
     lines += [f"- [{value.name}](value:{value.id}): {value.description}" for value in tree.values]
     lines.append("Open Goals, Subgoals and Actions, each under its parent:")
-
-    def walk(parent: int | None, depth: int) -> None:
-        for card in children.get(parent, []):
-            values = tree.card_values.get(card.id, [])
-            serves = f" Values: {carried(values)}." if values else (
-                " No Value." if card.kind == CardKind.GOAL.value else ""
-            )
-            lines.append(
-                f"{'  ' * depth}- {_card(card)}, {card_kind_name(card.kind, card.parent_id)}."
-                f"{serves}{note(card.note)}"
-            )
-            walk(card.id, depth + 1)
-
-    walk(None, 0)
+    for row in forest_rows(tree.cards, tree.card_parents):
+        card = row.card
+        values = tree.card_values.get(card.id, [])
+        serves = f" Values: {carried(values)}." if values else (
+            " No Value." if card.kind == CardKind.GOAL.value else ""
+        )
+        also = (
+            f" Also under: {', '.join(_card(parent) for parent in row.also_under)}."
+            if row.also_under
+            else ""
+        )
+        kind = card_kind_name(card.kind, bool(tree.card_parents.get(card.id)))
+        lines.append(f"{'  ' * row.depth}- {_card(card)}, {kind}.{also}{serves}{note(card.note)}")
     lines.append("Open Checks:")
     for check in tree.checks:
         card = tree.check_cards.get(check.id)

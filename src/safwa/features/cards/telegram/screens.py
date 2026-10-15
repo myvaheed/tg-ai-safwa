@@ -32,7 +32,7 @@ from ...profile.api import effort_tracking_on, time_tracking_on
 from ...schedules.api import schedule_summary
 from ...tags.model import CardTag, Tag
 from ...values.model import CardValue, Value
-from ..api import tree_level
+from ..api import parents_of, tree_level
 from ..hierarchy import card_progress
 from ..model import Card, CardCategory, CardEnergyType, CardKind, CardStage
 from .presentation import card_overview_text, card_title_marks, progress_summary
@@ -72,7 +72,8 @@ async def render_card(
         card = await session.get(Card, card_id)
         if card is None:
             raise DomainError("Card does not exist")
-        parent = await session.get(Card, card.parent_id) if card.parent_id else None
+        parent_ids = (await parents_of(session, [card.id])).get(card.id, [])
+        parents = list(await session.scalars(select(Card).where(Card.id.in_(parent_ids)).order_by(Card.id)))
         direct_value_ids = list(
             await session.scalars(select(CardValue.value_id).where(CardValue.card_id == card.id))
         )
@@ -304,7 +305,7 @@ async def render_card(
                     expires_at=datetime.now(UTC) + timedelta(minutes=30),
                 )
             )
-        # Parent, children, Values and Tags are links in the Card's words (CD-LINK-055).
+        # Parents, children, Values and Tags are links in the Card's words (CD-LINK-055).
         progress: dict[str, Any] = {}
         children_html = ""
         if card.kind != CardKind.ACTION.value:
@@ -317,23 +318,22 @@ async def render_card(
                     html.escape(children),
                     here.child("card_children", id=card.id),
                 )
-        parent_html = (
+        parents_html = [
             await place_link(
                 session,
                 services,
                 html.escape(parent.title),
                 here.child("card_view", id=parent.id),
             )
-            if parent is not None
-            else None
-        )
+            for parent in parents
+        ]
         # Only what the view shows gets a link: a root Goal's Values even in the compact one.
         value_html = [
             await place_link(
                 session, services, html.escape(value.name), here.child("value_view", id=value.id)
             )
             for value in direct_values
-            if full or (card.kind == CardKind.GOAL.value and card.parent_id is None)
+            if full or (card.kind == CardKind.GOAL.value and not parent_ids)
         ]
         tag_html = [
             await place_link(
@@ -355,10 +355,10 @@ async def render_card(
         overview = card_overview_text(
             {
                 "kind": card.kind,
-                "parent_id": card.parent_id,
+                "parent_ids": parent_ids,
                 "tree_level": level,
                 "title": card.title + card_marks,
-                "parent_html": parent_html,
+                "parents_html": parents_html,
                 "stage": card.effective_stage,
                 "closed_at": f"{closed_at.astimezone(tz):%Y-%m-%d %H:%M}" if closed_at else None,
                 "note": card.note,

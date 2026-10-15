@@ -160,7 +160,7 @@ async def test_citations_use_compact_labels_from_saved_items(sessions, effort_on
             session,
             kind="action",
             title="Бегать 3 км",
-            parent_id=goal.id,
+            parent_ids={goal.id},
             effort_points=2,
             categories={"growth"},
             energy_types={"physical", "emotional"},

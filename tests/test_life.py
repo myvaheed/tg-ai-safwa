@@ -413,12 +413,12 @@ async def test_lf_share_005_an_action_serves_the_values_of_its_goal_and_subgoal(
         ]
         goal = await create_card(session, kind="goal", title="Be well", value_ids={health.id})
         subgoal = await create_card(
-            session, kind="goal", title="Home", parent_id=goal.id, value_ids={family.id}
+            session, kind="goal", title="Home", parent_ids={goal.id}, value_ids={family.id}
         )
         for level in range(4):
-            subgoal = await create_card(session, kind="goal", title=f"Part {level}", parent_id=subgoal.id)
+            subgoal = await create_card(session, kind="goal", title=f"Part {level}", parent_ids={subgoal.id})
         action = await create_card(
-            session, kind="action", title="Cook", parent_id=subgoal.id, value_ids={craft.id}
+            session, kind="action", title="Cook", parent_ids={subgoal.id}, value_ids={craft.id}
         )
         alone = await create_card(session, kind="action", title="Read")
         for card in (action, alone):

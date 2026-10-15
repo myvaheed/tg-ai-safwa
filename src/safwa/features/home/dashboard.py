@@ -39,7 +39,6 @@ _DONE_TO = {
     "archive": "archived",
     "restore": "restored",
     "reschedule": "rescheduled",
-    "set_parent": "parent",
 }
 
 
@@ -78,7 +77,7 @@ async def dashboard_text(
 
 
 async def _today(session: AsyncSession, local: datetime) -> str:
-    """Every Action in Today, in Today's order, each under its Goal and Subgoal."""
+    """Every Action in Today, in Today's order, each under its Goals and Subgoals."""
     cards = await today_actions(session)
     if not cards:
         return "**☀️ Today** · Nothing is planned for today."
@@ -91,11 +90,16 @@ async def _today(session: AsyncSession, local: datetime) -> str:
     if load.unknown_schedules:
         planned += " · Schedule quantities are unknown"
     lines = [f"**☀️ Today · {len(cards)}**", planned]
-    for depth, card in await today_tree(session, cards):
+    for row in await today_tree(session, cards):
+        card = row.card
         # Only an Action has executions to count; a Goal stands for the Actions under it.
         quantity = load.counts.get(card.id, 1)
         suffix = f" × {quantity if quantity is not None else '?'}" if quantity != 1 else ""
-        lines.append(f"{_INDENT * depth}{_cite('card', card.id, card.title)}{suffix}")
+        if row.also_under:
+            suffix += " · ↖ " + ", ".join(
+                _cite("card", parent.id, parent.title) for parent in row.also_under
+            )
+        lines.append(f"{_INDENT * row.depth}{_cite('card', card.id, card.title)}{suffix}")
     return "\n".join(lines)
 
 

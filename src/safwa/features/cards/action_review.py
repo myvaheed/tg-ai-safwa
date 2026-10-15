@@ -1,6 +1,6 @@
 """Advise on a new Action only when it misses the Action criteria or its labels clearly miss.
 
-The hook's work reads each new Action with its Goal, the last exchanges of the conversation
+The hook's work reads each new Action with its Goals, the last exchanges of the conversation
 and, with Effort Points on, the closest Actions that carry an estimate, finished ones first;
 one small model call answers clear, or unclear with its advice. The unclear one is kept with that
 advice as its pending request; every pending Action is worded in one request, which waits
@@ -28,7 +28,7 @@ from tg_agent_shell.hooks.contracts import HookSpec, OnCommitted, RunAndAdvise, 
 
 from ...foundation.method import bullets, lines, review_examples
 from ..profile.api import effort_tracking_on
-from .api import ACTION
+from .api import ACTION, parents_of
 from .goal_review import created_card, open_card
 from .model import (
     CATEGORY_MEANINGS,
@@ -56,7 +56,7 @@ _RUNGS = "".join(f"- {effort_label(points)}: {words}\n" for points, words in EFF
 
 # Whether the Action is worth doing is the owner's to know: its title cannot show it.
 ACTION_REVIEW_PROMPT = (
-    "You review one new Action: its title, Note, Schedule, Goal and labels, "
+    "You review one new Action: its title, Note, Schedule, Goals and labels, "
     "with the recent conversation.\n"
     f"{ACTION.definition}\n\n"
     "A good Action:\n"
@@ -169,12 +169,16 @@ async def _read_action(session: AsyncSession, card_id: int) -> dict[str, Any] | 
     card = await open_card(session, card_id, CardKind.ACTION)
     if card is None:
         return None
-    goal = await session.get(Card, card.parent_id) if card.parent_id else None
+    parent_ids = (await parents_of(session, [card.id])).get(card.id, [])
     action: dict[str, Any] = {
         "title": card.title,
         "note": card.note,
         "schedule": card.schedule or "",
-        "goal": goal.title if goal else "",
+        "goals": list(
+            await session.scalars(
+                select(Card.title).where(Card.id.in_(parent_ids)).order_by(Card.id)
+            )
+        ),
         "categories": list(await session.scalars(
             select(CardCategory.category)
             .where(CardCategory.card_id == card_id)
@@ -274,7 +278,7 @@ ACTION_REVIEW_HOOK = HookSpec(
     title="Action review",
     description=(
         "After an Action is created, checks that it is one concrete step that fits in one "
-        "day and moves its Goal forward, and that its Categories, Energy types and Effort "
+        "day and moves its Goals forward, and that its Categories, Energy types and Effort "
         "Points fit it. Suggests changes, with reasons, only when something clearly does not."
     ),
 )

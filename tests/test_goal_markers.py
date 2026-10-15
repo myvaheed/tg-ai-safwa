@@ -13,7 +13,7 @@ from safwa.features.cards.telegram.presentation import (
     card_emoji,
     item_button_label,
 )
-from safwa.features.cards.use_cases import delete_one_card, set_card_parent
+from safwa.features.cards.use_cases import delete_card, toggle_card_parent
 from safwa.features.saved_requests.telegram.screens import render_saved_request
 from safwa.features.saved_requests.use_cases import create_saved_request
 
@@ -41,11 +41,11 @@ async def test_cd_button_048_goal_markers_show_subgoal_depth_on_every_surface(se
                 session,
                 kind="goal",
                 title=f"Child {level}",
-                parent_id=leaf.id,
+                parent_ids={leaf.id},
             )
         if depth:
-            await create_card(session, kind="goal", title="Sibling", parent_id=goal.id)
-        await create_card(session, kind="action", title="Work", parent_id=goal.id)
+            await create_card(session, kind="goal", title="Sibling", parent_ids={goal.id})
+        await create_card(session, kind="action", title="Work", parent_ids={goal.id})
         assert await card_emoji(session, leaf) == "🎯"
         label = await item_button_label(session, goal)
         assert label.startswith(marker + " ") and len(label) == ITEM_BUTTON_LIMIT
@@ -80,19 +80,24 @@ async def test_cd_button_048_markers_follow_moves_and_single_card_deletion(sessi
     """CD-BUTTON-048 — tests/brd/cards.feature"""
     async with sessions() as session:
         root = await create_card(session, kind="goal", title="Root")
-        parent = await create_card(session, kind="goal", title="Parent", parent_id=root.id)
-        goal = await create_card(session, kind="goal", title="Child", parent_id=parent.id)
+        parent = await create_card(session, kind="goal", title="Parent", parent_ids={root.id})
+        goal = await create_card(session, kind="goal", title="Child", parent_ids={parent.id})
         assert await card_emoji(session, root) == "🎯³"
         assert await card_emoji(session, parent) == "🎯²"
         assert await card_emoji(session, goal) == "🎯"
-        await set_card_parent(session, parent.id, None)
+        await toggle_card_parent(session, parent.id, root.id)
         assert await card_emoji(session, root) == "🎯"
         assert await card_emoji(session, parent) == "🎯²"
         assert await card_emoji(session, goal) == "🎯"
-        await set_card_parent(session, parent.id, root.id)
+        await toggle_card_parent(session, parent.id, root.id)
         assert await card_emoji(session, root) == "🎯³"
-        await delete_one_card(session, parent.id)
-        assert await card_emoji(session, root) == "🎯²"
+        # A second parent counts its own deepest chain.
+        other = await create_card(session, kind="goal", title="Other")
+        await toggle_card_parent(session, goal.id, other.id)
+        assert await card_emoji(session, other) == "🎯²"
+        assert await card_emoji(session, root) == "🎯³"
+        await delete_card(session, parent.id)
+        assert await card_emoji(session, root) == "🎯"
         assert await card_emoji(session, goal) == "🎯"
 
 
@@ -100,8 +105,8 @@ async def test_cd_button_048_goal_subgoal_action_chain_counts_only_goal_levels(s
     """CD-BUTTON-048 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Goal")
-        subgoal = await create_card(session, kind="goal", title="Subgoal", parent_id=goal.id)
-        action = await create_card(session, kind="action", title="Action", parent_id=subgoal.id)
+        subgoal = await create_card(session, kind="goal", title="Subgoal", parent_ids={goal.id})
+        action = await create_card(session, kind="action", title="Action", parent_ids={subgoal.id})
         assert await card_emoji(session, goal) == "🎯²"
         assert await card_emoji(session, subgoal) == "🎯"
         assert await card_emoji(session, action) == "⭐️"
@@ -120,11 +125,11 @@ async def test_cd_tree_053_ai_cards_reads_the_goal_marker_as_tree_level(read_vie
         for level in range(3):
             chain.append(
                 await create_card(
-                    session, kind="goal", title=f"Subgoal {level}", parent_id=chain[-1].id
+                    session, kind="goal", title=f"Subgoal {level}", parent_ids={chain[-1].id}
                 )
             )
-        sibling = await create_card(session, kind="goal", title="Sibling", parent_id=chain[0].id)
-        action = await create_card(session, kind="action", title="Action", parent_id=chain[-1].id)
+        sibling = await create_card(session, kind="goal", title="Sibling", parent_ids={chain[0].id})
+        action = await create_card(session, kind="action", title="Action", parent_ids={chain[-1].id})
         await session.commit()
         assert await card_emoji(session, chain[0]) == "🎯⁴"
         ids = [card.id for card in chain]
@@ -135,13 +140,13 @@ async def test_cd_tree_053_ai_cards_reads_the_goal_marker_as_tree_level(read_vie
     assert (levels[sibling_id], levels[action_id]) == (1, 0)
 
     async with sessions() as session:
-        await set_card_parent(session, ids[2], None)
+        await toggle_card_parent(session, ids[2], ids[1])
         await session.commit()
     levels = await read_levels()
     assert [levels[card_id] for card_id in ids] == [2, 1, 2, 1]
 
     async with sessions() as session:
-        await delete_one_card(session, ids[3])
+        await delete_card(session, ids[3])
         await session.commit()
     assert (await read_levels())[ids[2]] == 1
 
@@ -154,7 +159,7 @@ async def test_cd_tree_053_a_chain_at_the_depth_limit_reads_the_same_as_its_mark
         for level in range(CARD_TREE_DEPTH_MAX - 1):
             chain.append(
                 await create_card(
-                    session, kind="goal", title=f"Subgoal {level}", parent_id=chain[-1].id
+                    session, kind="goal", title=f"Subgoal {level}", parent_ids={chain[-1].id}
                 )
             )
         await session.commit()

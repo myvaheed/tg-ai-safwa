@@ -35,7 +35,7 @@ from safwa.features.cards.telegram.text_input import TIME_SPENT_INSTRUCTION
 from safwa.features.cards.use_cases import (
     CARD_DONE,
     archive_subtree,
-    delete_one_card,
+    delete_card,
     finish_action,
     move_card,
     toggle_card_category,
@@ -125,7 +125,7 @@ async def test_cd_time_039_an_action_carries_the_minutes_it_took(sessions):
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Reports")
         report = await create_card(
-            session, kind="action", title="Write the report", effort_points=3, parent_id=goal.id
+            session, kind="action", title="Write the report", effort_points=3, parent_ids={goal.id}
         )
         await session.commit()
         await update_card_fields(session, report.id, {"tracked_mins": 331})
@@ -270,14 +270,14 @@ async def test_cd_time_040_a_goal_shows_the_time_of_the_actions_under_it(session
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Move house")
         empty = await create_card(session, kind="goal", title="Learn Spanish")
-        subgoal = await create_card(session, kind="goal", title="Pack", parent_id=goal.id)
+        subgoal = await create_card(session, kind="goal", title="Pack", parent_ids={goal.id})
         books, kitchen, _ = [
             await create_card(
-                session, kind="action", title=title, effort_points=1, parent_id=subgoal.id
+                session, kind="action", title=title, effort_points=1, parent_ids={subgoal.id}
             )
             for title in ("Books", "Kitchen", "Garage")
         ]
-        await create_card(session, kind="action", title="Call", effort_points=1, parent_id=empty.id)
+        await create_card(session, kind="action", title="Call", effort_points=1, parent_ids={empty.id})
         await update_card_fields(session, books.id, {"tracked_mins": 30})
         await finish_action(session, kitchen.id, tracked_mins=45)
         await archive_subtree(session, kitchen.id)
@@ -316,7 +316,7 @@ async def test_cd_time_041_the_request_names_what_is_still_done_and_without_a_ti
             await finish_action(session, card_id)
         await move_card(session, ids[2], CardStage.TODAY)
         await archive_subtree(session, ids[3])
-        await delete_one_card(session, ids[4])
+        await delete_card(session, ids[4])
         await update_card_fields(session, ids[1], {"tracked_mins": 15})
         # Finished with its time in the same step: nothing to ask.
         timed = await create_card(session, kind="action", title="Sign", effort_points=1)

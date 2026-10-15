@@ -18,7 +18,7 @@ from llm_gateway import ToolCall
 from safwa.constants import INBOX_TAG_NAME
 from safwa.features.cards.model import CardCheck
 from safwa.features.cards.telegram import render_board
-from safwa.features.cards.use_cases import finish_action, finish_card
+from safwa.features.cards.use_cases import finish_action, finish_card, toggle_card_parent
 from safwa.features.compass.agent import COMPASS_AGENT, show_constellation_tool
 from safwa.features.compass.charts import SKY_DPI, WIDTH_INCHES, draw_sky
 from safwa.features.compass.constellation import (
@@ -49,16 +49,16 @@ async def tree(sessions) -> SimpleNamespace:
         calm = (await create_value(session, "Calm", "Quiet evenings")).id
         health = (await create_value(session, "Health", "Sleep and move")).id
         fit = await create_card(session, kind="goal", title="Get fit", value_ids={health})
-        sub = await create_card(session, kind="goal", title="Run 5 km", parent_id=fit.id)
-        run = await create_card(session, kind="action", title="Run", parent_id=sub.id)
-        stretch = await create_card(session, kind="action", title="Stretch", parent_id=sub.id)
-        shoes = await create_card(session, kind="action", title="Buy shoes", parent_id=fit.id)
+        sub = await create_card(session, kind="goal", title="Run 5 km", parent_ids={fit.id})
+        run = await create_card(session, kind="action", title="Run", parent_ids={sub.id})
+        stretch = await create_card(session, kind="action", title="Stretch", parent_ids={sub.id})
+        shoes = await create_card(session, kind="action", title="Buy shoes", parent_ids={fit.id})
         earn = await create_card(session, kind="goal", title="Earn $20k")
-        bob = await create_card(session, kind="action", title="Call Bob", parent_id=earn.id)
+        bob = await create_card(session, kind="action", title="Call Bob", parent_ids={earn.id})
         await create_card(session, kind="goal", title="Some idea", tag_ids={inbox})
-        gone = await create_card(session, kind="action", title="Gone", parent_id=fit.id)
+        gone = await create_card(session, kind="action", title="Gone", parent_ids={fit.id})
         gone.archived_at = datetime.now(UTC)
-        old = await create_card(session, kind="action", title="Old run", parent_id=fit.id)
+        old = await create_card(session, kind="action", title="Old run", parent_ids={fit.id})
         await finish_action(session, old.id)
         slept = await create_check(session, title="Slept?")
         session.add(CheckValue(check_id=slept.id, value_id=health))
@@ -113,6 +113,20 @@ async def test_the_values_stand_above_and_each_goal_as_high_as_its_level(session
     assert {star.item for star in sky.stars if star.flagged} == {
         ("card", ids.earn), ("value", ids.calm),
     }
+
+
+async def test_a_card_under_two_goals_is_drawn_once_with_a_line_from_each(sessions):
+    """CMP-SKY-004 — tests/brd/compass.feature"""
+    ids = await tree(sessions)
+    async with sessions() as session:
+        await toggle_card_parent(session, ids.run, ids.earn)
+        await session.commit()
+        sky = await read_sky(session)
+    assert [star.item for star in sky.stars].count(("card", ids.run)) == 1
+    assert (("card", ids.sub), ("card", ids.run)) in sky.branches
+    assert (("card", ids.earn), ("card", ids.run)) in sky.branches
+    at = stars(sky)
+    assert at[("card", ids.earn)].x == (at[("card", ids.bob)].x + at[("card", ids.run)].x) / 2
 
 
 async def test_detail_done_and_one_value_or_goal_choose_what_is_drawn(sessions):

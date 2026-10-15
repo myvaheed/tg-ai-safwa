@@ -16,6 +16,7 @@ from ui_harness import (
 from safwa.bootstrap.modules import (
     PROPOSALS,
 )
+from safwa.features.cards.hierarchy import card_parent_ids
 from safwa.features.cards.model import Card, CardCategory, CardEnergyType
 from safwa.features.diary.use_cases import create_diary_entry
 from safwa.features.tags.model import CardTag, Tag
@@ -126,21 +127,28 @@ async def test_cd_tree_002_the_review_screen_shows_the_goal_becoming_a_subgoal(s
         health = await create_card(session, kind="goal", title="Health")
         leaf = health
         for level in range(depth):
-            leaf = await create_card(session, kind="goal", title=f"Child {level}", parent_id=leaf.id)
+            leaf = await create_card(session, kind="goal", title=f"Child {level}", parent_ids={leaf.id})
         ancestor = None
         for level in range(parent_depth):
-            ancestor = await create_card(session, kind="goal", title=f"Ancestor {level}", parent_id=ancestor.id if ancestor else None)
-        life = await create_card(session, kind="goal", title="Life", parent_id=ancestor.id if ancestor else None)
+            ancestor = await create_card(
+                session,
+                kind="goal",
+                title=f"Ancestor {level}",
+                parent_ids={ancestor.id} if ancestor else set(),
+            )
+        life = await create_card(
+            session, kind="goal", title="Life", parent_ids={ancestor.id} if ancestor else set()
+        )
         workspace = await session.get(Workspace, 1)
         proposal = store.open_proposal(
             workspace_revision=workspace.revision,
             changes=[
                 ProposalChange(
                     entity="card",
-                    action=ChangeAction.UPDATE,
+                    action=ChangeAction.LINK,
                     entity_id=health.id,
                     expected_version=health.version,
-                    values={"parent_id": life.id},
+                    values={"parents": life.id},
                 )
             ],
         )
@@ -153,14 +161,14 @@ async def test_cd_tree_002_the_review_screen_shows_the_goal_becoming_a_subgoal(s
     text, _markup = message.edits[-1]
     assert f"Kind: {marker} Subgoal" in text
     assert "Goal</s>" not in text
-    assert "Parent: <b>Life</b>" in text
+    assert "Parents: <b>Life</b>" in text
 
     async with sessions() as session:
         await approve_proposal(session, store, PROPOSALS, proposal_id)
         await session.commit()
     async with sessions() as session:
         health = await session.get(Card, health_id)
-        assert (health.kind, health.parent_id) == ("goal", life_id)
+        assert (health.kind, await card_parent_ids(session, health_id)) == ("goal", [life_id])
 
 
 async def test_card_check_link_proposal_shows_the_check_in_overview_and_diff(sessions) -> None:
@@ -366,7 +374,7 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
                     "schedule_rule": await rule_for(session, nine),
                     "blocked_description": "Waiting for access",
                     "effort_points": 5,
-                    "parent_id": parent.id,
+                    "parents": [parent.id],
                     "categories": ["rest", "work"],
                     "energy_types": ["physical", "emotional"],
                     "values": [value.id],
@@ -401,14 +409,14 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
             card.blocked,
             card.blocked_description,
             card.effort_points,
-            card.parent_id,
+            await card_parent_ids(session, card_id),
         ) == (
             "critical",
             "daily 09:00",
             True,
             "Waiting for access",
             5,
-            parent.id,
+            [parent.id],
         )
         assert set(
             await session.scalars(

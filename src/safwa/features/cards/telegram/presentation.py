@@ -12,7 +12,7 @@ from tg_agent_shell.telegram import citation_title, with_citation_fields
 
 from ....foundation.marks import REPEAT_OPEN_MARKER, title_marks
 from ...profile.api import effort_tracking_on
-from ..api import tree_level
+from ..api import forest_rows, parents_of, tree_level
 from ..hierarchy import card_progress
 from ..model import (
     Card,
@@ -94,13 +94,13 @@ def _typed_expression(values: Any, emojis: dict[str, str]) -> str:
     return ", ".join(labels) or "—"
 
 
-def kind_label(value: Any, parent_id: int | None = None, *, level: int = 0) -> str:
-    name = card_kind_name(str(getattr(value, "value", value)), parent_id)
+def kind_label(value: Any, has_parent: bool = False, *, level: int = 0) -> str:
+    name = card_kind_name(str(getattr(value, "value", value)), has_parent)
     emoji = kind_emoji(value, level)
     return f"{emoji} {name}" if emoji else name
 
 
-def values_expression(kind: Any, names: list[str], parent_id: int | None = None) -> str:
+def values_expression(kind: Any, names: list[str], has_parent: bool = False) -> str:
     """Name the Values on a Card, and say plainly when a Goal is carrying none.
 
     A Goal is where a Value is what says why the work is there, so an empty list is
@@ -109,7 +109,7 @@ def values_expression(kind: Any, names: list[str], parent_id: int | None = None)
     """
     if names:
         return ", ".join(names)
-    return "⚠️ None" if kind == CardKind.GOAL.value and parent_id is None else "—"
+    return "⚠️ None" if kind == CardKind.GOAL.value and not has_parent else "—"
 
 
 def kind_emoji(value: Any, level: int = 0) -> str:
@@ -145,15 +145,19 @@ _LIVE, _DONE, _ARCHIVED = range(3)
 async def result_order(session: AsyncSession, cards: list[Card]) -> list[Card]:
     """A list of Cards as one flat tree (CD-ORDER-054).
 
-    Live Cards come first, then Done ones, then archived ones. A Done Action leaves an open
-    parent for the Done group, and a Card under a Done or archived parent stays with it.
-    In each group the Goals with the most levels lead, each with its children from the same
-    list right under it, and Actions follow the Goals. The order the list came in breaks
-    every tie.
+    Live Cards come first, then Done ones, then archived ones. A Done Action leaves its open
+    parents for the Done group, and a Card under a Done or archived parent stays with it.
+    In each group the Goals with the most levels lead, each Card right under the last of its
+    parents from the same list and group, and Actions follow the Goals. The order the list
+    came in breaks every tie.
     """
     by_id = {card.id: card for card in cards}
     position = {card.id: index for index, card in enumerate(cards)}
     levels = {card.id: await tree_level(session, card.kind, card.id) for card in cards}
+    parents = {
+        card_id: [by_id[parent] for parent in held if parent in by_id]
+        for card_id, held in (await parents_of(session, list(by_id))).items()
+    }
     groups: dict[int, int] = {}
 
     def group(card: Card) -> int:
@@ -165,27 +169,15 @@ async def result_order(session: AsyncSession, cards: list[Card]) -> list[Card]:
                 if card.effective_stage == CardStage.DONE.value
                 else _LIVE
             )
-            parent = by_id.get(card.parent_id)
-            groups[card.id] = max(own, group(parent)) if parent is not None else own
+            groups[card.id] = max([own, *(group(parent) for parent in parents.get(card.id, ()))])
         return groups[card.id]
 
-    under: dict[int | None, list[Card]] = {}
-    for card in cards:
-        parent = by_id.get(card.parent_id)
-        anchor = parent.id if parent is not None and group(parent) == group(card) else None
-        under.setdefault(anchor, []).append(card)
-    ordered: list[Card] = []
-
-    def walk(anchor: int | None) -> None:
-        for card in sorted(
-            under.get(anchor, []),
-            key=lambda card: (group(card), -levels[card.id], position[card.id]),
-        ):
-            ordered.append(card)
-            walk(card.id)
-
-    walk(None)
-    return ordered
+    ranked = sorted(cards, key=lambda card: (group(card), -levels[card.id], position[card.id]))
+    anchors = {
+        card.id: [parent.id for parent in parents.get(card.id, ()) if group(parent) == group(card)]
+        for card in cards
+    }
+    return [row.card for row in forest_rows(ranked, anchors)]
 
 
 def progress_summary(progress: dict[str, Any], *, effort_tracking: bool) -> str:
@@ -223,13 +215,13 @@ def card_overview_text(
     a review screen plain words.
     """
     kind = str(state.get("kind") or "")
-    parent_id = state.get("parent_id")
+    has_parent = bool(state.get("parent_ids"))
     lines = [
-        f"Kind: {html.escape(kind_label(kind, parent_id, level=state.get('tree_level', 0)))}",
+        f"Kind: {html.escape(kind_label(kind, has_parent, level=state.get('tree_level', 0)))}",
         f"Title: <b>{html.escape(str(state.get('title') or '—'))}</b>",
     ]
-    if state.get("parent_html"):
-        lines.append(f"Parent: {state['parent_html']}")
+    if parents := state.get("parents_html"):
+        lines.append(f"{'Parent' if len(parents) == 1 else 'Parents'}: {', '.join(parents)}")
     lines.append(f"Stage: {html.escape(str(state.get('stage') or 'backlog').title())}")
     if state.get("closed_at"):
         lines.append(f"Completed at: {html.escape(str(state['closed_at']))}")
@@ -270,12 +262,12 @@ def card_overview_text(
     if compact:
         # A Goal keeps its Values even here: an empty list is what the compact view
         # exists to put in front of the owner, not what it hides.
-        if kind == CardKind.GOAL.value and parent_id is None:
+        if kind == CardKind.GOAL.value and not has_parent:
             lines.append(f"Values: {values_expression(kind, state.get('value_html', []))}")
         return f"<b>{html.escape(heading)}</b>\n" + "\n".join(lines)
     lines.extend(
         [
-            f"Values: {values_expression(kind, state.get('value_html', []), parent_id)}",
+            f"Values: {values_expression(kind, state.get('value_html', []), has_parent)}",
             f"Tags: {', '.join(state.get('tag_html', [])) or '—'}",
         ]
     )

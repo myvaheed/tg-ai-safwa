@@ -235,8 +235,8 @@ async def test_a_value_is_in_focus_while_a_card_in_today_carries_it(sessions):
         home = await create_domain_card(
             session, kind="goal", title="Home", value_ids={family.id}
         )
-        rooms = await create_domain_card(session, kind="goal", title="Rooms", parent_id=home.id)
-        await _action(session, "Paint the wall", stage="today", parent_id=rooms.id)
+        rooms = await create_domain_card(session, kind="goal", title="Rooms", parent_ids={home.id})
+        await _action(session, "Paint the wall", stage="today", parent_ids={rooms.id})
         await _action(session, "Practise", stage="sprint", value_ids={craft.id})
         await create_domain_card(session, kind="goal", title="Mastery", value_ids={craft.id})
         check = await create_check(session, title="Did I practise?")

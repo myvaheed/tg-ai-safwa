@@ -8,7 +8,7 @@ Planning's, which is what keeps the two acyclic.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterable
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -25,7 +25,7 @@ from ...foundation.method import Example, Method
 from ..schedules.api import ACTION_DAILY_EXECUTIONS_MAX
 from .model import TERMINAL_STAGES as TERMINAL_STAGES
 from .model import Card as Card
-from .model import CardKind, Priority
+from .model import CardKind, CardParent, Priority
 from .model import CardStage as CardStage
 from .model import effort_label as effort_label
 from .model import minutes_label as minutes_label
@@ -129,13 +129,13 @@ class FinishedAction:
     effort_points: float | None
     categories: frozenset[str]
     energy_types: frozenset[str]
-    # The Values it serves: its own, and those its Goal and Subgoal carry.
+    # The Values it serves: its own, and those every Goal above it carries.
     value_ids: frozenset[int]
 
 
 async def every_finished_action(session: AsyncSession) -> list[FinishedAction]:
     """Every Action ever finished, archived or not, oldest first."""
-    parents = {
+    goals = {
         card.id: card
         for card in await session.scalars(
             select(Card)
@@ -143,13 +143,21 @@ async def every_finished_action(session: AsyncSession) -> list[FinishedAction]:
             .options(selectinload(Card.values))
         )
     }
+    parents = await parents_of(session)
 
     def served(card: Card) -> frozenset[int]:
         ids: set[int] = set()
-        current: Card | None = card
-        while current is not None:
-            ids.update(link.value_id for link in current.values)
-            current = parents.get(current.parent_id) if current.parent_id else None
+        seen: set[int] = set()
+        waiting = [card.id]
+        while waiting:
+            current = waiting.pop()
+            if current in seen:
+                continue
+            seen.add(current)
+            holder = goals.get(current, card if current == card.id else None)
+            if holder is not None:
+                ids.update(link.value_id for link in holder.values)
+            waiting.extend(parents.get(current, ()))
         return frozenset(ids)
 
     actions = await session.scalars(
@@ -247,9 +255,83 @@ async def tree_level(session: AsyncSession, kind: str | None, card_id: int | Non
     if card_id is None:
         return 1
     children = await session.scalars(
-        select(Card.id).where(Card.parent_id == card_id, Card.kind == CardKind.GOAL.value)
+        select(Card.id)
+        .join(CardParent, CardParent.card_id == Card.id)
+        .where(CardParent.parent_id == card_id, Card.kind == CardKind.GOAL.value)
     )
     return 1 + max([await tree_level(session, kind, child) for child in children], default=0)
+
+
+async def parents_of(
+    session: AsyncSession, card_ids: Iterable[int] | None = None
+) -> dict[int, list[int]]:
+    """The Goals each Card stands under, by Card id; every Card's when no ids are named.
+
+    A Card with no parent is not a key.
+    """
+    query = select(CardParent.card_id, CardParent.parent_id).order_by(
+        CardParent.card_id, CardParent.parent_id
+    )
+    if card_ids is not None:
+        wanted = list(card_ids)
+        if not wanted:
+            return {}
+        query = query.where(CardParent.card_id.in_(wanted))
+    found: dict[int, list[int]] = {}
+    for card_id, parent_id in await session.execute(query):
+        found.setdefault(card_id, []).append(parent_id)
+    return found
+
+
+@dataclass(frozen=True, slots=True)
+class ForestRow:
+    """One Card in a drawn list of Cards: how deep it stands, and its other parents there."""
+
+    depth: int
+    card: Card
+    also_under: tuple[Card, ...]
+
+
+def forest_rows(cards: Sequence[Card], parents: Mapping[int, Iterable[int]]) -> list[ForestRow]:
+    """Every Card once, in the order given, each under the last of its parents to be shown.
+
+    A Card comes right under that parent, one level below it, once every parent it has in
+    the list is shown; the others are named beside it. A Card with no parent in the list
+    stands at the top, where it is in the order.
+    """
+    by_id = {card.id: card for card in cards}
+    position = {card.id: index for index, card in enumerate(cards)}
+    listed = {
+        card.id: sorted(
+            {parent for parent in parents.get(card.id, ()) if parent in by_id},
+            key=position.__getitem__,
+        )
+        for card in cards
+    }
+    children: dict[int, list[int]] = {}
+    for card in cards:
+        for parent in listed[card.id]:
+            children.setdefault(parent, []).append(card.id)
+    waiting = {card_id: len(held) for card_id, held in listed.items()}
+    placed: set[int] = set()
+    rows: list[ForestRow] = []
+
+    def visit(card_id: int, depth: int, via: int | None) -> None:
+        placed.add(card_id)
+        others = tuple(by_id[parent] for parent in listed[card_id] if parent != via)
+        rows.append(ForestRow(depth, by_id[card_id], others))
+        # Every child counts this parent as shown before any of them is walked, so a child
+        # that also stands under a sibling comes under that sibling, shown after this one.
+        for child in children.get(card_id, ()):
+            waiting[child] -= 1
+        for child in children.get(card_id, ()):
+            if not waiting[child] and child not in placed:
+                visit(child, depth + 1, card_id)
+
+    for card in cards:
+        if not listed[card.id]:
+            visit(card.id, 0, None)
+    return rows
 
 
 GOAL = Method(
@@ -263,12 +345,12 @@ GOAL = Method(
         "is a result, not an ongoing practice or a rule;",
         "takes more than one day; work for one day is an Action;",
         "has an observable Done: the title or Note says what fact shows it;",
-        "as a Subgoal, its result moves its parent's result forward.",
+        "as a Subgoal, its result moves each parent's result forward.",
     ),
     leaves=("Do not judge whether the Goal is attainable or worth doing.",),
     writing=(
-        "A Goal may be root-level or under another Goal. With a parent it is displayed as a Subgoal. "
-        "An Action may stand under any Goal or alone and has no children.",
+        "A Goal may be root-level or under one or more Goals. With a parent it is displayed as a "
+        "Subgoal. An Action may stand under any Goals or alone and has no children.",
         "An ongoing practice is a repeating Action, not a Goal.",
         "For a new or reframed Goal or Subgoal, put the result in `title` and an observable "
         "completion criterion in `note`.",
@@ -334,7 +416,7 @@ ACTION = Method(
         "fits in one day; a result that takes longer is a Goal;",
         "one concrete step that can be started, not a direction such as Work on my health;",
         "work to do, not a state to observe; a state such as Back straight is a Check;",
-        "moves its Goal forward, when it has one.",
+        "moves its Goals forward, when it has any.",
     ),
     leaves=("Do not judge whether the Action is worth doing.",),
     writing=(

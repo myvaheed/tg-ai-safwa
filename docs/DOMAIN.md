@@ -46,8 +46,8 @@ starts with "Compass.". It reads Cards, Checks, Values and Tags and changes noth
 set better is one list in [compass/graph.py](../src/safwa/features/compass/graph.py): a root Goal
 that serves no Value, a Goal carrying `GOAL_VALUES_MANY = 4` Values or more and a Value no open
 Goal, Action or Check carries, which SQL finds; a Value that is really a Goal, a practice or a
-rule, a reversed link and two Values with one root, which a model finds. An Action carrying its
-Goal's Value is fine. One answer names at most `COMPASS_FINDINGS_MAX = 3` findings, each with a
+rule, a reversed link and two Values with one root, which a model finds. An Action carrying the
+Value of a Goal above it is fine. One answer names at most `COMPASS_FINDINGS_MAX = 3` findings, each with a
 question. Every `COMPASS_REVIEW_DAYS = 9` days after the workspace's first day, in the Morning,
 the hook "Compass review" (`compass.graph_review`) writes the tree out for one mini session and
 hands what it finds to Compass; a clear answer still keeps what SQL found, and nothing found asks
@@ -57,7 +57,7 @@ Compass also draws the tree as one picture, the Constellation
 ([compass/constellation.py](../src/safwa/features/compass/constellation.py)): the Values as stars
 across the top of a night sky, each Goal as high as its `tree_level`, the Actions at the bottom,
 lines from each parent to its child and from each Value to what carries it, and what SQL finds
-ringed in red. It goes to the chat as a file, at full size, so zooming loses nothing. Compass sends
+ringed in red. A Card under several Goals is drawn once, with a line from each. It goes to the chat as a file, at full size, so zooming loses nothing. Compass sends
 it when asked, for the whole tree, one Value or one Goal's branch; the Dashboard's
 "🌌 Constellation" sends the whole tree.
 
@@ -73,11 +73,11 @@ works backward from results to Actions and assesses progress toward results, not
 These are agent instructions, not restrictions on manual Card editing or ordinary updates.
 
 After a Goal or Subgoal is created, by hand or by a saved proposal, a mini session reads its
-title, Note, Deadline and parent Goal and answers clear, or unclear with what is unclear and
+title, Note, Deadline and the titles of its parent Goals and answers clear, or unclear with what is unclear and
 one advice: whether it names one concrete result rather than a direction, an ongoing practice
 or two results, takes more than one day, and has an observable Done. Attainable and
 meaningful are the owner's to know, so the check leaves them to the conversation. It also
-asks whether a Subgoal moves its parent's result forward. A clear
+asks whether a Subgoal moves each parent's result forward. A clear
 Goal says nothing; an unclear one is kept with its advice by the hook "Goal clarification"
 (`cards.goal_clarification`), rechecked before keeping, and one request asks about every
 Goal still open: the Advisor says it looked at the new Goals again and they could be
@@ -88,27 +88,30 @@ answer is an update, so the answer never asks again. Nothing changes before the 
 
 After an Action is created, by hand or by a saved proposal, the hook "Action review"
 (`cards.action_review`) checks it the same way: a mini session reads its title, Note,
-Schedule, the title of its Goal, Categories and Energy types and the owner's last five
+Schedule, the titles of its Goals, Categories and Energy types and the owner's last five
 messages with their answers, and, with Effort Points on, its Effort Points and up to ten
 similar Actions with an estimate from the search index, finished ones first. It answers
 unclear only for an Action that takes more than one day, a direction rather than one step, a
-state to observe rather than work, one that does not move its Goal forward, a label that
+state to observe rather than work, one that does not move its Goals forward, a label that
 clearly does not fit, a clearly missing main one, or Effort Points clearly apart from the
 similar Actions or not set. What the owner named in those
 messages is theirs and is never advised on. The Advisor says it looked at the new Actions
 again and they could be improved, names each change with its reason, and asks; an Action
 carrying the Inbox Tag is not checked, and only creation starts the check.
 
-- The two Card kinds are Goal and Action. A Goal may be root-level or under any Goal;
-  a Goal with a parent is displayed as a Subgoal, without changing its kind. An Action may
-  be root-level or under any Goal and has no children. The tree has at most 7 levels
-  (`CARD_TREE_DEPTH_MAX`), counting the root as 1 and including Actions. Creating and moving
-  a branch checks that limit for its deepest Card and refuses self-parenting or a parent
-  anywhere inside the branch. **Live stage**, effort, time spent, categories, energy and **Blocked** belong to an
+- The two Card kinds are Goal and Action. A Card may stand under one Goal or several, its
+  parents, kept in `card_parents`. A Goal with no parent is root-level; one with a parent is
+  displayed as a Subgoal, without changing its kind. An Action may be root-level or under any
+  Goals and has no children. Cards stand at most 7 levels deep (`CARD_TREE_DEPTH_MAX`),
+  counting the root as 1, a Card's level by its longest path up, and including Actions.
+  Creating a Card or giving it a parent checks that limit for everything under it along every
+  path, and refuses self-parenting or a parent anywhere inside its branch. **Live stage**, effort, time spent, categories, energy and **Blocked** belong to an
   Action alone. The model writes a Goal or a Subgoal with the `goal` tool, which has none of
   them, and an Action with the `action` tool, whose call on a Goal or a Subgoal is refused before
-  review; the domain strips them from a Goal. A Card's parent is set by proposal only;
-  no screen offers the control or a separate Subgoal kind.
+  review; the domain strips them from a Goal. A Card's parents are set by proposal only, one
+  per proposal: a new Card is proposed under one Goal at most, `link` gives it one more,
+  `unlink` takes one away, and an edit of its fields changes none. `ai_cards.parent_ids` shows
+  them all. No screen offers the control or a separate Subgoal kind.
 - A Goal's marker counts the deepest Goal chain starting with itself: `🎯` for one
   level, `🎯²` for two, `🎯³` for three, and so on. Actions do not count. Screens,
   lists, citations and proposal previews read the subtree without storing a depth, and
@@ -125,18 +128,23 @@ carrying the Inbox Tag is not checked, and only creation starts the check.
   carries the remaining reservation across generated copies; `TodayDay.planned_count`
   snapshots the local day's morning plan. Unknown counts make totals lower bounds. Actual
   Done and time count once.
-- A Goal and a Subgoal show what their **direct children** add up to. Each child already carries its
-  own derived values, so the recursion reaches the Actions, and a child that never started still
-  counts: a Subgoal with nothing in it is in Backlog and holds its Goal there.
+- A Goal and a Subgoal take their stage and archive from their **direct children**, so a child
+  that never started still counts: a Subgoal with nothing in it is in Backlog and holds its
+  Goals there. Their effort and time are the sums over the **distinct Actions** anywhere under
+  them, so an Action reached along two paths counts once.
 - `propagate_ancestors` is the one walk that writes it, into the plain `effective_stage`,
   `effort_points`, `tracked_mins` and `archived_at` columns, so Safwa reads one column that means
-  the same thing on every row. Every path that changes an Action ends there.
-- An open parent with no live child shows Backlog. Done requires explicit completion after
-  all its Actions are finished; completing a parent never completes another Card. Finishing
-  the last Action queues an Advisor question about closing each open parent or adding an Action.
-  A new or reopened Action reopens closed ancestors and resets their Checks. Summing
-  `effort_points` or `tracked_mins` over every row counts each Action again inside every
-  ancestor — a real total says `WHERE kind = 'action'`.
+  the same thing on every row. It visits every Goal above along every path, each after the
+  Goals below it. Every path that changes an Action ends there.
+- An open parent with no live child shows Backlog. Done on a Goal or a Subgoal is explicit and
+  the owner's alone: it may close with open Cards under it, they stay open, and nothing under
+  it reopens it. Completing a Card never completes another one. Finishing the last Action
+  queues an Advisor question about closing each open parent or adding an Action
+  (`cards.parent_completion`). Closing a Goal over open Cards that serve no other open Goal
+  queues one about keeping it closed, reopening it or closing them (`cards.open_under_closed`),
+  and a Card created or reopened under closed Goals only queues one about reopening them
+  (`cards.closed_parents`). Summing `effort_points` or `tracked_mins` over every row counts
+  each Action again inside every Goal above it — a real total says `WHERE kind = 'action'`.
 - Only an Action is blocked, and it is blocked exactly while its `blocked_description` holds a
   reason; `Card.blocked` reads that. A Goal and a Subgoal are never blocked and derive nothing
   from blocked Actions under them. `ai_cards` shows an empty reason as NULL, so blocked Actions
@@ -220,11 +228,12 @@ Priority, derived stage, `tree_level` and compiled Deadline. The Advisor starts 
   instance of a repeating Action carries `[🔄]` on a screen**, so the one to work with stands
   apart from the finished ones at a glance. That is the one mark SQL does not mirror: the model
   is told the open one by its plain title, so `cards.telegram` writes it and nothing else does.
-- **Deleting a Card is the whole branch or that Card alone**, and the owner chooses on the
-  confirmation screen; Safwa only ever proposes the branch. Deleting one Card alone gives its
-  direct children its parent, or leaves them root-level if it had none. Their descendants stay
-  attached. A Card's kind never changes; `delete_one_card` and `set_card_parent` record parent
-  changes as `set_parent` events and repair the ancestors' derived values.
+- **Deleting a Card deletes that Card alone.** Each Card directly under it loses that parent
+  and keeps its others; one left with none is root-level, and what stands under them stays
+  attached. The hook "Cards without a parent" (`cards.orphans`) asks where to put the ones left
+  root-level, offering the Goals the deleted Card stood under. A Card's kind never changes;
+  `delete_card` and `toggle_card_parent` record parent changes as `link_parent` and
+  `unlink_parent` events and repair the derived values of the Goals above.
 
 ## Links
 
@@ -235,13 +244,14 @@ attached; taking it off requires no particular set of filled fields.
 Request **Inbox**, supplied when the Tag is first installed, lists tagged Cards oldest
 first. It is an ordinary Request and stays deleted or renamed across restarts.
 
-A Card owns three link sets of one shape — Values, Tags, Checks — and a Check owns one, its Values.
-All four are `ReferenceSpec`s: adding another means adding a spec, not a special case. A Check's
+A Card owns four link sets of one shape — its parents, Values, Tags and Checks — and a Check owns
+one, its Values. All five are `ReferenceSpec`s: adding another means adding a spec, not a special
+case. A Check's
 Values are its own statement about what it measures; nothing is derived between them and the Values
 of the Cards that Check belongs to.
 
-An Action **serves** the Values it carries and those its Goal and Subgoal carry: a Value on a Goal
-says why the work under it is there. `every_finished_action` in the Cards door is where that is
+An Action **serves** the Values it carries and those every Goal above it carries, along every
+path: a Value on a Goal says why the work under it is there. `every_finished_action` in the Cards door is where that is
 worked out, and Life in weeks counts a Value's Actions by it.
 
 A Value is **in focus** while a Card in Today carries it: an Action in Today, or a Goal or Subgoal

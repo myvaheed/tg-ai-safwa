@@ -1,5 +1,6 @@
 """What the Cards ask the Advisor to raise on their own: a parent whose Actions are all
-finished, a blocker just set, an Action finished without its time or effort estimate, a day loaded
+finished, a Goal closed over open Cards, an open Card whose Goals are all closed, Cards a
+deletion left without a parent, a blocker just set, an Action finished without its time or effort estimate, a day loaded
 past what it is meant to hold, a Sprint started without a kind of energy the Backlog has
 or with Actions the balance cannot read,
 an Action found in Today morning after morning, and — each morning, and when a Sprint
@@ -11,8 +12,9 @@ or not the question about them is switched off."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, time, timedelta
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +27,7 @@ from tg_agent_shell.hooks.contracts import (
     OnCommitted,
     OnTick,
     Run,
+    RunAndAdvise,
     RunContext,
     Tick,
 )
@@ -40,8 +43,8 @@ from ..profile.api import (
 )
 from ..schedules.api import appointment_label, workspace_zone
 from ..tags.model import CardTag, Tag
-from .api import PLANNED_STAGES, SCHEDULE_NOTICE_DAYS, actions_on_stages
-from .hierarchy import branch_actions
+from .api import PLANNED_STAGES, SCHEDULE_NOTICE_DAYS, actions_on_stages, parents_of
+from .hierarchy import branch_actions, branch_ids, card_parent_ids
 from .model import (
     TERMINAL_STAGES,
     Card,
@@ -59,7 +62,10 @@ from .model import (
 from .use_cases import (
     CARD_ACTIONS_FINISHED,
     CARD_BLOCKED,
+    CARD_CREATED,
     CARD_DONE,
+    CARD_ORPHANED,
+    CARD_REOPENED,
     CARD_TODAY,
     CARD_TODAY_MORNING,
     record_today_morning,
@@ -141,6 +147,27 @@ REST_TODAY_REQUEST = (
     "Change nothing until they answer."
 )
 
+OPEN_UNDER_CLOSED_REQUEST = (
+    "Closed with open Cards under them:\n{goals}\n"
+    "Ask the user in one message, naming each Goal: keep it closed, reopen it, or close the "
+    "open Cards listed under it. To close them, route to workspace_mutator to complete each; "
+    "remove the Schedule of one marked repeats before completing it. "
+    "Change nothing until they answer."
+)
+
+CLOSED_PARENTS_REQUEST = (
+    "Open Cards whose Goals are all closed:\n{cards}\n"
+    "Ask the user in one message whether to reopen the closed Goals named for each. If they "
+    "say yes, route to workspace_mutator to reopen each. Change nothing until they answer."
+)
+
+ORPHANS_REQUEST = (
+    "Deleted Cards, and the Cards each left without a parent:\n{cards}\n"
+    "Ask the user in one message where to put each Card left without a parent: under a Goal "
+    "the deleted Card stood under, under another Goal, or nowhere. To put one under a Goal, "
+    "route to workspace_mutator to link that parent. Change nothing until they answer."
+)
+
 TODAY_STALE_REQUEST = (
     "Open in Today several mornings in a row:\n{cards}\n"
     "Ask the user in one message, naming each with its mornings, whether it is too big, "
@@ -205,11 +232,13 @@ async def parent_completion_request(session: AsyncSession, items: Sequence[int])
             Card.archived_at.is_(None),
         ).order_by(Card.id)
     )
+    parents = list(parents)
+    above = await parents_of(session, [parent.id for parent in parents])
     lines = []
     for parent in parents:
         actions = await branch_actions(session, parent.id)
         if actions and all(action.effective_stage == CardStage.DONE.value for action in actions):
-            lines.append(f"- #{parent.id} «{parent.title}» ({card_kind_name(parent.kind, parent.parent_id)})")
+            lines.append(f"- #{parent.id} «{parent.title}» ({card_kind_name(parent.kind, parent.id in above)})")
     if not lines:
         return None
     return (
@@ -227,6 +256,229 @@ PARENT_COMPLETION_HOOK = HookSpec(
     effect=Advise(prepare=parent_completion_request),
     title="Goal completion follow-up",
     description="After every Action under a Goal or Subgoal is Done, asks whether to close it too or create a new Action.",
+)
+
+
+async def changed_card(event: Committed) -> tuple[int, ...]:
+    return (event.subject_id,)
+
+
+def _named(card: Card) -> str:
+    return f"#{card.id} «{card.title}»"
+
+
+async def open_cards_under(session: AsyncSession, goal: Card) -> list[Card]:
+    """The open Cards under a closed Goal that serve no other open Goal.
+
+    A Card is one of them when each of its parents is that Goal, another of them, or a
+    closed Goal; one that also stands under an open Goal stays out, and so does what stands
+    under it only through such a Card.
+    """
+    below = await branch_ids(session, goal.id)
+    if not below:
+        return []
+    parents = await parents_of(session, below)
+    held = {parent for found in parents.values() for parent in found}
+    stages = dict(
+        (await session.execute(select(Card.id, Card.effective_stage).where(Card.id.in_(held | below)))).all()
+    )
+    named: set[int] = set()
+    grown = True
+    while grown:
+        grown = False
+        for card_id in below - named:
+            if stages.get(card_id) == CardStage.DONE.value:
+                continue
+            if all(
+                parent == goal.id or parent in named or stages.get(parent) == CardStage.DONE.value
+                for parent in parents.get(card_id, ())
+            ):
+                named.add(card_id)
+                grown = True
+    return list(await session.scalars(select(Card).where(Card.id.in_(named)).order_by(Card.id)))
+
+
+async def closed_over_open(card_id: int, context: RunContext) -> tuple[int, ...]:
+    """The Goal just closed, when open Cards that serve no other open Goal stand under it.
+
+    Read before anything is queued, so an Action finished, or a Goal closed over nothing
+    open, asks nothing.
+    """
+    async with context.sessions() as session:
+        goal = await session.get(Card, card_id)
+        if (
+            goal is None
+            or goal.kind != CardKind.GOAL.value
+            or goal.effective_stage != CardStage.DONE.value
+        ):
+            return ()
+        return (goal.id,) if await open_cards_under(session, goal) else ()
+
+
+async def open_under_closed_request(session: AsyncSession, items: Sequence[int]) -> str | None:
+    """The request about the Goals still closed over open Cards that serve no other open Goal."""
+    goals = list(
+        await session.scalars(
+            select(Card)
+            .where(
+                Card.id.in_([int(item) for item in items]),
+                Card.kind == CardKind.GOAL.value,
+                Card.effective_stage == CardStage.DONE.value,
+                Card.archived_at.is_(None),
+            )
+            .order_by(Card.id)
+        )
+    )
+    above = await parents_of(session, [goal.id for goal in goals])
+    lines = []
+    for goal in goals:
+        cards = await open_cards_under(session, goal)
+        if cards:
+            listed = ", ".join(
+                _named(card) + (" (repeats)" if card.repeats() else "") for card in cards
+            )
+            lines.append(
+                f"- {_named(goal)} ({card_kind_name(goal.kind, goal.id in above)}): {listed}"
+            )
+    return OPEN_UNDER_CLOSED_REQUEST.format(goals="\n".join(lines)) if lines else None
+
+
+OPEN_UNDER_CLOSED_HOOK = HookSpec(
+    name="cards.open_under_closed",
+    owner="cards",
+    on=(OnCommitted(kind=CARD_DONE),),
+    evaluate=changed_card,
+    effect=RunAndAdvise(run=closed_over_open, prepare=open_under_closed_request),
+    title="Open Cards under a closed Goal",
+    description=(
+        "After a Goal or Subgoal is closed over open Cards that serve no other open Goal, "
+        "asks whether to keep it closed, reopen it or close them too."
+    ),
+)
+
+
+async def closed_above(session: AsyncSession, card_id: int) -> list[Card]:
+    """The closed Goals above an open Card whose parents are all closed, or nothing.
+
+    Its parents come first; a closed Goal above one of them is named too while every parent
+    of the Goal below it is closed.
+    """
+    found: list[Card] = []
+    waiting = [card_id]
+    seen: set[int] = set()
+    while waiting:
+        current = waiting.pop(0)
+        parents = [
+            parent
+            for parent_id in await card_parent_ids(session, current)
+            if (parent := await session.get(Card, parent_id)) is not None
+        ]
+        if not parents or any(parent.effective_stage != CardStage.DONE.value for parent in parents):
+            if current == card_id:
+                return []
+            continue
+        for parent in parents:
+            if parent.id not in seen:
+                seen.add(parent.id)
+                found.append(parent)
+                waiting.append(parent.id)
+    return found
+
+
+async def opened_under_closed(card_id: int, context: RunContext) -> tuple[int, ...]:
+    """The Card just created or reopened, when every Goal it stands under is closed."""
+    async with context.sessions() as session:
+        card = await session.get(Card, card_id)
+        if card is None or card.effective_stage == CardStage.DONE.value:
+            return ()
+        return (card.id,) if await closed_above(session, card.id) else ()
+
+
+async def closed_parents_request(session: AsyncSession, items: Sequence[int]) -> str | None:
+    """The request about the Cards still open under Goals that are all closed."""
+    cards = await session.scalars(
+        select(Card)
+        .where(
+            Card.id.in_([int(item) for item in items]),
+            Card.effective_stage != CardStage.DONE.value,
+            Card.archived_at.is_(None),
+        )
+        .order_by(Card.id)
+    )
+    lines = []
+    for card in cards:
+        if closed := await closed_above(session, card.id):
+            lines.append(f"- {_named(card)}: " + ", ".join(_named(goal) for goal in closed))
+    return CLOSED_PARENTS_REQUEST.format(cards="\n".join(lines)) if lines else None
+
+
+CLOSED_PARENTS_HOOK = HookSpec(
+    name="cards.closed_parents",
+    owner="cards",
+    on=(OnCommitted(kind=CARD_CREATED), OnCommitted(kind=CARD_REOPENED)),
+    evaluate=changed_card,
+    effect=RunAndAdvise(run=opened_under_closed, prepare=closed_parents_request),
+    title="Closed parents",
+    description=(
+        "After a Card is created or reopened under Goals that are all closed, asks whether "
+        "to reopen them."
+    ),
+)
+
+
+async def orphaned(event: Committed) -> tuple[Mapping[str, Any], ...]:
+    return (dict(event.data or {}),)
+
+
+async def orphans_request(
+    session: AsyncSession, items: Sequence[Mapping[str, Any]]
+) -> str | None:
+    """The request about the Cards each deletion left without a parent, still without one."""
+    lines = []
+    for item in items:
+        children = list(
+            await session.scalars(
+                select(Card)
+                .where(Card.id.in_(item.get("children", [])), Card.archived_at.is_(None))
+                .order_by(Card.id)
+            )
+        )
+        held = await parents_of(session, [child.id for child in children])
+        left = [child for child in children if child.id not in held]
+        if not left:
+            continue
+        places = list(
+            await session.scalars(
+                select(Card)
+                .where(
+                    Card.id.in_(item.get("parent_ids", [])),
+                    Card.kind == CardKind.GOAL.value,
+                    Card.archived_at.is_(None),
+                )
+                .order_by(Card.id)
+            )
+        )
+        stood = (
+            "; it stood under " + ", ".join(_named(place) for place in places) if places else ""
+        )
+        lines.append(
+            f"- «{item.get('title', '')}»{stood}. Left without a parent: "
+            + ", ".join(_named(child) for child in left)
+        )
+    return ORPHANS_REQUEST.format(cards="\n".join(lines)) if lines else None
+
+
+ORPHANS_HOOK = HookSpec(
+    name="cards.orphans",
+    owner="cards",
+    on=(OnCommitted(kind=CARD_ORPHANED),),
+    evaluate=orphaned,
+    effect=Advise(prepare=orphans_request),
+    title="Cards without a parent",
+    description=(
+        "After a Card is deleted, asks where to put the Cards it left without a parent, "
+        "offering the Goals it stood under."
+    ),
 )
 
 
@@ -462,8 +714,9 @@ async def empty_parents_request(
     empty = [card for card in parents if not await branch_actions(session, card.id)]
     if not empty:
         return None
+    above = await parents_of(session, [card.id for card in empty])
     lines = "\n".join(
-        f"- #{card.id} «{card.title}» ({card_kind_name(card.kind, card.parent_id)})" for card in empty
+        f"- #{card.id} «{card.title}» ({card_kind_name(card.kind, card.id in above)})" for card in empty
     )
     return EMPTY_PARENTS_REQUEST.format(cards=lines)
 

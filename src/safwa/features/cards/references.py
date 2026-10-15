@@ -1,4 +1,4 @@
-"""The named relationships carried by a Card.
+"""The named relationships carried by a Card: its parents, Values, Tags and Checks.
 
 Declared here rather than in `api.py` because each spec names the toggle that writes it, and
 `api.py` cannot reach the Card use cases: Planning reads through that door while the use
@@ -15,8 +15,13 @@ from ...foundation.marks import live_instance_hint
 from ..checks.model import Check
 from ..tags.api import CardTag, Tag
 from ..values.api import CardValue, Value
-from .model import CardCheck
-from .use_cases import toggle_card_check, toggle_card_tag, toggle_card_value
+from .model import Card, CardCheck, CardParent
+from .use_cases import (
+    toggle_card_check,
+    toggle_card_parent,
+    toggle_card_tag,
+    toggle_card_value,
+)
 
 
 async def _closed_check_refusal(
@@ -49,4 +54,16 @@ CHECK_REFERENCE = ReferenceSpec(
     archivable=True,
     refusal=_closed_check_refusal,
 )
-CARD_REFERENCE_SPECS = (VALUE_REFERENCE, TAG_REFERENCE, CHECK_REFERENCE)
+# A parent is a Card the Card stands under, named by its title; whether it may be one is
+# the Card's own question, asked by `validate_parents` before review.
+PARENT_REFERENCE = ReferenceSpec(
+    "parent",
+    "Parent",
+    Card,
+    CardParent,
+    toggle_card_parent,
+    owner="Card",
+    name_attr="title",
+    archivable=True,
+)
+CARD_REFERENCE_SPECS = (PARENT_REFERENCE, VALUE_REFERENCE, TAG_REFERENCE, CHECK_REFERENCE)

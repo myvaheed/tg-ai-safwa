@@ -13,7 +13,7 @@ from safwa.features.cards.model import Card
 from safwa.features.cards.telegram import render_card
 from safwa.features.cards.use_cases import (
     create_card,
-    delete_one_card,
+    delete_card,
     edit_card_schedule,
     edit_card_text,
     finish_action,
@@ -229,7 +229,7 @@ async def test_remind_ends_with_its_item(sessions) -> None:
 
         await finish_action(session, once.id)
         await finish_card(session, goal.id, check_outcomes={on_goal.id: "passed"})
-        await delete_one_card(session, deleted.id)
+        await delete_card(session, deleted.id)
         _answered, next_check = await resolve_check(session, check.id, "passed")
         assert [(item.item_type, item.item_id) for item in await session.scalars(select(Reminder))] == [
             ("check", next_check.id)

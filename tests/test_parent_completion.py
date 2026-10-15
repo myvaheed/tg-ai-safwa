@@ -19,6 +19,7 @@ from safwa.features.cards.use_cases import (
 )
 from safwa.features.checks.model import Check, CheckOutcome
 from tg_agent_shell.foundation.errors import DomainError
+from tg_agent_shell.proposals.api import ToolPreparationError
 from tg_agent_shell.proposals.prepare import ChangePreparer
 from tg_agent_shell.telegram import callback_token_handler
 
@@ -33,7 +34,7 @@ async def test_a_repeat_with_an_open_successor_does_not_offer_to_close_its_paren
             kind="action",
             title="Walk",
             effort_points=1,
-            parent_id=goal.id,
+            parent_ids={goal.id},
             schedule="after completion",
         )
         await finish_action(session, repeat.id)
@@ -45,36 +46,34 @@ async def test_explicit_completion_and_reopen_keep_checks_and_child_state(sessio
     """CD-STAGE-015 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
-        subgoal = await create_card(session, kind="goal", title="Move", parent_id=goal.id)
+        subgoal = await create_card(session, kind="goal", title="Move", parent_ids={goal.id})
         action = await create_card(
-            session, kind="action", title="Walk", effort_points=1, parent_id=subgoal.id
+            session, kind="action", title="Walk", effort_points=1, parent_ids={subgoal.id}
         )
         check = await create_check(session, title="Did it help?")
         await toggle_card_check(session, goal.id, check.id)
         await session.commit()
-        with pytest.raises(DomainError, match="open Actions"):
-            await finish_card(session, goal.id)
-        change = PROPOSALS.change_from_tool("goal", {"mode": "complete", "id": goal.id})
-        with pytest.raises(DomainError, match="open Actions"):
-            await ChangePreparer(None, None, PROPOSALS).prepare(session, change)
-        assert goal.completed_at is None
-        await finish_action(session, action.id)
+        # Open Cards under it do not keep it open; only its own Check does.
         with pytest.raises(DomainError, match="Check"):
             await finish_card(session, goal.id)
+        change = PROPOSALS.change_from_tool("goal", {"mode": "complete", "id": goal.id})
+        with pytest.raises(ToolPreparationError, match="Pending Checks"):
+            await ChangePreparer(None, None, PROPOSALS).prepare(session, change)
+        assert goal.completed_at is None
         await finish_card(session, goal.id, check_outcomes={check.id: CheckOutcome.PASSED})
-        assert subgoal.effective_stage != "done"
+        assert (subgoal.effective_stage, action.effective_stage) == ("backlog", "backlog")
         assert goal.completed_at is not None
         await reopen_card(session, goal.id)
         assert goal.completed_at is None
-        assert action.effective_stage == "done"
         assert (await session.get(Check, check.id)).outcome is None
+        await finish_action(session, action.id)
         await finish_card(session, goal.id, check_outcomes={check.id: CheckOutcome.PASSED})
         await finish_card(session, subgoal.id)
         await move_card(session, action.id, CardStage.TODAY)
-        assert goal.effective_stage == subgoal.effective_stage == "today"
-        assert goal.completed_at is subgoal.completed_at is None
-        assert goal.manual_stage == subgoal.manual_stage == "backlog"
-        assert (await session.get(Check, check.id)).outcome is None
+        # Reopening the Action under them leaves both closed, with the Check answered.
+        assert goal.effective_stage == subgoal.effective_stage == "done"
+        assert goal.completed_at is not None and subgoal.completed_at is not None
+        assert (await session.get(Check, check.id)).outcome == CheckOutcome.PASSED.value
 
 
 async def test_a_goal_can_be_closed_and_reopened_on_its_screen(sessions):
@@ -82,7 +81,7 @@ async def test_a_goal_can_be_closed_and_reopened_on_its_screen(sessions):
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
         action = await create_card(
-            session, kind="action", title="Walk", effort_points=1, parent_id=goal.id
+            session, kind="action", title="Walk", effort_points=1, parent_ids={goal.id}
         )
         await finish_action(session, action.id)
         await session.commit()

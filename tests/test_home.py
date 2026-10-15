@@ -14,7 +14,7 @@ from ui_harness import history_source, services_for
 
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
 from safwa.features.cards.model import Card
-from safwa.features.cards.use_cases import create_card, delete_subtree, finish_action
+from safwa.features.cards.use_cases import create_card, delete_card, finish_action
 from safwa.features.diary.model import DiaryEntry
 from safwa.features.diary.use_cases import create_diary_entry
 from safwa.features.home import motivation
@@ -26,6 +26,7 @@ from safwa.features.home.motivation import (
     MOTIVATION_MAX_CHARS,
     Motivator,
 )
+from safwa.features.planning.api import today_tree
 from safwa.features.planning.use_cases import start_sprint
 from safwa.features.profile.api import home_after_minutes
 from safwa.features.profile.model import (
@@ -38,6 +39,7 @@ from safwa.features.profile.telegram.screens import PROFILE_FIELDS
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.summary.window import SUMMARY_HEADER
 from safwa.features.values.use_cases import create_value
+from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.workspace import require_workspace
 from telegram_llm import Note, markdown_to_telegram_html
 from tg_agent_shell.foundation.errors import DomainError
@@ -83,11 +85,11 @@ async def test_the_dashboard_shows_every_action_in_today(sessions) -> None:
     """HM-ACTIONS-006 — tests/brd/home.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Launch the blog")
-        subgoal = await create_card(session, kind="goal", title="Write posts", parent_id=goal.id)
+        subgoal = await create_card(session, kind="goal", title="Write posts", parent_ids={goal.id})
         plain = await _action(session, "Pay rent", stage="today")
-        post = await _action(session, "Write the first post", stage="today", parent_id=subgoal.id)
+        post = await _action(session, "Write the first post", stage="today", parent_ids={subgoal.id})
         critical = await _action(session, "Call the bank", stage="today", priority="critical")
-        domain = await _action(session, "Pick a domain", stage="today", parent_id=goal.id)
+        domain = await _action(session, "Pick a domain", stage="today", parent_ids={goal.id})
         extra = await _action(session, "Extra", stage="today")
         await start_sprint(session, success_criteria="Ship it")
         await session.commit()
@@ -104,6 +106,54 @@ async def test_the_dashboard_shows_every_action_in_today(sessions) -> None:
     for row, (card, depth) in zip(rows, tree, strict=True):
         assert _link("card", card.id) in row
         assert len(row) - len(row.lstrip(" ")) == 4 * depth
+
+
+async def _shared_post(session):
+    """Launch the blog and Grow audience over First post, and Write it in Today under that."""
+    blog = await create_card(session, kind="goal", title="Launch the blog")
+    audience = await create_card(session, kind="goal", title="Grow audience")
+    post = await create_card(
+        session, kind="goal", title="First post", parent_ids={blog.id, audience.id}
+    )
+    write = await _action(session, "Write it", stage="today", parent_ids={post.id})
+    return blog, audience, post, write
+
+
+async def test_a_card_under_two_goals_stands_once_and_names_the_other(sessions) -> None:
+    """HM-ACTIONS-006 — tests/brd/home.feature"""
+    async with sessions() as session:
+        blog, audience, post, write = await _shared_post(session)
+        await session.commit()
+
+    rows = _block(await _text(sessions), "Today")[2:]
+    tree = [(blog, 0), (audience, 0), (post, 1), (write, 2)]
+    assert len(rows) == len(tree)
+    for row, (card, depth) in zip(rows, tree, strict=True):
+        assert _link("card", card.id) in row
+        assert len(row) - len(row.lstrip(" ")) == 4 * depth
+    assert "↖" in rows[2] and rows[2].index(_link("card", blog.id)) > rows[2].index("↖")
+    assert not any("↖" in row for row in (rows[0], rows[1], rows[3]))
+
+
+async def test_pl_key_025_a_card_under_several_goals_stands_under_the_last_of_them(sessions) -> None:
+    """PL-KEY-025 — tests/brd/planning.feature"""
+    async with sessions() as session:
+        blog, audience, post, write = await _shared_post(session)
+        rows = await today_tree(session, [write])
+    assert [
+        (row.depth, row.card.id, [parent.id for parent in row.also_under]) for row in rows
+    ] == [(0, blog.id, []), (0, audience.id, []), (1, post.id, [blog.id]), (2, write.id, [])]
+
+
+async def test_pl_context_020_the_advisor_reads_the_other_goals_a_card_stands_under(sessions) -> None:
+    """PL-CONTEXT-020 — tests/brd/planning.feature"""
+    async with sessions() as session:
+        blog, _audience, post, _write = await _shared_post(session)
+        state = (await workspace_context(session)).state
+    assert (
+        f"  - [First post](card:{post.id}) Subgoal (also under: [Launch the blog](card:{blog.id}))"
+        in state.splitlines()
+    )
 
 
 async def test_without_today_the_dashboard_says_so_and_shows_no_other_list(sessions) -> None:
@@ -183,7 +233,7 @@ async def test_each_value_in_focus_carries_the_words_written_for_it(sessions) ->
         marathon = await create_card(
             session, kind="goal", title="Run a marathon", value_ids={health.id}
         )
-        await _action(session, "Morning run", stage="today", parent_id=marathon.id)
+        await _action(session, "Morning run", stage="today", parent_ids={marathon.id})
         await _action(session, "Call home", stage="today", value_ids={family.id})
         await _action(session, "Tidy the desk", stage="sprint", value_ids={tidy.id})
         done = []
@@ -258,10 +308,10 @@ async def test_motivation_reads_sprint_criteria_and_today_as_its_tree(
         workspace.sprint_success_criteria = "A draft for the next Sprint"
         await create_card(session, kind="goal", title="Low Goal", priority="low")
         blog = await create_card(session, kind="goal", title="Blog")
-        posts = await create_card(session, kind="goal", title="Posts", parent_id=blog.id)
+        posts = await create_card(session, kind="goal", title="Posts", parent_ids={blog.id})
         await _action(session, "Ordinary Today Action", stage="today")
         await _action(session, "Critical Today Action", stage="today", priority="critical")
-        await _action(session, "Write a post", stage="today", parent_id=posts.id)
+        await _action(session, "Write a post", stage="today", parent_ids={posts.id})
         await _action(session, "Backlog Action")
         await _action(session, "Sprint Action", stage="sprint")
         if running:
@@ -274,7 +324,7 @@ async def test_motivation_reads_sprint_criteria_and_today_as_its_tree(
 
     context = model.requests[0].messages[1]["content"]
     assert "Today: 2026-10-08" in context
-    today = context.split("Today Actions, in Today's order, each under its Goal and Subgoal:\n")
+    today = context.split("Today Actions, in Today's order, each under its Goals and Subgoals:\n")
     assert today[1].split("\n\n")[0].splitlines() == [
         "- Critical Today Action (priority=critical)",
         "- Walk for Health (priority=medium)",
@@ -423,7 +473,7 @@ async def test_the_dashboard_opens_with_the_last_changes(sessions) -> None:
     async with sessions() as session:
         kept = await _action(session, "Kept")
         gone = await _action(session, "Gone")
-        await delete_subtree(session, gone.id)
+        await delete_card(session, gone.id)
         await session.commit()
 
     lines = _block(await _text(sessions), "Latest changes")[1:]

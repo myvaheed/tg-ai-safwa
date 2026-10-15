@@ -21,7 +21,7 @@ from safwa.features.cards.action_review import (
 from safwa.features.cards.model import EnergyType
 from safwa.features.cards.use_cases import (
     CARD_CREATED,
-    delete_one_card,
+    delete_card,
     finish_action,
     toggle_card_energy_type,
 )
@@ -166,7 +166,7 @@ def test_the_review_knows_every_criterion_and_leaves_the_owner_s_words_alone():
         "fits in one day; a result that takes longer is a Goal",
         "one concrete step that can be started, not a direction such as Work on my health",
         "work to do, not a state to observe; a state such as Back straight is a Check",
-        "moves its Goal forward, when it has one",
+        "moves its Goals forward, when it has any",
         '"Buy a new phone", Goal "Save $5k": unclear("Works against its Goal.',
         "has `categories` that fit, what it gives: growth: skills, learning;",
         "has `energy_types` that fit, what it costs: physical: body;",
@@ -187,9 +187,9 @@ async def test_an_action_under_a_goal_is_read_with_that_goal_s_title(sessions):
     provider = ReviewProvider(clear=True)
     sink = bound(sessions, provider)
     try:
-        await created(sessions, title="Buy a new phone", parent_id=goal_id)
+        await created(sessions, title="Buy a new phone", parent_ids={goal_id})
         await sink.drain()
-        assert provider.context()["goal"] == "Save $5k"
+        assert provider.context()["goals"] == ["Save $5k"]
     finally:
         await sink.close()
 
@@ -222,7 +222,7 @@ async def test_new_action_is_read_with_the_last_exchanges_and_asked_about_only_w
             "title": "Run 5 km",
             "note": "Around the park",
             "schedule": "20.12.2026 18:00",
-            "goal": "",
+            "goals": [],
             "categories": ["rest"],
             "energy_types": ["cognitive"],
         }
@@ -339,7 +339,7 @@ async def test_action_changed_during_review_produces_no_cue(sessions, change):
             elif change == "finish":
                 await finish_action(session, action_id)
             else:
-                await delete_one_card(session, action_id)
+                await delete_card(session, action_id)
             await session.commit()
         provider.release.set()
         await sink.drain()

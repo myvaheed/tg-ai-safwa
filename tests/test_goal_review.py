@@ -18,7 +18,7 @@ from safwa.features.cards.goal_review import (
 )
 from safwa.features.cards.use_cases import (
     CARD_CREATED,
-    delete_one_card,
+    delete_card,
     finish_card,
     update_card_fields,
 )
@@ -119,7 +119,7 @@ def test_the_review_knows_every_criterion_and_advises():
         "is a result, not an ongoing practice or a rule",
         "takes more than one day; work for one day is an Action",
         "has an observable Done",
-        "as a Subgoal, its result moves its parent's result forward",
+        "as a Subgoal, its result moves each parent's result forward",
         "Two results. Suggest two Goals.",
         '"Never be late": unclear("A rule kept every day.',
         '"Holiday in Bali", parent "Earn $20k": unclear("Does not move its parent forward',
@@ -141,7 +141,7 @@ async def test_new_goal_is_reviewed_alone_and_asked_about_only_when_unclear(
     try:
         goal_id = await created(
             sessions, kind="goal", title="Learn Spanish", note="Read books",
-            schedule="20.12.2026 18:00", parent_id=parent_id,
+            schedule="20.12.2026 18:00", parent_ids={parent_id} if parent_id else set(),
         )
         await sink.drain()
         assert len(provider.calls) == 1
@@ -155,7 +155,7 @@ async def test_new_goal_is_reviewed_alone_and_asked_about_only_when_unclear(
             "title": "Learn Spanish",
             "note": "Read books",
             "deadline": "20.12.2026 18:00",
-            "parent": "Get in shape" if subgoal else "",
+            "parents": ["Get in shape"] if subgoal else [],
         }
         cues = await pending(sessions)
         assert len(cues) == (0 if clear else 1)
@@ -217,7 +217,7 @@ async def test_goal_changed_during_review_produces_no_cue(sessions, change):
             elif change == "close":
                 await finish_card(session, goal_id)
             else:
-                await delete_one_card(session, goal_id)
+                await delete_card(session, goal_id)
             await session.commit()
         provider.release.set()
         await sink.drain()

@@ -63,16 +63,18 @@ def test_card_tool_modes_reject_ambiguous_mutations():
         "energy_types": ["physical", "emotional"],
         "kind": "action",
     }
-    root = PROPOSALS.change_from_tool("action", {"mode": "update", "id": 42, "parent": None})
-    assert root.values == {"parent": None, "kind": "action"}
+    root = PROPOSALS.change_from_tool("action", {"mode": "unlink", "id": 42, "parent": 7})
+    assert root.values == {"parents": 7, "kind": "action"}
     with pytest.raises(ValueError):
         ActionToolInput(mode="move", id=42, stage="today", categories=["work"])
     with pytest.raises(ValueError):
         ActionToolInput(mode="complete", id=42, note="also change this")
     with pytest.raises(ValueError):
         ActionToolInput(mode="link", id=42, tags=[3], values=[4])
-    with pytest.raises(ValueError, match="exactly one of values, tags or checks"):
+    with pytest.raises(ValueError, match="exactly one of values, tags, checks or parent"):
         ActionToolInput(mode="link", id=42, tags=[])
+    with pytest.raises(ValueError, match="exactly one of values, tags, checks or parent"):
+        ActionToolInput(mode="link", id=42, tags=[3], parent=7)
 
 
 def test_tool_inputs_drop_incidental_null_placeholders_from_every_mutation():
@@ -191,7 +193,7 @@ def test_optional_reference_placeholders_are_omitted(placeholder):
             "values": [placeholder],
         },
     )
-    assert "parent" not in change.values
+    assert "parent" not in change.values and "parents" not in change.values
     assert "values" not in change.values
 
 
@@ -215,24 +217,25 @@ def test_collection_arguments_recover_scalars_and_double_encoded_arrays():
 
 
 def test_parent_changes_are_explicit_and_unambiguous():
-    remove_parent = PROPOSALS.change_from_tool(
-        "action", {"mode": "update", "id": 42, "title": "Renamed", "parent": None}
-    )
-    assert remove_parent.values == {"title": "Renamed", "parent": None, "kind": "action"}
+    """CD-TREE-056 — tests/brd/cards.feature"""
+    by_title = PROPOSALS.change_from_tool("action", {"mode": "link", "id": 42, "parent": "Fitness"})
+    assert by_title.values == {"parents": "Fitness", "kind": "action"}
 
-    by_title = PROPOSALS.change_from_tool("action", {"mode": "update", "id": 42, "parent": "Fitness"})
-    assert by_title.values == {"parent": "Fitness", "kind": "action"}
+    taken = PROPOSALS.change_from_tool("goal", {"mode": "unlink", "id": 42, "parent": 7})
+    assert taken.values == {"parents": 7, "kind": "goal"}
 
+    with pytest.raises(ValueError, match="use link or unlink"):
+        PROPOSALS.change_from_tool("action", {"mode": "update", "id": 42, "parent": "Fitness"})
     with pytest.raises(ValueError):
-        PROPOSALS.change_from_tool("action", {"mode": "update", "id": 42, "parent": [7, 8]})
+        PROPOSALS.change_from_tool("action", {"mode": "link", "id": 42, "parent": [7, 8]})
 
 
 @pytest.mark.parametrize("placeholder", [None, "null", "None", "NIL", "undefined"])
-def test_update_parent_null_variants_remove_the_parent(placeholder):
+def test_a_null_parent_changes_no_parent(placeholder):
     change = PROPOSALS.change_from_tool(
-        "action", {"mode": "update", "id": 42, "parent": placeholder}
+        "action", {"mode": "update", "id": 42, "title": "Renamed", "parent": placeholder}
     )
-    assert change.values == {"parent": None, "kind": "action"}
+    assert change.values == {"title": "Renamed", "kind": "action"}
 
 
 def test_model_facing_tool_schemas_keep_optional_fields_nullable_for_constrained_decoders():
@@ -350,7 +353,8 @@ def test_read_sql_accepts_recursive_and_column_list_ctes():
     """AG-READ-027 — tests/brd/tg_agent_shell/agents.feature"""
     assert validated_read(
         "WITH RECURSIVE tree AS (SELECT id FROM ai_cards WHERE id = 1 "
-        "UNION ALL SELECT c.id FROM ai_cards c JOIN tree t ON c.parent_id = t.id) "
+        "UNION ALL SELECT c.id FROM ai_cards c JOIN tree t "
+        "ON ',' || c.parent_ids || ',' LIKE '%,' || t.id || ',%') "
         "SELECT id FROM tree",
         ALLOWED_VIEWS,
     )[1] == {"ai_cards"}
@@ -377,7 +381,12 @@ def test_a_reader_is_scoped_to_the_views_it_declared(tmp_path):
 
 
 def _runner_over_cards(
-    tmp_path, count: int, note: str = "", title: str = "Card {index:03d}", **caps
+    tmp_path,
+    count: int,
+    note: str = "",
+    title: str = "Card {index:03d}",
+    parents: tuple[tuple[int, int], ...] = (),
+    **caps,
 ):
     from safwa.foundation.models import Base
     from tg_agent_shell.ai.sql import create_ai_views
@@ -394,6 +403,10 @@ def _runner_over_cards(
                 "updated_at) VALUES (?,'action',?,?,'backlog','backlog','medium','',1,"
                 "CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
                 (index + 1, title.format(index=index), note),
+            )
+        for card_id, parent_id in parents:
+            connection.exec_driver_sql(
+                "INSERT INTO card_parents(card_id, parent_id) VALUES (?, ?)", (card_id, parent_id)
             )
     engine.dispose()
     return ReadOnlyQueryRunner(keyed(path), ALLOWED_VIEWS, **caps)
@@ -440,15 +453,18 @@ async def test_like_matches_a_title_that_differs_only_in_cyrillic_letter_case(tm
 
 
 async def test_recursive_cte_walks_the_card_tree_under_the_authorizer(tmp_path):
-    runner = _runner_over_cards(tmp_path, 3)
+    runner = _runner_over_cards(tmp_path, 4, parents=((2, 1), (3, 1), (3, 2)))
 
     outcome = await runner.run(
-        "WITH RECURSIVE tree AS (SELECT id, parent_id FROM ai_cards WHERE id = 1 "
-        "UNION ALL SELECT c.id, c.parent_id FROM ai_cards c JOIN tree t ON c.parent_id = t.id) "
-        "SELECT id FROM tree"
+        "WITH RECURSIVE tree AS (SELECT id FROM ai_cards WHERE id = 1 "
+        "UNION SELECT c.id FROM ai_cards c JOIN tree t "
+        "ON ',' || c.parent_ids || ',' LIKE '%,' || t.id || ',%') "
+        "SELECT id FROM tree ORDER BY id"
     )
 
-    assert outcome.rows == [{"id": 1}]
+    assert outcome.rows == [{"id": 1}, {"id": 2}, {"id": 3}]
+    rows = (await runner.run("SELECT id, parent_ids FROM ai_cards WHERE id = 3")).rows
+    assert sorted(rows[0]["parent_ids"].split(",")) == ["1", "2"]
 
 
 async def test_a_table_named_only_inside_a_string_literal_is_never_read(tmp_path):

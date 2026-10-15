@@ -25,6 +25,7 @@ from tg_agent_shell.foundation.changes import Committed
 from tg_agent_shell.hooks.contracts import HookSpec, OnCommitted, RunAndAdvise, RunContext
 
 from ...foundation.method import review_prompt
+from ..cards.api import parents_of
 from ..cards.model import Card, CardCheck, card_kind_name
 from .api import CHECK
 from .model import Check
@@ -102,7 +103,9 @@ async def _read_check(session: AsyncSession, check_id: int) -> dict[str, Any] | 
         "title": check.title,
         "note": check.note,
         "schedule": check.schedule or "",
-        "card": f"{card_kind_name(card.kind, card.parent_id)} «{card.title}»" if card else "",
+        "card": f"{card_kind_name(card.kind, bool(await parents_of(session, [card.id])))} «{card.title}»"
+        if card
+        else "",
     }
 
 

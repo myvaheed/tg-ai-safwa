@@ -65,7 +65,7 @@
     And that list includes only open root Goals, not Subgoals, Actions or archived Goals
     And an overdue Deadline or one within the next 7 local calendar days comes first (PRIORITY_GOAL_DEADLINE_DAYS = 7)
     And within each group the order is Priority, then Actions in Sprint or Today
-    And an Action under a Subgoal counts as work toward its Goal too
+    And an Action under a Subgoal counts as work toward each Goal above it too, once
     And remaining ties put a Deadline before none, the earlier Deadline before the later, then the older Goal
     And Goals created at the same instant keep their creation order
     And each Goal says its Priority, stage, tree_level (CD-TREE-053) and compiled Deadline when there is one

@@ -26,7 +26,7 @@ from safwa.features.cards.hooks import (
 from safwa.features.cards.model import Card, CardStage, Category, EnergyType
 from safwa.features.cards.use_cases import (
     archive_subtree,
-    delete_subtree,
+    delete_card,
     finish_action,
     move_card,
     toggle_card_category,
@@ -265,7 +265,7 @@ async def test_pl_scope_006_a_sprint_commits_to_what_is_planned_at_the_effort_it
         goal = await create_card(session, title="Be fit", kind="goal", effort_points=None)
         small = await create_card(session, title="Small", stage="sprint", effort_points=3)
         await create_card(
-            session, title="Big", stage="today", effort_points=5, parent_id=goal.id
+            session, title="Big", stage="today", effort_points=5, parent_ids={goal.id}
         )
         sprint = await start_sprint(session, success_criteria="Ship v2")
 
@@ -1125,7 +1125,7 @@ async def test_pl_key_024_a_sprint_with_no_key_action_open_or_finished_is_warned
         await session.commit()
         assert await key_warning_request(session, [KEY_CHECK]) is None
         # Deleted: it left the Sprint unfinished, and that is handed on as such.
-        await delete_subtree(session, step.id)
+        await delete_card(session, step.id)
         assert take_changes(session.info) == [Committed(SPRINT_LEFT, step.id)]
         await session.commit()
         assert await key_warning_request(session, [KEY_CHECK]) is not None

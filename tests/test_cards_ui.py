@@ -23,6 +23,7 @@ from ui_harness import (
 )
 
 from safwa.constants import SELECTOR_PAGE_SIZE
+from safwa.features.cards.hierarchy import card_parent_ids
 from safwa.features.cards.model import (
     CATEGORY_MEANINGS,
     ENERGY_MEANINGS,
@@ -50,8 +51,8 @@ from safwa.features.cards.use_cases import (
     archive_subtree,
     finish_action,
     move_card,
-    set_card_parent,
     toggle_card_check,
+    toggle_card_parent,
     toggle_card_tag,
     toggle_card_value,
 )
@@ -188,7 +189,7 @@ async def test_the_dashboard_shows_every_stage_side_by_side(sessions) -> None:
                 session, kind="action", title=f"Do {stage}", stage=stage, effort_points=1
             )
         await create_card(
-            session, kind="action", title="Run", stage="sprint", parent_id=goal.id
+            session, kind="action", title="Run", stage="sprint", parent_ids={goal.id}
         )
         finished = await create_card(session, kind="action", title="Done one", stage="today")
         await finish_action(session, finished.id)
@@ -580,7 +581,7 @@ async def test_cd_tree_005_no_screen_can_change_a_cards_parent(sessions) -> None
     async with sessions() as session:
         goal = await create_card(session, title="Ship product", kind="goal")
         child = await create_card(
-            session, title="Write announcement", kind="action", parent_id=goal.id, effort_points=5
+            session, title="Write announcement", kind="action", parent_ids={goal.id}, effort_points=5
         )
         session.add(
             UiSession(
@@ -617,7 +618,7 @@ async def test_cd_tree_005_no_screen_can_change_a_cards_parent(sessions) -> None
 
     # And no screen in the whole application writes one either.
     for path in ui_sources():
-        assert "set_card_parent" not in path.read_text(encoding="utf-8"), path
+        assert "toggle_card_parent" not in path.read_text(encoding="utf-8"), path
 
 
 async def test_cd_field_007_a_goal_draft_is_not_offered_an_actions_controls(sessions, effort_on) -> None:
@@ -736,20 +737,20 @@ async def test_card_overview_uses_derived_progress_and_relationship_navigation(s
             session,
             title="Prepare release",
             kind="goal",
-            parent_id=goal.id,
+            parent_ids={goal.id},
         )
         done = await create_card(
             session,
             title="Publish build",
             kind="action",
-            parent_id=subgoal.id,
+            parent_ids={subgoal.id},
             effort_points=3,
         )
         remaining = await create_card(
             session,
             title="Write announcement",
             kind="action",
-            parent_id=goal.id,
+            parent_ids={goal.id},
             effort_points=5,
         )
         await finish_action(session, done.id)
@@ -803,8 +804,8 @@ async def test_a_card_on_a_button_is_named_by_emoji(sessions) -> None:
     """CD-BUTTON-048 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
-        await create_card(session, kind="goal", title="Sleep better", parent_id=goal.id)
-        await create_card(session, kind="action", title="Run", stage="sprint", parent_id=goal.id)
+        await create_card(session, kind="goal", title="Sleep better", parent_ids={goal.id})
+        await create_card(session, kind="action", title="Run", stage="sprint", parent_ids={goal.id})
         await session.commit()
     message = FakeMessage(74, bot_message=True)
 
@@ -824,7 +825,7 @@ async def test_cd_tree_002_the_parent_controls_the_label_and_root_values(session
     """CD-TREE-002 — tests/brd/cards.feature"""
     async with sessions() as session:
         root = await create_card(session, kind="goal", title="Health")
-        nested = await create_card(session, kind="goal", title="Sleep", parent_id=root.id)
+        nested = await create_card(session, kind="goal", title="Sleep", parent_ids={root.id})
         await session.commit()
         nested_id = nested.id
 
@@ -839,7 +840,7 @@ async def test_cd_tree_002_the_parent_controls_the_label_and_root_values(session
     assert "Values: —" in message.edits[-1][0]
 
     async with sessions() as session:
-        await set_card_parent(session, nested_id, None)
+        await toggle_card_parent(session, nested_id, root.id)
         await session.commit()
         assert (await session.get(Card, nested_id)).kind == "goal"
     await render_card(message, services, nested_id, full=False)
@@ -852,9 +853,9 @@ async def test_no_screen_offers_a_goal_or_a_subgoal_a_stage_control(sessions) ->
     """CD-STAGE-013 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
-        subgoal = await create_card(session, kind="goal", title="Sleep better", parent_id=goal.id)
+        subgoal = await create_card(session, kind="goal", title="Sleep better", parent_ids={goal.id})
         action = await create_card(
-            session, kind="action", title="Buy a pillow", effort_points=2, parent_id=subgoal.id
+            session, kind="action", title="Buy a pillow", effort_points=2, parent_ids={subgoal.id}
         )
         await session.commit()
         ids = (goal.id, subgoal.id, action.id)
@@ -901,7 +902,7 @@ async def test_cd_blocked_018_a_goal_screen_never_reads_as_blocked(sessions) -> 
             kind="action",
             title="Buy a pillow",
             effort_points=2,
-            parent_id=goal.id,
+            parent_ids={goal.id},
             blocked_description="Shop is shut",
         )
         await session.commit()
@@ -1005,17 +1006,18 @@ async def test_cd_axes_045_the_selectors_say_what_each_one_gives_or_costs(sessio
 
 
 @pytest.mark.parametrize("nested", [False, True])
-async def test_cd_delete_025_a_card_with_children_is_deleted_whole_or_alone(sessions, nested) -> None:
+async def test_cd_delete_025_a_card_with_children_is_deleted_alone(sessions, nested) -> None:
     """CD-DELETE-025 — tests/brd/cards.feature"""
     async with sessions() as session:
         parent = await create_card(session, kind="goal", title="Life") if nested else None
-        goal = await create_card(session, kind="goal", title="Health", parent_id=parent.id if parent else None)
+        goal = await create_card(
+            session, kind="goal", title="Health", parent_ids={parent.id} if parent else set()
+        )
         subgoal = await create_card(
-            session, kind="goal", title="Sleep better", parent_id=goal.id
+            session, kind="goal", title="Sleep better", parent_ids={goal.id}
         )
         await session.commit()
         goal_id, subgoal_id = goal.id, subgoal.id
-        parent_id = parent.id if parent else None
 
     services = services_for(sessions)
     message = FakeMessage(340, bot_message=True)
@@ -1029,24 +1031,25 @@ async def test_cd_delete_025_a_card_with_children_is_deleted_whole_or_alone(sess
         FakeCallback(delete.callback_data.split(":", 1)[1], message), services
     )
     prompt_text, prompt = message.edits[-1]
-    assert "gives its children its parent" in prompt_text
-    assert button_texts(prompt)[:2] == ["🗑 Delete this Card only", "🗑 Permanently delete tree"]
+    assert "The Cards under it stay" in prompt_text
+    assert button_texts(prompt)[0] == "🗑 Permanently delete"
+    assert "tree" not in " ".join(button_texts(prompt))
 
-    alone = prompt.inline_keyboard[0][0]
+    confirm = prompt.inline_keyboard[0][0]
     await callback_token_handler(
-        FakeCallback(alone.callback_data.split(":", 1)[1], message), services
+        FakeCallback(confirm.callback_data.split(":", 1)[1], message), services
     )
     async with sessions() as session:
         assert await session.get(Card, goal_id) is None
         promoted = await session.get(Card, subgoal_id)
-        assert (promoted.kind, promoted.parent_id) == ("goal", parent_id)
+        assert (promoted.kind, await card_parent_ids(session, subgoal_id)) == ("goal", [])
 
 async def test_vl_link_017_a_goal_shows_its_values_and_says_when_it_has_none(sessions) -> None:
     """VL-LINK-017 — tests/brd/values.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Get fit")
         action = await create_card(
-            session, kind="action", title="Run", effort_points=1, parent_id=goal.id
+            session, kind="action", title="Run", effort_points=1, parent_ids={goal.id}
         )
         value = await create_value(session, "Health", "What matters to me")
         await toggle_card_value(session, action.id, value.id)
@@ -1083,7 +1086,7 @@ async def test_cd_view_031_a_card_opens_compact_with_full_editing_one_button_awa
             kind="action",
             title="Run",
             effort_points=2,
-            parent_id=goal.id,
+            parent_ids={goal.id},
             blocked_description="Rain",
         )
         await session.commit()
@@ -1266,13 +1269,13 @@ async def test_cd_link_055_a_cards_relations_are_links_in_its_words(sessions, ef
     """CD-LINK-055 — tests/brd/cards.feature"""
     async with sessions() as session:
         above = await create_card(session, kind="goal", title="Life")
-        goal = await create_card(session, kind="goal", title="Health", parent_id=above.id)
-        below = await create_card(session, kind="goal", title="Sleep", parent_id=goal.id)
+        goal = await create_card(session, kind="goal", title="Health", parent_ids={above.id})
+        below = await create_card(session, kind="goal", title="Sleep", parent_ids={goal.id})
         await create_card(
-            session, kind="action", title="Dim lights", effort_points=5, parent_id=below.id
+            session, kind="action", title="Dim lights", effort_points=5, parent_ids={below.id}
         )
         run = await create_card(
-            session, kind="action", title="Run", effort_points=3, parent_id=goal.id
+            session, kind="action", title="Run", effort_points=3, parent_ids={goal.id}
         )
         await finish_action(session, run.id)
         empty = await create_card(session, kind="goal", title="Empty")

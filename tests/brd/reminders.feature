@@ -92,7 +92,7 @@ Feature: Reminders
     When it is removed, by the owner from its screen or by Safwa with the owner's approval
     Then it is gone and it stops firing at once
     And there is nowhere it went and no switch to turn it back on
-    And removing it is one confirmation, not the are-you-sure a whole Card tree gets
+    And removing it is one confirmation, not the are-you-sure a Card gets
     And Remind Off on a Card's or Check's Schedule, by SCH-REMIND-019, removes its Reminder the same way
 
   Scenario: RM-FIRE-011 — A Reminder that comes due hands its words to Safwa

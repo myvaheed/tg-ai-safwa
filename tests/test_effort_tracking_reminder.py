@@ -10,7 +10,7 @@ from safwa.features.cards.model import Card, CardStage
 from safwa.features.cards.use_cases import (
     CARD_DONE,
     archive_subtree,
-    delete_one_card,
+    delete_card,
     finish_action,
     finish_card,
     move_card,
@@ -42,7 +42,7 @@ async def test_the_question_names_only_finished_actions_still_without_an_estimat
             await finish_action(session, card.id)
         await move_card(session, ids[2], CardStage.TODAY)
         await archive_subtree(session, ids[3])
-        await delete_one_card(session, ids[4])
+        await delete_card(session, ids[4])
         await update_card_fields(session, ids[5], {"effort_points": 3})
         estimated = await create_card(session, kind="action", title="Already estimated", effort_points=0.5)
         await finish_action(session, estimated.id)

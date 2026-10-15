@@ -28,6 +28,7 @@ from safwa.bootstrap.modules import (
     PROPOSALS,
     SCREENS,
 )
+from safwa.features.cards.hierarchy import card_parent_ids
 from safwa.features.cards.model import Card, CardStage
 from safwa.features.planning.use_cases import sprint_metrics, start_sprint
 from safwa.features.profile.model import ProfileField
@@ -219,8 +220,14 @@ async def test_ai_goal_with_a_parent_named_by_title_is_proposed_as_a_subgoal(e2e
 
     assert outcome.kind is AIOutcomeKind.PROPOSAL
     change = e2e_harness.reviews.proposal(outcome.proposal_id).changes[0]
-    assert (change.values["kind"], change.values["parent_id"]) == ("goal", parent.id)
+    assert (change.values["kind"], change.values["parents"]) == ("goal", "ship product")
     assert "parent" not in change.values
+    async with e2e_harness.sessions() as session:
+        affected = await approve_proposal(
+            session, e2e_harness.reviews, PROPOSALS, outcome.proposal_id
+        )
+        await session.commit()
+        assert await card_parent_ids(session, affected[0]) == [parent.id]
 
 
 async def test_ai_completion_keeps_completion_accounting(e2e_harness):
@@ -363,7 +370,7 @@ async def test_multiple_ai_card_creations_are_reviewed_sequentially(e2e_harness)
     assert final_results[3]["summary"] == "Create Card “Подтягиваться 20 раз”"
     assert final_results[3]["affected_ids"] == [2]
     assert "Kind: action" in final_results[3]["fields"]
-    assert "Parent ID: 1" in final_results[3]["fields"]
+    assert "Parents: #1" in final_results[3]["fields"]
     assert "Effort: 1" in final_results[3]["fields"]
     assert "Do not propose it again" in final_results[3]["next"]
     async with e2e_harness.sessions() as session:
@@ -374,7 +381,7 @@ async def test_multiple_ai_card_creations_are_reviewed_sequentially(e2e_harness)
             "Гулять утром",
         ]
         goal = cards[0]
-        assert {card.parent_id for card in cards[1:]} == {goal.id}
+        assert [await card_parent_ids(session, card.id) for card in cards[1:]] == [[goal.id]] * 2
 
 
 async def test_current_request_progress_includes_current_card_update_diffs(e2e_harness):

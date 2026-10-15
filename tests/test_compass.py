@@ -14,12 +14,15 @@ from sqlalchemy import select
 from llm_gateway import CompletionTurn, ToolCall
 from safwa.bootstrap.modules import AGENTS, REGISTRY, SYSTEM_PROMPT, routed_prompt
 from safwa.constants import INBOX_TAG_NAME
+from safwa.features.cards.use_cases import toggle_card_parent
 from safwa.features.compass.agent import COMPASS_AGENT, COMPASS_PROMPT, MORE_ABOUT, compass_now
 from safwa.features.compass.graph import (
     COMPASS_FINDINGS_MAX,
     GOAL_VALUES_MANY,
     NOT_PROBLEMS,
     PROBLEMS,
+    read_tree,
+    tree_text,
 )
 from safwa.features.compass.graph_review import (
     COMPASS_REVIEW_DAYS,
@@ -123,11 +126,11 @@ async def test_each_step_compass_is_told_what_sql_finds(sessions):
         everything = await create_card(session, kind="goal", title="Everything", value_ids=many)
         # The same Value as its Goal is not a finding.
         await create_card(
-            session, kind="action", title="Run", parent_id=everything.id,
+            session, kind="action", title="Run", parent_ids={everything.id},
             value_ids={min(many)},
         )
         earn = await create_card(session, kind="goal", title="Earn $20k")
-        await create_card(session, kind="goal", title="Find clients", parent_id=earn.id)
+        await create_card(session, kind="goal", title="Find clients", parent_ids={earn.id})
         calm = await value(session, "Calm")
         await create_card(
             session, kind="goal", title="Some idea", tag_ids={inbox_id}, value_ids={calm},
@@ -188,9 +191,9 @@ async def test_the_mini_session_reads_the_tree_and_hands_its_findings_to_compass
     async with sessions() as session:
         health = await value(session, "Health")
         earn = await create_card(session, kind="goal", title="Earn $20k", note="By December")
-        sub = await create_card(session, kind="goal", title="Find clients", parent_id=earn.id)
+        sub = await create_card(session, kind="goal", title="Find clients", parent_ids={earn.id})
         run = await create_card(
-            session, kind="action", title="Run", parent_id=sub.id, value_ids={health},
+            session, kind="action", title="Run", parent_ids={sub.id}, value_ids={health},
         )
         slept = await create_check(session, title="Slept 7 hours?")
         session.add(CheckValue(check_id=slept.id, value_id=health))
@@ -216,6 +219,13 @@ async def test_the_mini_session_reads_the_tree_and_hands_its_findings_to_compass
         f"- [Earn $20k](card:{ids.earn}): a root Goal that serves no Value.",
     ):
         assert line in tree.splitlines()
+    async with sessions() as session:
+        await toggle_card_parent(session, ids.run, ids.earn)
+        await session.commit()
+        written = tree_text(await read_tree(session))
+    # A Card under two Goals is written once, under the last of them, naming the other.
+    assert f"    - [Run](card:{ids.run}), Action. Also under: [Earn $20k](card:{ids.earn}). Values: Health." in written.splitlines()
+    assert written.count(f"[Run](card:{ids.run})") == 1
     async with sessions() as session:
         words = await graph_request(session, items)
     assert words == GRAPH_REQUEST.format(findings=f"- {found[0]}")

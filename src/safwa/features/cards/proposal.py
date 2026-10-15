@@ -38,29 +38,22 @@ from .model import (
 from .references import (
     CARD_REFERENCE_SPECS,
     CHECK_REFERENCE,
+    PARENT_REFERENCE,
     TAG_REFERENCE,
     VALUE_REFERENCE,
 )
 from .use_cases import (
     archive_subtree,
     create_card,
-    delete_subtree,
+    delete_card,
     finish_card,
     move_card,
     reopen_card,
-    require_finished_actions,
-    set_card_parent,
     toggle_card_category,
     toggle_card_energy_type,
     update_card_fields,
-    validate_parent,
+    validate_parents,
 )
-
-PARENT_HINT = (
-    "Find the parent with query_data and retry with its id as parent, or drop the "
-    "parent. If you proposed it earlier in this same turn, wait for that result first."
-)
-
 
 CARD_SCALAR_FIELDS = frozenset(
     {
@@ -76,62 +69,22 @@ CARD_SCALAR_FIELDS = frozenset(
 )
 
 
-async def _resolve_parent_reference(
-    context: PreparationContext, values: dict[str, Any], card_id: int | None,
+async def _guard_parents(
+    context: PreparationContext, change: Any, values: dict[str, Any], card_id: int | None
 ) -> None:
-    """Turn `parent`, an id or an exact title, into the `parent_id` Save writes."""
-    session = context.session
-    if "parent" in values:
-        parent = values.pop("parent")
-        if parent is None or isinstance(parent, int):
-            values["parent_id"] = parent
-        else:
-            title = str(parent).strip()
-            if not title:
-                raise ToolPreparationError(
-                    "invalid_arguments",
-                    "Parent title must not be empty.",
-                    "Provide one exact Card title or its id.",
-                )
-            matches = list(
-                await session.scalars(
-                    select(Card).where(
-                        Card.title.collate("NOCASE") == title,
-                        Card.archived_at.is_(None),
-                    )
-                )
-            )
-            if not matches:
-                raise ToolPreparationError(
-                    "reference_not_found",
-                    f"Parent Card '{title}' was not found.",
-                    PARENT_HINT,
-                )
-            if len(matches) > 1:
-                raise ToolPreparationError(
-                    "reference_ambiguous",
-                    f"Parent Card '{title}' matched more than one Card.",
-                    "Use query_data to choose one parent and retry with its id.",
-                )
-            values["parent_id"] = matches[0].id
-
-    if "parent_id" not in values:
+    """A parent the Card may stand under: a live Goal outside its branch, within the depth
+    limit. Taking one away is always possible."""
+    if not PARENT_REFERENCE.mentioned_in(values) or change.action is ChangeAction.UNLINK:
         return
-    parent_id = values["parent_id"]
-    parent = await session.get(Card, int(parent_id)) if parent_id is not None else None
-    if parent_id is not None and (parent is None or parent.archived_at is not None):
-        raise ToolPreparationError(
-            "reference_not_found",
-            f"Parent Card #{parent_id} does not exist or is archived.",
-            PARENT_HINT,
-        )
     try:
-        await validate_parent(session, parent_id, card_id=card_id)
+        await validate_parents(
+            context.session, card_id, await named_ids(context.session, values, PARENT_REFERENCE)
+        )
     except DomainError as error:
         raise ToolPreparationError(
             "invalid_parent",
             str(error),
-            "Choose a Goal outside this branch within the depth limit, or leave the Card root-level.",
+            "Choose a Goal outside this Card's branch, within the depth limit.",
         ) from error
 
 
@@ -223,10 +176,11 @@ async def _apply_card_links(
 class CardProposalHandler:
     entity = "card"
     version_model: type[Any] | None = Card
-    # Deleting a Card takes its whole subtree and that subtree's historical contribution.
+    # Deleting a Card takes its history and what it gave its Sprints; the Cards under it stay.
     destructive_actions = frozenset({ChangeAction.DELETE})
     destructive_warning = (
-        "This permanently removes the selected tree and its historical contribution."
+        "This permanently removes this Card and its historical contribution; "
+        "the Cards under it stay."
     )
 
     async def prepare(
@@ -258,15 +212,9 @@ class CardProposalHandler:
         proposed_kind = (
             values.get("kind") if change.action is ChangeAction.CREATE else getattr(card, "kind", None)
         )
-        if (
-            proposed_kind != CardKind.ACTION.value
-            and change.action is ChangeAction.COMPLETE
-            and card is not None
-        ):
-            await require_finished_actions(context.session, card.id)
-        await _resolve_parent_reference(context, values, card.id if card else None)
         for spec in CARD_REFERENCE_SPECS:
             await validate_named_references(context.session, values, spec)
+        await _guard_parents(context, change, values, card.id if card else None)
         await _guard_pending_checks(context.session, change)
         await read_proposed_schedule(
             context, values, "action" if proposed_kind == CardKind.ACTION.value else "deadline"
@@ -288,9 +236,7 @@ class CardProposalHandler:
                 schedule_rule=values.get("schedule_rule"),
                 blocked_description=values.get("blocked_description") or "",
                 effort_points=values.get("effort_points"),
-                parent_id=(
-                    int(values["parent_id"]) if values.get("parent_id") is not None else None
-                ),
+                parent_ids=await named_ids(session, values, PARENT_REFERENCE),
                 categories=set(values.get("categories") or []),
                 energy_types=set(values.get("energy_types") or []),
                 value_ids=await named_ids(session, values, VALUE_REFERENCE),
@@ -326,10 +272,6 @@ class CardProposalHandler:
             }
             if scalar_fields:
                 await update_card_fields(session, card.id, scalar_fields, actor=ActorType.AI)
-            if "parent_id" in change.values:
-                await set_card_parent(
-                    session, card.id, change.values["parent_id"], actor=ActorType.AI
-                )
             if "stage" in change.values:
                 await move_card(
                     session, card.id, CardStage(change.values["stage"]), actor=ActorType.AI
@@ -340,7 +282,7 @@ class CardProposalHandler:
         elif change.action is ChangeAction.DELETE:
             if not context.allow_destructive:
                 raise DomainError("Permanent deletion needs a second confirmation")
-            await delete_subtree(session, card.id, actor=ActorType.AI)
+            await delete_card(session, card.id, actor=ActorType.AI)
         elif change.action in {ChangeAction.LINK, ChangeAction.UNLINK}:
             await _apply_card_links(
                 session, card, change.values, linked=change.action is ChangeAction.LINK

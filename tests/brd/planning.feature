@@ -174,7 +174,8 @@
   Scenario: PL-CONTEXT-020 — Today's Actions are handed over, in Planning as in a Sprint
     Given Actions in Today
     Then Safwa is handed every Action in Today, with its effort only while Effort Points are on
-    And each stands under its Goal and Subgoal, which are named Goal and Subgoal, as the Today tree of PL-KEY-025 orders them
+    And each stands under its Goals and Subgoals, which are named Goal and Subgoal, as the Today tree of PL-KEY-025 orders them
+    And a Card under several of them names the others it also stands under
     And no other Card is among them
     And they are handed over the same way whether a Sprint is running or not
 
@@ -222,6 +223,7 @@
     And a day is the workspace's local day
     When Today is shown under its Goals, on the Home dashboard and in what the Advisor reads
     Then each Goal and Subgoal stands once, where the first of its Actions stands in that order, with its later Actions under it
+    And a Card under several Goals stands once, under the last of them shown, and the others are named on its line
     And an Action with no Goal keeps its own place
 
   Scenario: PL-ASK-026 — A question about the Sprint is answered from the Sprint as it stands

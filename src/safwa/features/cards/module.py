@@ -1,4 +1,4 @@
-"""Cards: the tree the owner keeps."""
+"""Cards: the Goals and Actions the owner keeps, each under the Goals it serves."""
 
 from __future__ import annotations
 
@@ -11,9 +11,12 @@ from . import agent, proposal, telegram, views
 from .action_review import ACTION_REVIEW_HOOK as ACTION_REVIEW_HOOK
 from .goal_review import GOAL_CLARIFICATION_HOOK as GOAL_CLARIFICATION_HOOK
 from .hooks import BLOCKER_HOOK as BLOCKER_HOOK
+from .hooks import CLOSED_PARENTS_HOOK as CLOSED_PARENTS_HOOK
 from .hooks import EFFORT_TRACKING_REMINDER_HOOK as EFFORT_TRACKING_REMINDER_HOOK
 from .hooks import EMPTY_PARENTS_HOOK as EMPTY_PARENTS_HOOK
 from .hooks import ENERGY_BALANCE_HOOK as ENERGY_BALANCE_HOOK
+from .hooks import OPEN_UNDER_CLOSED_HOOK as OPEN_UNDER_CLOSED_HOOK
+from .hooks import ORPHANS_HOOK as ORPHANS_HOOK
 from .hooks import PARENT_COMPLETION_HOOK as PARENT_COMPLETION_HOOK
 from .hooks import REST_TODAY_HOOK as REST_TODAY_HOOK
 from .hooks import SCHEDULE_PLAN_HOOK as SCHEDULE_PLAN_HOOK

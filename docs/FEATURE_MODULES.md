@@ -120,7 +120,8 @@ concrete: **Rules A, E and K reach a file by name**, so a module the scanner's l
 is a module those rules stop asking about. Splitting the operations layer is three lines in
 [architecture_metrics.py](../scripts/architecture_metrics.py) — the name in `BUSINESS_FILES`, in
 `MODULE_LAYERS` and in `DOOR_LAYERS` — and `hierarchy.py` is the one that has been paid for: Cards
-keeps the walk that writes a parent's derived columns apart from the operations that end at it.
+keeps the walk that writes the derived columns of every Goal above a Card apart from the
+operations that end at it.
 
 **A reducer is a mechanism, not a file every feature owns.** `reduce(state, action) -> (state,
 effects)` earns its place where a pure function makes the transitions readable, and the one

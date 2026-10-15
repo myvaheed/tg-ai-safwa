@@ -16,7 +16,7 @@ from sqlalchemy import func, select
 
 from safwa.bootstrap.modules import PROPOSALS, SYSTEM_PROMPT
 from safwa.features.cards.agent import ActionToolInput
-from safwa.features.cards.hierarchy import card_children, card_progress
+from safwa.features.cards.hierarchy import card_children, card_parent_ids, card_progress
 from safwa.features.cards.hooks import (
     BLOCKER_HOOK,
     EMPTY_PARENT_GRACE_DAYS,
@@ -55,15 +55,14 @@ from safwa.features.cards.use_cases import (
     CARD_TODAY_MORNING,
     EFFORT_POINTS,
     archive_subtree,
-    delete_one_card,
-    delete_subtree,
+    delete_card,
     edit_card_text,
     finish_action,
     finish_card,
     move_card,
     record_today_morning,
-    set_card_parent,
     toggle_card_check,
+    toggle_card_parent,
     toggle_card_tag,
     toggle_card_value,
     update_card_fields,
@@ -96,7 +95,7 @@ async def test_cd_kind_001_a_card_stays_the_kind_it_was_created_as(sessions):
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
         subgoal = await create_card(
-            session, kind="goal", title="Sleep better", parent_id=goal.id
+            session, kind="goal", title="Sleep better", parent_ids={goal.id}
         )
         await session.commit()
 
@@ -117,33 +116,43 @@ async def test_cd_tree_002_placing_a_goal_preserves_its_kind_and_branch(sessions
         life = await create_card(session, kind="goal", title="Life")
         work = await create_card(session, kind="goal", title="Work")
         sleep = await create_card(
-            session, kind="goal", title="Sleep better", parent_id=work.id
+            session, kind="goal", title="Sleep better", parent_ids={work.id}
         )
         walk = await create_card(
-            session, kind="action", title="Walk", effort_points=1, parent_id=life.id
+            session, kind="action", title="Walk", effort_points=1, parent_ids={life.id}
         )
         await session.commit()
 
-        nested = await create_card(session, kind="goal", title="Nested", parent_id=life.id)
-        assert (nested.kind, nested.parent_id) == (CardKind.GOAL.value, life.id)
+        nested = await create_card(session, kind="goal", title="Nested", parent_ids={life.id})
+        assert (nested.kind, await card_parent_ids(session, nested.id)) == (
+            CardKind.GOAL.value, [life.id],
+        )
 
-        await set_card_parent(session, health.id, life.id)
+        await toggle_card_parent(session, health.id, life.id)
         await session.commit()
         await session.refresh(health)
-        assert (health.kind, health.parent_id) == (CardKind.GOAL.value, life.id)
+        assert (health.kind, await card_parent_ids(session, health.id)) == (
+            CardKind.GOAL.value, [life.id],
+        )
         assert await session.scalar(
             select(LogEvent.operation).where(LogEvent.item_type == "card", LogEvent.item_id == health.id).order_by(
                 LogEvent.id.desc()
             )
-        ) == "set_parent"
+        ) == "link_parent"
 
-        await set_card_parent(session, work.id, health.id)
-        assert (work.kind, work.parent_id, sleep.parent_id) == (CardKind.GOAL.value, health.id, work.id)
+        await toggle_card_parent(session, work.id, health.id)
+        assert (
+            work.kind,
+            await card_parent_ids(session, work.id),
+            await card_parent_ids(session, sleep.id),
+        ) == (CardKind.GOAL.value, [health.id], [work.id])
         with pytest.raises(DomainError, match="descendant"):
-            await set_card_parent(session, work.id, sleep.id)
+            await toggle_card_parent(session, work.id, sleep.id)
         with pytest.raises(DomainError, match="cannot have children"):
-            await set_card_parent(session, work.id, walk.id)
-        assert (work.kind, work.parent_id) == (CardKind.GOAL.value, health.id)
+            await toggle_card_parent(session, work.id, walk.id)
+        assert (work.kind, await card_parent_ids(session, work.id)) == (
+            CardKind.GOAL.value, [health.id],
+        )
 
 
 async def test_cd_tree_002_a_proposal_changes_only_the_goals_parent(sessions):
@@ -152,14 +161,14 @@ async def test_cd_tree_002_a_proposal_changes_only_the_goals_parent(sessions):
         health = await create_card(session, kind="goal", title="Health")
         life = await create_card(session, kind="goal", title="Life")
         work = await create_card(session, kind="goal", title="Work")
-        await create_card(session, kind="goal", title="Sleep better", parent_id=work.id)
+        await create_card(session, kind="goal", title="Sleep better", parent_ids={work.id})
         await session.commit()
 
         nested = await ChangePreparer(None, None, PROPOSALS).prepare(  # type: ignore[arg-type]
             session,
             PROPOSALS.change_from_tool("goal", {"mode": "create", "title": "Nested", "parent": life.id}),
         )
-        assert (nested.values["kind"], nested.values["parent_id"]) == (
+        assert (nested.values["kind"], nested.values["parents"]) == (
             CardKind.GOAL.value,
             life.id,
         )
@@ -167,16 +176,16 @@ async def test_cd_tree_002_a_proposal_changes_only_the_goals_parent(sessions):
         prepared = await ChangePreparer(None, None, PROPOSALS).prepare(  # type: ignore[arg-type]
             session,
             PROPOSALS.change_from_tool(
-                "goal", {"mode": "update", "id": health.id, "parent": "Life"}
+                "goal", {"mode": "link", "id": health.id, "parent": "Life"}
             ),
         )
-        assert prepared.values == {"parent_id": life.id}
+        assert prepared.values == {"parents": "Life"}
 
         moved_branch = await ChangePreparer(None, None, PROPOSALS).prepare(  # type: ignore[arg-type]
             session,
-            PROPOSALS.change_from_tool("goal", {"mode": "update", "id": work.id, "parent": life.id}),
+            PROPOSALS.change_from_tool("goal", {"mode": "link", "id": work.id, "parent": life.id}),
         )
-        assert moved_branch.values == {"parent_id": life.id}
+        assert moved_branch.values == {"parents": life.id}
 
 
 async def test_cd_tree_003_nested_goals_can_have_children_or_become_root_level(sessions):
@@ -184,42 +193,48 @@ async def test_cd_tree_003_nested_goals_can_have_children_or_become_root_level(s
     async with sessions() as session:
         health = await create_card(session, kind="goal", title="Health")
         sleep = await create_card(
-            session, kind="goal", title="Sleep better", parent_id=health.id
+            session, kind="goal", title="Sleep better", parent_ids={health.id}
         )
-        assert sleep.parent_id == health.id
+        assert await card_parent_ids(session, sleep.id) == [health.id]
 
-        nested = await create_card(session, kind="goal", title="Nap daily", parent_id=sleep.id)
-        assert nested.parent_id == sleep.id
-        await create_card(session, kind="goal", title="Read more")
-        await set_card_parent(session, sleep.id, None)
-        assert sleep.parent_id is None and sleep.kind == "goal"
+        nested = await create_card(session, kind="goal", title="Nap daily", parent_ids={sleep.id})
+        assert await card_parent_ids(session, nested.id) == [sleep.id]
+        read = await create_card(session, kind="goal", title="Read more")
+        await toggle_card_parent(session, sleep.id, read.id)
+        assert await card_parent_ids(session, sleep.id) == sorted([health.id, read.id])
+        await toggle_card_parent(session, sleep.id, health.id)
+        assert await card_parent_ids(session, sleep.id) == [read.id]
+        await toggle_card_parent(session, sleep.id, read.id)
+        assert await card_parent_ids(session, sleep.id) == [] and sleep.kind == "goal"
+        assert await card_parent_ids(session, nested.id) == [sleep.id]
         await session.commit()
         prepared = await ChangePreparer(None, None, PROPOSALS).prepare(  # type: ignore[arg-type]
             session,
-            PROPOSALS.change_from_tool("goal", {"mode": "update", "id": nested.id, "parent": None}),
+            PROPOSALS.change_from_tool("goal", {"mode": "unlink", "id": nested.id, "parent": sleep.id}),
         )
-        assert prepared.values == {"parent_id": None}
+        assert prepared.values == {"parents": sleep.id}
 
 
 async def test_cd_tree_004_an_action_sits_under_a_goal_a_subgoal_or_nothing(sessions):
     """CD-TREE-004 — tests/brd/cards.feature"""
     async with sessions() as session:
         health = await create_card(session, kind="goal", title="Health")
-        sleep = await create_card(session, kind="goal", title="Sleep better", parent_id=health.id)
+        sleep = await create_card(session, kind="goal", title="Sleep better", parent_ids={health.id})
         pillow = await create_card(
-            session, kind="action", title="Buy a pillow", effort_points=2, parent_id=health.id
+            session, kind="action", title="Buy a pillow", effort_points=2, parent_ids={health.id}
         )
         await session.commit()
 
-        await set_card_parent(session, pillow.id, sleep.id)
-        assert pillow.parent_id == sleep.id
-        await set_card_parent(session, pillow.id, None)
-        assert pillow.parent_id is None
+        await toggle_card_parent(session, pillow.id, sleep.id)
+        assert await card_parent_ids(session, pillow.id) == sorted([health.id, sleep.id])
+        await toggle_card_parent(session, pillow.id, health.id)
+        await toggle_card_parent(session, pillow.id, sleep.id)
+        assert await card_parent_ids(session, pillow.id) == []
 
         for kind, extra in (("goal", {}), ("action", {"effort_points": 1})):
             with pytest.raises(DomainError, match="cannot have children"):
                 await create_card(
-                    session, kind=kind, title="Underneath", parent_id=pillow.id, **extra
+                    session, kind=kind, title="Underneath", parent_ids={pillow.id}, **extra
                 )
 
 
@@ -228,11 +243,11 @@ async def test_cd_tree_006_an_archived_or_missing_parent_is_refused(sessions):
     async with sessions() as session:
         gone = await create_card(session, kind="goal", title="Old plan")
         abandoned = await create_card(
-            session, kind="action", title="Sort the shed", effort_points=1, parent_id=gone.id
+            session, kind="action", title="Sort the shed", effort_points=1, parent_ids={gone.id}
         )
         live = await create_card(session, kind="goal", title="Health")
         action = await create_card(
-            session, kind="action", title="Walk", effort_points=2, parent_id=live.id
+            session, kind="action", title="Walk", effort_points=2, parent_ids={live.id}
         )
         # A Goal must be closed explicitly before it can be archived.
         await finish_action(session, abandoned.id)
@@ -241,13 +256,13 @@ async def test_cd_tree_006_an_archived_or_missing_parent_is_refused(sessions):
         await session.commit()
 
         with pytest.raises(DomainError, match="does not exist or is archived"):
-            await create_card(session, kind="action", title="Sort", effort_points=1, parent_id=gone.id)
+            await create_card(session, kind="action", title="Sort", effort_points=1, parent_ids={gone.id})
         with pytest.raises(DomainError, match="does not exist or is archived"):
-            await set_card_parent(session, action.id, gone.id)
+            await toggle_card_parent(session, action.id, gone.id)
         with pytest.raises(DomainError, match="does not exist or is archived"):
-            await set_card_parent(session, action.id, 9999)
+            await toggle_card_parent(session, action.id, 9999)
 
-        assert action.parent_id == live.id
+        assert await card_parent_ids(session, action.id) == [live.id]
 
 
 async def test_cd_field_007_a_goal_is_saved_without_the_fields_that_are_an_actions(sessions):
@@ -298,7 +313,7 @@ async def test_cd_field_007_a_proposal_has_no_field_for_them_and_refuses_them_on
                 )
 
         goal = await create_card(session, kind="goal", title="Ship it")
-        subgoal = await create_card(session, kind="goal", title="Ship the app", parent_id=goal.id)
+        subgoal = await create_card(session, kind="goal", title="Ship the app", parent_ids={goal.id})
         await session.commit()
         for parent in (goal, subgoal):
             refused = await _refused_proposal(
@@ -498,7 +513,7 @@ async def _goal_with_action(session, **overrides):
         kind="action",
         title=overrides.pop("title", "Walk"),
         effort_points=overrides.pop("effort_points", 3),
-        parent_id=goal.id,
+        parent_ids={goal.id},
         **overrides,
     )
     return goal, action
@@ -515,9 +530,9 @@ async def test_cd_stage_013_only_an_action_has_a_stage(sessions):
     """CD-STAGE-013 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
-        subgoal = await create_card(session, kind="goal", title="Sleep better", parent_id=goal.id)
+        subgoal = await create_card(session, kind="goal", title="Sleep better", parent_ids={goal.id})
         action = await create_card(
-            session, kind="action", title="Buy a pillow", effort_points=2, parent_id=subgoal.id
+            session, kind="action", title="Buy a pillow", effort_points=2, parent_ids={subgoal.id}
         )
         await session.commit()
 
@@ -542,12 +557,12 @@ async def test_cd_stage_014_a_goal_shows_the_stage_of_the_actions_under_it(sessi
     """CD-STAGE-014 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
-        subgoal = await create_card(session, kind="goal", title="Sleep better", parent_id=goal.id)
+        subgoal = await create_card(session, kind="goal", title="Sleep better", parent_ids={goal.id})
         backlog = await create_card(
-            session, kind="action", title="Buy a pillow", effort_points=2, parent_id=subgoal.id
+            session, kind="action", title="Buy a pillow", effort_points=2, parent_ids={subgoal.id}
         )
         sprinting = await create_card(
-            session, kind="action", title="Book the doctor", effort_points=2, parent_id=subgoal.id
+            session, kind="action", title="Book the doctor", effort_points=2, parent_ids={subgoal.id}
         )
         await session.commit()
 
@@ -566,7 +581,7 @@ async def test_cd_stage_014_a_goal_shows_the_stage_of_the_actions_under_it(sessi
         assert (await session.get(Card, goal.id)).effective_stage == CardStage.SPRINT.value
 
         empty = await create_card(session, kind="goal", title="Someday")
-        await create_card(session, kind="goal", title="Nothing yet", parent_id=empty.id)
+        await create_card(session, kind="goal", title="Nothing yet", parent_ids={empty.id})
         await session.commit()
         assert (await session.get(Card, empty.id)).effective_stage == CardStage.BACKLOG.value
 
@@ -576,10 +591,10 @@ async def test_cd_stage_015_a_goal_is_done_only_when_explicitly_closed(sessions)
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
         first = await create_card(
-            session, kind="action", title="Walk", effort_points=2, parent_id=goal.id
+            session, kind="action", title="Walk", effort_points=2, parent_ids={goal.id}
         )
         second = await create_card(
-            session, kind="action", title="Swim", effort_points=2, parent_id=goal.id
+            session, kind="action", title="Swim", effort_points=2, parent_ids={goal.id}
         )
         await session.commit()
 
@@ -606,9 +621,9 @@ async def test_cd_stage_015_an_empty_subgoal_holds_its_goal_out_of_done(sessions
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
         walk = await create_card(
-            session, kind="action", title="Walk", effort_points=2, parent_id=goal.id
+            session, kind="action", title="Walk", effort_points=2, parent_ids={goal.id}
         )
-        subgoal = await create_card(session, kind="goal", title="Sleep better", parent_id=goal.id)
+        subgoal = await create_card(session, kind="goal", title="Sleep better", parent_ids={goal.id})
         await session.commit()
 
         await finish_action(session, walk.id)
@@ -618,7 +633,7 @@ async def test_cd_stage_015_an_empty_subgoal_holds_its_goal_out_of_done(sessions
         assert (await session.get(Card, goal.id)).effective_stage == CardStage.BACKLOG.value
 
         pillow = await create_card(
-            session, kind="action", title="Buy a pillow", effort_points=1, parent_id=subgoal.id
+            session, kind="action", title="Buy a pillow", effort_points=1, parent_ids={subgoal.id}
         )
         await finish_action(session, pillow.id)
         await session.commit()
@@ -629,12 +644,12 @@ async def test_cd_stage_015_an_empty_subgoal_holds_its_goal_out_of_done(sessions
         await finish_card(session, goal.id)
         assert goal.effective_stage == CardStage.DONE.value
 
-        # A new open Action reopens its closed parents.
-        await create_card(session, kind="action", title="Read", effort_points=1, parent_id=subgoal.id)
+        # A new open Action leaves its closed parents closed.
+        await create_card(session, kind="action", title="Read", effort_points=1, parent_ids={subgoal.id})
         await session.commit()
-        assert (await session.get(Card, goal.id)).effective_stage == CardStage.BACKLOG.value
-        assert subgoal.completed_at is None
-        assert goal.completed_at is None
+        assert (await session.get(Card, goal.id)).effective_stage == CardStage.DONE.value
+        assert subgoal.completed_at is not None
+        assert goal.completed_at is not None
 
 
 async def test_cd_stage_016_done_comes_from_finishing_not_from_moving(sessions):
@@ -668,16 +683,22 @@ async def test_cd_stage_017_reopening_an_action_undoes_what_closing_it_did(sessi
         await session.commit()
 
         await finish_action(session, action.id)
-        await finish_card(session, goal.id)
         await session.commit()
-        assert (await session.get(Card, goal.id)).effective_stage == CardStage.DONE.value
-
         await move_card(session, action.id, CardStage.TODAY)
         await session.commit()
 
         reopened = await session.get(Card, action.id)
         assert reopened.completed_at is None
+        # An open Goal above it shows a live stage again.
         assert (await session.get(Card, goal.id)).effective_stage == CardStage.TODAY.value
+
+        await finish_action(session, action.id)
+        await finish_card(session, goal.id)
+        await move_card(session, action.id, CardStage.TODAY)
+        await session.commit()
+        # A closed one stays closed.
+        closed = await session.get(Card, goal.id)
+        assert (closed.effective_stage, closed.completed_at is not None) == (CardStage.DONE.value, True)
 
         repeating = await create_card(
             session, kind="action", title="Posture", effort_points=1, stage="today", schedule="after completion"
@@ -693,9 +714,9 @@ async def test_cd_blocked_018_only_an_action_can_be_blocked(read_views):
     sessions, runner = read_views
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
-        subgoal = await create_card(session, kind="goal", title="Sleep better", parent_id=goal.id)
+        subgoal = await create_card(session, kind="goal", title="Sleep better", parent_ids={goal.id})
         action = await create_card(
-            session, kind="action", title="Buy a pillow", effort_points=2, parent_id=subgoal.id
+            session, kind="action", title="Buy a pillow", effort_points=2, parent_ids={subgoal.id}
         )
         await session.commit()
 
@@ -771,12 +792,12 @@ async def test_cd_effort_021_a_goal_shows_the_effort_of_the_actions_under_it(ses
     """CD-EFFORT-021 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
-        subgoal = await create_card(session, kind="goal", title="Sleep better", parent_id=goal.id)
+        subgoal = await create_card(session, kind="goal", title="Sleep better", parent_ids={goal.id})
         first = await create_card(
-            session, kind="action", title="One", effort_points=5, parent_id=goal.id
+            session, kind="action", title="One", effort_points=5, parent_ids={goal.id}
         )
-        await create_card(session, kind="action", title="Two", effort_points=5, parent_id=subgoal.id)
-        await create_card(session, kind="action", title="Three", effort_points=5, parent_id=subgoal.id)
+        await create_card(session, kind="action", title="Two", effort_points=5, parent_ids={subgoal.id})
+        await create_card(session, kind="action", title="Three", effort_points=5, parent_ids={subgoal.id})
         await session.commit()
 
         assert (await session.get(Card, goal.id)).effort_points == 15
@@ -832,10 +853,10 @@ async def test_cd_archive_023_an_archived_card_is_marked_not_left_out(sessions):
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
         hidden = await create_card(
-            session, kind="action", title="Walk", effort_points=5, parent_id=goal.id
+            session, kind="action", title="Walk", effort_points=5, parent_ids={goal.id}
         )
         shown = await create_card(
-            session, kind="action", title="Swim", effort_points=3, parent_id=goal.id
+            session, kind="action", title="Swim", effort_points=3, parent_ids={goal.id}
         )
         await finish_action(session, hidden.id)
         await finish_action(session, shown.id)
@@ -895,9 +916,9 @@ async def test_cd_archive_024_an_unfinished_child_keeps_its_goal_out_of_the_arch
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
         walk = await create_card(
-            session, kind="action", title="Walk", effort_points=2, parent_id=goal.id
+            session, kind="action", title="Walk", effort_points=2, parent_ids={goal.id}
         )
-        subgoal = await create_card(session, kind="goal", title="Sleep better", parent_id=goal.id)
+        subgoal = await create_card(session, kind="goal", title="Sleep better", parent_ids={goal.id})
         await session.commit()
         await finish_action(session, walk.id)
         await session.commit()
@@ -913,12 +934,12 @@ async def test_cd_archive_024_a_live_card_takes_its_branch_out_of_the_archive(se
     """CD-ARCHIVE-024 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
-        subgoal = await create_card(session, kind="goal", title="Move more", parent_id=goal.id)
+        subgoal = await create_card(session, kind="goal", title="Move more", parent_ids={goal.id})
         walk = await create_card(
-            session, kind="action", title="Walk", effort_points=2, parent_id=subgoal.id
+            session, kind="action", title="Walk", effort_points=2, parent_ids={subgoal.id}
         )
         swim = await create_card(
-            session, kind="action", title="Swim", effort_points=3, parent_id=subgoal.id
+            session, kind="action", title="Swim", effort_points=3, parent_ids={subgoal.id}
         )
         await finish_action(session, walk.id)
         await finish_action(session, swim.id)
@@ -947,16 +968,16 @@ async def test_cd_archive_024_a_live_card_takes_its_branch_out_of_the_archive(se
         assert (await session.get(Card, ids[2])).archived_at is not None
 
 
-async def test_cd_delete_025_deleting_a_card_deletes_everything_under_it(sessions):
+async def test_cd_delete_025_deleted_cards_take_their_links_checks_and_commitments(sessions):
     """CD-DELETE-025 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
-        subgoal = await create_card(session, kind="goal", title="Sleep better", parent_id=goal.id)
+        subgoal = await create_card(session, kind="goal", title="Sleep better", parent_ids={goal.id})
         live = await create_card(
-            session, kind="action", title="Buy a pillow", effort_points=2, parent_id=subgoal.id
+            session, kind="action", title="Buy a pillow", effort_points=2, parent_ids={subgoal.id}
         )
         closed = await create_card(
-            session, kind="action", title="Book the doctor", effort_points=1, parent_id=goal.id
+            session, kind="action", title="Book the doctor", effort_points=1, parent_ids={goal.id}
         )
         value = await create_value(session, "Health", "What matters to me")
         tag = await create_tag(session, "home")
@@ -973,10 +994,16 @@ async def test_cd_delete_025_deleting_a_card_deletes_everything_under_it(session
         await archive_subtree(session, closed.id)
         await session.commit()
 
-        removed = await delete_subtree(session, goal.id)
+        await delete_card(session, goal.id)
         await session.commit()
+        assert await session.get(Card, goal.id) is None
+        assert [
+            await card_parent_ids(session, card.id) for card in (subgoal, live, closed)
+        ] == [[], [subgoal.id], []]
 
-        assert removed == 4
+        for card_id in (subgoal.id, live.id, closed.id):
+            await delete_card(session, card_id)
+        await session.commit()
         for card_id in (goal.id, subgoal.id, live.id, closed.id):
             assert await session.get(Card, card_id) is None
         # A Check with no Value goes with its Card; one that measures a Value stays.
@@ -1016,7 +1043,7 @@ async def test_cd_repeat_026_a_closed_repeat_names_its_place_and_the_open_one(se
         assert await title_marks(session, plain) == ""
 
         # With the open one deleted the series has ended, so the marker names no id.
-        await delete_subtree(session, third.id)
+        await delete_card(session, third.id)
         await session.commit()
         assert await title_marks(session, second) == " [✅2]"
 
@@ -1048,10 +1075,10 @@ async def test_cd_archive_023_an_archived_card_is_marked_and_still_listed(read_v
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
         kept = await create_card(
-            session, kind="action", title="Kept", effort_points=2, stage="today", parent_id=goal.id
+            session, kind="action", title="Kept", effort_points=2, stage="today", parent_ids={goal.id}
         )
         gone = await create_card(
-            session, kind="action", title="Gone", effort_points=3, stage="today", parent_id=goal.id
+            session, kind="action", title="Gone", effort_points=3, stage="today", parent_ids={goal.id}
         )
         await finish_action(session, kept.id)
         await finish_action(session, gone.id)
@@ -1085,7 +1112,7 @@ async def test_parent_stage_propagation_and_reopen(sessions):
         action = await a_card(
             session,
             title="Child",
-            parent_id=goal.id,
+            parent_ids={goal.id},
             expected_parent_version=goal.version,
             root_confirmed=False,
         )
@@ -1097,7 +1124,7 @@ async def test_parent_stage_propagation_and_reopen(sessions):
         await finish_card(session, goal.id)
         assert goal.effective_stage == CardStage.DONE.value
         await move_card(session, action.id, CardStage.BACKLOG)
-        assert goal.effective_stage == CardStage.BACKLOG.value
+        assert goal.effective_stage == CardStage.DONE.value
 
 
 async def test_repeat_completion_clones_the_action(sessions):
@@ -1179,15 +1206,16 @@ async def test_committed_card_relationships_are_validated_propagated_and_audited
         action = await a_card(
             session,
             title="Move me",
-            parent_id=first_goal.id,
+            parent_ids={first_goal.id},
             expected_parent_version=first_goal.version,
             root_confirmed=False,
         )
         value = await create_value(session, "Health", "What matters to me")
         await move_card(session, action.id, CardStage.TODAY)
 
-        await set_card_parent(session, action.id, second_goal.id)
-        assert action.parent_id == second_goal.id
+        await toggle_card_parent(session, action.id, first_goal.id)
+        await toggle_card_parent(session, action.id, second_goal.id)
+        assert await card_parent_ids(session, action.id) == [second_goal.id]
         assert first_goal.effective_stage == CardStage.BACKLOG.value
         assert second_goal.effective_stage == CardStage.TODAY.value
 
@@ -1212,7 +1240,8 @@ async def test_committed_card_relationships_are_validated_propagated_and_audited
             await session.scalars(select(LogEvent).where(LogEvent.item_type == "card", LogEvent.item_id == action.id))
         )
         assert {event.operation for event in events} >= {
-            "set_parent",
+            "link_parent",
+            "unlink_parent",
             "link_value",
             "unlink_value",
             "update",
@@ -1236,19 +1265,19 @@ async def test_goal_progress_is_recursive_but_children_count_is_direct(sessions)
             title="Subgoal",
             kind="goal",
             effort_points=None,
-            parent_id=goal.id,
+            parent_ids={goal.id},
         )
         done = await a_card(
             session,
             title="Done",
             effort_points=3,
-            parent_id=subgoal.id,
+            parent_ids={subgoal.id},
         )
         await a_card(
             session,
             title="Remaining",
             effort_points=5,
-            parent_id=goal.id,
+            parent_ids={goal.id},
         )
         await finish_action(session, done.id)
 
@@ -1287,7 +1316,7 @@ async def test_cd_context_028_only_open_goals_are_handed_over_as_priority_goals(
             session, title="Action", kind="action", stage="backlog",
             priority="medium", effort_points=3,
         )
-        await create_card(session, title="Subgoal", kind="goal", parent_id=open_card.id)
+        await create_card(session, title="Subgoal", kind="goal", parent_ids={open_card.id})
         await session.commit()
 
         state = (await workspace_context(session)).state
@@ -1353,38 +1382,37 @@ async def test_cd_axes_045_an_action_carries_several_of_each_or_none(sessions):
             await session.scalars(select(CardCategory).where(CardCategory.card_id == bare.id))
         )
 
-async def test_cd_delete_025_deleting_a_goal_alone_leaves_its_children_standing(sessions):
+async def test_cd_delete_025_deleting_a_goal_leaves_its_children_standing(sessions):
     """CD-DELETE-025 — tests/brd/cards.feature"""
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Health")
         subgoal = await create_card(
-            session, kind="goal", title="Sleep better", parent_id=goal.id
+            session, kind="goal", title="Sleep better", parent_ids={goal.id}
         )
         action = await create_card(
-            session, kind="action", title="Buy a pillow", effort_points=1, parent_id=goal.id
+            session, kind="action", title="Buy a pillow", effort_points=1, parent_ids={goal.id}
         )
         deep = await create_card(
-            session, kind="action", title="Read at night", effort_points=1, parent_id=subgoal.id
+            session, kind="action", title="Read at night", effort_points=1, parent_ids={subgoal.id}
         )
         await session.commit()
 
-        assert await delete_one_card(session, goal.id) == 1
+        await delete_card(session, goal.id)
         await session.commit()
 
         assert await session.get(Card, goal.id) is None
         await session.refresh(subgoal)
         await session.refresh(action)
-        assert (subgoal.kind, subgoal.parent_id) == (CardKind.GOAL.value, None)
-        assert (action.kind, action.parent_id) == (CardKind.ACTION.value, None)
+        assert (subgoal.kind, await card_parent_ids(session, subgoal.id)) == (CardKind.GOAL.value, [])
+        assert (action.kind, await card_parent_ids(session, action.id)) == (CardKind.ACTION.value, [])
         # Whatever hung under the Subgoal never moved: only the deleted Card's children did.
-        await session.refresh(deep)
-        assert deep.parent_id == subgoal.id
-        # The parent changes, while the kind stays Goal.
+        assert await card_parent_ids(session, deep.id) == [subgoal.id]
+        # The parent is gone, while the kind stays Goal.
         assert await session.scalar(
             select(LogEvent.operation).where(LogEvent.item_type == "card", LogEvent.item_id == subgoal.id).order_by(
                 LogEvent.id.desc()
             )
-        ) == "set_parent"
+        ) == "unlink_parent"
 
 
 async def test_cd_blocked_034_becoming_blocked_is_the_change_a_hook_follows_up(sessions):
@@ -1435,7 +1463,7 @@ async def test_cd_blocked_034_the_request_names_what_is_still_blocked_and_open(s
         await finish_action(session, ids[2])
         await finish_action(session, ids[3])
         await archive_subtree(session, ids[3])
-        await delete_one_card(session, ids[4])
+        await delete_card(session, ids[4])
         await update_card_fields(session, ids[0], {"blocked_description": "Line still busy"})
         await session.commit()
 
@@ -1456,10 +1484,10 @@ async def test_cd_empty_035_the_request_names_the_parents_old_enough_and_still_w
     old = now - timedelta(days=EMPTY_PARENT_GRACE_DAYS, hours=1)
     async with sessions() as session:
         goal = await create_card(session, kind="goal", title="Learn Spanish")
-        subgoal = await create_card(session, kind="goal", title="Grammar", parent_id=goal.id)
+        subgoal = await create_card(session, kind="goal", title="Grammar", parent_ids={goal.id})
         fixed = await create_card(session, kind="goal", title="Fix the bike")
         parts = await create_card(
-            session, kind="action", title="Buy parts", effort_points=1, parent_id=fixed.id
+            session, kind="action", title="Buy parts", effort_points=1, parent_ids={fixed.id}
         )
         fresh = await create_card(session, kind="goal", title="Started last evening")
         shelved = await create_card(session, kind="goal", title="Old idea")
@@ -1485,7 +1513,7 @@ async def test_cd_empty_035_the_request_names_the_parents_old_enough_and_still_w
 
         # An Action under the Subgoal is the Goal's too; with none left, nothing is asked.
         await create_card(
-            session, kind="action", title="Read chapter 1", effort_points=1, parent_id=subgoal.id
+            session, kind="action", title="Read chapter 1", effort_points=1, parent_ids={subgoal.id}
         )
         await session.commit()
         assert await empty_parents_request(session, [MORNING_TIME_DEFAULT], now=now) is None

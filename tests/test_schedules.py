@@ -13,7 +13,7 @@ from llm_gateway import CompletionTurn, ToolCall
 from safwa.features.cards.model import Card, CardStage
 from safwa.features.cards.use_cases import (
     create_card,
-    delete_one_card,
+    delete_card,
     finish_action,
     move_card,
     toggle_card_check,
@@ -292,7 +292,7 @@ async def test_deleting_last_open_instance_ends_the_plan_but_keeps_history(sessi
         day = first.period_start.astimezone(ZoneInfo("Europe/Istanbul")).date()
         if entity_type == "card":
             current_id = (await finish_action(session, first.id)).successor_ids[0]
-            await delete_one_card(session, current_id)
+            await delete_card(session, current_id)
         else:
             _, current = await resolve_check(session, first.id, "passed")
             await delete_check(session, current.id)

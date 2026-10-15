@@ -34,7 +34,7 @@ from tg_agent_shell.proposals.render import (
 from ...schedules.api import rule_summary, workspace_zone
 from ...tags.model import CardTag
 from ...values.model import CardValue
-from ..api import tree_level
+from ..api import parents_of, tree_level
 from ..model import (
     Card,
     CardCategory,
@@ -45,7 +45,7 @@ from ..model import (
     card_kind_name,
     minutes_label,
 )
-from ..references import CARD_REFERENCE_SPECS
+from ..references import CARD_REFERENCE_SPECS, PARENT_REFERENCE
 from .presentation import category_expression, energy_expression, kind_label
 
 CARD_DETAIL_FIELDS = (
@@ -60,9 +60,6 @@ CARD_DETAIL_FIELDS = (
     "tracked_mins",
     "categories",
     "energy_types",
-    # What the model named, before preparation resolved it into `parent_id`.
-    "parent",
-    "parent_id",
 )
 
 # The fields a screen words otherwise than the field name does.
@@ -70,7 +67,6 @@ CARD_LABELS = {
     "effort_points": "Effort",
     "tracked_mins": "Time spent",
     "energy_types": "Energy",
-    "parent_id": "Parent ID",
 }
 
 
@@ -90,7 +86,7 @@ def normalized_card_details(values: dict[str, Any], *, creating: bool) -> dict[s
             fields.setdefault("categories", [])
             fields.setdefault("energy_types", [])
     if "kind" in fields:
-        fields["kind"] = card_kind_name(fields["kind"], values.get("parent_id", values.get("parent"))).lower()
+        fields["kind"] = card_kind_name(fields["kind"], bool(values.get(PARENT_REFERENCE.field))).lower()
     for spec in CARD_REFERENCE_SPECS:
         if referenced := reference_details(values, spec):
             fields[spec.field] = referenced
@@ -105,8 +101,9 @@ def _detail(field: str, value: Any) -> str:
 
 
 async def _card_detail_snapshot(session: AsyncSession, card: Card) -> dict[str, Any]:
+    parents = (await parents_of(session, [card.id])).get(card.id, [])
     return {
-        "kind": card_kind_name(card.kind, card.parent_id).lower(),
+        "kind": card_kind_name(card.kind, bool(parents)).lower(),
         "title": card.title,
         "note": card.note,
         "stage": card.effective_stage,
@@ -125,7 +122,7 @@ async def _card_detail_snapshot(session: AsyncSession, card: Card) -> dict[str, 
                 select(CardEnergyType.energy_type).where(CardEnergyType.card_id == card.id)
             )
         ),
-        "parent_id": card.parent_id,
+        "parents": [f"#{item}" for item in parents],
         "values": [
             f"#{item}"
             for item in sorted(
@@ -162,7 +159,6 @@ async def _card_states(
                 "blocked_description": card.blocked_description,
                 "effort_points": card.effort_points,
                 "tracked_mins": card.tracked_mins,
-                "parent_id": card.parent_id,
                 "categories": sorted(
                     await session.scalars(
                         select(CardCategory.category).where(CardCategory.card_id == card.id)
@@ -221,10 +217,7 @@ async def _card_shown(
     value = state.get(field)
     if field == "kind":
         level = await tree_level(session, value, state.get("id"))
-        return kind_label(value, state.get("parent_id"), level=level) if value else None
-    if field == "parent_id":
-        parent = await session.get(Card, value) if value else None
-        return parent.title if parent else None
+        return kind_label(value, bool(state.get(PARENT_REFERENCE.field)), level=level) if value else None
     spec = _REFERENCE_BY_FIELD.get(field)
     if spec is not None:
         return shown(await reference_names(session, spec, value))
@@ -249,7 +242,7 @@ async def _card_fields(
     labels = {
         "kind": "Kind",
         "title": "Title",
-        "parent_id": "Parent",
+        PARENT_REFERENCE.field: "Parents",
         "stage": "Stage",
         "note": "Note",
         "schedule": "Schedule" if action else "Deadline",
@@ -282,7 +275,7 @@ async def _card_fields(
                 label,
                 await _card_shown(session, field, before),
                 new,
-                anchor=field in {"title", "parent_id"},
+                anchor=field in {"title", PARENT_REFERENCE.field},
             )
         )
     return tuple(fields)
@@ -336,7 +329,8 @@ class CardProposalPresenter:
         elif change.action is ChangeAction.REOPEN:
             proposed = {"stage": values.get("stage", CardStage.BACKLOG.value)}
         elif change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}:
-            return [f"Card: {card_kind_name(card.kind, card.parent_id)} #{card.id} “{card.title}”"]
+            name = card_kind_name(card.kind, bool(await parents_of(session, [card.id])))
+            return [f"Card: {name} #{card.id} “{card.title}”"]
         return [
             f"{detail_label(field, CARD_LABELS)}: "
             f"{_detail(field, before.get(field))} → {_detail(field, value)}"
@@ -358,13 +352,23 @@ class CardProposalPresenter:
         # An edit names the Card as it is called now; what it becomes is in its parts.
         title = result_value(card.title if card else values.get("title") or "")
         kind = str(values.get("kind") or (card.kind if card else "") or "card")
-        parent_id = values.get("parent_id", card.parent_id if card else None)
-        name = card_kind_name(kind, parent_id)
-        head = f"{name} “{title}”" if title else f"Card #{change.entity_id}"
-        parent = (
-            await session.get(Card, int(values["parent_id"]))
-            if values.get("parent_id")
-            else None
+        has_parent = (
+            bool(await parents_of(session, [card.id]))
+            if card is not None
+            else PARENT_REFERENCE.mentioned_in(values)
+        )
+        head = f"{card_kind_name(kind, has_parent)} “{title}”" if title else f"Card #{change.entity_id}"
+        # A new Card names the Goal it is proposed under; a link names it as a link does.
+        parents = (
+            [
+                parent
+                for parent_id in sorted(
+                    (await resolve_references(session, PARENT_REFERENCE, values)).ids
+                )
+                if (parent := await session.get(Card, parent_id)) is not None
+            ]
+            if action is ChangeAction.CREATE
+            else []
         )
         if action in {ChangeAction.LINK, ChangeAction.UNLINK}:
             joined = " · ".join(
@@ -392,17 +396,20 @@ class CardProposalPresenter:
                 parts.append(f"{label} {values['schedule']}")
             if values.get("blocked_description"):
                 parts.append("Blocked")
-            parts.extend(await reference_groups(session, values, CARD_REFERENCE_SPECS))
+            others = tuple(spec for spec in CARD_REFERENCE_SPECS if spec is not PARENT_REFERENCE)
+            parts.extend(await reference_groups(session, values, others))
         elif action in {ChangeAction.MOVE, ChangeAction.REOPEN} and values.get("stage"):
             parts.append(str(values["stage"]).title())
         elif action is ChangeAction.COMPLETE and values.get("tracked_mins"):
             parts.append(f"{minutes_label(values['tracked_mins'])} spent")
         elif action is ChangeAction.UPDATE:
-            parts.extend(
-                became(detail) for detail in details if not detail.startswith("Parent ID:")
+            parts.extend(became(detail) for detail in details)
+        if parents:
+            above = await parents_of(session, [parent.id for parent in parents])
+            head += " under " + ", ".join(
+                f"{card_kind_name(parent.kind, parent.id in above)} “{result_value(parent.title)}”"
+                for parent in parents
             )
-        if parent is not None:
-            head += f" under {card_kind_name(parent.kind, parent.parent_id)} “{result_value(parent.title)}”"
         return f"{verb} {head}" + (f" ({' · '.join(parts)})" if parts else "")
 
     async def screen(
@@ -416,7 +423,7 @@ class CardProposalPresenter:
             else None
         )
         return ProposalScreen(
-            item=card_kind_name(after.get("kind") or "card", after.get("parent_id")),
+            item=card_kind_name(after.get("kind") or "card", bool(after.get(PARENT_REFERENCE.field))),
             fields=await _card_fields(session, states[0], after, unresolved),
             blocks=(html.escape(reading),) if reading else (),
         )

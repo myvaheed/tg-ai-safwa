@@ -58,8 +58,9 @@
 
   Scenario: HM-ACTIONS-006 — The dashboard shows every Action in Today
     Given open Actions in Today
-    Then every one of them is on the dashboard under its Goal and Subgoal, as the Today tree of PL-KEY-025 orders them, each a link that opens it
+    Then every one of them is on the dashboard under its Goals and Subgoals, as the Today tree of PL-KEY-025 orders them, each a link that opens it
     And each Goal and Subgoal is a link too, and appears once
+    And a Card under several of them names the others after ↖, each a link
     And the heading says Today, and how many Actions it holds
     And Today shows planned execution counts, and EP load while enabled, including repeats (PL-REPEAT-031, PL-REPEAT-033)
     When Today holds none

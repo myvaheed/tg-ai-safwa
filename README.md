@@ -1,9 +1,8 @@
 # Safwa
 
 Safwa is a single-owner personal agile organizer and AI advisor delivered through a Telegram bot.
-It supports hierarchical Goal/Action Cards (nested Goals display as Subgoals), Checks, Values, Tags,
-Planning and Sprints (two
-weeks by default), repeatable Actions, a Diary, Reminders, saved Requests Safwa writes, voice input,
+It supports hierarchical Goal/Action Cards (a Card may stand under several Goals; nested Goals
+display as Subgoals), Checks, Values, Tags, Planning and Sprints (two weeks by default), repeatable Actions, a Diary, Reminders, saved Requests Safwa writes, voice input,
 and an OpenAI-compatible persona. The advisor never writes to your data itself: every change is a
 proposal, and it arrives as a Save/Discard screen unless it is one of the narrow allowlisted shapes
 a second model review may approve on its own.

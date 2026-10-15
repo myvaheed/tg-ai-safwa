@@ -3,15 +3,16 @@ the sky above, each Goal above its children and the Actions at the bottom — up
 is how.
 
 A Goal stands as high as its `tree_level`, the number `ai_cards` gives it. The branches are
-laid out a leaf at a time, each parent over the middle of its children, and a root's branch
-goes beside the others that serve its Value most. Each Value then stands over what carries it,
-moved apart only as far as its name needs.
+laid out a leaf at a time, each parent over the middle of its children, a Card under several
+Goals drawn once with a line from each, and a root's branch goes beside the others that serve
+its Value most. Each Value then stands over what carries it, moved apart only as far as its
+name needs.
 """
 
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -95,18 +96,19 @@ async def read_sky(
         for card in tree.cards
         if detail is not Detail.GOALS or card.kind == CardKind.GOAL.value
     }
-    children = _children(cards)
+    parents = tree.card_parents
+    children = _children(cards, parents)
     if goal is not None:
         keep = set(_below(goal, children)) if goal in cards else set()
     elif value is not None:
         keep = set()
         for card_id in cards:
             if value in tree.card_values.get(card_id, []):
-                keep |= set(_above(card_id, cards)) | set(_below(card_id, children))
+                keep |= set(_above(card_id, cards, parents)) | set(_below(card_id, children))
     else:
         keep = set(cards)
     cards = {card_id: card for card_id, card in cards.items() if card_id in keep}
-    children = _children(cards)
+    children = _children(cards, parents)
 
     checks = []
     if detail is Detail.ALL:
@@ -161,6 +163,9 @@ async def read_sky(
 
     def place(card_id: int) -> None:
         nonlocal slot
+        # A Card under several Goals is drawn once, where the first of them reaches it.
+        if ("card", card_id) in x:
+            return
         under = children.get(card_id, [])
         if not under:
             x[("card", card_id)] = slot
@@ -205,8 +210,8 @@ async def read_sky(
     def hue(card_id: int) -> int | None:
         if card_id not in hues:
             own = [each for each in carried[("card", card_id)] if each in shown]
-            parent = cards[card_id].parent_id
-            hues[card_id] = own[0] if own else (hue(parent) if parent in cards else None)
+            above = [parent for parent in parents.get(card_id, ()) if parent in cards]
+            hues[card_id] = own[0] if own else (hue(above[0]) if above else None)
         return hues[card_id]
 
     finished = {stage.value for stage in TERMINAL_STAGES}
@@ -221,7 +226,9 @@ async def read_sky(
         Star(
             item=("card", card.id),
             title=card.title,
-            kind="subgoal" if card.kind == CardKind.GOAL.value and card.parent_id in cards
+            kind="subgoal"
+            if card.kind == CardKind.GOAL.value
+            and any(parent in cards for parent in parents.get(card.id, ()))
             else card.kind,
             x=x[("card", card.id)],
             y=y[("card", card.id)],
@@ -241,8 +248,10 @@ async def read_sky(
             done=False, flagged=False,
         ))
     branches = tuple(
-        (("card", card.parent_id), ("card", card.id))
-        for card in cards.values() if card.parent_id in cards
+        (("card", parent), ("card", card.id))
+        for card in cards.values()
+        for parent in parents.get(card.id, ())
+        if parent in cards
     ) + tuple((("card", on), ("check", check.id)) for check, on in checks if on is not None)
     if goal is not None and goal in cards:
         title = f"Constellation · {cards[goal].title}"
@@ -253,24 +262,43 @@ async def read_sky(
     return Sky(title, tuple(stars), branches, links, width, top, palette)
 
 
-def _children(cards: dict[int, Card]) -> dict[int | None, list[int]]:
-    """Each Card's children among these; a Card whose parent is not here is a root."""
+def _children(
+    cards: dict[int, Card], parents: Mapping[int, list[int]]
+) -> dict[int | None, list[int]]:
+    """Each Card's children among these, a Card under every parent it has here; a Card
+    with no parent here is a root."""
     children: dict[int | None, list[int]] = {}
     for card in cards.values():
-        children.setdefault(card.parent_id if card.parent_id in cards else None, []).append(card.id)
+        here = [parent for parent in parents.get(card.id, ()) if parent in cards]
+        for parent in here or [None]:
+            children.setdefault(parent, []).append(card.id)
     return children
 
 
 def _below(card_id: int, children: dict[int | None, list[int]]) -> Iterator[int]:
-    yield card_id
-    for child in children.get(card_id, []):
-        yield from _below(child, children)
+    """This Card and every Card under it, each once."""
+    seen: set[int] = set()
+    waiting = [card_id]
+    while waiting:
+        current = waiting.pop(0)
+        if current in seen:
+            continue
+        seen.add(current)
+        yield current
+        waiting.extend(children.get(current, []))
 
 
-def _above(card_id: int, cards: dict[int, Card]) -> Iterator[int]:
-    while card_id in cards:
-        yield card_id
-        card_id = cards[card_id].parent_id
+def _above(card_id: int, cards: dict[int, Card], parents: Mapping[int, list[int]]) -> Iterator[int]:
+    """This Card and every Goal above it here, along every path, each once."""
+    seen: set[int] = set()
+    waiting = [card_id]
+    while waiting:
+        current = waiting.pop(0)
+        if current in seen or current not in cards:
+            continue
+        seen.add(current)
+        yield current
+        waiting.extend(parents.get(current, []))
 
 
 def _spread(

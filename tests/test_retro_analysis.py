@@ -19,7 +19,7 @@ from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
 from safwa.features.cards.model import CardStage
 from safwa.features.cards.use_cases import (
     create_card,
-    delete_one_card,
+    delete_card,
     finish_action,
     move_card,
     record_today_morning,
@@ -286,7 +286,7 @@ async def test_rt_stats_003_the_calendar_and_the_effort_are_the_sprints_own(sess
             "removed": 0,
             "completed": 0,
         }
-        await delete_one_card(session, gone.id)
+        await delete_card(session, gone.id)
         await finish_sprint(session)
         await session.commit()
         statistics = RetroStatistics.from_record((await session.get(Sprint, sprint.id)).retro)

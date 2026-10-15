@@ -136,13 +136,22 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
         lines.append(f"Remaining planned effort today: {effort_label(load.effort)} EP")
         if load.unestimated:
             lines.append(f"Unestimated executions: {load.unestimated}; EP total is partial.")
-    for depth, card in await today_tree(session, today):
-        line = f"{'  ' * depth}- {citation(card.title, 'card', card.id)}"
+    for row in await today_tree(session, today):
+        card = row.card
+        line = f"{'  ' * row.depth}- {citation(card.title, 'card', card.id)}"
+        also = (
+            " (also under: "
+            + ", ".join(citation(parent.title, "card", parent.id) for parent in row.also_under)
+            + ")"
+            if row.also_under
+            else ""
+        )
         if card.id not in load.counts:
-            lines.append(line + (" Subgoal" if depth else " Goal"))
+            lines.append(line + (" Subgoal" if row.depth else " Goal") + also)
             continue
         lines.append(
             line
+            + also
             + (
                 f" executions={load.counts[card.id] if load.counts[card.id] is not None else '?'}"
                 if load.counts[card.id] != 1

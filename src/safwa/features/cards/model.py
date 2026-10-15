@@ -36,8 +36,8 @@ class CardKind(StrEnum):
 CARD_TREE_DEPTH_MAX = 7
 
 
-def card_kind_name(kind: CardKind | str, parent_id: int | None = None) -> str:
-    return "Subgoal" if kind == CardKind.GOAL.value and parent_id is not None else str(kind).title()
+def card_kind_name(kind: CardKind | str, has_parent: bool = False) -> str:
+    return "Subgoal" if kind == CardKind.GOAL.value and has_parent else str(kind).title()
 
 
 # What one rung costs: how the owner will be able to carry on afterwards, and what
@@ -133,9 +133,6 @@ LIVE_STAGE_PRECEDENCE = {
 class Card(Base, TimestampMixin):
     __tablename__ = "cards"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    parent_id: Mapped[int | None] = mapped_column(
-        ForeignKey("cards.id", ondelete="CASCADE"), index=True
-    )
     kind: Mapped[str] = mapped_column(String(20))
     title: Mapped[str] = mapped_column(String(500))
     note: Mapped[str] = mapped_column(Text, default="")
@@ -164,12 +161,6 @@ class Card(Base, TimestampMixin):
     archived_at: Mapped[datetime | None] = mapped_column(UtcDateTime, index=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
 
-    parent: Mapped[Card | None] = relationship(
-        remote_side="Card.id", foreign_keys=[parent_id], back_populates="children"
-    )
-    children: Mapped[list[Card]] = relationship(
-        foreign_keys=[parent_id], back_populates="parent", cascade="all, delete-orphan"
-    )
     # Quoted on purpose: the name is resolved from the mapper registry, and importing it
     # would make Cards depend on the Values package for a link row it owns the other half of.
     values: Mapped[list["CardValue"]] = relationship(  # noqa: F821, UP037
@@ -241,6 +232,22 @@ class Card(Base, TimestampMixin):
                 Card.id <= self.id,
             )
         )
+
+
+class CardParent(Base):
+    """One Goal a Card stands under. A Card may have several, and a Goal many children.
+
+    The columns are the names a `ReferenceSpec` reads: the Card owns the link, the parent is
+    the item it links to.
+    """
+
+    __tablename__ = "card_parents"
+    card_id: Mapped[int] = mapped_column(
+        ForeignKey("cards.id", ondelete="CASCADE"), primary_key=True
+    )
+    parent_id: Mapped[int] = mapped_column(
+        ForeignKey("cards.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
 
 
 class CardCheck(Base):

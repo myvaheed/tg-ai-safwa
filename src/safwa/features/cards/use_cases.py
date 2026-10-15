@@ -4,17 +4,20 @@ A Sprint commitment follows an Action's stage, and every writer of that stage is
 file: each one calls Planning's door afterwards, and no Card row here ever touches a
 commitment itself.
 
-A Goal or Subgoal is closed explicitly here. Each operation ends at `propagate_ancestors`
-in [hierarchy.py](hierarchy.py), which keeps its live stage and derived columns current.
+A Card may stand under several Goals, kept as `CardParent` rows. A Goal or Subgoal is closed
+and reopened explicitly here, whatever is open under it. Each operation ends at
+`propagate_ancestors` in [hierarchy.py](hierarchy.py), which keeps the live stage and derived
+columns of every Goal above current.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.changes import record_change
@@ -61,7 +64,16 @@ from ..values.api import (
     unlinkable_value_id,
 )
 from ..values.model import CardValue
-from .hierarchy import branch_actions, card_children, propagate_ancestors, settle_archive
+from .hierarchy import (
+    branch_actions,
+    branch_ids,
+    card_children,
+    card_parent_ids,
+    levels_down,
+    levels_up,
+    propagate_ancestors,
+    settle_archive,
+)
 from .model import (
     CARD_TREE_DEPTH_MAX,
     EFFORT_POINTS,
@@ -72,6 +84,7 @@ from .model import (
     CardCheck,
     CardEnergyType,
     CardKind,
+    CardParent,
     CardStage,
     Category,
     EnergyType,
@@ -109,7 +122,7 @@ async def create_card(
     schedule_rule: dict[str, Any] | None = None,
     blocked_description: str = "",
     effort_points: float | None = None,
-    parent_id: int | None = None,
+    parent_ids: set[int] | None = None,
     categories: set[Category | str] | None = None,
     energy_types: set[EnergyType | str] | None = None,
     value_ids: set[int] | None = None,
@@ -142,7 +155,7 @@ async def create_card(
         category_values.clear()
         energy_values.clear()
     validate_action_fields(card_kind, effort_points, category_values, energy_values)
-    await validate_parent(session, parent_id)
+    await validate_parents(session, None, parent_ids or set())
 
     if (loose := await unlinkable_value_id(session, value_ids or set())) is not None:
         raise DomainError(f"Value #{loose} does not exist")
@@ -158,7 +171,6 @@ async def create_card(
             raise DomainError(f"Check #{check_id} already belongs to Card #{held_by}")
 
     card = Card(
-        parent_id=parent_id,
         kind=card_kind.value,
         title=clean_title,
         note=note.strip(),
@@ -171,6 +183,8 @@ async def create_card(
     session.add(card)
     await session.flush()
     await set_schedule(session, card, schedule, schedule_rule)
+    for parent_id in sorted(parent_ids or set()):
+        session.add(CardParent(card_id=card.id, parent_id=parent_id))
     for category in sorted(category_values):
         session.add(CardCategory(card_id=card.id, category=category))
     for energy_type in sorted(energy_values):
@@ -187,7 +201,8 @@ async def create_card(
         if card_stage is CardStage.TODAY:
             record_change(session, CARD_TODAY, card.id)
         await sync_commitment_for_stage(session, card)
-    await propagate_ancestors(session, parent_id)
+    await session.flush()
+    await propagate_ancestors(session, parent_ids or set())
     await bump_workspace(session)
     return card
 
@@ -292,7 +307,7 @@ async def update_card_fields(
     await follow_remind(session, card, actor=actor)
     if card.blocked and not before["blocked_description"]:
         record_change(session, CARD_BLOCKED, card.id)
-    await propagate_ancestors(session, card.parent_id)
+    await propagate_ancestors(session, await card_parent_ids(session, card.id))
     await bump_workspace(session)
     return card
 
@@ -442,61 +457,57 @@ async def toggle_card_check(
     return linked
 
 
-async def set_card_parent(
+async def toggle_card_parent(
     session: AsyncSession,
     card_id: int,
-    parent_id: int | None,
+    parent_id: int,
     *,
     actor: ActorType = ActorType.USER_UI,
-) -> Card:
-    """Move a branch, repairing both its previous and its new ancestors."""
+) -> bool:
+    """Put a Card under one more Goal, or take it from one, and return whether it is under it.
+
+    The Goals above that parent are repaired along every path; the Card's other parents
+    keep it.
+    """
     card = await session.get(Card, card_id)
     if card is None or card.archived_at is not None:
         raise DomainError("Card does not exist or is archived")
-    await validate_parent(session, parent_id, card_id=card.id)
-    if card.parent_id == parent_id:
-        return card
-
-    previous_parent_id = card.parent_id
+    link = await session.get(CardParent, (card_id, parent_id))
     before = snapshot(card)
-    card.parent_id = parent_id
+    if link is None:
+        await validate_parents(session, card.id, {parent_id})
+        session.add(CardParent(card_id=card_id, parent_id=parent_id))
+        operation, linked = "link_parent", True
+    else:
+        await session.delete(link)
+        operation, linked = "unlink_parent", False
     card.version += 1
-    await record_card_event(session, card, "set_parent", actor, before)
-    await propagate_ancestors(session, previous_parent_id)
-    await propagate_ancestors(session, parent_id)
+    await record_card_event(session, card, operation, actor, before)
+    await session.flush()
+    await propagate_ancestors(session, [parent_id])
     await bump_workspace(session)
-    return card
+    return linked
 
 
-async def validate_parent(
-    session: AsyncSession,
-    parent_id: int | None,
-    *,
-    card_id: int | None = None,
-) -> Card | None:
-    if parent_id is None:
-        return None
-    parent = await session.get(Card, parent_id)
-    if parent is None or parent.archived_at is not None:
-        raise DomainError("Parent does not exist or is archived")
-    if parent.kind == CardKind.ACTION.value:
-        raise DomainError("An Action cannot have children")
-    parent_depth = 0
-    ancestor: Card | None = parent
-    while ancestor is not None:
-        if ancestor.id == card_id:
-            raise DomainError("A Card cannot be placed under itself or its descendant")
-        parent_depth += 1
-        ancestor = await session.get(Card, ancestor.parent_id) if ancestor.parent_id else None
-
-    async def branch_height(node_id: int) -> int:
-        heights = [await branch_height(child.id) for child in await card_children(session, node_id)]
-        return 1 + max(heights, default=0)
-
-    height = await branch_height(card_id) if card_id is not None else 1
-    if parent_depth + height > CARD_TREE_DEPTH_MAX:
+async def validate_parents(
+    session: AsyncSession, card_id: int | None, parent_ids: Iterable[int]
+) -> None:
+    """Refuse a parent that is not a live Goal, one inside the Card's own branch, and one
+    that would put anything under the Card below the deepest level along any path."""
+    wanted = set(parent_ids)
+    if not wanted:
+        return
+    for parent_id in sorted(wanted):
+        parent = await session.get(Card, parent_id)
+        if parent is None or parent.archived_at is not None:
+            raise DomainError("Parent does not exist or is archived")
+        if parent.kind == CardKind.ACTION.value:
+            raise DomainError("An Action cannot have children")
+    if card_id is not None and wanted & (await branch_ids(session, card_id) | {card_id}):
+        raise DomainError("A Card cannot be placed under itself or its descendant")
+    height = await levels_down(session, card_id) if card_id is not None else 1
+    if await levels_up(session, wanted) + height > CARD_TREE_DEPTH_MAX:
         raise DomainError(f"A Card tree may have at most {CARD_TREE_DEPTH_MAX} levels, including Actions")
-    return parent
 
 
 def validate_action_fields(
@@ -527,15 +538,18 @@ def validate_tracked_mins(minutes: int | None) -> None:
         raise DomainError(f"The time an Action took is 1 to {TRACKED_MINS_MAX} minutes")
 
 
-# The changes a hook may follow up on: a Card was created, an Action became blocked, entered
-# Today or was finished, however it was saved; and one stood in Today when the morning came.
-# A repeating Action's next instance is the system's, so it is created without `CARD_CREATED`.
+# The changes a hook may follow up on: a Card was created, finished or reopened, an Action
+# became blocked or entered Today, however it was saved; one stood in Today when the morning
+# came; and a deletion left Cards without a parent. A repeating Action's next instance is the
+# system's, so it is created without `CARD_CREATED`.
 CARD_CREATED = "card.created"
 CARD_BLOCKED = "card.blocked"
 CARD_TODAY = "card.today"
 CARD_DONE = "card.done"
+CARD_REOPENED = "card.reopened"
 CARD_ACTIONS_FINISHED = "card.actions_finished"
 CARD_TODAY_MORNING = "card.today_morning"
+CARD_ORPHANED = "card.orphaned"
 
 
 async def record_today_morning(
@@ -606,6 +620,7 @@ async def move_card(
         card.completed_at = None
         card.archived_at = None
         await reopen_checks(session, card.id)
+        record_change(session, CARD_REOPENED, card.id)
     card.manual_stage = stage.value
     card.effective_stage = stage.value
     card.version += 1
@@ -613,7 +628,9 @@ async def move_card(
     if stage is CardStage.TODAY and previous is not CardStage.TODAY:
         record_change(session, CARD_TODAY, card.id)
     await sync_commitment_for_stage(session, card, previous)
-    result.ancestor_ids = await propagate_ancestors(session, card.parent_id)
+    result.ancestor_ids = await propagate_ancestors(
+        session, await card_parent_ids(session, card.id)
+    )
     await bump_workspace(session)
     return result
 
@@ -625,7 +642,6 @@ async def _copy_repeat_successor(
     card.repeat_series_id = series_id
     live_stage = CardStage(await scheduled_stage(session, card, slot, live_stage.value))
     successor = Card(
-        parent_id=card.parent_id,
         kind=card.kind,
         title=card.title,
         note=card.note,
@@ -642,6 +658,8 @@ async def _copy_repeat_successor(
     )
     session.add(successor)
     await session.flush()
+    for parent_id in await card_parent_ids(session, card.id):
+        session.add(CardParent(card_id=successor.id, parent_id=parent_id))
     for link in await session.scalars(select(CardValue).where(CardValue.card_id == card.id)):
         session.add(CardValue(card_id=successor.id, value_id=link.value_id))
     for link in await session.scalars(select(CardTag).where(CardTag.card_id == card.id)):
@@ -701,28 +719,26 @@ async def finish_action(
     if successor is not None:
         result.successor_ids.append(successor.id)
     await follow_remind(session, card, successor, actor=actor)
-    result.ancestor_ids = await propagate_ancestors(session, card.parent_id)
-    parent_id = card.parent_id
-    while parent_id:
-        parent = await session.get(Card, parent_id)
-        if parent is None:
-            break
+    await session.flush()
+    parents = await card_parent_ids(session, card.id)
+    result.ancestor_ids = await propagate_ancestors(session, parents)
+    # Up every path while the branch is finished: an open Action under a Goal is under every
+    # Goal above it too, so the walk stops there.
+    seen: set[int] = set()
+    waiting = list(parents)
+    while waiting:
+        parent = await session.get(Card, waiting.pop(0))
+        if parent is None or parent.id in seen:
+            continue
+        seen.add(parent.id)
         actions = await branch_actions(session, parent.id)
         if any(action.effective_stage != CardStage.DONE.value for action in actions):
-            break
+            continue
         if parent.effective_stage != CardStage.DONE.value:
             record_change(session, CARD_ACTIONS_FINISHED, parent.id)
-        parent_id = parent.parent_id
+        waiting.extend(await card_parent_ids(session, parent.id))
     await bump_workspace(session)
     return result
-
-
-async def require_finished_actions(session: AsyncSession, card_id: int) -> None:
-    if any(
-        action.effective_stage != CardStage.DONE.value
-        for action in await branch_actions(session, card_id)
-    ):
-        raise DomainError("Finish the open Actions before closing their Goal or Subgoal")
 
 
 async def finish_card(
@@ -733,7 +749,7 @@ async def finish_card(
     check_outcomes: dict[int, Any] | None = None,
     tracked_mins: int | None = None,
 ) -> OperationResult:
-    """Close a Card explicitly, without closing any children."""
+    """Close a Card explicitly, without closing any children, open or not."""
     card = await session.get(Card, card_id)
     if card is None:
         raise DomainError("Card does not exist")
@@ -746,7 +762,6 @@ async def finish_card(
         raise DomainError("Card is already terminal")
     if tracked_mins is not None:
         raise DomainError("Only an Action carries time spent")
-    await require_finished_actions(session, card.id)
     answers = await require_check_answers(session, card.id, check_outcomes)
     before = snapshot(card)
     card.manual_stage = CardStage.DONE.value
@@ -754,9 +769,10 @@ async def finish_card(
     card.completed_at = utcnow()
     card.version += 1
     await record_card_event(session, card, CardStage.DONE.value, actor, before)
+    record_change(session, CARD_DONE, card.id)
     await settle_checks(session, answers, actor=actor)
     await follow_remind(session, card, actor=actor)
-    ancestors = await propagate_ancestors(session, card.id)
+    ancestors = await propagate_ancestors(session, [card.id])
     await bump_workspace(session)
     return OperationResult(card_ids=[card.id], ancestor_ids=ancestors)
 
@@ -786,7 +802,8 @@ async def reopen_card(
     card.version += 1
     await reopen_checks(session, card.id)
     await record_card_event(session, card, "reopen", actor, before)
-    ancestors = await propagate_ancestors(session, card.id)
+    record_change(session, CARD_REOPENED, card.id)
+    ancestors = await propagate_ancestors(session, [card.id])
     await bump_workspace(session)
     return OperationResult(card_ids=[card.id], ancestor_ids=ancestors)
 
@@ -804,6 +821,17 @@ async def archive_subtree(
         raise DomainError("Card does not exist")
     if archive and CardStage(card.effective_stage) not in TERMINAL_STAGES:
         raise DomainError("Only a Card that is Done may be archived")
+    if archive and card.kind != CardKind.ACTION.value:
+        still_open = await session.scalar(
+            select(func.count())
+            .select_from(Card)
+            .where(
+                Card.id.in_(await branch_ids(session, card.id)),
+                Card.effective_stage.not_in([stage.value for stage in TERMINAL_STAGES]),
+            )
+        )
+        if still_open:
+            raise DomainError("Only a Card that is Done, with nothing open under it, may be archived")
     stamp = utcnow() if archive else None
     actions = (
         [card] if card.kind == CardKind.ACTION.value else await branch_actions(session, card.id)
@@ -832,47 +860,39 @@ async def _purge_cards(session: AsyncSession, ids: list[int], actor: ActorType) 
     await delete_commitments_of_cards(session, ids)
     for model in (CardValue, CardTag, CardCategory, CardEnergyType, TodayDay):
         await session.execute(delete(model).where(model.card_id.in_(ids)))
+    await session.execute(
+        delete(CardParent).where(or_(CardParent.card_id.in_(ids), CardParent.parent_id.in_(ids)))
+    )
     await session.execute(delete(Card).where(Card.id.in_(ids)))
 
 
-async def delete_subtree(
+async def delete_card(
     session: AsyncSession, card_id: int, *, actor: ActorType = ActorType.USER_UI
-) -> int:
+) -> None:
+    """Delete one Card. Each Card under it loses that parent and keeps its others.
+
+    The ones it leaves with no parent stand at the root, and `CARD_ORPHANED` names them with
+    the deleted Card's title and the Goals it stood under, which nothing else keeps.
+    """
     card = await session.get(Card, card_id)
     if card is None:
         raise DomainError("Card does not exist")
-    parent_id = card.parent_id
-    ids: list[int] = []
-
-    async def collect(node: Card) -> None:
-        ids.append(node.id)
-        for child in await session.scalars(select(Card).where(Card.parent_id == node.id)):
-            await collect(child)
-
-    await collect(card)
-    await _purge_cards(session, ids, actor)
-    await propagate_ancestors(session, parent_id)
-    await bump_workspace(session)
-    return len(ids)
-
-
-async def delete_one_card(
-    session: AsyncSession, card_id: int, *, actor: ActorType = ActorType.USER_UI
-) -> int:
-    """Delete one Card, giving its children its parent or leaving them at the root."""
-    card = await session.get(Card, card_id)
-    if card is None:
-        raise DomainError("Card does not exist")
-    parent_id = card.parent_id
-    for child in await session.scalars(select(Card).where(Card.parent_id == card.id)):
+    parents = await card_parent_ids(session, card.id)
+    orphans: list[int] = []
+    for child in await card_children(session, card.id):
         before = snapshot(child)
-        child.parent_id = parent_id
         child.version += 1
-        await record_card_event(session, child, "set_parent", actor, before)
-    await _purge_cards(session, [card_id], actor)
-    await propagate_ancestors(session, parent_id)
+        await record_card_event(session, child, "unlink_parent", actor, before)
+        if await card_parent_ids(session, child.id) == [card.id]:
+            orphans.append(child.id)
+    title = card.title
+    await _purge_cards(session, [card.id], actor)
+    if orphans:
+        record_change(session, CARD_ORPHANED, card_id, data={
+            "title": title, "parent_ids": parents, "children": orphans,
+        })
+    await propagate_ancestors(session, parents)
     await bump_workspace(session)
-    return 1
 
 
 async def archive_settled_cards(session: AsyncSession, cutoff: datetime) -> list[int]:

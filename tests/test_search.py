@@ -13,7 +13,7 @@ from scored_encoder import Scored
 from llm_gateway import ToolCall
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, TEXT_MODEL, WORD_FORMS
 from safwa.features.cards.model import Card
-from safwa.features.cards.use_cases import create_card, delete_one_card, edit_card_text
+from safwa.features.cards.use_cases import create_card, delete_card, edit_card_text
 from safwa.features.tags.use_cases import create_tag
 from safwa.foundation.marks import ARCHIVE_MARKER
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, read_query
@@ -198,7 +198,7 @@ async def test_ag_search_059_the_index_follows_every_change(sessions, tmp_path):
     assert (await relevance(tmp_path, search_index, "хлеба"))["Купить хлеб"] is not None
 
     async with sessions() as session:
-        await delete_one_card(session, card_id)
+        await delete_card(session, card_id)
         await session.commit()
     assert await relevance(tmp_path, search_index, "хлеба") == {}
     assert indexed(tmp_path) == []

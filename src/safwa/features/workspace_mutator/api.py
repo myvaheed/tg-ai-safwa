@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..cards.model import Card, CardKind, CardStage, Priority
+from ..cards.model import Card, CardKind, CardParent, CardStage, Priority
 
 # A Deadline this many local days away, or overdue, puts its Goal first.
 PRIORITY_GOAL_DEADLINE_DAYS = 7
@@ -19,7 +19,7 @@ async def priority_goals(session: AsyncSession, local_now: datetime) -> list[Car
     goals = await session.scalars(
         select(Card).where(
             Card.kind == CardKind.GOAL.value,
-            Card.parent_id.is_(None),
+            ~select(CardParent.card_id).where(CardParent.card_id == Card.id).exists(),
             Card.effective_stage != CardStage.DONE.value,
             Card.archived_at.is_(None),
         )

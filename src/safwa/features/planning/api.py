@@ -29,7 +29,10 @@ from ..cards.api import (
     TERMINAL_STAGES,
     Card,
     CardStage,
+    ForestRow,
     actions_on_stages,
+    forest_rows,
+    parents_of,
     planned_actions,
 )
 from ..cards.model import CardKind, Priority
@@ -384,33 +387,29 @@ async def today_actions(session: AsyncSession, *, now: datetime | None = None) -
     return sorted(cards, key=cannot_move)
 
 
-async def today_tree(session: AsyncSession, actions: list[Card]) -> list[tuple[int, Card]]:
+async def today_tree(session: AsyncSession, actions: list[Card]) -> list[ForestRow]:
     """Today's Actions under their Goals and Subgoals, each with its depth, root first.
 
     A Goal stands once, where the first of its Actions stands in `actions`, and its later
-    Actions come up under it. An Action with no Goal keeps its own place.
+    Actions come up under it. A Card under several Goals stands under the last of them and
+    names the others. An Action with no Goal keeps its own place.
     """
-    children: dict[int | None, list[Card]] = {}
+    order: list[Card] = []
+    parents: dict[int, list[int]] = {}
     placed: set[int] = set()
+
+    async def place(card: Card) -> None:
+        if card.id in placed:
+            return
+        placed.add(card.id)
+        parents[card.id] = (await parents_of(session, [card.id])).get(card.id, [])
+        for parent_id in parents[card.id]:
+            await place(await session.get_one(Card, parent_id))
+        order.append(card)
+
     for action in actions:
-        chain = [action]
-        while chain[-1].parent_id is not None:
-            chain.append(await session.get(Card, chain[-1].parent_id))
-        parent_id = None
-        for card in reversed(chain):
-            if card.id not in placed:
-                placed.add(card.id)
-                children.setdefault(parent_id, []).append(card)
-            parent_id = card.id
-    rows: list[tuple[int, Card]] = []
-
-    def walk(parent_id: int | None, depth: int) -> None:
-        for card in children.get(parent_id, ()):
-            rows.append((depth, card))
-            walk(card.id, depth + 1)
-
-    walk(None, 0)
-    return rows
+        await place(action)
+    return forest_rows(order, parents)
 
 
 async def values_in_focus(session: AsyncSession) -> list[tuple[Value, list[Card]]]:

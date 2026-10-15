@@ -26,12 +26,12 @@ from tg_agent_shell.hooks.contracts import HookSpec, OnCommitted, RunAndAdvise, 
 from ...constants import INBOX_TAG_NAME
 from ...foundation.method import review_prompt
 from ..tags.model import CardTag, Tag
-from .api import GOAL
+from .api import GOAL, parents_of
 from .model import TERMINAL_STAGES, Card, CardKind, card_kind_name
 from .use_cases import CARD_CREATED
 
 # Attainable and meaningful are the owner's to know: the title and Note cannot show them.
-GOAL_REVIEW_PROMPT = review_prompt(GOAL, "its title, Note, Deadline and parent Goal")
+GOAL_REVIEW_PROMPT = review_prompt(GOAL, "its title, Note, Deadline and parent Goals")
 
 CLARIFY_REQUEST = (
     "New Goals to clarify, each with advice:\n"
@@ -115,13 +115,16 @@ async def _read_goal(session: AsyncSession, card_id: int) -> dict[str, Any] | No
     card = await open_card(session, card_id, CardKind.GOAL)
     if card is None:
         return None
-    parent = await session.get(Card, card.parent_id) if card.parent_id else None
+    parent_ids = (await parents_of(session, [card.id])).get(card.id, [])
+    parents = list(
+        await session.scalars(select(Card.title).where(Card.id.in_(parent_ids)).order_by(Card.id))
+    )
     return {
-        "kind": card_kind_name(card.kind, card.parent_id),
+        "kind": card_kind_name(card.kind, bool(parents)),
         "title": card.title,
         "note": card.note,
         "deadline": card.schedule or "",
-        "parent": parent.title if parent else "",
+        "parents": parents,
     }
 
 
@@ -164,7 +167,7 @@ GOAL_CLARIFICATION_HOOK = HookSpec(
     title="Goal clarification",
     description=(
         "After a Goal or Subgoal is created, checks whether it is one concrete result that "
-        "takes more than one day, with an observable Done, and whether a Subgoal moves its "
+        "takes more than one day, with an observable Done, and whether a Subgoal moves each "
         "parent forward. Asks to clarify it, with advice, only when it is not."
     ),
 )

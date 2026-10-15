@@ -14,7 +14,7 @@ import safwa.features.planning.use_cases as planning_use_cases
 from llm_gateway import ToolCall
 from safwa.features.cards.model import CardStage
 from safwa.features.cards.use_cases import (
-    delete_subtree,
+    delete_card,
     finish_action,
     move_card,
     update_card_fields,
@@ -118,7 +118,7 @@ async def test_rt_stats_003_the_retro_adds_the_sprint_up_from_its_record(session
     # changes nothing on the screen.
     async with sessions() as session:
         await update_card_fields(session, stuck.id, {"blocked_description": ""})
-        await delete_subtree(session, joined.id)
+        await delete_card(session, joined.id)
         await toggle_check_value(session, live.id, health.id)
         await session.commit()
     again = FakeMessage(322, bot_message=True)

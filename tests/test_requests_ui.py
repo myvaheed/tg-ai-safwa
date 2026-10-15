@@ -233,13 +233,13 @@ async def test_cd_order_054_a_result_reads_as_one_flat_tree(sessions) -> None:
             lambda connection: create_ai_views(connection, AI_VIEWS)
         )
 
-        async def card(title: str, kind: str = "action", parent=None):
+        async def card(title: str, kind: str = "action", parent=None, also=None):
             return await create_card(
                 session,
                 kind=kind,
                 title=title,
                 effort_points=1 if kind == "action" else None,
-                parent_id=parent.id if parent is not None else None,
+                parent_ids={held.id for held in (parent, also) if held is not None},
             )
 
         await card("Loose")
@@ -248,6 +248,8 @@ async def test_cd_order_054_a_result_reads_as_one_flat_tree(sessions) -> None:
         big = await card("Big", "goal")
         middle = await card("Middle", "goal", big)
         await card("Middle step", parent=middle)
+        # Under two Goals, it comes under the last of them the list reaches.
+        await card("Shared step", parent=small, also=middle)
         big_done = await card("Big done", parent=big)
         finished = await card("Finished", "goal")
         below_finished = await card("Below finished", "goal", finished)
@@ -279,6 +281,7 @@ async def test_cd_order_054_a_result_reads_as_one_flat_tree(sessions) -> None:
         "Middle step",
         "Small",
         "Small step",
+        "Shared step",
         "Loose",
         # Done: a Done Goal keeps its whole branch, and a Done Action leaves its open Goal.
         "Finished",
