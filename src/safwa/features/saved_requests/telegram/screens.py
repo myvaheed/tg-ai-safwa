@@ -22,7 +22,7 @@ from tg_agent_shell.telegram import (
 )
 
 from ...cards.telegram import card_results
-from ..api import request_cards
+from ..api import explicit_order, request_cards
 from ..model import SavedRequest
 
 # The Requests list, which the menu opens and every Request opened from it goes back to.
@@ -103,7 +103,9 @@ async def render_saved_request(
         if request is None:
             raise DomainError("Request no longer exists")
         matches = await request_cards(session, request.query_sql, services.views)
-        count, markup = await card_results(session, services, matches, here, back)
+        count, markup = await card_results(
+            session, services, matches, here, back, ordered=explicit_order(request.query_sql)
+        )
         description = await render_citations(
             session, services, html.escape(request.description or "No description."), here=here
         )

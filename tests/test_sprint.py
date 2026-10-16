@@ -43,7 +43,6 @@ from safwa.features.planning.api import (
     SPRINT_LENGTH_MAX_DAYS,
     SPRINT_LENGTH_MIN_DAYS,
     SPRINT_STARTED,
-    today_actions,
 )
 from safwa.features.planning.hooks import (
     KEY_ACTIONS_HOOK,
@@ -597,11 +596,11 @@ async def test_pl_context_020_todays_actions_are_handed_over_in_planning_as_in_a
 
     # The Actions in Today carry their effort and order; an Action still in Sprint is
     # looked up, while open Goals are handed over separately.
-    assert [line for line in handed.splitlines() if line.startswith("- [")] == [
-        f"- [The dentist](card:{fixed.id}) effort=1 schedule_at={fixed_at:%d.%m %H:%M}",
-        f"- [Ship it](card:{today.id}) effort=5",
-        f"- [Middling](card:{medium.id}) effort=2",
-        f"- [Sometime](card:{low.id}) effort=1",
+    assert [line for line in handed.splitlines() if line.startswith("| - [")] == [
+        f"| - [The dentist](card:{fixed.id}) effort=1 schedule_at={fixed_at:%d.%m %H:%M} | low |",
+        f"| - [Ship it](card:{today.id}) effort=5 | critical |",
+        f"| - [Middling](card:{medium.id}) effort=2 | medium |",
+        f"| - [Sometime](card:{low.id}) effort=1 | low |",
     ]
     assert planning.split("Today Actions:")[1] == handed
     assert "The release" in running.split("Today Actions:")[0]
@@ -1143,7 +1142,7 @@ async def test_pl_key_024_a_sprint_with_no_key_action_open_or_finished_is_warned
         assert await key_warning_request(session, [KEY_CHECK]) is None
 
 
-async def test_pl_key_025_today_is_ordered_by_what_the_day_cannot_move(sessions):
+async def test_pl_key_025_today_uses_the_common_order_with_key_marks(sessions):
     """PL-KEY-025 — tests/brd/planning.feature"""
     assert SCHEDULE_NOTICE_DAYS == 1
     tz = ZoneInfo("Europe/Istanbul")
@@ -1172,25 +1171,23 @@ async def test_pl_key_025_today_is_ordered_by_what_the_day_cannot_move(sessions)
         commitment.key_action = True
         await session.commit()
 
-        # A near Hard Time, then Critical, then key, then the rest — a Hard Time first there.
-        assert [card.title for card in await today_actions(session)] == [
-            "Tomorrow", "Critical", "Key", "Later this week", "Plain",
-        ]
+        # Date groups apply everywhere; a key mark leads its equals inside a group.
         handed = (await workspace_context(session)).state.split("Today Actions:")[1]
-        assert [line.split("]")[0] for line in handed.splitlines() if line.startswith("- [")] == [
-            "- [Tomorrow", "- [Critical", "- [Key", "- [Later this week", "- [Plain",
+        assert [line.split("]")[0] for line in handed.splitlines() if line.startswith("| - [")] == [
+            "| - [Tomorrow", "| - [Later this week", "| - [Critical", "| - [Key", "| - [Plain",
         ]
 
     # Today on the Home dashboard shows them in that order too.
     async with sessions() as session:
         home = await dashboard_text(session, {})
     today = home.split("☀️ Today")[1]
-    titles = ["Tomorrow", "Critical", "Key", "Later this week", "Plain"]
+    titles = ["Tomorrow", "Later this week", "Critical", "Key", "Plain"]
     assert sorted(titles, key=lambda title: today.index(f"[{title}]")) == titles
 
     async with sessions() as session:
-        # A Hard Time that passed yesterday holds nothing today.
+        # Overdue appointments belong to group 0, ahead of future appointments.
         soon = await session.get(Card, soon.id)
         soon.period_start = utcnow() - timedelta(days=1)
         await session.commit()
-        assert [card.title for card in await today_actions(session)][:2] == ["Critical", "Key"]
+        home = (await dashboard_text(session, {})).split("☀️ Today")[1]
+        assert home.index("[Tomorrow]") < home.index("[Later this week]") < home.index("[Critical]")

@@ -162,7 +162,7 @@ async def _choice_options(session: AsyncSession, field: str) -> list[tuple[str, 
         raise DomainError("Unknown Card selector")
     model = Value if field == "values" else Tag
     items = await session.scalars(
-        select(model).order_by(model.name)
+        select(model).order_by(Value.order if field == "values" else Tag.name)
     )
     return [(item.name, item.id) for item in items]
 

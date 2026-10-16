@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import text
 from ui_harness import (
     CALLBACK_ACTIONS,
@@ -262,7 +263,7 @@ async def test_cd_order_054_a_result_reads_as_one_flat_tree(sessions) -> None:
         await finish_card(session, old.id)
         await archive_subtree(session, old.id)
         request = await create_saved_request(
-            session, "Everything", "SELECT id FROM ai_cards ORDER BY id", views=ALLOWED_VIEWS
+            session, "Everything", "SELECT id FROM ai_cards", views=ALLOWED_VIEWS
         )
         await session.commit()
         request_id = request.id
@@ -293,3 +294,67 @@ async def test_cd_order_054_a_result_reads_as_one_flat_tree(sessions) -> None:
         "Old step",
     ]
     assert labels[0].startswith("🎯² ")
+
+
+async def test_explicit_request_order_takes_precedence_over_result_hierarchy(sessions):
+    """CD-ORDER-054 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        goal = await create_card(session, kind="goal", title="Goal", priority="critical")
+        action = await create_card(session, kind="action", title="Action", parent_ids={goal.id})
+        await finish_action(session, action.id)
+        request = await create_saved_request(
+            session, "Latest", "SELECT id FROM ai_cards ORDER BY id DESC", views=ALLOWED_VIEWS
+        )
+        await session.commit()
+
+    screen = FakeMessage(961, bot_message=True)
+    await open_item_screen(screen, services_for(sessions), "request", request.id)
+    labels = button_texts(screen.edits[-1][1])
+    assert "Action" in labels[0]
+    assert "Goal" in labels[1]
+
+
+@pytest.mark.parametrize("query, expected", [
+    ("SELECT id FROM ai_cards", ["Critical", "Medium", "Low"]),
+    ("SELECT id FROM ai_cards LIMIT 2", ["Medium", "Low"]),
+    ("SELECT id FROM ai_cards LIMIT 1 OFFSET 1", ["Medium"]),
+    ("SELECT id, 'ORDER BY id' AS note FROM ai_cards", ["Critical", "Medium", "Low"]),
+    ("SELECT id FROM ai_cards ORDER BY id", ["Low", "Medium", "Critical"]),
+    ("SELECT id FROM ai_cards WHERE id IN (SELECT id FROM ai_cards ORDER BY id LIMIT 3)",
+     ["Critical", "Medium", "Low"]),
+    ("WITH chosen AS (SELECT id FROM ai_cards ORDER BY id) SELECT id FROM chosen",
+     ["Critical", "Medium", "Low"]),
+    ("SELECT id, row_number() OVER (ORDER BY id) AS n FROM ai_cards",
+     ["Critical", "Medium", "Low"]),
+])
+async def test_request_screen_sorts_only_the_selected_cards(sessions, query, expected):
+    """CD-ORDER-064 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        for title in ("Low", "Medium", "Critical"):
+            await create_card(session, kind="action", title=title, priority=title.lower())
+        request = await create_saved_request(session, "Selection", query, views=ALLOWED_VIEWS)
+        await session.commit()
+
+    screen = FakeMessage(962, bot_message=True)
+    await open_item_screen(screen, services_for(sessions), "request", request.id)
+    labels = button_texts(screen.edits[-1][1])
+    assert [label.split(" ", 1)[1].rsplit(" · ", 1)[0] for label in labels[:-2]] == expected
+
+
+async def test_request_screen_sorts_before_its_display_cap(sessions):
+    """CD-ORDER-064 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        for i in range(RESULT_LIMIT):
+            await create_card(session, kind="action", title=f"Ordinary {i}")
+        await create_card(session, kind="action", title="Critical", priority="critical")
+        request = await create_saved_request(
+            session, "Selection", "SELECT id FROM ai_cards", views=ALLOWED_VIEWS
+        )
+        await session.commit()
+
+    screen = FakeMessage(963, bot_message=True)
+    await open_item_screen(screen, services_for(sessions), "request", request.id)
+    labels = button_texts(screen.edits[-1][1])
+    assert "Critical" in labels[0]
+    assert len(labels[:-2]) == RESULT_LIMIT
+    assert not any(f"Ordinary {RESULT_LIMIT - 1}" in label for label in labels)

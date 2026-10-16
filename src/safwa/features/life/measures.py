@@ -208,7 +208,9 @@ def focuses(chart: LifeChart, records: LifeRecords) -> tuple[str, ...]:
     """What the picture offers to show one at a time: those the finished Actions carried."""
     carried = {name for action in records.actions for name in _carried(chart, action)}
     shown = tuple(name for name in _order(chart, records) if name in carried)
-    return shown[:LIFE_VALUES_SHOWN] if chart is LifeChart.VALUE else shown
+    if chart is LifeChart.VALUE:
+        return tuple(name for name in records.values if name in shown[:LIFE_VALUES_SHOWN])
+    return shown
 
 
 def name_of(chart: LifeChart, key: str) -> str:
@@ -484,6 +486,9 @@ def _mix(
         for name in order[:LIFE_VALUES_SHOWN]
         if totals[name]
     ]
+    if chart is LifeChart.VALUE:
+        priority = {name: rank for rank, name in enumerate(records.values)}
+        swatches.sort(key=lambda swatch: priority[swatch[1]])
     if len(order) > LIFE_VALUES_SHOWN:
         swatches.append((OTHER_COLOR, "other Values"))
     return Picture(

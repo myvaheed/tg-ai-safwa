@@ -32,7 +32,7 @@ from tg_agent_shell.telegram import (
     send_registered,
 )
 
-from ...cards.api import CardStage, actions_on_stages, effort_label
+from ...cards.api import CardStage, actions_on_stages, effort_label, order_cards
 from ...cards.model import Card
 from ...cards.use_cases import move_card
 from ...profile.api import effort_tracking_on
@@ -161,10 +161,8 @@ async def render_plan(
     """Draw the plan on `page`, narrowed to the Cards every Request in `filters` returns."""
     async with services.sessions() as session:
         live, matched = await resolve_filters(session, list(filters), services.views)
-        planned = await actions_on_stages(session, CardStage.SPRINT, CardStage.TODAY)
-        backlog = await actions_on_stages(session, CardStage.BACKLOG)
-        planned.sort(key=lambda card: card.id)
-        backlog.sort(key=lambda card: card.id)
+        planned = await order_cards(session, await actions_on_stages(session, CardStage.SPRINT, CardStage.TODAY))
+        backlog = await order_cards(session, await actions_on_stages(session, CardStage.BACKLOG))
         selectable = backlog if matched is None else [c for c in backlog if c.id in matched]
         shown = paginate(selectable, page, SPRINT_PLAN_PAGE_SIZE)
         here = SPRINT_SCREEN.child("plan_page", page=shown.index, filters=live)

@@ -38,7 +38,7 @@ from safwa.features.profile.model import (
 from safwa.features.profile.telegram.screens import PROFILE_FIELDS
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.summary.window import SUMMARY_HEADER
-from safwa.features.values.use_cases import create_value
+from safwa.features.values.use_cases import create_value, update_value_fields
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.workspace import require_workspace
 from telegram_llm import Note, markdown_to_telegram_html
@@ -151,9 +151,45 @@ async def test_pl_context_020_the_advisor_reads_the_other_goals_a_card_stands_un
         blog, _audience, post, _write = await _shared_post(session)
         state = (await workspace_context(session)).state
     assert (
-        f"  - [First post](card:{post.id}) Subgoal (also under: [Launch the blog](card:{blog.id}))"
+        f"|   - [First post](card:{post.id}) Subgoal (also under: [Launch the blog](card:{blog.id})) |  |"
         in state.splitlines()
     )
+
+
+async def test_home_keeps_goal_and_subgoal_effort_in_a_shared_hierarchy(sessions, effort_on):
+    """HM-ACTIONS-006 — tests/brd/home.feature"""
+    async with sessions() as session:
+        blog, _audience, post, write = await _shared_post(session)
+        write.effort_points = 3
+        finished_post = await create_card(
+            session, kind="action", title="Drafted", effort_points=2, parent_ids={post.id}
+        )
+        await finish_action(session, finished_post.id)
+        finished_blog = await create_card(
+            session, kind="action", title="Registered", effort_points=1, parent_ids={blog.id}
+        )
+        await finish_action(session, finished_blog.id)
+        await create_card(session, kind="action", title="Domain", effort_points=2, parent_ids={blog.id})
+        await session.commit()
+
+    rows = _block(await _text(sessions), "Today")[2:]
+    assert "⚡3/8" in next(row for row in rows if _link("card", blog.id) in row)
+    assert "⚡2/5" in next(row for row in rows if _link("card", post.id) in row)
+    assert sum(_link("card", write.id) in row for row in rows) == 1
+
+
+async def test_motivator_keeps_the_other_parents_of_shared_cards(sessions):
+    """HM-VALUES-007 — tests/brd/home.feature"""
+    async with sessions() as session:
+        await _shared_post(session)
+        context = await motivation.owner_context(session)
+    today = context.split("Today Actions, in Today's order, each under its Goals and Subgoals:\n")[1]
+    assert today.split("\n\n")[0].splitlines() == [
+        "- Launch the blog (priority=medium)",
+        "- Grow audience (priority=medium)",
+        "  - First post (priority=medium) (also under: Launch the blog)",
+        "    - Write it (priority=medium)",
+    ]
 
 
 async def test_without_today_the_dashboard_says_so_and_shows_no_other_list(sessions) -> None:
@@ -269,15 +305,15 @@ async def test_each_value_in_focus_carries_the_words_written_for_it(sessions) ->
     # Sprint is not in focus.
     assert context.endswith(
         "Values, numbered:\n"
-        "1. Family — Calls home every Sunday (carried today by: Call home)\n"
-        "2. Health — Body first (carried today by: Run a marathon)"
+        "1. Health — Body first (carried today by: Run a marathon)\n"
+        "2. Family — Calls home every Sunday (carried today by: Call home)"
     )
 
     lines = _block(await _text(sessions, words), "Values in focus")
-    assert lines[1].startswith(f'<a href="{_link("value", family.id)}">')
-    assert lines[1].endswith("</a>")
-    assert _link("value", health.id) in lines[2]
-    assert lines[2].endswith(" — A run today keeps it going.")
+    assert lines[1].startswith(f'<a href="{_link("value", health.id)}">')
+    assert lines[1].endswith(" — A run today keeps it going.")
+    assert _link("value", family.id) in lines[2]
+    assert lines[2].endswith("</a>")
     assert _link("value", tidy.id) not in "\n".join(lines)
 
 
@@ -352,6 +388,7 @@ async def test_new_motivation_reads_the_last_words_by_value_after_the_cache_expi
     assert "Previous motivation:\nNone." in model.requests[0].messages[1]["content"]
     async with sessions() as session:
         family = await _in_focus(session, "Family")
+        await update_value_fields(session, family, order=1)
         await session.commit()
 
     for generation in range(1, 4):

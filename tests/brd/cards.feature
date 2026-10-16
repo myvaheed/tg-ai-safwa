@@ -467,7 +467,7 @@
     And the Scheduler reads it as one date, with a time only when one is given, and asks about text that repeats
     And its screen and its draft show the date it was read as
     And it never blocks Done, adds no planned executions, is not reported by get_scheduled and is not compared with the Actions under it
-    And in a list a Card with a Deadline comes before one without, the sooner one first
+    And lists use the common Goal order of CD-ORDER-061
 
   Scenario: CD-EFFORT-044 — After an Action is finished without an estimate, Safwa asks for its Effort Points
     Given Effort Points are on in the Profile, and so is the Effort Points reminder
@@ -485,7 +485,7 @@
     Given Cards in the Backlog, the Sprint, Today and Done
     When the owner opens 🗂 Dashboard from the menu
     Then one table shows them, a column per stage in this order: Sprint, Today, Done
-    And each column heading says how many Cards the stage holds, and the column lists the 10 changed last, newest first (BOARD_ROWS = 10)
+    And each column heading says how many Cards the stage holds; Sprint and Today list the first 10 in the common Card order (BOARD_ROWS = 10, CD-ORDER-060, CD-ORDER-061), and Done the 10 finished last, newest first
     And each title is a link that opens its Card in place of the Dashboard (SC-LINK-013)
     And it shows Actions, and one button "✓ ⭐️ Actions | 🎯 Goals" switches to Goals and Subgoals, each in the stage the work under it gives it
     And on Goals that button reads "⭐️ Actions | 🎯 Goals ✓" and switches back
@@ -496,7 +496,7 @@
   Scenario: CD-BACKLOG-047 — The Backlog is a numbered list, ten to a page
     Given Actions in the Backlog
     When the owner opens the Backlog from the Dashboard
-    Then it lists them in the order of every Card list but Today, 10 to a page (BACKLOG_PAGE_SIZE = 10), numbered across pages
+    Then it lists them in the common Card order, 10 to a page (BACKLOG_PAGE_SIZE = 10), numbered across pages
     And each line is a link that opens its Card in place of the Backlog, followed only by what is unusual about it: a Priority other than Medium, its effort while Effort Points are on, its appointment, its Deadline, and Blocked
     And ◀ Previous and Next ▶ turn the page (SC-PAGE-007), and the same one Actions | Goals button as the Dashboard's switches between them, from page 1
     And ↩️ Back returns to the Dashboard
@@ -538,13 +538,12 @@
       carrying a Value or a Tag
     When it is drawn
     Then live Cards come first, then Done ones, then archived ones
-    And in each of the three the Goals with the most levels lead, 🎯³ before 🎯² before 🎯, and
-      Actions follow the Goals
+    And in each of the three the common Card order ranks the Goals and Actions (CD-ORDER-060, CD-ORDER-061)
     And a Card comes right under the last of its parents from the same list, the same way down
     And a Done Action leaves its open parents for the Done ones
     And a Card under a Done or an archived Goal stays under that Goal
     And a Card none of whose parents is in the list stands on its own
-    And where two Cards rank the same, the list's own order decides
+    And an explicit query order is preserved on the screen, including across kinds and stages
     And the first 25 are buttons, the rest are only counted, and ↻ Refresh draws the list again
       (RESULT_LIMIT = 25)
 
@@ -561,3 +560,61 @@
     And each Value and each Tag is a link by its name alone, with no 💎 or 🏷, that opens its screen
     And no button repeats the parents, the children or a Value
     And ↩️ Back on what a link opened returns to the Card
+
+  Scenario: CD-ORDER-060 — Actions use date groups, their own Priority, the key mark and Value score
+    Given Actions with appointments or none, in any stage or list
+    Then overdue appointments and those today or tomorrow are group 0 (SCHEDULE_NOTICE_DAYS = 1),
+      ordered by appointment, Priority, key, Value score descending, creation time and id
+    And remaining appointments through today plus 7 days are group 1 (ACTION_WEEK_DAYS = 7),
+      ordered by Priority, appointment, key, Value score descending, creation time and id
+    And every other Action, including a later appointment or none, is group 2,
+      ordered by Priority, key, Value score descending, appointment, creation time and id
+    And Priority is Critical before Medium before Low, and no appointment sorts last at its tie
+    And an Action marked key to the running Sprint (PL-KEY-023) comes before one that is not
+    And an unmarked Action, and every Action while no Sprint runs, counts as not key
+    And dates are local to the workspace
+    And existing hierarchies keep their branches together, ranked by their first Action (PL-KEY-025)
+
+  Scenario: CD-ORDER-061 — Goals use Deadline groups, height, their own Priority and Value score
+    Given Goals with Deadlines or none
+    Then overdue Deadlines and those through the running Sprint's last local date are group 0
+    And while a Sprint runs, a Deadline strictly before today plus 14 days is also group 0,
+      however long the Sprint and however near its end (GOAL_URGENT_DAYS = 14)
+    And without a Sprint, a Deadline strictly before today plus 30 days is group 0
+      (PLANNING_GOAL_DAYS = 30)
+    And group 0 is ordered by Deadline, height descending, Priority, Value score descending,
+      creation time and id
+    And remaining Deadlines through today plus 90 days (GOAL_QUARTER_DAYS = 90) are group 1, ordered by Priority,
+      height descending, Deadline, Value score descending, creation time and id
+    And every other Goal, including no Deadline, is group 2, ordered by Priority, height
+      descending, Value score descending, Deadline, creation time and id
+    And height counts the Goal's deepest Goal chain, including itself, and no Deadline sorts
+      last at its tie
+
+  Scenario: CD-ORDER-062 — A Card's Value score counts each Value at its nearest place above
+    Given N Values in their unique order r from 1, strongest, through N
+    When a Goal or Action is ranked
+    Then each distinct Value it carries or an ancestor carries contributes (N - r + 1) / 2^d,
+      where d is the shortest upward Card distance to a carrier, zero on the Card itself
+    And a Value on a closed Goal still counts, and Checks and children contribute no Values
+    And more paths or repeated links to the same Value add nothing
+    And with 4 Values, Value 1 on a parent outweighs Value 4 on the Card itself
+    And the same Value counts more on the Card itself than on its parent
+    And with 4 Values, two parents carrying Values 2 and 3 outweigh one parent carrying Value 1
+    And no reachable Value gives score zero; exact equal scores use the later tie criteria
+    And a Value moved in its order or a link changed affects the next read without editing Cards
+
+  Scenario: CD-ORDER-063 — Children never change a Goal's Priority or supply its Value score
+    Given a low-priority Goal with a Critical Action carrying a Value
+    When the Action changes Priority, stage, effort or completion
+    Then the Goal's Priority stays Low, and that child's Value does not add to its score
+    And changing Value order never changes the stored Priority of a Card
+
+  Scenario: CD-ORDER-064 — Card order belongs to the destination preparing a list
+    Given Cards fetched for a screen or the workspace context
+    When that destination prepares its list
+    Then it applies the common Card order before its own display cap or page
+    And a Request whose query sorts its whole result with ORDER BY keeps that order on its screen
+    But an ORDER BY inside parentheses, in a subquery, a CTE body or a window, supplies no order
+    And quoted words such as 'ORDER BY' are text and do not supply an order
+    And SQL reads keep their own LIMIT, OFFSET and order without being rewritten

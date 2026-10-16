@@ -32,7 +32,7 @@ from ...profile.api import effort_tracking_on, time_tracking_on
 from ...schedules.api import schedule_summary
 from ...tags.model import CardTag, Tag
 from ...values.model import CardValue, Value
-from ..api import parents_of, tree_level
+from ..api import order_cards, parents_of, tree_level
 from ..hierarchy import card_progress
 from ..model import Card, CardCategory, CardEnergyType, CardKind, CardStage
 from .presentation import card_overview_text, card_title_marks, progress_summary
@@ -73,12 +73,14 @@ async def render_card(
         if card is None:
             raise DomainError("Card does not exist")
         parent_ids = (await parents_of(session, [card.id])).get(card.id, [])
-        parents = list(await session.scalars(select(Card).where(Card.id.in_(parent_ids)).order_by(Card.id)))
+        parents = await order_cards(session, await session.scalars(select(Card).where(Card.id.in_(parent_ids))))
         direct_value_ids = list(
             await session.scalars(select(CardValue.value_id).where(CardValue.card_id == card.id))
         )
         direct_values = (
-            list(await session.scalars(select(Value).where(Value.id.in_(direct_value_ids))))
+            list(await session.scalars(
+                select(Value).where(Value.id.in_(direct_value_ids)).order_by(Value.order)
+            ))
             if direct_value_ids
             else []
         )

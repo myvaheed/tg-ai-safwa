@@ -346,8 +346,8 @@ async def test_a_value_is_in_focus_while_a_card_in_today_carries_it(sessions):
 
         focus = await values_in_focus(session)
         assert [(value.name, [card.title for card in cards]) for value, cards in focus] == [
-            ("Family", ["Home"]),
             ("Health", ["Morning run"]),
+            ("Family", ["Home"]),
         ]
 
         await move_card(session, run.id, CardStage.SPRINT)

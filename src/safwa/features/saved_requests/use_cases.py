@@ -42,7 +42,7 @@ DEFAULT_REQUESTS: tuple[tuple[str, str, str], ...] = (
     (
         "Все цели",
         "Каждая Цель, включая архивные.",
-        "SELECT id FROM ai_cards WHERE kind = 'goal' ORDER BY title",
+        "SELECT id FROM ai_cards WHERE kind = 'goal'",
     ),
     INBOX_REQUEST,
 )

@@ -51,7 +51,7 @@ ENTITIES = tuple(
 # a business file that reads it takes its decisions from the environment instead of from
 # its arguments; `safwa/config.py` is where this application keeps it.
 DELIVERY_PACKAGES = ("aiogram", "openai", "telethon", "telegram_llm", "llm_gateway")
-BUSINESS_FILES = ("rules.py", "model.py", "use_cases.py", "hierarchy.py", "data.py")
+BUSINESS_FILES = ("rules.py", "model.py", "use_cases.py", "hierarchy.py", "ordering.py", "data.py")
 SETTINGS_MODULE = "safwa.config"
 
 # Rule F: packages that import no Safwa. That is what the rule proves — not that the
@@ -76,8 +76,8 @@ PROCESS_PACKAGES = (
 
 # Rule E: how deep into a feature a door reaches, and how deep a module is allowed to reach.
 # Anything not named here is assembly, which is the top and may open every door.
-DOOR_LAYERS = {"api": 1, "use_cases": 2, "hierarchy": 2, "telegram": 3}
-MODULE_LAYERS = {"model.py": 1, "api.py": 1, "use_cases.py": 2, "hierarchy.py": 2, "hooks.py": 3}
+DOOR_LAYERS = {"api": 1, "ordering": 1, "use_cases": 2, "hierarchy": 2, "telegram": 3}
+MODULE_LAYERS = {"model.py": 1, "api.py": 1, "ordering.py": 1, "use_cases.py": 2, "hierarchy.py": 2, "hooks.py": 3}
 
 # Rule K: the doors at the operations layer, which is what an `agent.py` may not reach
 # for.  Read from `DOOR_LAYERS` rather than spelled again, so a feature that splits its

@@ -25,26 +25,17 @@ from ...foundation.method import Example, Method
 from ..schedules.api import ACTION_DAILY_EXECUTIONS_MAX
 from .model import TERMINAL_STAGES as TERMINAL_STAGES
 from .model import Card as Card
-from .model import CardKind, CardParent, Priority
+from .model import CardKind, CardParent
 from .model import CardStage as CardStage
 from .model import effort_label as effort_label
 from .model import minutes_label as minutes_label
+from .ordering import SCHEDULE_NOTICE_DAYS as SCHEDULE_NOTICE_DAYS
+from .ordering import order_cards as order_cards
 from .views import AI_CARDS
 
 PLANNED_STAGES = (CardStage.SPRINT, CardStage.TODAY)
-# How many days ahead an appointment is near enough to belong in Today: today and tomorrow.
-SCHEDULE_NOTICE_DAYS = 1
-
-
-_PRIORITY_ORDER = {Priority.CRITICAL.value: 0, Priority.MEDIUM.value: 1, Priority.LOW.value: 2}
-
-
-def list_order(card: Card) -> tuple[bool, datetime | None, int, datetime]:
-    """An appointment or Deadline first and the sooner one before, then priority, then
-    oldest: the ordering of every Card list but Today, which is in the order the day
-    cannot move."""
-    due = card.scheduled_at or card.deadline_at
-    return (due is None, due, _PRIORITY_ORDER[card.priority], card.created_at)
+# A Done list reads newest first; a Goal Done through its children may have no completion time.
+FINISHED_LAST = (Card.completed_at.desc().nulls_last(), Card.updated_at.desc(), Card.id.desc())
 
 
 class CardQueryError(ValueError):

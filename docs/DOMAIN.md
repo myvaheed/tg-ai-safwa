@@ -179,14 +179,23 @@ carrying the Inbox Tag is not checked, and only creation starts the check.
   question after Done. A finished repeat takes its own time and effort estimate; other
   proposed edits belong to its open successor.
 
+## The common Card order
+
+Default lists use [cards/ordering.py](../src/safwa/features/cards/ordering.py); date groups and
+comparison keys are in CD-ORDER-060–064 in [cards.feature](../tests/brd/cards.feature).
+Explicit query order takes precedence. A Card's Value score sums `(N - r + 1) / 2**d` once
+per distinct Value at its shortest upward distance d to a carrier; r is Value order
+(1 highest), N the Value count. Children never raise a Goal's Priority. An Action key to
+the running Sprint comes before the others of its date group and Priority. A Done list reads
+newest first.
+Existing hierarchies keep each Card once and name its other parents; Home branches follow
+their first Action. See [HOME_DASHBOARD.md](HOME_DASHBOARD.md).
+
 ## The Goals Safwa starts from
 
 Each turn carries up to 10 open root Goals (`CONTEXT_PRIORITY_GOAL_LIMIT`) under **Priority Goals**,
-across all Priorities. An overdue compiled Deadline or one within the next 7 local calendar days
-(`PRIORITY_GOAL_DEADLINE_DAYS`) comes first. Within urgent and other Goals, the order is Priority,
-then Actions in Sprint or Today, including work through a Subgoal.
-Remaining ties use the earlier Deadline (none last), creation time and id. Each Goal carries its
-Priority, derived stage, `tree_level` and compiled Deadline. The Advisor starts advice and planning from that order.
+across all Priorities, in the common Goal order. Each Goal carries its Priority, derived stage,
+`tree_level` and compiled Deadline. The Advisor starts advice and planning from that order.
 
 ## Checks
 
@@ -261,7 +270,7 @@ whose derived stage is Today because an Action under it is. Nothing sets it by h
 
 Values have unique integer `order` positions from 1 through their count; 1 is highest.
 Moving one shifts the intervening Values; a new Value goes last by default, and deletion
-closes the gap. The Values list and the Values in Advisor context use this order.
+closes the gap. All live Value lists use this order.
 
 A Value is a direction the owner lives by, never Done: not a result, which is a Goal, nor
 one practice, which is a repeating Action, nor a feeling, a means or a rule. It has a name and

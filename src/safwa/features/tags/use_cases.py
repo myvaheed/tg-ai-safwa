@@ -18,7 +18,7 @@ from ...constants import DESCRIPTION_MAX_CHARS, INBOX_TAG_NAME
 from ...enums import ActorType
 from ...foundation.log_events import CREATE, DELETE, UPDATE, record_log_event, snapshot
 from ...foundation.workspace import bump_workspace
-from ..cards.api import Card, list_order
+from ..cards.api import Card
 from .model import CardTag, Tag
 
 # The change a hook may follow up on: a Tag was created, however it was saved.
@@ -128,11 +128,11 @@ async def _record(
 
 
 async def tag_cards(session: AsyncSession, tag_id: int) -> list[Card]:
-    """Every Card carrying this Tag, in the order of every Card list but Today."""
+    """Every Card carrying this Tag."""
     cards = await session.scalars(
         select(Card).join(CardTag, CardTag.card_id == Card.id).where(CardTag.tag_id == tag_id)
     )
-    return sorted(cards, key=list_order)
+    return list(cards)
 
 
 async def tag_link_count(session: AsyncSession, tag_id: int) -> int:

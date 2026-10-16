@@ -81,7 +81,7 @@ AI_CARDS = SqlView(
                 WHERE cc.card_id=c.id) AS categories,
                (SELECT group_concat(ce.energy_type, ',') FROM card_energy_types ce
                 WHERE ce.card_id=c.id) AS energy_types,
-               (SELECT group_concat(v.name, ',') FROM card_values cv
+               (SELECT group_concat(v.name, ',' ORDER BY v."order") FROM card_values cv
                 JOIN "values" v ON v.id=cv.value_id WHERE cv.card_id=c.id) AS direct_values,
                (SELECT group_concat(t.name, ',') FROM card_tags ct
                 JOIN tags t ON t.id=ct.tag_id WHERE ct.card_id=c.id) AS direct_tags,

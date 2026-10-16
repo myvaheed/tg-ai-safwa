@@ -103,6 +103,7 @@ safwa/features/<feature>/
   model.py      # feature-owned ORM entities, their field enums and value constants
   use_cases.py  # business operations shared by every adapter
   hierarchy.py  # Cards only: the derived-value walk, a second module of the operations layer
+  ordering.py   # Cards only: the common business order and inherited Value score, API layer
   api.py        # what another feature may call for business
   references.py # ReferenceSpec per named relationship the feature carries
   views.py      # SqlView per ai_* view
@@ -121,7 +122,9 @@ is a module those rules stop asking about. Splitting the operations layer is thr
 [architecture_metrics.py](../scripts/architecture_metrics.py) — the name in `BUSINESS_FILES`, in
 `MODULE_LAYERS` and in `DOOR_LAYERS` — and `hierarchy.py` is the one that has been paid for: Cards
 keeps the walk that writes the derived columns of every Goal above a Card apart from the
-operations that end at it.
+operations that end at it. Cards' `ordering.py` is declared in the same three lists at layer 1:
+it reads the graph and current Sprint once for a list and writes nothing. `api.py` exports
+`order_cards`; screens and context builders call it explicitly before their display caps.
 
 **A reducer is a mechanism, not a file every feature owns.** `reduce(state, action) -> (state,
 effects)` earns its place where a pure function makes the transitions readable, and the one

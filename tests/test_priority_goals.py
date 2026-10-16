@@ -5,9 +5,9 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from safwa.features.cards.ordering import PLANNING_GOAL_DAYS
 from safwa.features.cards.use_cases import create_card, finish_card
 from safwa.features.workspace_mutator import state
-from safwa.features.workspace_mutator.api import PRIORITY_GOAL_DEADLINE_DAYS
 
 
 @pytest.fixture
@@ -68,12 +68,12 @@ async def test_urgent_goal_deadlines_outrank_priority_in_the_local_day(
     offset = {
         "overdue": -1,
         "today": 0,
-        "boundary": PRIORITY_GOAL_DEADLINE_DAYS,
-        "later": PRIORITY_GOAL_DEADLINE_DAYS + 1,
+        "boundary": PLANNING_GOAL_DAYS - 1,
+        "later": PLANNING_GOAL_DAYS,
     }[case]
     day = goal_clock.date() + timedelta(days=offset)
     async with sessions() as session:
-        await _goal(session, "Critical", priority="critical")
+        await _goal(session, "Critical", priority="critical", deadline=goal_clock.date() + timedelta(days=60))
         await _goal(session, "Deadline", priority="low", deadline=day)
         await session.commit()
         context = await state.workspace_context(session)
@@ -83,11 +83,11 @@ async def test_urgent_goal_deadlines_outrank_priority_in_the_local_day(
 
 
 @pytest.mark.parametrize("stage", ["sprint", "today"])
-async def test_goals_with_planned_work_through_subgoals_come_before_other_equal_goals(
+async def test_higher_goals_come_before_other_equal_goals(
     sessions, goal_clock, stage
 ):
     """WS-CONTEXT-008 — tests/brd/workspace_mutator.feature"""
-    near = goal_clock.date() + timedelta(days=PRIORITY_GOAL_DEADLINE_DAYS + 1)
+    near = goal_clock.date() + timedelta(days=PLANNING_GOAL_DAYS)
     async with sessions() as session:
         await _goal(session, "Earlier deadline", deadline=near)
         planned = await _goal(session, "Planned", deadline=near + timedelta(days=1))
@@ -103,7 +103,7 @@ async def test_goals_with_planned_work_through_subgoals_come_before_other_equal_
 
 async def test_equal_goals_use_deadlines_then_age_and_id(sessions, goal_clock):
     """WS-CONTEXT-008 — tests/brd/workspace_mutator.feature"""
-    day = goal_clock.date() + timedelta(days=PRIORITY_GOAL_DEADLINE_DAYS + 1)
+    day = goal_clock.date() + timedelta(days=PLANNING_GOAL_DAYS)
     async with sessions() as session:
         first = await _goal(session, "First")
         second = await _goal(session, "Second")

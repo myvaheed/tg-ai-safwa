@@ -25,17 +25,17 @@ from ...foundation.workspace import (
 )
 from ..cards.api import (
     PLANNED_STAGES,
-    SCHEDULE_NOTICE_DAYS,
     TERMINAL_STAGES,
     Card,
     CardStage,
     ForestRow,
     actions_on_stages,
     forest_rows,
+    order_cards,
     parents_of,
     planned_actions,
 )
-from ..cards.model import CardKind, Priority
+from ..cards.model import CardKind
 from ..profile.api import effort_tracking_on
 from ..schedules.api import planned_executions, remaining_occurrences
 from ..values.api import CardValue, Value
@@ -338,82 +338,46 @@ async def delete_commitments_of_cards(session: AsyncSession, card_ids: list[int]
     await session.execute(delete(SprintCommitment).where(SprintCommitment.card_id.in_(card_ids)))
 
 
-async def key_action_ids(session: AsyncSession) -> set[int]:
-    """The Actions the running Sprint's Success criterion rests on, as marked."""
-    workspace = await session.get(Workspace, 1)
-    if workspace is None or not workspace.active_sprint_id:
-        return set()
-    return set(
-        await session.scalars(
-            select(SprintCommitment.card_id).where(
-                SprintCommitment.sprint_id == workspace.active_sprint_id,
-                SprintCommitment.key_action.is_(True),
-            )
-        )
-    )
+async def today_actions(session: AsyncSession) -> list[Card]:
+    """The open Actions in Today."""
+    return await actions_on_stages(session, CardStage.TODAY)
 
 
-async def today_actions(session: AsyncSession, *, now: datetime | None = None) -> list[Card]:
-    """The open Actions in Today, in the order the day cannot move.
-
-    An appointment today or tomorrow first, then Critical, then the ones key to the Sprint,
-    then the rest — each group in Today's own order: an appointment, then importance, then age.
-    """
-    cards = await actions_on_stages(session, CardStage.TODAY)
-    keys = await key_action_ids(session)
-    tz = ZoneInfo((await require_workspace(session)).timezone)
-    today = (now or utcnow()).astimezone(tz).date()
-    near = today + timedelta(days=SCHEDULE_NOTICE_DAYS)
-    ranks = list(Priority)
-
-    def cannot_move(card: Card) -> tuple[int, bool, float, int, datetime]:
-        when = card.scheduled_at.astimezone(tz).date() if card.scheduled_at else None
-        if when is not None and today <= when <= near:
-            group = 0
-        elif card.priority == Priority.CRITICAL.value:
-            group = 1
-        elif card.id in keys:
-            group = 2
-        else:
-            group = 3
-        return (
-            group,
-            card.scheduled_at is None,
-            card.scheduled_at.timestamp() if card.scheduled_at else 0.0,
-            ranks.index(Priority(card.priority)),
-            card.created_at,
-        )
-
-    return sorted(cards, key=cannot_move)
-
-
-async def today_tree(session: AsyncSession, actions: list[Card]) -> list[ForestRow]:
+async def today_tree(
+    session: AsyncSession, actions: list[Card], *, now: datetime | None = None
+) -> list[ForestRow]:
     """Today's Actions under their Goals and Subgoals, each with its depth, root first.
 
     A Goal stands once, where the first of its Actions stands in `actions`, and its later
     Actions come up under it. A Card under several Goals stands under the last of them and
     names the others. An Action with no Goal keeps its own place.
     """
+    if not actions:
+        return []
+    goals = await order_cards(
+        session, await session.scalars(select(Card).where(Card.kind == CardKind.GOAL.value)), now=now
+    )
+    by_id = {card.id: card for card in [*goals, *actions]}
+    position = {card.id: rank for rank, card in enumerate(goals)}
+    parents = await parents_of(session)
     order: list[Card] = []
-    parents: dict[int, list[int]] = {}
     placed: set[int] = set()
 
-    async def place(card: Card) -> None:
+    def place(card: Card) -> None:
         if card.id in placed:
             return
         placed.add(card.id)
-        parents[card.id] = (await parents_of(session, [card.id])).get(card.id, [])
-        for parent_id in parents[card.id]:
-            await place(await session.get_one(Card, parent_id))
+        for parent_id in sorted(parents.get(card.id, ()), key=position.__getitem__):
+            place(by_id[parent_id])
         order.append(card)
 
     for action in actions:
-        await place(action)
+        place(action)
     return forest_rows(order, parents)
 
 
 async def values_in_focus(session: AsyncSession) -> list[tuple[Value, list[Card]]]:
-    """Every Value a Card in Today carries, by name, with those Cards.
+    """Every Value a Card in Today carries, by priority, with those Cards.
 
     A Goal or a Subgoal is in Today while an Action under it is, so its Values count too.
     """
@@ -422,7 +386,7 @@ async def values_in_focus(session: AsyncSession) -> list[tuple[Value, list[Card]
         .join(CardValue, CardValue.value_id == Value.id)
         .join(Card, Card.id == CardValue.card_id)
         .where(Card.effective_stage == CardStage.TODAY.value, Card.archived_at.is_(None))
-        .order_by(Value.name, Card.id)
+        .order_by(Value.order, Card.id)
     )
     found: dict[int, tuple[Value, list[Card]]] = {}
     for value, card in rows:

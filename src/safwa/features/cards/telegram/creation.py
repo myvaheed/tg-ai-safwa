@@ -130,7 +130,9 @@ async def render_card_creation(
         value_ids = list(state["value_ids"])
         tag_ids = list(state["tag_ids"])
         values = (
-            list(await session.scalars(select(Value).where(Value.id.in_(value_ids))))
+            list(await session.scalars(
+                select(Value).where(Value.id.in_(value_ids)).order_by(Value.order)
+            ))
             if value_ids
             else []
         )

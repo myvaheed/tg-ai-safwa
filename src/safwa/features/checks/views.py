@@ -45,7 +45,7 @@ AI_CHECKS = SqlView(
                 WHERE cc.check_id=k.id) AS card_id,
                (SELECT COALESCE(cd.repeat_series_id, cd.id) FROM card_checks cc
                 JOIN cards cd ON cd.id=cc.card_id WHERE cc.check_id=k.id) AS card_series_id,
-               (SELECT group_concat(v.name, ',') FROM check_values cv
+               (SELECT group_concat(v.name, ',' ORDER BY v."order") FROM check_values cv
                 JOIN "values" v ON v.id=cv.value_id WHERE cv.check_id=k.id) AS direct_values,
                k.created_at, k.updated_at, relevance('check', k.id) AS relevance
         FROM checks k""",

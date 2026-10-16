@@ -67,7 +67,8 @@ Feature: Life in weeks
     And an Action carrying two counts for both, and a week whose finished Actions carry none of
       them is pale
     And below the album: "All", then a button for each Category or Energy type the finished
-      Actions carried, or for each of the 8 Values they served most (LIFE_VALUES_SHOWN = 8)
+      Actions carried, or for each of the 8 Values they served most (LIFE_VALUES_SHOWN = 8),
+      with those Values and their legend in priority order
     When the owner taps one
     Then the album is drawn again with each week as deep as the share of its finished Actions
       that carried it, that share written in each square of the close-up, and the button ticked

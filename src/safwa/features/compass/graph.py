@@ -73,15 +73,17 @@ async def read_tree(session: AsyncSession, *, done: bool = False) -> Tree:
     card_values: dict[int, list[int]] = {}
     for card_id, value_id in await session.execute(
         select(CardValue.card_id, CardValue.value_id)
+        .join(Value, Value.id == CardValue.value_id)
         .where(CardValue.card_id.in_([card.id for card in cards]))
-        .order_by(CardValue.value_id)
+        .order_by(Value.order)
     ):
         card_values.setdefault(card_id, []).append(value_id)
     check_values: dict[int, list[int]] = {}
     for check_id, value_id in await session.execute(
         select(CheckValue.check_id, CheckValue.value_id)
+        .join(Value, Value.id == CheckValue.value_id)
         .where(CheckValue.check_id.in_([check.id for check in checks]))
-        .order_by(CheckValue.value_id)
+        .order_by(Value.order)
     ):
         check_values.setdefault(check_id, []).append(value_id)
     check_cards = {
@@ -93,7 +95,7 @@ async def read_tree(session: AsyncSession, *, done: bool = False) -> Tree:
         )
     }
     return Tree(
-        values=list(await session.scalars(select(Value).order_by(Value.name))),
+        values=list(await session.scalars(select(Value).order_by(Value.order))),
         cards=cards,
         checks=checks,
         card_values=card_values,

@@ -559,7 +559,7 @@ async def test_an_action_repeats_at_most_ten_times_a_day(config, limited):
 
 async def test_a_goal_deadline_is_one_date_that_plans_and_blocks_nothing(sessions):
     """CD-DEADLINE-043 — tests/brd/cards.feature"""
-    from safwa.features.cards.api import list_order
+    from safwa.features.cards.api import order_cards
     from safwa.features.cards.use_cases import finish_card
 
     tz = ZoneInfo("Europe/Istanbul")
@@ -576,7 +576,7 @@ async def test_a_goal_deadline_is_one_date_that_plans_and_blocks_nothing(session
         assert goal.deadline_at == datetime(2099, 10, 20, 23, 59, tzinfo=tz)
         assert goal.scheduled_at is None
         later = await create_card(session, kind="goal", title="Later")
-        assert sorted([later, goal], key=list_order) == [goal, later]
+        assert await order_cards(session, [later, goal]) == [goal, later]
         day = goal.deadline_at.astimezone(tz).date()
         assert (await get_scheduled(session, day, day, "card"))["items"] == []
         await finish_card(session, goal.id)

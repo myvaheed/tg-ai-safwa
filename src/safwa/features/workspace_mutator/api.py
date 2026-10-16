@@ -1,43 +1,22 @@
-"""What another feature may ask of the workspace context: the Goals it is handed first,
-in the order WS-CONTEXT-008 gives them."""
+"""The open root Goals eligible for the workspace's Priority Goals context."""
 
 from __future__ import annotations
-
-from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..cards.model import Card, CardKind, CardParent, CardStage, Priority
-
-# A Deadline this many local days away, or overdue, puts its Goal first.
-PRIORITY_GOAL_DEADLINE_DAYS = 7
+from ..cards.model import Card, CardKind, CardParent, CardStage
 
 
-async def priority_goals(session: AsyncSession, local_now: datetime) -> list[Card]:
-    """Every open root Goal in focus order, with urgent Deadlines before ordinary importance."""
-    goals = await session.scalars(
-        select(Card).where(
-            Card.kind == CardKind.GOAL.value,
-            ~select(CardParent.card_id).where(CardParent.card_id == Card.id).exists(),
-            Card.effective_stage != CardStage.DONE.value,
-            Card.archived_at.is_(None),
+async def priority_goals(session: AsyncSession) -> list[Card]:
+    """Every open root Goal; its destination chooses the order and cap."""
+    return list(
+        await session.scalars(
+            select(Card).where(
+                Card.kind == CardKind.GOAL.value,
+                ~select(CardParent.card_id).where(CardParent.card_id == Card.id).exists(),
+                Card.effective_stage != CardStage.DONE.value,
+                Card.archived_at.is_(None),
+            )
         )
     )
-    near = local_now.date() + timedelta(days=PRIORITY_GOAL_DEADLINE_DAYS)
-    ranks = list(Priority)
-
-    def focus_order(goal: Card):
-        deadline = goal.deadline_at
-        urgent = deadline is not None and deadline.astimezone(local_now.tzinfo).date() <= near
-        return (
-            not urgent,
-            ranks.index(Priority(goal.priority)),
-            goal.effective_stage not in (CardStage.SPRINT.value, CardStage.TODAY.value),
-            deadline is None,
-            deadline or local_now,
-            goal.created_at,
-            goal.id,
-        )
-
-    return sorted(goals, key=focus_order)

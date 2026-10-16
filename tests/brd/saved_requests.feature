@@ -83,7 +83,8 @@ Feature: Saved Requests
     Then they see every Request the owner has saved, by name
     When they open one
     Then it runs, and shows its description and how many Cards it matched
-    And those Cards are listed by CD-ORDER-054, its query's order deciding where two rank the same
+    And those Cards use the common order of CD-ORDER-054 unless the query explicitly supplies
+      its own ORDER BY, which the screen preserves
     And the first 25 of them are there to tap (RESULT_LIMIT = 25)
     And it says so when there were more than that
     And a Card opened from that list comes back to the Request it was opened from

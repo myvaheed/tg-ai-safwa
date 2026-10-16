@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from schedule_helpers import create_card, create_check, with_compiler
@@ -178,6 +178,26 @@ async def test_the_backlog_walks_between_its_pages(sessions) -> None:
     assert "page 2/2" in text
     assert f"{BACKLOG_PAGE_SIZE + 1}. " in text and f"{BACKLOG_PAGE_SIZE + 2}. " in text
     assert "Next ▶" not in button_texts(markup) and "◀ Previous" in button_texts(markup)
+
+
+async def test_the_dashboard_done_column_lists_the_cards_finished_last_first(sessions) -> None:
+    """CD-BOARD-046 — tests/brd/cards.feature"""
+    now = datetime.now(UTC)
+    async with sessions() as session:
+        old = await create_card(
+            session, kind="action", title="Long ago", priority="critical",
+            schedule=(now + timedelta(days=1)).strftime("%d.%m.%Y %H:%M"),
+        )
+        recent = await create_card(session, kind="action", title="Just now", priority="low")
+        for card in (old, recent):
+            await finish_action(session, card.id)
+        old.completed_at = now - timedelta(days=30)
+        await session.commit()
+
+    message = FakeMessage(97, bot_message=True)
+    await render_board(message, services_for(sessions))
+    text = message.edits[-1][0]
+    assert text.index("Just now") < text.index("Long ago")
 
 
 async def test_the_dashboard_shows_every_stage_side_by_side(sessions) -> None:

@@ -31,7 +31,7 @@ from tg_agent_shell.hooks.contracts import (
 )
 
 from ...constants import INBOX_TAG_NAME
-from ..cards.api import CardStage, forest_rows, parents_of, planned_actions
+from ..cards.api import forest_rows, order_cards, parents_of, planned_actions
 from ..cards.model import Card, CardCheck, CardKind, card_kind_name
 from ..cards.use_cases import CARD_CREATED, CARD_DONE, CARD_TODAY
 from ..checks.model import CHECK_OUTCOME_LABELS, Check
@@ -347,11 +347,12 @@ async def _tree(session: AsyncSession, actions: Sequence[Card]) -> list[str]:
 
     for action in actions:
         await place(action)
+    ranks = {card.id: rank for rank, card in enumerate(await order_cards(session, found))}
     ordered = sorted(
         found,
         key=lambda card: (
             card.kind == CardKind.GOAL.value,
-            card.id if card.kind == CardKind.GOAL.value else index.get(card.id, 0),
+            ranks[card.id] if card.kind == CardKind.GOAL.value else index.get(card.id, 0),
         ),
     )
     lines: list[str] = []
@@ -376,15 +377,12 @@ async def _tree(session: AsyncSession, actions: Sequence[Card]) -> list[str]:
 async def return_request(session: AsyncSession, items: Sequence[Any]) -> Shown:
     """What stands in Today and the Sprint, as a block, and what the Advisor asks about it.
 
-    At most `RETURN_LIST_ACTIONS` Actions are listed, Today's first, and the rest counted.
+    At most `RETURN_LIST_ACTIONS` Actions are listed in the common order, and the rest counted.
     """
     days = max(int(item) for item in items)
     opening = f"It has been {days} days since your last message."
     back = f"The user is back after {days} days away."
-    actions = sorted(
-        await planned_actions(session),
-        key=lambda card: (card.effective_stage != CardStage.TODAY.value, card.id),
-    )
+    actions = await order_cards(session, await planned_actions(session))
     if not actions:
         return Shown(
             block=f"{opening} Today and the Sprint hold nothing.",

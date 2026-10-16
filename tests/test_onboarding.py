@@ -654,7 +654,7 @@ async def test_ob_return_007_every_ancestor_of_a_deep_action_is_cited(sessions):
         assert "    " * len(goals) + f"[Work](card:{action.id}) — Today" in lines
 
 
-async def test_ob_return_007_many_actions_are_listed_up_to_30_today_first(sessions):
+async def test_ob_return_007_many_actions_are_listed_up_to_30_in_common_order(sessions):
     """OB-RETURN-007 — tests/brd/onboarding.feature"""
     async with sessions() as session:
         for index in range(RETURN_LIST_ACTIONS + 1):
@@ -670,7 +670,8 @@ async def test_ob_return_007_many_actions_are_listed_up_to_30_today_first(sessio
 
     listed = [line for line in said.block.splitlines() if line.startswith("    ")]
     assert len(listed) == RETURN_LIST_ACTIONS
-    assert "Today last" in listed[0]
+    assert "Sprint 0" in listed[0]
+    assert "Today last" not in said.block
     assert said.block.endswith("\nAnd 2 more Actions.")
     assert "No Sprint is running" not in said.request
 

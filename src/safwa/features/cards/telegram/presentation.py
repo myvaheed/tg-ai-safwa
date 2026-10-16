@@ -12,7 +12,7 @@ from tg_agent_shell.telegram import citation_title, with_citation_fields
 
 from ....foundation.marks import REPEAT_OPEN_MARKER, title_marks
 from ...profile.api import effort_tracking_on
-from ..api import forest_rows, parents_of, tree_level
+from ..api import forest_rows, order_cards, parents_of, tree_level
 from ..hierarchy import card_progress
 from ..model import (
     Card,
@@ -147,13 +147,10 @@ async def result_order(session: AsyncSession, cards: list[Card]) -> list[Card]:
 
     Live Cards come first, then Done ones, then archived ones. A Done Action leaves its open
     parents for the Done group, and a Card under a Done or archived parent stays with it.
-    In each group the Goals with the most levels lead, each Card right under the last of its
-    parents from the same list and group, and Actions follow the Goals. The order the list
-    came in breaks every tie.
+    Within each group the common Card order ranks the branches, while each Card stays
+    under the last of its parents from that group.
     """
     by_id = {card.id: card for card in cards}
-    position = {card.id: index for index, card in enumerate(cards)}
-    levels = {card.id: await tree_level(session, card.kind, card.id) for card in cards}
     parents = {
         card_id: [by_id[parent] for parent in held if parent in by_id]
         for card_id, held in (await parents_of(session, list(by_id))).items()
@@ -172,7 +169,8 @@ async def result_order(session: AsyncSession, cards: list[Card]) -> list[Card]:
             groups[card.id] = max([own, *(group(parent) for parent in parents.get(card.id, ()))])
         return groups[card.id]
 
-    ranked = sorted(cards, key=lambda card: (group(card), -levels[card.id], position[card.id]))
+    ranked = await order_cards(session, cards)
+    ranked.sort(key=group)
     anchors = {
         card.id: [parent.id for parent in parents.get(card.id, ()) if group(parent) == group(card)]
         for card in cards

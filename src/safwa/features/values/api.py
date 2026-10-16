@@ -50,10 +50,12 @@ def record_unlinked(session: AsyncSession, value: Value, items: list[dict[str, A
 
 
 async def value_names(session: AsyncSession) -> dict[int, str]:
-    """Every Value's name by its id."""
+    """Every Value's name by its id, in priority order (highest first)."""
     return {
         value_id: name
-        for value_id, name in await session.execute(select(Value.id, Value.name))
+        for value_id, name in await session.execute(
+            select(Value.id, Value.name).order_by(Value.order)
+        )
     }
 
 

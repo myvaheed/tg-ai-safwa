@@ -207,7 +207,7 @@
     And a batch whose answer is not that call, or names a number not in its list, is logged and leaves the marks of its Actions as they were; the other batches' answers are written
     And an answer is written only to an Action still open in the running Sprint under the title the model read; one renamed meanwhile keeps the mark a later answer gave it
     And an Action joining the running Sprint is asked about alone, the same way, and the marks of the others stand
-    And the owner is told nothing and nothing is proposed; the marks are read by the Today order (PL-KEY-025) and the warning (PL-KEY-024)
+    And the owner is told nothing and nothing is proposed; the marks are read by the warning (PL-KEY-024) and the Card order (CD-ORDER-060)
     And the marks are handed on as one saved change once any is written; a marking that wrote none hands nothing on
 
   Scenario: PL-KEY-024 — A Sprint left with no key Action to reach its Success criterion is warned about
@@ -216,15 +216,16 @@
     Then, with no key Action open in the Sprint and none finished in it, the Advisor is asked once to say in one message that the Success criterion does not look reachable with what is planned, and to propose nothing
     And the Sprint is read when the word is about to be said: with a key Action finished by then, or one open in the Sprint again, or an open Action not marked yet, or no Sprint running, nothing is said
 
-  Scenario: PL-KEY-025 — Today is ordered by what the day cannot move
+  Scenario: PL-KEY-025 — Today uses the common Action order before presentation
     Given Actions in Today
-    Then Today on the Home dashboard and the Today list the Advisor reads put first the ones whose Schedule appointment is today or tomorrow (SCHEDULE_NOTICE_DAYS = 1), then Critical ones, then key ones, then the rest
-    And within each group a Card with an appointment comes first, then the more important one, then the one written earlier
+    Then Today on the Sprint screen has the same Action order
+      as every default list (CD-ORDER-060)
     And a day is the workspace's local day
     When Today is shown under its Goals, on the Home dashboard and in what the Advisor reads
     Then each Goal and Subgoal stands once, where the first of its Actions stands in that order, with its later Actions under it
     And a Card under several Goals stands once, under the last of them shown, and the others are named on its line
     And an Action with no Goal keeps its own place
+    And the Advisor's Today context keeps this hierarchy in a table as by WS-CONTEXT-010
 
   Scenario: PL-ASK-026 — A question about the Sprint is answered from the Sprint as it stands
     Given a Sprint is running on its 5th day of 14
@@ -251,7 +252,7 @@
     Then it shows its number, dates, local day of its length, Success criteria, and taken and done Actions, or EP while Effort Points are on
     And Remaining lists only Actions still in Sprint
     And Today lists today's Actions in Today's order
-    And Done lists only Actions completed in this Sprint
+    And Done lists only Actions completed in this Sprint, the one finished last first
     And Blocked lists open blocked Actions in Sprint and Today with their reasons
     And the selectors show each list's Action count and mark the selected list
     When the owner selects a list

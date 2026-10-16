@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import warnings
+from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 from io import BytesIO
 
@@ -386,7 +387,7 @@ def test_lf_share_005_categories_energy_and_values_show_the_mix_or_one_share() -
     assert work[_week(date(2026, 9, 19))].label == "0"
 
     assert focuses(LifeChart.CATEGORY, RECORDS) == ("growth", "work")
-    assert focuses(LifeChart.VALUE, RECORDS) == ("Health", "Craft")
+    assert focuses(LifeChart.VALUE, RECORDS) == ("Craft", "Health")
     with pytest.raises(DomainError, match="No Value is called Sleep"):
         picture(LifeChart.VALUE, RECORDS, GRID, "Sleep")
     # A Value is named as the owner wrote it, whatever the capitals asked for.
@@ -403,6 +404,14 @@ def test_lf_share_005_categories_energy_and_values_show_the_mix_or_one_share() -
     swatches = picture(LifeChart.VALUE, many, GRID).swatches
     assert len(swatches) == LIFE_VALUES_SHOWN + 1
     assert swatches[-1] == (OTHER_COLOR, "other Values")
+
+    # Popularity chooses the eight; priority orders their buttons and legend.
+    reversed_priority = replace(many, values=tuple(reversed(many.values)))
+    expected = tuple(f"V{index}" for index in reversed(range(LIFE_VALUES_SHOWN)))
+    assert focuses(LifeChart.VALUE, reversed_priority) == expected
+    assert tuple(
+        name for _, name in picture(LifeChart.VALUE, reversed_priority, GRID).swatches[:-1]
+    ) == expected
 
 
 async def test_lf_share_005_an_action_serves_the_values_of_its_goal_and_subgoal(sessions) -> None:
@@ -429,7 +438,7 @@ async def test_lf_share_005_an_action_serves_the_values_of_its_goal_and_subgoal(
     assert [set(finished.values) for finished in records.actions] == [
         {"Health", "Family", "Craft"}, set()
     ]
-    assert records.values == ("Craft", "Family", "Health")
+    assert records.values == ("Health", "Family", "Craft")
 
 
 async def test_lf_album_006_a_picture_arrives_as_an_album_of_the_whole_life_and_a_close_up(

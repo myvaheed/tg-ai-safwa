@@ -1,7 +1,7 @@
 """The Dashboard: Sprint, Today and Done side by side, and the Backlog a page at a time.
 
 The Dashboard is one table, a column per stage in the order work moves through them, each
-column the Cards changed last. The Backlog behind its button is a numbered list. Both show
+column in the common Card order but Done, newest first. The Backlog behind its button is a numbered list. Both show
 Actions or Goals, and every title is a link that opens its Card in place of the screen, whose
 Back returns to the same list, page and kind.
 """
@@ -30,7 +30,7 @@ from tg_agent_shell.telegram import (
 
 from ...profile.api import effort_tracking_on
 from ...schedules.api import appointment_label, workspace_zone
-from ..api import list_order
+from ..api import FINISHED_LAST, order_cards
 from ..model import Card, CardKind, CardStage, Priority, effort_label
 from .presentation import STAGE_EMOJIS, card_emoji, card_title_marks
 
@@ -85,7 +85,8 @@ async def _title_link(session: AsyncSession, services: Services, here: Place, ca
 
 
 async def render_board(message: Message, services: Services, *, kinds: str = "actions") -> None:
-    """Every stage as a column of the Cards changed last, and the way into the Backlog."""
+    """Sprint and Today in the common Card order, Done newest first, and the way into the
+    Backlog."""
     here = Place("board", {"kinds": kinds})
     async with services.sessions() as session:
         backlog = await session.scalar(
@@ -95,11 +96,11 @@ async def render_board(message: Message, services: Services, *, kinds: str = "ac
         columns: list[list[str]] = []
         for stage in _COLUMNS:
             total = await session.scalar(select(func.count(Card.id)).where(*_on_stage(stage, kinds)))
-            cards = await session.scalars(
-                select(Card)
-                .where(*_on_stage(stage, kinds))
-                .order_by(Card.updated_at.desc(), Card.id.desc())
-                .limit(BOARD_ROWS)
+            query = select(Card).where(*_on_stage(stage, kinds))
+            cards = (
+                list(await session.scalars(query.order_by(*FINISHED_LAST).limit(BOARD_ROWS)))
+                if stage is CardStage.DONE
+                else (await order_cards(session, await session.scalars(query)))[:BOARD_ROWS]
             )
             headings.append(f"{STAGE_EMOJIS[stage.value]} {stage.value.title()} · {total}")
             columns.append([await _title_link(session, services, here, card) for card in cards])
@@ -166,9 +167,9 @@ async def render_backlog(
     """The Backlog in its own order, a page at a time. `back` is the Dashboard it was
     opened from."""
     async with services.sessions() as session:
-        cards = sorted(
+        cards = await order_cards(
+            session,
             await session.scalars(select(Card).where(*_on_stage(CardStage.BACKLOG, kinds))),
-            key=list_order,
         )
         shown = paginate(cards, page, BACKLOG_PAGE_SIZE)
         here = Place("backlog_page", {"kinds": kinds, "page": shown.index}, back)

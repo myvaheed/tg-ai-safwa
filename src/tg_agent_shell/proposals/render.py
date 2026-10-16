@@ -201,13 +201,15 @@ def reference_details(values: Mapping[str, Any], spec: ReferenceSpec) -> list[st
 
 async def reference_names(session: AsyncSession, spec: ReferenceSpec, value: Any) -> list[str]:
     ids = list(value or [])
-    entities = (
-        list(await session.scalars(select(spec.model).where(spec.model.id.in_(ids))))
-        if ids
-        else []
+    if not ids:
+        return []
+    return list(
+        await session.scalars(
+            select(getattr(spec.model, spec.name_attr))
+            .where(spec.model.id.in_(ids))
+            .order_by(getattr(spec.model, spec.order_attr), spec.model.id)
+        )
     )
-    by_id = {entity.id: getattr(entity, spec.name_attr) for entity in entities}
-    return [by_id[item_id] for item_id in ids if item_id in by_id]
 
 
 async def reference_groups(
@@ -221,11 +223,7 @@ async def reference_groups(
         if not spec.mentioned_in(values):
             continue
         resolved = await resolve_references(session, spec, values)
-        names: list[str] = []
-        for entity_id in sorted(resolved.ids):
-            entity = await session.get(spec.model, entity_id)
-            if entity is not None:
-                names.append(result_value(getattr(entity, spec.name_attr)))
+        names = [result_value(name) for name in await reference_names(session, spec, resolved.ids)]
         names.extend(result_value(name) for name in resolved.unresolved)
         if len(names) == 1:
             groups.append(f"{spec.label} “{names[0]}”")

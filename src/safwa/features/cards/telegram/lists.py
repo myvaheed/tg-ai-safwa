@@ -24,7 +24,6 @@ from tg_agent_shell.telegram import (
 )
 
 from ...profile.api import effort_tracking_on
-from ..api import list_order
 from ..hierarchy import card_children, cards_progress
 from ..model import Card
 from .presentation import item_button_label, progress_summary, result_order
@@ -39,13 +38,15 @@ async def card_results(
     cards: list[Card],
     here: Place,
     back: Place | None,
+    *,
+    ordered: bool = False,
 ) -> tuple[str, InlineKeyboardMarkup]:
     """The count line and the buttons of a result: its first `RESULT_LIMIT` Cards in
-    `result_order`, each opening its Card, then ↻ Refresh and the way back.
+    the existing result hierarchy, each opening its Card, then ↻ Refresh and the way back.
 
-    `cards` comes in the order that breaks `result_order`'s ties.
+    `ordered` preserves a Request's explicitly selected order.
     """
-    ordered = await result_order(session, cards)
+    shown = cards if ordered else await result_order(session, cards)
     rows = [
         [
             await place_button(
@@ -55,7 +56,7 @@ async def card_results(
                 here.child("card_view", id=card.id),
             )
         ]
-        for card in ordered[:RESULT_LIMIT]
+        for card in shown[:RESULT_LIMIT]
     ]
     rows.append([await place_button(session, services.owner_id, "↻ Refresh", here)])
     rows.append([await back_button(session, services.owner_id, back)])
@@ -88,7 +89,7 @@ async def render_children(
         parent = await session.get(Card, parent_id)
         if parent is None:
             raise DomainError("Parent Card does not exist")
-        children = sorted(await card_children(session, parent.id), key=list_order)
+        children = await card_children(session, parent.id)
         count, markup = await card_results(session, services, children, here, back)
         await session.commit()
     await send_registered(

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -15,6 +17,14 @@ from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views
 from tg_agent_shell.foundation.database import upgrade_database
 from tg_agent_shell.foundation.poll import run_poll
 from tg_agent_shell.recovery import recover_startup
+
+
+def test_application_entrypoint_imports_in_a_fresh_process():
+    result = subprocess.run(
+        [sys.executable, "-c", "import safwa.bootstrap.main"],
+        cwd=Path(__file__).parents[1], capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 async def test_ag_poll_030_a_poll_outlives_a_failing_round_and_ends_on_shutdown():

@@ -38,7 +38,8 @@ async def _closed_check_refusal(
 
 
 VALUE_REFERENCE = ReferenceSpec(
-    "value", "Value", Value, CardValue, toggle_card_value, owner="Card"
+    "value", "Value", Value, CardValue, toggle_card_value, owner="Card",
+    order_attr="order",
 )
 TAG_REFERENCE = ReferenceSpec("tag", "Tag", Tag, CardTag, toggle_card_tag, owner="Card")
 # A Check is a Card relationship like the other two, so it resolves, diffs and applies

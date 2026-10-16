@@ -43,6 +43,16 @@
     And an invalid place is refused before review
     And a proposal is refused if the order changed after it was prepared
 
+  Scenario: VL-ORDER-029 — Every live list of Values uses their priority order
+    Given Values whose priorities differ from both their names and their IDs
+    Then their selectors, linked names on Cards and Checks, drafts, proposal screens and receipts,
+      Home, Compass, Life and Safwa context list them highest first
+    And SQL lists default to this order, including linked Value names, before any limit
+    But an explicit SQL order takes precedence
+    When a Value's priority changes
+    Then the next rendering or read uses the new order
+    And closed Sprint retros retain the order recorded when they closed
+
   Scenario: VL-DESC-020 — A Value's description holds at most 400 characters
     Given a Value
     When its description is written with 401 characters, on its screen or by Safwa (DESCRIPTION_MAX_CHARS = 400)

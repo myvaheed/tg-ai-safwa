@@ -240,7 +240,7 @@ async def render_check(
             [
                 value.name
                 for value in await session.scalars(
-                    select(Value).where(Value.id.in_(linked_value_ids)).order_by(Value.name)
+                    select(Value).where(Value.id.in_(linked_value_ids)).order_by(Value.order)
                 )
             ]
             if linked_value_ids
@@ -289,7 +289,7 @@ async def render_check_values(
         options = [
             (value.name, value.id)
             for value in await session.scalars(
-                select(Value).order_by(Value.name)
+                select(Value).order_by(Value.order)
             )
         ]
         current = paginate(options, page, SELECTOR_PAGE_SIZE)

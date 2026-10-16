@@ -51,7 +51,7 @@ class LifeRecords:
     feelings: Mapping[date, int]
     actions: tuple[LifeAction, ...]
     sprints: tuple[SprintSpan, ...]
-    # Every Value by name, served or not.
+    # Every Value by name, served or not, in priority order (highest first).
     values: tuple[str, ...]
     effort_tracking: bool
 
@@ -98,6 +98,6 @@ async def life_records(session: AsyncSession, now: datetime) -> LifeRecords:
         feelings=await feeling_scores(session),
         actions=actions,
         sprints=sprints,
-        values=tuple(sorted(names.values(), key=str.casefold)),
+        values=tuple(names.values()),
         effort_tracking=await effort_tracking_on(session),
     )

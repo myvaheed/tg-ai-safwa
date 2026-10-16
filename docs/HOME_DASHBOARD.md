@@ -50,10 +50,10 @@ The day and the time it was drawn head it (HM-ORDER-014), then:
 - **The last `HOME_LOG_SHOWN = 5` changes**, newest first: when, an icon, the item, what
   changed. An item deleted at or after that change is its title without a link, because SQLite
   hands its id to the next item.
-- **Values in focus** (`values_in_focus`): every Value a Card in Today carries, by name, each
+- **Values in focus** (`values_in_focus`): every Value a Card in Today carries, by priority, each
   with the words written for it, or its name alone when none could be written.
 - **Today**, every Action in it under its Goals and Subgoals (`today_tree`, PL-KEY-025): a Goal
-  stands once, where its first Action stands in Today's order (`today_actions`), and its later
+  stands once, where its first Action stands in Today's order (`order_cards`), and its later
   Actions come up under it; a Card under several Goals stands under the last of them, and
   `· ↖` names the others as links; an Action with no Goal keeps its own place. The heading counts the
   Actions; the line under it gives the planned executions of the local day and, with EP on, their

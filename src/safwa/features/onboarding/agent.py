@@ -39,7 +39,8 @@ _LINK = " ".join((_SERVES[0].upper() + _SERVES[1:], *LINK.criteria))
 MANUAL = f"""# Safwa
 - Safwa is a personal agile advisor in Telegram. The user keeps a workspace of Cards, commits to a Sprint of a fixed number of days, and learns from each Sprint in its retro.
 - The Advisor reads the workspace and advises. It saves nothing itself: it proposes, and only the user saves.
-- Its focus is open Goals of every Priority, ordered by urgent Deadline, Priority and Actions in Sprint or Today.
+- Its focus is open Goals of every Priority, in Card order.
+- Card order puts first an appointment or Deadline coming soon, then the higher Priority, then an Action key to the Sprint, then the Card that serves higher Values, on itself or on the Goals above it.
 
 # How a change happens
 - In words: the user asks the Advisor. It shows a review screen with "🗑 Discard" and a save button named for what it does: "✅ Create", "✅ Update", "✅ Archive" or "✅ Delete". Nothing is saved before that press.
@@ -81,7 +82,7 @@ MANUAL = f"""# Safwa
 - A Done Card is archived two Sprints later, or by hand. It still counts.
 - In words: create, change, move, finish, place under another Goal or take it from one, delete.
 - Deleting a Card deletes only it. The Cards under it lose that parent and keep their others; one left with none becomes root-level. The Advisor then asks where to put those, offering the Goals the deleted Card stood under. Cards without a parent in Profile → Hooks switches this off or on.
-- With buttons: "➕ Add" creates a Goal or an Action. "🗂 Dashboard" shows Sprint, Today and Done side by side, the 10 changed last in each; one button switches between Actions and Goals, ✓ marking the one shown. Its "📚 Backlog · N" lists the Backlog 10 to a page. Its "🌌 Constellation" sends the whole tree as one picture, a file to zoom into: the Values as stars above, the Goals under them, the Actions at the bottom, and what Compass would ask about ringed in red. Each title there is a link that opens its Card. On a Card: "✅ Done", "📍 Stage", "☑️ Checks", and "✏️ Full editing" for every field, its Values and Tags, "Archive" and "Delete". Its Parents, Values and Tags are links in its words. "Children" counts 🎯 Goals and ⭐️ Actions under it, with EP done of all while EP are on, and opens them as a list.
+- With buttons: "➕ Add" creates a Goal or an Action. "🗂 Dashboard" shows Sprint, Today and Done side by side, 10 of each: Sprint and Today in Card order, Done finished last first; one button switches between Actions and Goals, ✓ marking the one shown. Its "📚 Backlog · N" lists the Backlog 10 to a page. Its "🌌 Constellation" sends the whole tree as one picture, a file to zoom into: the Values as stars above, the Goals under them, the Actions at the bottom, and what Compass would ask about ringed in red. Each title there is a link that opens its Card. On a Card: "✅ Done", "📍 Stage", "☑️ Checks", and "✏️ Full editing" for every field, its Values and Tags, "Archive" and "Delete". Its Parents, Values and Tags are links in its words. "Children" counts 🎯 Goals and ⭐️ Actions under it, with EP done of all while EP are on, and opens them as a list.
 - Not with buttons: placing a Card under a Goal, taking it from one, or making a Subgoal. Ask the Advisor; it places or takes one parent at a time.
 - Not at all: moving an Action straight to Done. Finish it with "✅ Done".
 
@@ -125,7 +126,7 @@ MANUAL = f"""# Safwa
 
 # Requests
 - A Request is a saved query over Cards, such as "All Goals". It lists the Cards it finds, and it filters the Backlog when a Sprint is planned.
-- A list of Cards, such as a Request's or a Goal's children, shows live Cards, then Done, then archived. Goals with more levels come first, each Card under the last of its parents there.
+- A list of Cards, such as a Request's or a Goal's children, shows live Cards, then Done, then archived. Each part is in Card order, each Card under the last of its parents there. A Request whose query sorts its whole result with ORDER BY keeps that order.
 - In words: ask the Advisor to make one or rename one. Its screen shows the query.
 - With buttons: "🔎 Requests" or /requests: open one to see its Cards, or delete it.
 - Not with buttons: making or changing a Request.

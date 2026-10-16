@@ -89,7 +89,10 @@ async def read_sky(
         finding.item
         for finding in plain_findings(await read_tree(session) if done else tree)
     }
-    palette = {each.id: index for index, each in enumerate(tree.values)}
+    palette = {
+        each.id: index
+        for index, each in enumerate(sorted(tree.values, key=lambda value: value.name.casefold()))
+    }
     names = {each.id: each.name for each in tree.values}
     cards = {
         card.id: card

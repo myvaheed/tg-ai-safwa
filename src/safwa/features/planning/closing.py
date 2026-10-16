@@ -365,7 +365,7 @@ async def _series_tallies(session: AsyncSession, sprint: Sprint) -> tuple[Series
         select(Check, Value.name)
         .join(CheckValue, CheckValue.check_id == Check.id)
         .join(Value, Value.id == CheckValue.value_id)
-        .order_by(Check.id, Value.name)
+        .order_by(Check.id, Value.order)
     )
     by_series: dict[int, tuple[str, list[str]]] = {}
     for check, value_name in linked:

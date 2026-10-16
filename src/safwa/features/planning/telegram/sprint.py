@@ -43,7 +43,7 @@ from tg_agent_shell.telegram import (
 from tg_agent_shell.telegram.contributions import TextInputFlow
 
 from ....foundation.workspace import Workspace
-from ...cards.api import CardStage, actions_on_stages, effort_label, list_order
+from ...cards.api import FINISHED_LAST, CardStage, actions_on_stages, effort_label, order_cards
 from ...cards.model import Card
 from ...profile.api import effort_tracking_on
 from ..api import (
@@ -90,21 +90,20 @@ async def render_sprint(
         metrics = await sprint_metrics(session, sprint.id)
         counts = await sprint_counts(session, sprint.id)
         effort_tracking = await effort_tracking_on(session)
-        remaining = sorted(await actions_on_stages(session, CardStage.SPRINT), key=list_order)
-        today = await today_actions(session)
+        remaining = await order_cards(session, await actions_on_stages(session, CardStage.SPRINT))
+        today = await order_cards(session, await today_actions(session))
         local_today = utcnow().astimezone(ZoneInfo(workspace.timezone)).date()
         today_load = await plan_load(session, today, start_date=local_today, end_date=local_today)
         commitments = {item.card_id: item for item in await session.scalars(
             select(SprintCommitment).where(SprintCommitment.sprint_id == sprint.id)
         )}
-        done = sorted(
+        done = list(
             await session.scalars(
                 select(Card).join(SprintCommitment, SprintCommitment.card_id == Card.id).where(
                     SprintCommitment.sprint_id == sprint.id,
                     SprintCommitment.result == CardStage.DONE.value,
-                )
-            ),
-            key=list_order,
+                ).order_by(*FINISHED_LAST)
+            )
         )
         lists = {
             "today": ("Today", today, "No Actions in Today yet."),
@@ -114,7 +113,7 @@ async def render_sprint(
             ),
             "done": ("Done", done, "No Actions completed in this Sprint yet."),
             "blocked": (
-                "Blocked", sorted([card for card in [*remaining, *today] if card.blocked], key=list_order),
+                "Blocked", await order_cards(session, [card for card in [*remaining, *today] if card.blocked]),
                 "No blocked Actions in Sprint or Today.",
             ),
         }

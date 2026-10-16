@@ -150,11 +150,14 @@ def show_constellation_tool(context: AgentContext) -> ReadToolSpec:
         async with context.sessions() as session:
             value = None
             if named:
-                values = {each.name.casefold(): each for each in await session.scalars(select(Value))}
+                values = {
+                    each.name.casefold(): each
+                    for each in await session.scalars(select(Value).order_by(Value.order))
+                }
                 if str(named).casefold() not in values:
                     return _refused(
                         f"There is no Value named {named!r}.",
-                        f'Retry with "value" one of: {", ".join(sorted(each.name for each in values.values()))}.',
+                        f'Retry with "value" one of: {", ".join(each.name for each in values.values())}.',
                     )
                 value = values[str(named).casefold()].id
             if goal is not None:

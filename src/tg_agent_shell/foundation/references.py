@@ -36,6 +36,8 @@ class ReferenceSpec:
     owner: str
     # A Check is named by `title`, so the column a name resolves against varies.
     name_attr: str = "name"
+    # The column that orders the named items wherever they are listed for the owner.
+    order_attr: str = "id"
     # Only a Check is ever archived; a Value and a Tag are deleted instead, so there is no
     # archived one for a link to be refused against.
     archivable: bool = False

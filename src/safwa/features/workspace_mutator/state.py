@@ -17,7 +17,7 @@ from tg_agent_shell.ai.messages import StateBlocks
 from tg_agent_shell.foundation.clock import utcnow
 
 from ...foundation.workspace import Workspace
-from ..cards.api import tree_level
+from ..cards.api import order_cards, tree_level
 from ..cards.model import effort_label
 from ..planning.api import (
     capacity_effort_points,
@@ -113,7 +113,7 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
         )
         if (capacity := await capacity_effort_points(session)) is not None:
             lines.append(f"Next Sprint's capacity: {effort_label(capacity)} EP.")
-    goals = (await priority_goals(session, local_now))[:CONTEXT_PRIORITY_GOAL_LIMIT]
+    goals = (await order_cards(session, await priority_goals(session), now=local_now))[:CONTEXT_PRIORITY_GOAL_LIMIT]
     lines += section(
         "Priority Goals:",
         [
@@ -126,7 +126,7 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
             for goal in goals
         ],
     )
-    today = await today_actions(session)
+    today = await order_cards(session, await today_actions(session), now=local_now)
     load = await plan_load(session, today, start_date=local_day, end_date=local_day)
     lines.append("Today Actions:")
     lines.append(f"Planned executions remaining today: {load.actions}" + (
@@ -136,7 +136,9 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
         lines.append(f"Remaining planned effort today: {effort_label(load.effort)} EP")
         if load.unestimated:
             lines.append(f"Unestimated executions: {load.unestimated}; EP total is partial.")
-    for row in await today_tree(session, today):
+    if today:
+        lines += ["| Card | Priority |", "| --- | --- |"]
+    for row in await today_tree(session, today, now=local_now):
         card = row.card
         line = f"{'  ' * row.depth}- {citation(card.title, 'card', card.id)}"
         also = (
@@ -146,24 +148,26 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
             if row.also_under
             else ""
         )
-        if card.id not in load.counts:
-            lines.append(line + (" Subgoal" if row.depth else " Goal") + also)
-            continue
-        lines.append(
-            line
-            + also
-            + (
-                f" executions={load.counts[card.id] if load.counts[card.id] is not None else '?'}"
-                if load.counts[card.id] != 1
-                else ""
+        action = card.id in load.counts
+        if not action:
+            line += (" Subgoal" if row.depth else " Goal") + also
+        else:
+            line += (
+                also
+                + (
+                    f" executions={load.counts[card.id] if load.counts[card.id] is not None else '?'}"
+                    if load.counts[card.id] != 1
+                    else ""
+                )
+                + (f" effort={effort_label(card.effort_points)}" if effort_on else "")
+                + (
+                    f" schedule_at={appointment_label(card.schedule_record.rule, card.scheduled_at, timezone, '%d.%m')}"
+                    if card.scheduled_at
+                    else ""
+                )
             )
-            + (f" effort={effort_label(card.effort_points)}" if effort_on else "")
-            + (
-                f" schedule_at={appointment_label(card.schedule_record.rule, card.scheduled_at, timezone, '%d.%m')}"
-                if card.scheduled_at
-                else ""
-            )
-        )
+        line = line.replace("\\", "\\\\").replace("|", "\\|").replace("\r", " ").replace("\n", " ")
+        lines.append(f"| {line} | {card.priority if action else ''} |")
     return StateBlocks(
         state="\n".join(lines),
         clock=f"Current local time: {local_now:%Y-%m-%d %H:%M} ({timezone})",

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import select
 from ui_harness import (
@@ -104,6 +104,27 @@ async def test_pl_screen_028_sprint_selectors_redraw_only_the_chosen_list(sessio
     assert "No Actions remain in Sprint. Check Today or Done; the Sprint is still running." in text
     assert "Today · 2" in button_texts(markup)
     assert "✓ Remaining · 0" in button_texts(markup)
+
+
+async def test_pl_screen_028_done_lists_the_actions_finished_last_first(sessions):
+    """PL-SCREEN-028 — tests/brd/planning.feature"""
+    async with sessions() as session:
+        first = await create_card(
+            session, kind="action", title="Finished first", stage="sprint", priority="critical"
+        )
+        second = await create_card(
+            session, kind="action", title="Finished second", stage="sprint", priority="low"
+        )
+        await start_sprint(session, success_criteria="Ship v2")
+        for card in (first, second):
+            await finish_action(session, card.id)
+        first.completed_at = second.completed_at - timedelta(hours=1)
+        await session.commit()
+
+    screen = FakeMessage(134, bot_message=True)
+    await render_sprint(screen, services_for(sessions), view="done")
+    text = screen.edits[-1][0]
+    assert text.index("Finished second") < text.index("Finished first")
 
 
 async def test_pl_screen_028_a_title_opens_its_card_and_back_returns_to_the_list_and_page(

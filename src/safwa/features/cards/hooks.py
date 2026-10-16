@@ -43,7 +43,7 @@ from ..profile.api import (
 )
 from ..schedules.api import appointment_label, workspace_zone
 from ..tags.model import CardTag, Tag
-from .api import PLANNED_STAGES, SCHEDULE_NOTICE_DAYS, actions_on_stages, parents_of
+from .api import PLANNED_STAGES, SCHEDULE_NOTICE_DAYS, actions_on_stages, order_cards, parents_of
 from .hierarchy import branch_actions, branch_ids, card_parent_ids
 from .model import (
     TERMINAL_STAGES,
@@ -751,14 +751,14 @@ async def _energy_kinds(
     carried: dict[str, list[Card]] = {}
     for card_id, kind in rows:
         carried.setdefault(kind, []).append(cards[card_id])
-    for held in carried.values():
-        held.sort(key=lambda card: (card.priority != Priority.CRITICAL.value, card.id))
+    for kind, held in carried.items():
+        carried[kind] = await order_cards(session, held)
     return carried
 
 
 async def _unlabeled_lines(session: AsyncSession) -> list[str]:
     """Each open Action in the Sprint with no Category or no Energy type, and what it lacks."""
-    cards = sorted(await actions_on_stages(session, *PLANNED_STAGES), key=lambda card: card.id)
+    cards = await order_cards(session, await actions_on_stages(session, *PLANNED_STAGES))
     ids = [card.id for card in cards]
     with_category = set(
         await session.scalars(select(CardCategory.card_id).where(CardCategory.card_id.in_(ids)))

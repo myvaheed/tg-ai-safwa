@@ -63,10 +63,9 @@
     When Safwa reads the workspace
     Then it is handed the first 10 Priority Goals (CONTEXT_PRIORITY_GOAL_LIMIT = 10)
     And that list includes only open root Goals, not Subgoals, Actions or archived Goals
-    And an overdue Deadline or one within the next 7 local calendar days comes first (PRIORITY_GOAL_DEADLINE_DAYS = 7)
-    And within each group the order is Priority, then Actions in Sprint or Today
-    And an Action under a Subgoal counts as work toward each Goal above it too, once
-    And remaining ties put a Deadline before none, the earlier Deadline before the later, then the older Goal
+    And those Goals use the same Deadline groups, height, own Priority and Value score as
+      every Goal list (CD-ORDER-061)
+    And child Actions neither raise a Goal's Priority nor supply its Value score
     And Goals created at the same instant keep their creation order
     And each Goal says its Priority, stage, tree_level (CD-TREE-053) and compiled Deadline when there is one
     And when there are no open Goals, there is no empty Priority Goals heading
@@ -84,3 +83,17 @@
     When they ask for a change to it
     Then the workspace searches for those words and proposes the change on the closest item
     And when no item is close, it changes nothing and says it could not find the item
+
+  Scenario: WS-CONTEXT-010 — Today is a hierarchy table with each Action's own Priority
+    Given Actions in Today and all their ancestor Goals
+    Then Today Actions is a table with two columns, Card and Priority
+    And its branches follow Home's order, each placed by its first Action (PL-KEY-025)
+    And the first column preserves hierarchy indentation and item links
+    And each Card has one row, under its last shown parent, with the other parents named as links
+    And the Priority column is empty for Goals and Subgoals
+    And an Action's Priority is its own stored priority, never one taken from a parent or sorting group
+    And execution quantities, effort and appointment details stay on Action rows
+    And the summary counts distinct Actions
+    And title line breaks and pipes cannot add rows or columns to the table
+    And Priority Goals remains a separate, independently selected list (WS-CONTEXT-008)
+    And an empty Today has no empty table
