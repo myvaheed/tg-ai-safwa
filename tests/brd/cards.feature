@@ -618,3 +618,12 @@
     But an ORDER BY inside parentheses, in a subquery, a CTE body or a window, supplies no order
     And quoted words such as 'ORDER BY' are text and do not supply an order
     And SQL reads keep their own LIMIT, OFFSET and order without being rewritten
+
+  Scenario: CD-OVERDUE-065 — An open Card whose appointment or Deadline has passed is asked about each morning
+    Given open Actions whose appointment has passed, earlier today as much as before, and open Goals or Subgoals whose Deadline has passed
+    When the Profile's Morning time passes (MORNING_TIME_DEFAULT = "09:00"), and the chat is free
+    Then the Advisor is asked once, about all of them together and the oldest first, naming each with its appointment or Deadline, an Action's stage, and whether it repeats
+    And it is asked to offer, for each, moving its Schedule to a new time or removing the Schedule; nothing is changed before the owner's answer
+    And an appointment with no clock passes when its day ends, and a Deadline with no clock at the end of its day
+    And one finished, archived, or moved to a later time before the question is said is left out; with none left, nothing is asked
+    And the same one still overdue is asked about again the next morning

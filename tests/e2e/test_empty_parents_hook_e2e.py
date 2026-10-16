@@ -20,6 +20,7 @@ from safwa.bootstrap.modules import REGISTRY, SCREENS
 from safwa.features.cards.hooks import (
     EMPTY_PARENT_GRACE_DAYS,
     EMPTY_PARENTS_HOOK,
+    OVERDUE_HOOK,
     PLAN_CHECK,
     REST_TODAY_HOOK,
     SCHEDULE_PLAN_HOOK,
@@ -70,6 +71,7 @@ async def test_cd_empty_035_the_morning_question_is_said_and_read_back_on_the_ne
     morning = [
         (EMPTY_PARENTS_HOOK.name, [MORNING_TIME_DEFAULT]),
         (SCHEDULE_PLAN_HOOK.name, [PLAN_CHECK]),
+        (OVERDUE_HOOK.name, [MORNING_TIME_DEFAULT]),
         (REST_TODAY_HOOK.name, [MORNING_TIME_DEFAULT]),
     ]
 

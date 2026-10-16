@@ -5,7 +5,8 @@ past what it is meant to hold, a Sprint started without a kind of energy the Bac
 or with Actions the balance cannot read,
 an Action found in Today morning after morning, and — each morning, and when a Sprint
 starts — the Goals and Subgoals that still have no Action under them, the Schedules the
-plan does not hold, and a day planned without the rest the Sprint holds.
+plan does not hold, the appointments and Deadlines already passed, and a day planned
+without the rest the Sprint holds.
 
 The mornings themselves are written down by work of its own on the same tick, on whether
 or not the question about them is switched off."""
@@ -106,6 +107,12 @@ EMPTY_PARENTS_REQUEST = (
     "Goals and Subgoals with no Action under them:\n{cards}\n"
     "Ask the user in one message, naming each: plan its Actions now, or create one Action "
     "«Plan the actions for <title>» to come back to it later. Change nothing until they answer."
+)
+
+OVERDUE_REQUEST = (
+    "Open Cards whose appointment or Deadline has passed:\n{cards}\n"
+    "Ask the user in one message, naming each: move its Schedule to a new time, or remove "
+    "the Schedule. Change nothing until they answer."
 )
 
 BLOCKER_REQUEST = (
@@ -729,6 +736,62 @@ EMPTY_PARENTS_HOOK = HookSpec(
     effect=Advise(prepare=empty_parents_request),
     title="Goals without Actions",
     description="Each morning, asks about the Goals and Subgoals that have no Action under them.",
+)
+
+
+async def overdue_request(
+    session: AsyncSession, items: Sequence[str], *, now: datetime | None = None
+) -> str | None:
+    """The open Actions whose appointment has passed and the open Goals whose Deadline has.
+
+    Read as the question is about to be said, the oldest first. An appointment with no
+    clock passes when its day ends.
+    """
+    tz = await workspace_zone(session)
+    moment = now or utcnow()
+    today = moment.astimezone(tz).date()
+    cards = list(
+        await session.scalars(
+            select(Card)
+            .where(
+                Card.archived_at.is_(None),
+                Card.effective_stage.not_in([stage.value for stage in TERMINAL_STAGES]),
+                Card.period_start < moment,
+            )
+            .order_by(Card.period_start, Card.id)
+        )
+    )
+    above = await parents_of(session, [card.id for card in cards])
+    lines: list[str] = []
+    for card in cards:
+        if card.deadline_at is not None:
+            lines.append(
+                f"- #{card.id} «{card.title}» ({card_kind_name(card.kind, card.id in above)}, "
+                f"Deadline {card.deadline_at.astimezone(tz):%Y-%m-%d %H:%M})"
+            )
+            continue
+        when = card.scheduled_at
+        rule = card.schedule_record.rule if card.schedule_record else {}
+        if when is None or (rule.get("all_day") and when.astimezone(tz).date() >= today):
+            continue
+        lines.append(
+            f"- #{card.id} «{card.title}» (Action, {appointment_label(rule, when, tz, '%Y-%m-%d')}"
+            + (", repeats" if card.repeats() else "")
+            + f", in {card.effective_stage.capitalize()})"
+        )
+    if not lines:
+        return None
+    return OVERDUE_REQUEST.format(cards="\n".join(lines))
+
+
+OVERDUE_HOOK = HookSpec(
+    name="cards.overdue",
+    owner="cards",
+    on=(OnTick(at=morning_time),),
+    evaluate=check_due,
+    effect=Advise(prepare=overdue_request),
+    title="Overdue Schedules",
+    description="Each morning, asks whether to move or remove each passed appointment or Deadline of an open Card.",
 )
 
 

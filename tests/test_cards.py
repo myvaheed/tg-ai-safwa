@@ -6,12 +6,12 @@ the Checks that gate completion and the repeat successor are the packets after t
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 import pytest
 from hook_helpers import changes_of
 from pydantic import ValidationError
-from schedule_helpers import create_card, create_check
+from schedule_helpers import create_card, create_check, rule_for
 from sqlalchemy import func, select
 
 from safwa.bootstrap.modules import PROPOSALS, SYSTEM_PROMPT
@@ -21,6 +21,7 @@ from safwa.features.cards.hooks import (
     BLOCKER_HOOK,
     EMPTY_PARENT_GRACE_DAYS,
     EMPTY_PARENTS_HOOK,
+    OVERDUE_HOOK,
     REST_TODAY_HOOK,
     TODAY_CAPACITY_EP,
     TODAY_MORNINGS_HOOK,
@@ -29,6 +30,7 @@ from safwa.features.cards.hooks import (
     TODAY_STALE_HOOK,
     blocker_request,
     empty_parents_request,
+    overdue_request,
     rest_today_request,
     today_mornings_in_a_row,
     today_overload_request,
@@ -1517,6 +1519,81 @@ async def test_cd_empty_035_the_request_names_the_parents_old_enough_and_still_w
         )
         await session.commit()
         assert await empty_parents_request(session, [MORNING_TIME_DEFAULT], now=now) is None
+
+
+async def test_cd_overdue_065_the_request_names_open_cards_whose_schedule_has_passed(sessions):
+    """CD-OVERDUE-065 — tests/brd/cards.feature"""
+    assert OVERDUE_HOOK.agent_related
+    assert OVERDUE_HOOK.on == (OnTick(at=morning_time),)
+    async with sessions() as session:
+        tz = await workspace_zone(session)
+        tomorrow = (utcnow().astimezone(tz) + timedelta(days=1)).date()
+        deadline = {"kind": "deadline", "date": tomorrow.isoformat(), "time": None}
+        at_ten = f"{tomorrow:%d.%m.%Y} 10:00"
+        once = await create_card(
+            session, kind="action", title="Call the bank", stage="sprint", schedule=at_ten
+        )
+        repeating = await create_card(
+            session, kind="action", title="Stretch", schedule="daily 20:00",
+            schedule_rule=await rule_for(session, "daily 20:00"),
+        )
+        goal = await create_card(
+            session, kind="goal", title="Pass the exam", schedule=at_ten, schedule_rule=deadline
+        )
+        subgoal = await create_card(
+            session, kind="goal", title="Revise", parent_ids={goal.id},
+            schedule=at_ten, schedule_rule=deadline,
+        )
+        finished = await create_card(session, kind="action", title="Done already", schedule=at_ten)
+        gone = await create_card(session, kind="action", title="Gone", schedule=at_ten)
+        await create_card(
+            session, kind="action", title="Next month",
+            schedule=f"{tomorrow + timedelta(days=30):%d.%m.%Y} 10:00",
+        )
+        await finish_action(session, finished.id)
+        gone.archived_at = utcnow()
+        await session.commit()
+
+        assert await overdue_request(session, [MORNING_TIME_DEFAULT]) is None
+        now = datetime.combine(tomorrow + timedelta(days=2), time(9), tzinfo=tz)
+        request = await overdue_request(session, [MORNING_TIME_DEFAULT], now=now)
+        assert request is not None
+        assert f"#{once.id} «Call the bank» (Action, {tomorrow:%Y-%m-%d} 10:00, in Sprint)" in request
+        assert f"#{repeating.id} «Stretch» (Action, " in request
+        assert ", repeats, in Backlog)" in request
+        assert f"#{goal.id} «Pass the exam» (Goal, Deadline {tomorrow:%Y-%m-%d} 23:59)" in request
+        assert f"#{subgoal.id} «Revise» (Subgoal, Deadline {tomorrow:%Y-%m-%d} 23:59)" in request
+        assert request.index("Call the bank") < request.index("Pass the exam")
+        for title in ("Done already", "Gone", "Next month"):
+            assert title not in request
+        assert "move its Schedule to a new time, or remove the Schedule" in request
+        assert "Change nothing until they answer" in request
+
+
+async def test_cd_overdue_065_an_appointment_with_no_clock_passes_when_its_day_ends(sessions):
+    """CD-OVERDUE-065 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        tz = await workspace_zone(session)
+        daily = await rule_for(session, "daily 20:00")
+        await create_card(
+            session, kind="action", title="With a clock", schedule="daily 20:00", schedule_rule=daily
+        )
+        all_day = await create_card(
+            session, kind="action", title="Any time that day", schedule="daily 20:00",
+            schedule_rule={**daily, "all_day": True},
+        )
+        await session.commit()
+        day = all_day.scheduled_at.astimezone(tz).date()
+
+        late = await overdue_request(
+            session, [MORNING_TIME_DEFAULT], now=datetime.combine(day, time(23, 30), tzinfo=tz)
+        )
+        assert "With a clock" in late and "Any time that day" not in late
+        after = await overdue_request(
+            session, [MORNING_TIME_DEFAULT],
+            now=datetime.combine(day + timedelta(days=1), time(0, 30), tzinfo=tz),
+        )
+        assert "With a clock" in after and "Any time that day" in after
 
 
 async def test_cd_today_036_entering_today_is_the_change_a_hook_follows_up(sessions):

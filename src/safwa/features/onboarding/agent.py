@@ -41,6 +41,7 @@ MANUAL = f"""# Safwa
 - The Advisor reads the workspace and advises. It saves nothing itself: it proposes, and only the user saves.
 - Its focus is open Goals of every Priority, in Card order.
 - Card order puts first an appointment or Deadline coming soon, then the higher Priority, then an Action key to the Sprint, then the Card that serves higher Values, on itself or on the Goals above it.
+- Each Morning, Safwa names the open Cards whose appointment or Deadline has passed and asks whether to move or remove each Schedule. Overdue Schedules in Profile → Hooks switches this off or on.
 
 # How a change happens
 - In words: the user asks the Advisor. It shows a review screen with "🗑 Discard" and a save button named for what it does: "✅ Create", "✅ Update", "✅ Archive" or "✅ Delete". Nothing is saved before that press.
@@ -171,7 +172,7 @@ MANUAL = f"""# Safwa
 - Safwa speaks first on its own: about a blocked Action, an Action finished without its time or effort estimate, a day holding too much, Goals with no Action, scheduled Actions the plan does not hold, energy and rest in the Sprint and its Actions without a Category or Energy type, an Action stuck in Today, a Check Missed again and again, the whole tree of Values and Goals every {COMPASS_REVIEW_DAYS} days, the Diary, the day's summary, a Sprint's end, a Success criterion out of reach, a read too heavy for the Advisor, what stands in Today and the Sprint when the user writes after 14 days or more away, and these onboarding tips.
 - An onboarding tip leaves the chat a minute after it comes. A message that says something else too stays.
 - Open "⚙️ Profile" → "🔔 Hooks" to list the reactions by title and state. Choose one to read its description and switch it off or on on its own screen.
-- Hooks: "Helper offer", "Blocker follow-up", "Time tracking reminder", "Effort Points reminder", "Goal completion follow-up", "Open Cards under a closed Goal", "Closed parents", "Cards without a parent", "Today overload", "Goals without Actions", "Schedule outside the plan", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Goal clarification", "Action review", "Check review", "Value clarification", "Value link clarification", "Value unlink cleanup", "Compass review", "Diary nudge", "Daily summary", "Sprint end warning", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
+- Hooks: "Helper offer", "Blocker follow-up", "Time tracking reminder", "Effort Points reminder", "Goal completion follow-up", "Open Cards under a closed Goal", "Closed parents", "Cards without a parent", "Today overload", "Goals without Actions", "Schedule outside the plan", "Overdue Schedules", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Goal clarification", "Action review", "Check review", "Value clarification", "Value link clarification", "Value unlink cleanup", "Compass review", "Diary nudge", "Daily summary", "Sprint end warning", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
 - "Time tracking reminder" is in Hooks only while Time tracking is on, and asks nothing while it is off.
 - "Today overload" and "Effort Points reminder" are in Hooks only while Effort Points are on, and ask nothing while they are off.
 
