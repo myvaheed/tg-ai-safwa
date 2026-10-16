@@ -288,11 +288,11 @@
     And a Goal the deleted Card stood under that is gone by then is not offered
     And switching the hook off stops the question and drops what is pending
 
-  Scenario: CD-CONTEXT-028 — The Priority Goals Safwa is handed are the ones still open
+  Scenario: CD-CONTEXT-028 — The Goals Safwa is handed are the ones still open
     Given Goals of every Priority, some of them Done and some still open
-    Then only open root Goals are handed over as Priority Goals, chosen as WS-CONTEXT-008 says
+    Then only open Goals and Subgoals are handed over, chosen as WS-CONTEXT-008 says
     And each says its Priority, current stage and compiled Deadline when there is one
-    And a Subgoal or an Action is not in that list: Safwa reads those separately when needed
+    And an Action is not in a list of Goals: Safwa reads Actions in lists of their own
 
   Scenario: CD-VIEW-031 — A Card opens compact, and full editing is one button away
     Given a Card the owner opens from anywhere
@@ -618,6 +618,14 @@
     But an ORDER BY inside parentheses, in a subquery, a CTE body or a window, supplies no order
     And quoted words such as 'ORDER BY' are text and do not supply an order
     And SQL reads keep their own LIMIT, OFFSET and order without being rewritten
+
+  Scenario: CD-ORDER-066 — The focus order puts first what can be worked on now
+    Given the Cards the Advisor is handed, or the Actions a return after a break lists
+    Then they use the common Card order with two changes
+    And a Goal with fewer levels under it comes before a taller one where the common order puts the taller first
+    And while a Sprint runs, an Action in Today comes before one in the Sprint, and both before the rest, ahead of every other key
+    And while no Sprint runs, the stage changes no order
+    And screens keep the common order
 
   Scenario: CD-OVERDUE-065 — An open Card whose appointment or Deadline has passed is asked about each morning
     Given open Actions whose appointment has passed, earlier today as much as before, and open Goals or Subgoals whose Deadline has passed

@@ -369,10 +369,10 @@ async def test_safwa_is_handed_every_value(sessions):
         context = await workspace_context(session)
 
     lines = context.state.splitlines()
-    start = lines.index("Values:") + 1
+    start = lines.index("Values, each with the open Goals and Actions that serve it:") + 1
     assert lines[start : start + 2] == [
-        f"- [Tidiness](value:{tidiness.id}): A tidy desk every evening",
-        f"- [Fitness](value:{fitness.id}): Daily movement",
+        f"- [Tidiness](value:{tidiness.id}) goals=0 actions=0: A tidy desk every evening",
+        f"- [Fitness](value:{fitness.id}) goals=0 actions=1: Daily movement",
     ]
     assert lines[lines.index("Available Tags:") + 1] == f"- [Family](tag:{family.id})"
 

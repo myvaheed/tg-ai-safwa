@@ -555,7 +555,7 @@ async def test_pl_context_010_safwa_is_handed_the_sprint_and_todays_actions(sess
         context.state
     )
     assert "Success criteria: Ship v2" in context.state
-    assert "Today Actions:" in context.state
+    assert "Today Actions, best first:" in context.state
     assert "[Ship it](card:1)" in context.state
     assert "Later" not in context.state
     # The four effort figures are not handed over; Safwa reads them when it wants them.
@@ -592,18 +592,22 @@ async def test_pl_context_020_todays_actions_are_handed_over_in_planning_as_in_a
         await session.commit()
         planning = (await workspace_context(session)).state
 
-    handed = running.split("Today Actions:")[1]
+    def today_lines(state):
+        lines = state.split("Today Actions, best first:")[1].splitlines()[1:]
+        return [line for line in lines[: next(i for i, line in enumerate(lines) if line.endswith(":"))]
+                if line.startswith("- [")]
 
-    # The Actions in Today carry their effort and order; an Action still in Sprint is
-    # looked up, while open Goals are handed over separately.
-    assert [line for line in handed.splitlines() if line.startswith("| - [")] == [
-        f"| - [The dentist](card:{fixed.id}) effort=1 schedule_at={fixed_at:%d.%m %H:%M} | low |",
-        f"| - [Ship it](card:{today.id}) effort=5 | critical |",
-        f"| - [Middling](card:{medium.id}) effort=2 | medium |",
-        f"| - [Sometime](card:{low.id}) effort=1 | low |",
+    # The Actions in Today carry their own Priority, effort and order; an Action still in
+    # the Sprint and the open Goals are handed over in lists of their own.
+    handed = today_lines(running)
+    assert handed == [
+        f"- [The dentist](card:{fixed.id}) priority=low effort=1 schedule_at={fixed_at:%d.%m %H:%M}",
+        f"- [Ship it](card:{today.id}) priority=critical effort=5",
+        f"- [Middling](card:{medium.id}) priority=medium effort=2",
+        f"- [Sometime](card:{low.id}) priority=low effort=1",
     ]
-    assert planning.split("Today Actions:")[1] == handed
-    assert "The release" in running.split("Today Actions:")[0]
+    assert today_lines(planning) == handed
+    assert "The release" in planning.split("Goals to consider")[1]
 
 
 async def test_pl_end_012_finishing_early_leaves_the_work_where_it_is(sessions):
@@ -1172,9 +1176,10 @@ async def test_pl_key_025_today_uses_the_common_order_with_key_marks(sessions):
         await session.commit()
 
         # Date groups apply everywhere; a key mark leads its equals inside a group.
-        handed = (await workspace_context(session)).state.split("Today Actions:")[1]
-        assert [line.split("]")[0] for line in handed.splitlines() if line.startswith("| - [")] == [
-            "| - [Tomorrow", "| - [Later this week", "| - [Critical", "| - [Key", "| - [Plain",
+        handed = (await workspace_context(session)).state.split("Today Actions")[1]
+        handed = handed.split("Sprint Actions not in Today")[0]
+        assert [line.split("]")[0] for line in handed.splitlines() if line.startswith("- [")] == [
+            "- [Tomorrow", "- [Later this week", "- [Critical", "- [Key", "- [Plain",
         ]
 
     # Today on the Home dashboard shows them in that order too.

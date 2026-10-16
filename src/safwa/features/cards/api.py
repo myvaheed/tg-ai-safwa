@@ -31,6 +31,7 @@ from .model import effort_label as effort_label
 from .model import minutes_label as minutes_label
 from .ordering import SCHEDULE_NOTICE_DAYS as SCHEDULE_NOTICE_DAYS
 from .ordering import order_cards as order_cards
+from .ordering import served_values as served_values
 from .views import AI_CARDS
 
 PLANNED_STAGES = (CardStage.SPRINT, CardStage.TODAY)

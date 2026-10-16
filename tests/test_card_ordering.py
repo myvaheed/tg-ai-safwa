@@ -323,8 +323,8 @@ async def test_goal_priority_and_values_do_not_come_from_children(sessions):
         assert goal.priority == "low"
 
 
-async def test_home_and_context_keep_the_same_branch_order(sessions):
-    """WS-CONTEXT-010 — tests/brd/workspace_mutator.feature"""
+async def test_home_groups_today_by_goals_and_the_context_ranks_it(sessions):
+    """PL-KEY-025 — tests/brd/planning.feature"""
     async with sessions() as session:
         first_goal = await _goal(session, "First Goal")
         second_goal = await _goal(session, "Second Goal")
@@ -334,11 +334,37 @@ async def test_home_and_context_keep_the_same_branch_order(sessions):
         await session.commit()
         assert await order_cards(session, await actions_on_stages(session, CardStage.TODAY)) == [first, second, last]
         home = (await dashboard_text(session, {}, now=NOW)).split("**☀️ Today", 1)[1]
-        context = (await state.workspace_context(session)).state.split("Today Actions:", 1)[1]
+        context = (await state.workspace_context(session)).state.split("Today Actions", 1)[1]
     assert home.index("[Appointment]") < home.index("[Ordinary]") < home.index("[Critical]")
     assert home.count("[First Goal]") == 1
-    assert context.index("[Appointment]") < context.index("[Ordinary]") < context.index("[Critical]")
-    assert context.count("[First Goal]") == 1
+    assert context.index("[Appointment]") < context.index("[Critical]") < context.index("[Ordinary]")
+    assert context.count(f"under=[First Goal](card:{first_goal.id})") == 2
+
+
+async def test_focus_puts_the_goal_with_fewer_levels_first(sessions):
+    """CD-ORDER-066 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        tall = await _goal(session, "Tall")
+        await _goal(session, "Child", parent_ids={tall.id})
+        short = await _goal(session, "Short")
+        assert await order_cards(session, [short, tall]) == [tall, short]
+        assert await order_cards(session, [tall, short], focus=True) == [short, tall]
+
+
+async def test_focus_reads_today_then_the_sprint_only_while_a_sprint_runs(sessions):
+    """CD-ORDER-066 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        backlog = await _action(session, "Critical in Backlog", priority="critical")
+        later = await _action(session, "Low in Sprint", stage="sprint", priority="low")
+        today = await _action(session, "Low in Today", stage="today", priority="low")
+        soon = await _action(session, "Sprint tomorrow", stage="sprint", day=1)
+        cards = [backlog, later, today, soon]
+        planning = [soon, backlog, later, today]
+        assert await order_cards(session, cards) == planning
+        assert await order_cards(session, cards, focus=True) == planning
+        await _sprint(session, length=14)
+        assert await order_cards(session, cards) == planning
+        assert await order_cards(session, cards, focus=True) == [today, soon, later, backlog]
 
 
 async def test_sql_reads_keep_their_own_limit_offset_and_order(read_views):

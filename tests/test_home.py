@@ -148,11 +148,13 @@ async def test_pl_key_025_a_card_under_several_goals_stands_under_the_last_of_th
 async def test_pl_context_020_the_advisor_reads_the_other_goals_a_card_stands_under(sessions) -> None:
     """PL-CONTEXT-020 — tests/brd/planning.feature"""
     async with sessions() as session:
-        blog, _audience, post, _write = await _shared_post(session)
+        blog, audience, post, write = await _shared_post(session)
         state = (await workspace_context(session)).state
-    assert (
-        f"|   - [First post](card:{post.id}) Subgoal (also under: [Launch the blog](card:{blog.id})) |  |"
-        in state.splitlines()
+    lines = state.splitlines()
+    assert f"- [{write.title}](card:{write.id}) priority=medium under=[First post](card:{post.id})" in lines
+    shared = next(line for line in lines if line.startswith(f"- [First post](card:{post.id})"))
+    assert shared.endswith(
+        f"under=[Launch the blog](card:{blog.id}), [{audience.title}](card:{audience.id})"
     )
 
 

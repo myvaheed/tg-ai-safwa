@@ -377,12 +377,12 @@ async def _tree(session: AsyncSession, actions: Sequence[Card]) -> list[str]:
 async def return_request(session: AsyncSession, items: Sequence[Any]) -> Shown:
     """What stands in Today and the Sprint, as a block, and what the Advisor asks about it.
 
-    At most `RETURN_LIST_ACTIONS` Actions are listed in the common order, and the rest counted.
+    At most `RETURN_LIST_ACTIONS` Actions are listed in the focus order, and the rest counted.
     """
     days = max(int(item) for item in items)
     opening = f"It has been {days} days since your last message."
     back = f"The user is back after {days} days away."
-    actions = await order_cards(session, await planned_actions(session))
+    actions = await order_cards(session, await planned_actions(session), focus=True)
     if not actions:
         return Shown(
             block=f"{opening} Today and the Sprint hold nothing.",

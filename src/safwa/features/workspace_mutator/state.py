@@ -3,6 +3,10 @@
 The workspace is what the owner keeps - Cards, Checks, Values, Tags, Requests and Reminders -
 so the block that describes it is the workspace's, not the reader's. `AgentSpec.workspace_state`
 is the flag that asks for it.
+
+A running Sprint is read tactically: Today, the rest of the Sprint and the Goals that work
+serves. Planning is read strategically: what serves each Value, and the Goals and Backlog
+Actions to take next. Every list of Cards is in the focus order, cut to `CONTEXT_LIST_LIMIT`.
 """
 
 from __future__ import annotations
@@ -17,24 +21,31 @@ from tg_agent_shell.ai.messages import StateBlocks
 from tg_agent_shell.foundation.clock import utcnow
 
 from ...foundation.workspace import Workspace
-from ..cards.api import order_cards, tree_level
-from ..cards.model import effort_label
+from ..cards.api import (
+    Card,
+    CardStage,
+    actions_on_stages,
+    order_cards,
+    parents_of,
+    served_values,
+    tree_level,
+)
+from ..cards.model import CardKind, effort_label
 from ..planning.api import (
     capacity_effort_points,
+    key_action_ids,
     plan_load,
     sprint_day,
     sprint_length_days,
     today_actions,
-    today_tree,
 )
 from ..planning.model import Sprint
 from ..profile.model import UserProfile
 from ..schedules.api import appointment_label
 from ..tags.model import Tag
 from ..values.model import Value
-from .api import priority_goals
 
-CONTEXT_PRIORITY_GOAL_LIMIT = 10
+CONTEXT_LIST_LIMIT = 10
 # Every turn carries each Value's and Tag's description, so each is one short line.
 CONTEXT_DESCRIPTION_MAX_CHARS = 120
 
@@ -44,12 +55,16 @@ def citation(name: str, kind: str, item_id: int) -> str:
     return f"[{name}]({kind}:{item_id})"
 
 
-def described(name: str, kind: str, item_id: int, description: str) -> str:
+def described(name: str, kind: str, item_id: int, description: str, fields: str = "") -> str:
     """A listed item and its description on one line, cut to `CONTEXT_DESCRIPTION_MAX_CHARS`."""
     about = " ".join(description.split())
     if len(about) > CONTEXT_DESCRIPTION_MAX_CHARS:
         about = about[: CONTEXT_DESCRIPTION_MAX_CHARS - 1].rstrip() + "…"
-    return f"- {citation(name, kind, item_id)}" + (f": {about}" if about else "")
+    return (
+        f"- {citation(name, kind, item_id)}"
+        + (f" {fields}" if fields else "")
+        + (f": {about}" if about else "")
+    )
 
 
 def section(heading: str, items: list[str]) -> list[str]:
@@ -73,15 +88,87 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
     local_now = utcnow().astimezone(timezone)
     local_day = local_now.date()
     effort_on = bool(profile and profile.effort_tracking)
+    open_cards = list(
+        await session.scalars(
+            select(Card).where(
+                Card.archived_at.is_(None), Card.effective_stage != CardStage.DONE.value
+            )
+        )
+    )
+    serves = await served_values(session, [card.id for card in open_cards])
+    by_value = {value.id: value for value in values}
+    parents = await parents_of(session)
+    keys = await key_action_ids(session)
+
+    async def focus(cards: list[Card]) -> list[Card]:
+        return await order_cards(session, cards, now=local_now, focus=True)
+
+    async def card_line(card: Card, executions: int | None = 1) -> str:
+        fields = [f"priority={card.priority}"]
+        if card.kind == CardKind.GOAL.value:
+            fields.append(f"stage={card.effective_stage}")
+            fields.append(f"tree_level={await tree_level(session, card.kind, card.id)}")
+            if card.deadline_at:
+                fields.append(f"deadline={card.deadline_at.astimezone(timezone):%d.%m.%Y %H:%M}")
+        else:
+            if card.id in keys:
+                fields.append("key")
+            if card.blocked:
+                fields.append("blocked")
+            if executions != 1:
+                fields.append(f"executions={executions if executions is not None else '?'}")
+            if effort_on:
+                fields.append(f"effort={effort_label(card.effort_points)}")
+            if card.scheduled_at:
+                fields.append(
+                    "schedule_at="
+                    + appointment_label(card.schedule_record.rule, card.scheduled_at, timezone, "%d.%m")
+                )
+        if served := serves.get(card.id):
+            fields.append("values=" + ", ".join(
+                citation(by_value[value_id].name, "value", value_id) for value_id in served
+            ))
+        if above := parents.get(card.id):
+            names = [(await session.get(Card, parent_id)).title for parent_id in above]
+            fields.append("under=" + ", ".join(
+                citation(" ".join(name.split()), "card", parent_id)
+                for name, parent_id in zip(names, above, strict=True)
+            ))
+        return f"- {citation(' '.join(card.title.split()), 'card', card.id)} " + " ".join(fields)
+
+    async def ranked(heading: str, cards: list[Card]) -> list[str]:
+        shown = cards[:CONTEXT_LIST_LIMIT]
+        return section(
+            f"{heading}, best first ({len(shown)} of {len(cards)}):",
+            [await card_line(card) for card in shown],
+        )
+
+    if sprint is None:
+        counts = {value.id: [0, 0] for value in values}
+        for card in open_cards:
+            for value_id in serves.get(card.id, ()):
+                counts[value_id][card.kind == CardKind.ACTION.value] += 1
+        value_lines = section(
+            "Values, each with the open Goals and Actions that serve it:",
+            [
+                described(
+                    value.name, "value", value.id, value.description,
+                    f"goals={counts[value.id][0]} actions={counts[value.id][1]}",
+                )
+                for value in values
+            ],
+        )
+    else:
+        value_lines = section(
+            "Values:",
+            [described(value.name, "value", value.id, value.description) for value in values],
+        )
     lines = [
         f"Workspace mode: {workspace.mode if workspace else 'planning'}",
         f"About me: {(profile.about_me if profile else '').strip()}",
         f"Advisor instructions: {(profile.advisor_instructions if profile else '').strip()}",
         f"Effort Points: {'on' if effort_on else 'off'}",
-        *section(
-            "Values:",
-            [described(value.name, "value", value.id, value.description) for value in values],
-        ),
+        *value_lines,
         *section(
             "Available Tags:", [described(tag.name, "tag", tag.id, tag.description) for tag in tags]
         ),
@@ -113,22 +200,9 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
         )
         if (capacity := await capacity_effort_points(session)) is not None:
             lines.append(f"Next Sprint's capacity: {effort_label(capacity)} EP.")
-    goals = (await order_cards(session, await priority_goals(session), now=local_now))[:CONTEXT_PRIORITY_GOAL_LIMIT]
-    lines += section(
-        "Priority Goals:",
-        [
-            f"- {citation(goal.title, 'card', goal.id)} priority={goal.priority} "
-            f"stage={goal.effective_stage} tree_level={await tree_level(session, goal.kind, goal.id)}"
-            + (
-                f" deadline={goal.deadline_at.astimezone(timezone):%d.%m.%Y %H:%M}"
-                if goal.deadline_at else ""
-            )
-            for goal in goals
-        ],
-    )
-    today = await order_cards(session, await today_actions(session), now=local_now)
+    today = await focus(await today_actions(session))
     load = await plan_load(session, today, start_date=local_day, end_date=local_day)
-    lines.append("Today Actions:")
+    lines.append("Today Actions, best first:")
     lines.append(f"Planned executions remaining today: {load.actions}" + (
         " (lower bound; Schedule quantities are unknown)" if load.unknown_schedules else ""
     ))
@@ -136,38 +210,28 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
         lines.append(f"Remaining planned effort today: {effort_label(load.effort)} EP")
         if load.unestimated:
             lines.append(f"Unestimated executions: {load.unestimated}; EP total is partial.")
-    if today:
-        lines += ["| Card | Priority |", "| --- | --- |"]
-    for row in await today_tree(session, today, now=local_now):
-        card = row.card
-        line = f"{'  ' * row.depth}- {citation(card.title, 'card', card.id)}"
-        also = (
-            " (also under: "
-            + ", ".join(citation(parent.title, "card", parent.id) for parent in row.also_under)
-            + ")"
-            if row.also_under
-            else ""
+    lines += [await card_line(card, load.counts.get(card.id, 1)) for card in today]
+    in_sprint = await focus(await actions_on_stages(session, CardStage.SPRINT))
+    goals = [card for card in open_cards if card.kind == CardKind.GOAL.value]
+    if sprint is not None:
+        above: set[int] = set()
+        waiting = [card.id for card in [*today, *in_sprint]]
+        while waiting:
+            for parent_id in parents.get(waiting.pop(), ()):
+                if parent_id not in above:
+                    above.add(parent_id)
+                    waiting.append(parent_id)
+        lines += await ranked("Sprint Actions not in Today", in_sprint)
+        lines += await ranked(
+            "Sprint Goals", await focus([goal for goal in goals if goal.id in above])
         )
-        action = card.id in load.counts
-        if not action:
-            line += (" Subgoal" if row.depth else " Goal") + also
-        else:
-            line += (
-                also
-                + (
-                    f" executions={load.counts[card.id] if load.counts[card.id] is not None else '?'}"
-                    if load.counts[card.id] != 1
-                    else ""
-                )
-                + (f" effort={effort_label(card.effort_points)}" if effort_on else "")
-                + (
-                    f" schedule_at={appointment_label(card.schedule_record.rule, card.scheduled_at, timezone, '%d.%m')}"
-                    if card.scheduled_at
-                    else ""
-                )
-            )
-        line = line.replace("\\", "\\\\").replace("|", "\\|").replace("\r", " ").replace("\n", " ")
-        lines.append(f"| {line} | {card.priority if action else ''} |")
+    else:
+        lines += await ranked("Goals to consider", await focus(goals))
+        lines += await ranked(
+            "Backlog Actions to consider",
+            await focus(await actions_on_stages(session, CardStage.BACKLOG)),
+        )
+        lines += await ranked("Still in Sprint, to review", in_sprint)
     return StateBlocks(
         state="\n".join(lines),
         clock=f"Current local time: {local_now:%Y-%m-%d %H:%M} ({timezone})",

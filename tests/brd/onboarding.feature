@@ -78,7 +78,8 @@ Feature: Onboarding
     When the owner writes
     Then Safwa answers that message first
     And once the chat is free, one more message comes that opens with how many days it has been
-      and the Actions in Today and in the Sprint, each marked Today or Sprint, under its Goals,
+      and the Actions in Today and in the Sprint in the focus order (CD-ORDER-066), each marked
+      Today or Sprint, under its Goals,
       and under every nested Goal between them, every Card cited
     And a Card under several Goals stands once, under the last of them listed, and names the others
     And Actions with no Goal stand in a group of their own

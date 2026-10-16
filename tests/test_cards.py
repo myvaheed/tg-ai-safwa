@@ -1301,7 +1301,7 @@ async def test_goal_progress_is_recursive_but_children_count_is_direct(sessions)
         assert (await card_progress(session, goal.id))["completed_children"] == 1
 
 
-async def test_cd_context_028_only_open_goals_are_handed_over_as_priority_goals(sessions):
+async def test_cd_context_028_only_open_goals_are_handed_over(sessions):
     """CD-CONTEXT-028 — tests/brd/cards.feature"""
     async with sessions() as session:
         open_card = await create_card(
@@ -1318,20 +1318,22 @@ async def test_cd_context_028_only_open_goals_are_handed_over_as_priority_goals(
             session, title="Action", kind="action", stage="backlog",
             priority="medium", effort_points=3,
         )
-        await create_card(session, title="Subgoal", kind="goal", parent_ids={open_card.id})
+        subgoal = await create_card(session, title="Subgoal", kind="goal", parent_ids={open_card.id})
         await session.commit()
 
         state = (await workspace_context(session)).state
 
-    listed = [line for line in state.splitlines() if line.startswith("- [")]
+    goals = state.split("Goals to consider")[1].split("Backlog Actions to consider")[0]
+    listed = [line for line in goals.splitlines() if line.startswith("- [")]
 
     assert listed == [
         f"- [Fix the roof](card:{open_card.id}) priority=critical stage=backlog tree_level=2",
         f"- [Ordinary](card:{ordinary.id}) priority=medium stage=backlog tree_level=1",
+        f"- [Subgoal](card:{subgoal.id}) priority=medium stage=backlog tree_level=1"
+        f" under=[Fix the roof](card:{open_card.id})",
     ]
     assert "Shipped" not in state
-    assert "Action" not in state.split("Today Actions:")[0]
-    assert "Subgoal" not in state
+    assert "Action" not in goals
 
 
 def test_cd_effort_008_every_rung_says_what_it_costs():

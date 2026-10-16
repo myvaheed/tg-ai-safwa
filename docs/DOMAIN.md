@@ -193,9 +193,13 @@ their first Action. See [HOME_DASHBOARD.md](HOME_DASHBOARD.md).
 
 ## The Goals Safwa starts from
 
-Each turn carries up to 10 open root Goals (`CONTEXT_PRIORITY_GOAL_LIMIT`) under **Priority Goals**,
-across all Priorities, in the common Goal order. Each Goal carries its Priority, derived stage,
-`tree_level` and compiled Deadline. The Advisor starts advice and planning from that order.
+Each turn hands the Advisor its lists in the focus order (CD-ORDER-066), each cut to 10
+(`CONTEXT_LIST_LIMIT`): what can be worked on now comes first, so a Goal with fewer levels
+under it leads, and while a Sprint runs Today leads the Sprint. A Sprint is read tactically:
+Today Actions, the rest of the Sprint and the Goals that work serves. Planning is read
+strategically: how many open Goals and Actions serve each Value, then the Goals and Backlog
+Actions to consider and what is still in the Sprint. Each Card line carries its own Priority,
+the Values it serves and the Goals it stands under. Screens keep the common order.
 
 ## Checks
 

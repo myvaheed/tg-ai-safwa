@@ -58,17 +58,15 @@
     And that line is the only part of what it reads before the conversation that differs between
       two turns a minute apart, which is what keeps the rest of it cheap
 
-  Scenario: WS-CONTEXT-008 — Safwa starts from the Goals that need attention first
-    Given the owner has open Goals of Critical, Medium and Low Priority
-    When Safwa reads the workspace
-    Then it is handed the first 10 Priority Goals (CONTEXT_PRIORITY_GOAL_LIMIT = 10)
-    And that list includes only open root Goals, not Subgoals, Actions or archived Goals
-    And those Goals use the same Deadline groups, height, own Priority and Value score as
-      every Goal list (CD-ORDER-061)
-    And child Actions neither raise a Goal's Priority nor supply its Value score
-    And Goals created at the same instant keep their creation order
-    And each Goal says its Priority, stage, tree_level (CD-TREE-053) and compiled Deadline when there is one
-    And when there are no open Goals, there is no empty Priority Goals heading
+  Scenario: WS-CONTEXT-008 — Safwa starts from the Goals of its mode
+    Given the owner has open Goals of Critical, Medium and Low Priority, at several levels
+    When Safwa reads the workspace in Planning
+    Then it is handed Goals to consider: every open Goal and Subgoal in the focus order (CD-ORDER-066), the first 10 (CONTEXT_LIST_LIMIT = 10), its heading saying how many of how many
+    When a Sprint is running
+    Then it is handed Sprint Goals instead: the open Goals and Subgoals above an Action in Sprint or Today, in the same order and limit
+    And a Done or archived Goal is in neither list
+    And each Goal says its Priority, stage, tree_level (CD-TREE-053), compiled Deadline when there is one, the Values it serves and the Goals it stands under
+    And a list with no Goal has no heading
 
   Scenario: WS-CAPTURE-008 — A captured record waits for a decision, not for filled fields
     Given the owner asks to record a note, idea or draft
@@ -84,16 +82,27 @@
     Then the workspace searches for those words and proposes the change on the closest item
     And when no item is close, it changes nothing and says it could not find the item
 
-  Scenario: WS-CONTEXT-010 — Today is a hierarchy table with each Action's own Priority
-    Given Actions in Today and all their ancestor Goals
-    Then Today Actions is a table with two columns, Card and Priority
-    And its branches follow Home's order, each placed by its first Action (PL-KEY-025)
-    And the first column preserves hierarchy indentation and item links
-    And each Card has one row, under its last shown parent, with the other parents named as links
-    And the Priority column is empty for Goals and Subgoals
-    And an Action's Priority is its own stored priority, never one taken from a parent or sorting group
-    And execution quantities, effort and appointment details stay on Action rows
-    And the summary counts distinct Actions
-    And title line breaks and pipes cannot add rows or columns to the table
-    And Priority Goals remains a separate, independently selected list (WS-CONTEXT-008)
-    And an empty Today has no empty table
+  Scenario: WS-CONTEXT-010 — Today is a ranked list of its Actions, each with its own Priority
+    Given Actions in Today
+    Then Today Actions lists every one of them in the focus order, one line each, under the day's planned executions and effort
+    And each line says its own stored Priority, key when it is key to the running Sprint, blocked when it is blocked, its executions when they are other than one, its effort while Effort Points are on, and its appointment
+    And values= names the Values it serves, its own and its Goals', highest first, as links
+    And under= names every Goal it stands under directly, as links
+    And a title's line breaks do not break its line
+    And an empty Today says its planned executions and lists nothing
+
+  Scenario: WS-CONTEXT-011 — In a Sprint, Safwa reads the work tactically
+    Given a running Sprint
+    When Safwa reads the workspace
+    Then it reads Today Actions, then Sprint Actions not in Today, then Sprint Goals
+    And Sprint Actions not in Today are the first 10 in the focus order, a key Action before its equals (CD-ORDER-060)
+    And Backlog Actions and Goals with no work in the Sprint or Today are not listed
+    And each Value is listed with its description alone
+
+  Scenario: WS-CONTEXT-012 — In Planning, Safwa reads the work strategically
+    Given no Sprint is running
+    When Safwa reads the workspace
+    Then each Value says how many open Goals and Actions serve it, on themselves or through a Goal above them, as goals= and actions=
+    And a Value nothing open serves reads goals=0 actions=0
+    And it reads Today Actions, then Goals to consider, then Backlog Actions to consider, then the Actions still in Sprint, to review
+    And each of the last three is the first 10 in the focus order, which reads no stage while no Sprint runs

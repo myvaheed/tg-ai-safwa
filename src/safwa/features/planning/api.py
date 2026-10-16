@@ -338,6 +338,21 @@ async def delete_commitments_of_cards(session: AsyncSession, card_ids: list[int]
     await session.execute(delete(SprintCommitment).where(SprintCommitment.card_id.in_(card_ids)))
 
 
+async def key_action_ids(session: AsyncSession) -> set[int]:
+    """The Actions the running Sprint's Success criterion rests on, as marked."""
+    workspace = await session.get(Workspace, 1)
+    if workspace is None or not workspace.active_sprint_id:
+        return set()
+    return set(
+        await session.scalars(
+            select(SprintCommitment.card_id).where(
+                SprintCommitment.sprint_id == workspace.active_sprint_id,
+                SprintCommitment.key_action.is_(True),
+            )
+        )
+    )
+
+
 async def today_actions(session: AsyncSession) -> list[Card]:
     """The open Actions in Today."""
     return await actions_on_stages(session, CardStage.TODAY)

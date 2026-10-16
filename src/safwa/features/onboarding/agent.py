@@ -39,7 +39,7 @@ _LINK = " ".join((_SERVES[0].upper() + _SERVES[1:], *LINK.criteria))
 MANUAL = f"""# Safwa
 - Safwa is a personal agile advisor in Telegram. The user keeps a workspace of Cards, commits to a Sprint of a fixed number of days, and learns from each Sprint in its retro.
 - The Advisor reads the workspace and advises. It saves nothing itself: it proposes, and only the user saves.
-- Its focus is open Goals of every Priority, in Card order.
+- In a Sprint its focus is Today, the rest of the Sprint and their Goals; in Planning, the Goals and Backlog Actions to take next, and what each Value is served by.
 - Card order puts first an appointment or Deadline coming soon, then the higher Priority, then an Action key to the Sprint, then the Card that serves higher Values, on itself or on the Goals above it.
 - Each Morning, Safwa names the open Cards whose appointment or Deadline has passed and asks whether to move or remove each Schedule. Overdue Schedules in Profile → Hooks switches this off or on.
 

@@ -163,7 +163,7 @@ async def test_ws_context_006_everything_named_in_the_state_is_a_citation(sessio
     named = {(kind, int(item_id)) for _label, kind, item_id in SCREENS.citation.findall(state)}
 
     assert named == {("value", value.id), ("tag", tag.id), ("tag", empty.id), ("card", card.id)}
-    assert f"- [Health](value:{value.id}): Sleep and exercise" in state.splitlines()
+    assert f"- [Health](value:{value.id}) goals=0 actions=0: Sleep and exercise" in state.splitlines()
     assert f"- [Family](tag:{tag.id}): Time with my family" in state.splitlines()
     assert f"- [Empty](tag:{empty.id})" in state.splitlines()
     builder = _builder(state)
