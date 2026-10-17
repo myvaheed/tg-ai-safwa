@@ -27,7 +27,7 @@ from tg_agent_shell.proposals.api import (
 
 from ...enums import ActorType
 from ...foundation.workspace import Workspace
-from ..checks.api import series_of
+from ..checks.api import check_repeats, series_of
 from .agent import resolve_schedule, unclear
 from .api import Schedule, ScheduleError, describe, schedule_from_payload, schedule_payload
 from .model import Reminder, ScheduleKind
@@ -131,9 +131,16 @@ class ReminderProposalHandler:
 
 async def _on_series(session: AsyncSession, schedule: Schedule) -> Schedule:
     """The run on the whole series of the Check named, whichever instance it was."""
-    series_id = await series_of(session, schedule.run_series_id)
+    named = schedule.run_series_id
+    series_id = await series_of(session, named)
     if series_id is None:
-        raise unclear(f"Check #{schedule.run_series_id} does not exist.", "check")
+        raise unclear(f"Check #{named} does not exist.", "check")
+    if schedule.run_length > 1 and not await check_repeats(session, named):
+        raise unclear(
+            f"Check #{named} does not repeat: it is answered once, so "
+            f"{schedule.run_length} in a row never comes.",
+            "check",
+        )
     return replace(schedule, run_series_id=series_id)
 
 

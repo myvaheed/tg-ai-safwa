@@ -40,6 +40,13 @@ def first_slot(rule: dict[str, Any], at: datetime, tz: ZoneInfo) -> datetime | N
     return next_fire(schedule_from_payload(rule["timing"]), previous=None, now=at, tz=tz)
 
 
+def repeats(rule: dict[str, Any]) -> bool:
+    """Whether the rule opens one successor after another; one that does has no last one."""
+    if rule["kind"] in {"after_completion", "quota"}:
+        return True
+    return rule["kind"] == "fixed" and schedule_from_payload(rule["timing"]).repeating
+
+
 def next_slot(
     rule: dict[str, Any], previous: datetime | None, now: datetime, completed: int, tz: ZoneInfo
 ) -> tuple[bool, datetime | None]:

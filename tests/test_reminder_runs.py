@@ -5,11 +5,14 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
-from schedule_helpers import create_check
+from schedule_helpers import create_card, create_check
+from sqlalchemy import select
 from ui_harness import FakeMessage, button_texts, services_for
 
+from safwa.features.cards.use_cases import delete_card, toggle_card_check
+from safwa.features.checks.api import check_repeats
 from safwa.features.checks.model import CheckOutcome
-from safwa.features.checks.use_cases import CHECK_ANSWERED, resolve_check
+from safwa.features.checks.use_cases import CHECK_ANSWERED, delete_check, resolve_check
 from safwa.features.reminders.agent import REMINDER_CHECK_FORMS, REMINDER_TIME_FORMS, unclear
 from safwa.features.reminders.api import (
     Schedule,
@@ -25,6 +28,7 @@ from safwa.features.reminders.model import Reminder, ScheduleKind
 from safwa.features.reminders.telegram import render_reminder, render_reminders
 from safwa.features.reminders.telegram.review import ReminderProposalPresenter
 from safwa.features.reminders.use_cases import create_reminder, reconcile_reminders
+from safwa.foundation.log_events import DELETE, LogEvent
 from tg_agent_shell.cues.initiatives import bind_committed
 from tg_agent_shell.cues.queue import waiting_cues
 from tg_agent_shell.hooks.contracts import OnCommitted, Run
@@ -39,6 +43,10 @@ def run(series_id: int, outcome: str = "missed", count: int = 3) -> Schedule:
     return Schedule(
         kind=ScheduleKind.RUN, run_series_id=series_id, run_outcome=outcome, run_length=count
     )
+
+
+async def create_action(session, **fields):
+    return await create_card(session, kind="action", stage="today", effort_points=3, **fields)
 
 
 async def run_reminder(session, series_id: int, **kwargs) -> Reminder:
@@ -214,6 +222,65 @@ async def test_rm_run_027_safwa_reads_a_run_reminder_in_ai_reminders(read_views)
             "next_fire_at_local": None,
         }
     ]
+
+
+async def test_rm_run_025_a_check_repeats_by_its_own_schedule_or_by_its_action(sessions):
+    """RM-RUN-025 — tests/brd/reminders.feature"""
+    async with sessions() as session:
+        alone = await create_check(session, title="Slept 7 hours?")
+        scheduled = await create_check(session, title="Sat straight?", schedule="after completion")
+        daily = await create_action(session, title="Stretch", schedule="daily 09:00")
+        on_daily = await create_check(session, title="Felt loose?")
+        await toggle_card_check(session, daily.id, on_daily.id)
+        once = await create_action(session, title="Go to the market")
+        on_once = await create_check(session, title="Milk")
+        await toggle_card_check(session, once.id, on_once.id)
+        await session.commit()
+
+        assert not await check_repeats(session, alone.id)
+        assert await check_repeats(session, scheduled.id)
+        assert await check_repeats(session, on_daily.id)
+        assert not await check_repeats(session, on_once.id)
+
+
+async def test_rm_run_029_a_run_reminder_goes_with_the_last_check_of_its_series(sessions):
+    """RM-RUN-029 — tests/brd/reminders.feature"""
+    async with sessions() as session:
+        first = await create_check(session, title="Sat straight?", schedule="after completion")
+        _, live = await resolve_check(session, first.id, CheckOutcome.MISSED)
+        reminder = await run_reminder(session, first.id)
+        await session.commit()
+
+        await delete_check(session, live.id)
+        await session.commit()
+        assert await session.get(Reminder, reminder.id) is not None  # the series has one left
+
+        await delete_check(session, first.id)
+        await session.commit()
+        assert await session.get(Reminder, reminder.id) is None
+        deleted = await session.scalar(
+            select(LogEvent.item_id).where(
+                LogEvent.item_type == "reminder", LogEvent.operation == DELETE
+            )
+        )
+        assert deleted == reminder.id  # logged as a Reminder deleted from its screen is
+
+
+async def test_rm_run_029_a_run_reminder_goes_with_the_card_its_last_check_hangs_on(sessions):
+    """RM-RUN-029 — tests/brd/reminders.feature"""
+    async with sessions() as session:
+        card = await create_action(session, title="Go to the market")
+        check = await create_check(session, title="Milk")
+        await toggle_card_check(session, card.id, check.id)
+        reminder = await run_reminder(session, check.id, count=1)
+        other = await create_check(session, title="Slept 7 hours?")
+        kept = await run_reminder(session, other.id, count=1)
+        await session.commit()
+
+        await delete_card(session, card.id)
+        await session.commit()
+        assert await session.get(Reminder, reminder.id) is None
+        assert await session.get(Reminder, kept.id) is not None
 
 
 def test_rm_unclear_028_the_forms_follow_what_the_words_meant():

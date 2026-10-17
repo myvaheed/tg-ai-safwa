@@ -261,6 +261,53 @@ async def test_rm_run_025_a_check_that_does_not_exist_is_refused_with_the_check_
         assert list(await session.scalars(select(Reminder))) == []
 
 
+async def test_rm_run_025_a_run_on_a_check_that_does_not_repeat_is_refused(e2e_harness):
+    """RM-RUN-025 — tests/brd/reminders.feature"""
+    async with e2e_harness.sessions() as session:
+        once = await create_check(session, title="Slept 8 hours?")
+        await session.commit()
+    advisor, provider = e2e_harness.advisor(
+        unclear_script(
+            turn(
+                ("set_check_run", {"check_id": once.id, "outcome": "missed", "count": 3}),
+                prefix="setup",
+            ),
+            when=f"every 3 Missed in a row of Check #{once.id}",
+        )
+    )
+
+    await advisor.handle("cheer me on after 3 misses", source_message_id=1)
+
+    (error,) = unclear_errors(provider)
+    assert error.splitlines()[0] == (
+        f"Check #{once.id} does not repeat: it is answered once, so 3 in a row never comes."
+    )
+    assert all(form in error for form in REMINDER_CHECK_FORMS)
+    # A count of 1 is kept on any Check.
+    each_time, _provider = e2e_harness.advisor(
+        [
+            route_turn("workspace_mutator"),
+            turn(
+                (
+                    "reminder",
+                    {
+                        "mode": "create",
+                        "instruction": "Cheer me on.",
+                        "when": f"each time Check #{once.id} is Missed",
+                    },
+                )
+            ),
+            "I set that up for you.",
+            turn(
+                ("set_check_run", {"check_id": once.id, "outcome": "missed", "count": 1}),
+                prefix="setup",
+            ),
+        ]
+    )
+    outcome = await each_time.handle("cheer me on when I miss it", source_message_id=2)
+    assert outcome.kind is AIOutcomeKind.PROPOSAL
+
+
 async def test_rm_unclear_028_words_that_meant_a_time_get_the_time_forms(e2e_harness):
     """RM-UNCLEAR-028 — tests/brd/reminders.feature"""
     advisor, provider = e2e_harness.advisor(

@@ -684,7 +684,9 @@ the Cue row, exactly as for anything else Safwa says first.
   `reminders.check_run`, a `Run` on `OnCommitted(check.answered)`, counts the answered Check's
   series back with `checks/api.py` and writes the Cue of each run Reminder on that series whose
   run is now a multiple of its count. It writes even while other words wait: the answer that
-  made the run will not come again (`RM-RUN-026`).
+  made the run will not come again (`RM-RUN-026`). A count above 1 is refused at preparation
+  on a Check that does not repeat (`check_repeats`), and the deletion of a series' last Check
+  deletes its run Reminders in the same transaction (`RM-RUN-029`).
 
 ### A committed change, or a time of day, writes a hook's Cue
 

@@ -198,6 +198,10 @@ Feature: Reminders
     And Save makes a Reminder with no time: the clock never fires it, and a restart does not move it
     And the Reminder follows the whole series of that Check, whichever of its instances was named
     And a Check that does not exist is refused, with the forms of RM-UNCLEAR-028
+    And a count above 1 on a Check that does not repeat is refused the same way: it is answered
+      once, so that run never comes
+    And a Check repeats when its own Schedule repeats, or when it hangs on an Action whose
+      Schedule repeats; a count of 1 is kept on any Check
 
   Scenario: RM-RUN-026 — A run Reminder fires at every multiple of its count
     Given a Reminder on 3 Missed in a row of a repeating Check
@@ -230,3 +234,9 @@ Feature: Reminders
       "after 40 Passed in a row of Check #12", "each time Check #12 is Missed" (REMINDER_CHECK_FORMS)
     And words where neither can be told, or that the short session could not read at all, get both
     And Safwa tells the owner, and tries again with the owner's answer, by RM-SCHEDULE-002
+
+  Scenario: RM-RUN-029 — A run Reminder goes with the last Check of its series
+    Given a Reminder on a run of a Check's answers
+    When the last Check left in that series is deleted — on its own, or with the Card it hangs on
+    Then the Reminder is deleted with it, as a Reminder deleted from its screen is
+    And deleting one instance while others of the series are left keeps the Reminder

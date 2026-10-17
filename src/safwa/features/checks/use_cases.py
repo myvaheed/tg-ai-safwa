@@ -21,6 +21,7 @@ from ...enums import ActorType
 from ...foundation.log_events import CREATE, DELETE, UPDATE, record_log_event, snapshot
 from ...foundation.workspace import bump_workspace
 from ..cards.model import TERMINAL_STAGES, Card, CardCheck, CardKind
+from ..reminders.use_cases import drop_run_reminders
 from ..schedules.api import (
     close_deleted_schedules,
     prepare_occurrence,
@@ -206,11 +207,15 @@ async def delete_check(session: AsyncSession, check_id: int, *, actor: ActorType
 async def _delete_checks(session: AsyncSession, check_ids: list[int]) -> None:
     if not check_ids:
         return
+    series = func.coalesce(Check.series_id, Check.id)
+    touched = set(await session.scalars(select(series).where(Check.id.in_(check_ids))))
     await close_deleted_schedules(session, Check, check_ids)
     await drop_reminders(session, Check, check_ids)
     await session.execute(delete(CheckValue).where(CheckValue.check_id.in_(check_ids)))
     await session.execute(delete(CardCheck).where(CardCheck.check_id.in_(check_ids)))
     await session.execute(delete(Check).where(Check.id.in_(check_ids)))
+    left = set(await session.scalars(select(series).where(series.in_(touched))))
+    await drop_run_reminders(session, touched - left)
 
 
 async def _copy_check(

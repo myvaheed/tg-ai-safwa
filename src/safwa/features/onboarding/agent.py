@@ -165,7 +165,7 @@ MANUAL = f"""# Safwa
 # Reminders
 - A Reminder is words and when they come due: a time, or a run of one Check's answers. When it fires, its words come to the Advisor as a request, and the Advisor answers them.
 - In words only: create one, or change when it fires. Say the time in plain words, such as "every weekday at 8:00", or the run, such as "every 3 Missed in a row of Check #12". "🔔 Remind" on a Schedule also makes one.
-- A run Reminder fires at every multiple of its count: 3, 6, 9 Missed in a row.
+- A run Reminder fires at every multiple of its count: 3, 6, 9 Missed in a row. A count above 1 needs a Check that repeats. Deleting the last Check of the series deletes the Reminder.
 - With buttons: "⏰ Reminders" or /reminders: "✏️ Text" to change the words, "🗑 Delete".
 - Deleting is the only way to stop one.
 

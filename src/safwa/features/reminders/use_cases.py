@@ -7,6 +7,7 @@ what keeps a reworded Reminder firing at the moment it always did.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -113,6 +114,16 @@ async def delete_reminder(session: AsyncSession, reminder_id: int, *, actor: Act
     await _record(session, reminder, DELETE, actor, snapshot(reminder))
     await session.delete(reminder)
     await bump_workspace(session)
+
+
+async def drop_run_reminders(
+    session: AsyncSession, series_ids: Collection[int], *, actor: ActorType = ActorType.USER_UI
+) -> None:
+    """A Check series with no Check left takes its run Reminders with it."""
+    for reminder_id in list(
+        await session.scalars(select(Reminder.id).where(Reminder.run_series_id.in_(series_ids)))
+    ):
+        await delete_reminder(session, reminder_id, actor=actor)
 
 
 async def _record(

@@ -1,5 +1,5 @@
-"""What another feature reads of Checks: the method for a Check, a Check's series and the
-run of answers it ends on."""
+"""What another feature reads of Checks: the method for a Check, a Check's series, whether
+it repeats and the run of answers it ends on."""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...foundation.method import Example, Method
+from ..cards.model import Card, CardCheck
+from ..schedules.rules import repeats
 from .model import Check
 
 
@@ -14,6 +16,24 @@ async def series_of(session: AsyncSession, check_id: int) -> int | None:
     """The series a Check belongs to, or None when there is no such Check."""
     check = await session.get(Check, check_id)
     return None if check is None else check.series_id or check.id
+
+
+async def check_repeats(session: AsyncSession, check_id: int) -> bool:
+    """Whether a Check's series goes on: by its own Schedule, or by the Action it hangs on.
+
+    Neither has a last occurrence when it repeats, so a Check is answered once or without end.
+    """
+    check = await session.get(Check, check_id)
+    card = await session.scalar(
+        select(Card)
+        .join(CardCheck, CardCheck.card_id == Card.id)
+        .where(CardCheck.check_id == check_id)
+    )
+    definitions = (check.schedule_record, card.schedule_record if card is not None else None)
+    return any(
+        definition is not None and definition.rule and repeats(definition.rule)
+        for definition in definitions
+    )
 
 
 async def answer_run(session: AsyncSession, series_id: int, outcome: str) -> list[Check]:
