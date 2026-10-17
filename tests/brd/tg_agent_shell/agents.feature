@@ -176,6 +176,8 @@ Feature: Agents — the session, the hand-over, and what comes back
       and what the owner wrote
     And it answers from those four things together, so a half-finished request is not reported as
       done
+    And it is told to route back to that subagent when those words ask to change what it showed,
+      and to answer without routing when they only refuse it
 
   Scenario: AG-WORDS-018 — A correction reaches the subagent that wrote the refused proposal
     Given a subagent proposed a Diary entry and the owner refused it by writing "the same, but
@@ -190,6 +192,7 @@ Feature: Agents — the session, the hand-over, and what comes back
     Then its own record of the work says both that the proposal was refused and that the owner
       wrote something instead of deciding
     And it does not propose the same thing a second time
+    And that record tells it to propose nothing when those words only refuse it
 
   Scenario: AG-WORDS-020 — Unfinished work ends when the request that started it ends
     Given a subagent was interrupted and its work was left unfinished

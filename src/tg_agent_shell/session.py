@@ -68,9 +68,9 @@ SUBAGENT_DEADLINE_SECONDS = 300.0
 # owner wrote *instead* of deciding: on "rejected" alone the session reads its own record
 # and proposes the same thing again.
 REFUSED_AND_WROTE = (
-    "The user did not decide this. They wrote to you instead, and their words are the "
-    "newest message in the conversation. Read them, then propose what they ask for now. "
-    "Never propose the refused change again."
+    "The user refused this: they wrote to you instead of deciding. Their words are the "
+    "newest message in the conversation. If they ask to change it, propose it changed. "
+    "If they only refuse it, propose nothing and answer. Never propose the same change again."
 )
 
 REPAIR_EXHAUSTED_ON_RESUME = (

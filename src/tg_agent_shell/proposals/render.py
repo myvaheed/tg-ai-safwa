@@ -63,8 +63,9 @@ _DECISION_NEXT_STEPS = {
         "user's request that are still unfinished, then answer."
     ),
     BatchDecision.DISCARDED: (
-        "The user rejected this change, so it does not exist, and the request stops here. "
-        "Do not retry it or propose more unless the user asks again. Answer now."
+        "The user discarded this change, so it does not exist. Do not propose it again. "
+        "Continue only with the parts of the user's request you have not proposed yet, "
+        "then answer."
     ),
     BatchDecision.FAILED: (
         "Applying this change failed, so nothing was written for it. Read `error`, fix only "

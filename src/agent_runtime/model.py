@@ -331,7 +331,8 @@ def route_receipt(
         receipt["text"] = message.strip()
         receipt["next"] = (
             f'If text answers the request, call forward("{name}") to send it as it is. '
-            "Otherwise route again or answer in your own words."
+            "Otherwise route again only for a part of the request no line in did covers, "
+            "or answer in your own words."
         )
     if error:
         receipt["error"] = error
@@ -361,9 +362,9 @@ def nothing_done_receipt(name: str, reason: str) -> dict[str, Any]:
 
 
 INTERRUPTED_NEXT = (
-    "The user did not decide what {name} showed: they wrote instead, and their words are the "
-    'newest message. If they are about what {name} showed, call route("{name}") now. '
-    "Otherwise handle them as a new request."
+    "The user refused what {name} showed by writing instead of deciding. Their words are the "
+    'newest message. If they ask to change it, call route("{name}") now. If they only refuse '
+    "it, answer without routing. Otherwise handle them as a new request."
 )
 
 

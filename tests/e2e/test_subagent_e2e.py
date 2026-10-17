@@ -115,7 +115,8 @@ async def test_a_routed_subagent_hands_its_words_back_and_the_advisor_speaks(e2e
         "text": f"Этот день уже записан: {cited}.",
         "next": (
             'If text answers the request, call forward("diary") to send it as it is. '
-            "Otherwise route again or answer in your own words."
+            "Otherwise route again only for a part of the request no line in did covers, "
+            "or answer in your own words."
         ),
     }
     async with e2e_harness.sessions() as session:
@@ -768,9 +769,10 @@ async def test_the_resumed_request_is_told_what_was_proposed_and_what_was_refuse
     # What became of every change, and that the owner answered with words instead.
     assert any("Discarded" in line for line in receipt["did"])
     assert "error" not in receipt
-    assert "they wrote instead" in receipt["next"]
+    assert "by writing instead of deciding" in receipt["next"]
     # The Advisor proposes nothing itself: it is told to route back to the session that wrote it.
-    assert 'call route("diary") now' in receipt["next"]
+    assert 'If they ask to change it, call route("diary") now.' in receipt["next"]
+    assert "If they only refuse it, answer without routing." in receipt["next"]
     # Those words are the newest thing the resumed request reads.
     assert "то же, но короче" in json.dumps(provider.calls[3], ensure_ascii=False)
 
@@ -819,9 +821,10 @@ async def test_the_interrupted_session_reads_that_the_owner_wrote_instead(e2e_ha
     async with e2e_harness.sessions() as session:
         run = await session.scalar(select(AgentRun).where(AgentRun.kind == "diary"))
     notice = json.dumps(run.state_json["transcript"], ensure_ascii=False)
-    assert "did not decide this" in notice
-    assert "wrote to you instead" in notice
-    assert "Never propose the refused change again" in notice
+    assert "The user refused this" in notice
+    assert "wrote to you instead of deciding" in notice
+    assert "If they only refuse it, propose nothing and answer." in notice
+    assert "Never propose the same change again" in notice
 
     await advisor.handle("то же, но короче")
 

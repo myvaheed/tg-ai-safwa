@@ -125,7 +125,10 @@ Feature: Proposals
     When Safwa carries on with that request
     Then for each one it is told the decision, which item it was and what it would have done
     And for the saved one it is told not to propose it again
-    And for the discarded one it is told that it did not happen
+    And for the discarded one it is told that it did not happen, not to propose it again, and to
+      go on only with the parts of the request it has not proposed yet
+    When the subagent hands its answer back
+    Then Safwa is told to route again only for a part of the request no receipt line covers
 
   Scenario: PR-STALE-012 — A proposal is refused once the workspace has moved on without it
     Given a proposal is on screen and its review has not expired by PR-EXPIRE-029

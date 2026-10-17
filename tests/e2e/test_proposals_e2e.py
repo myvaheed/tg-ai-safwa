@@ -1551,6 +1551,41 @@ async def test_a_resolved_proposal_leaves_one_readable_line_in_the_dialogue(
     assert "Name:" not in receipt
 
 
+async def test_a_discard_tells_safwa_to_go_on_only_with_what_it_has_not_proposed(e2e_harness):
+    """PR-RESULT-011 — tests/brd/tg_agent_shell/proposals.feature"""
+    advisor, provider = e2e_harness.advisor(
+        [
+            route_turn("workspace_mutator"),
+            mutation_turn(("tag", {"mode": "create", "name": "VrWalk"})),
+            "Тег не создан.",
+            "Хорошо, тег не создаю.",
+        ]
+    )
+    first = await advisor.handle("Создай тег VrWalk")
+    assert first.proposal_id is not None
+
+    final = await advisor.resolve_approval(
+        first.proposal_id, decision=BatchDecision.DISCARDED, result={}
+    )
+
+    assert final is not None and "Хорошо, тег не создаю." in final.message
+    [discarded] = [
+        json.loads(str(message["content"]))
+        for message in provider.calls[2]
+        if message["role"] == "tool"
+    ]
+    assert discarded["status"] == "discarded"
+    assert "Do not propose it again." in discarded["next"]
+    assert "parts of the user's request you have not proposed yet" in discarded["next"]
+    [receipt] = [
+        json.loads(str(message["content"]))
+        for message in provider.calls[3]
+        if message["role"] == "tool" and message.get("name") == "route"
+    ]
+    assert receipt["did"] == ["🗑 Discarded — New Tag “VrWalk”"]
+    assert "route again only for a part of the request no line in did covers" in receipt["next"]
+
+
 async def test_one_call_setting_several_fields_is_one_proposal(e2e_harness):
     """PR-QUEUE-005 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:

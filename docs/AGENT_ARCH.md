@@ -366,13 +366,15 @@ discarded, what the batch kept is written, the screen is frozen into an account 
 request did, and only then is anything
 generated: the Advisor's pending `route` is answered with what was proposed, what was refused, what
 was already saved, and the owner's words. Its `outcome` is `interrupted`, and `INTERRUPTED_NEXT`
-tells the Advisor to route back to that subagent at once when the words are about what it showed,
-and otherwise to handle them as a new request.
+tells the Advisor to route back to that subagent at once when the words ask to change what it
+showed, to answer without routing when they only refuse it, and otherwise to handle them as a new
+request.
 
 The subagent is left `interrupted` — unfinished rather than waiting — so a `route` back on that same
 turn resumes it holding its own plan, and a correction reaches the session that wrote the refused
-proposal. Its transcript carries one line saying the owner refused *and wrote instead*; on
-"rejected" alone it would propose the same thing again. The turn that routed there is the outer
+proposal. Its transcript carries one note, `REFUSED_AND_WROTE`, saying the owner refused *and
+wrote instead*, and that words which only refuse it get no proposal; on "rejected" alone it would
+propose the same thing again. The turn that routed there is the outer
 bound: when it answers or fails, `_close_unfinished_children` ends what it left behind.
 
 A review nobody answers with Save, Discard or a message ends the chain the other way. Process
