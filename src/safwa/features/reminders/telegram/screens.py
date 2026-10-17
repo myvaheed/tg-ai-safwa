@@ -66,7 +66,9 @@ async def render_reminders(message: Message, services: Services, *, page: int = 
         tz = await _timezone(session)
         now = datetime.now(UTC)
         reminders = list(
-            await session.scalars(select(Reminder).order_by(Reminder.next_fire_at))
+            await session.scalars(
+                select(Reminder).order_by(Reminder.next_fire_at.nulls_last(), Reminder.id)
+            )
         )
         window = paginate(reminders, page)
         here = Place("reminders_page", {"page": window.index})
@@ -227,11 +229,10 @@ async def _timezone(session) -> ZoneInfo:  # type: ignore[no-untyped-def]
 
 def _detail_text(reminder: Reminder, title: str, *, tz: ZoneInfo, now: datetime) -> str:
     schedule = schedule_of(reminder)
-    lines = [
-        f"<b>⏰ {html.escape(title)}</b>",
-        f"{html.escape(reminder_when(reminder, tz=tz, now=now))} · "
-        f"next {reminder.next_fire_at.astimezone(tz):%Y-%m-%d %H:%M}",
-    ]
+    when = html.escape(reminder_when(reminder, tz=tz, now=now))
+    if reminder.next_fire_at is not None:
+        when += f" · next {reminder.next_fire_at.astimezone(tz):%Y-%m-%d %H:%M}"
+    lines = [f"<b>⏰ {html.escape(title)}</b>", when]
     if not schedule.repeating:
         lines.append("Fires once, then deletes itself.")
     lines.extend(["", html.escape(reminder.instruction), "", "<i>Timing is set through your advisor.</i>"])

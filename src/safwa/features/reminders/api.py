@@ -43,6 +43,10 @@ class Schedule:
     anchor_at: datetime | None = None
     interval_minutes: int | None = None
     quiet_windows: tuple[tuple[time, time], ...] = ()
+    # A run: the Check series, the answer and how many of it in a row.
+    run_series_id: int | None = None
+    run_outcome: str | None = None
+    run_length: int | None = None
 
     @property
     def repeating(self) -> bool:
@@ -201,8 +205,11 @@ def next_fire(
 ) -> datetime | None:
     """The first fire strictly after ``previous``, or the first fire ever when it is None.
 
-    Returns None only when a one-shot has already fired — the caller deletes the row.
+    Returns None when a one-shot has already fired — the caller deletes the row — and for a
+    run, which an answer fires rather than the clock.
     """
+    if schedule.kind is ScheduleKind.RUN:
+        return None
     if schedule.kind is ScheduleKind.ONCE:
         return None if previous is not None else schedule.anchor_at
 
@@ -331,6 +338,15 @@ def schedule_columns(schedule: Schedule) -> dict[str, Any]:
         "anchor_at": schedule.anchor_at,
         "interval_minutes": schedule.interval_minutes,
         "quiet_windows": [f"{start:%H:%M}-{end:%H:%M}" for start, end in schedule.quiet_windows],
+        **_run_columns(schedule),
+    }
+
+
+def _run_columns(schedule: Schedule) -> dict[str, Any]:
+    return {
+        "run_series_id": schedule.run_series_id,
+        "run_outcome": schedule.run_outcome,
+        "run_length": schedule.run_length,
     }
 
 
@@ -343,6 +359,9 @@ def schedule_of(reminder: Any) -> Schedule:
         anchor_at=reminder.anchor_at,
         interval_minutes=reminder.interval_minutes,
         quiet_windows=tuple(parse_window(item) for item in (reminder.quiet_windows or ())),
+        run_series_id=reminder.run_series_id,
+        run_outcome=reminder.run_outcome,
+        run_length=reminder.run_length,
     )
 
 
@@ -359,6 +378,7 @@ def schedule_payload(schedule: Schedule) -> dict[str, Any]:
         "anchor_at": schedule.anchor_at.isoformat() if schedule.anchor_at else None,
         "interval_minutes": schedule.interval_minutes,
         "quiet_windows": [f"{start:%H:%M}-{end:%H:%M}" for start, end in schedule.quiet_windows],
+        **_run_columns(schedule),
     }
 
 
@@ -372,6 +392,9 @@ def schedule_from_payload(payload: dict[str, Any]) -> Schedule:
         anchor_at=datetime.fromisoformat(anchor) if anchor else None,
         interval_minutes=payload.get("interval_minutes"),
         quiet_windows=tuple(parse_window(item) for item in (payload.get("quiet_windows") or ())),
+        run_series_id=payload.get("run_series_id"),
+        run_outcome=payload.get("run_outcome"),
+        run_length=payload.get("run_length"),
     )
 
 
@@ -383,6 +406,13 @@ def describe(schedule: Schedule, *, tz: ZoneInfo, now: datetime | None = None) -
 
     The single source for the proposal screen, the `/reminders` list and the Cue text, so those three can never disagree about what a Reminder does.
     """
+    if schedule.kind is ScheduleKind.RUN:
+        times = f" {schedule.run_length} times in a row" if schedule.run_length != 1 else ""
+        return (
+            f"each time Check #{schedule.run_series_id} is "
+            f"{schedule.run_outcome.capitalize()}{times}"
+        )
+
     if schedule.kind is ScheduleKind.ONCE:
         if schedule.anchor_at is None:
             return "once"

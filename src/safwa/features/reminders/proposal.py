@@ -6,6 +6,7 @@ screen shows a real schedule and Save applies exactly what the owner approved.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -26,9 +27,10 @@ from tg_agent_shell.proposals.api import (
 
 from ...enums import ActorType
 from ...foundation.workspace import Workspace
-from .agent import resolve_schedule
-from .api import ScheduleError, describe, schedule_from_payload, schedule_payload
-from .model import Reminder
+from ..checks.api import series_of
+from .agent import resolve_schedule, unclear
+from .api import Schedule, ScheduleError, describe, schedule_from_payload, schedule_payload
+from .model import Reminder, ScheduleKind
 from .use_cases import (
     create_reminder,
     delete_reminder,
@@ -50,7 +52,8 @@ class ReminderProposalHandler:
     async def _resolve_timing(
         self, context: PreparationContext, values: dict[str, Any]
     ) -> dict[str, Any]:
-        """An unresolvable phrase becomes a retryable tool error carrying the question to ask."""
+        """An unresolvable phrase becomes a retryable tool error carrying what is unclear and
+        the forms that work."""
         prepared = dict(values)
         when = str(prepared.pop("when", "") or "").strip()
         if not when:
@@ -65,12 +68,14 @@ class ReminderProposalHandler:
                 now=now,
                 tz=tz,
             )
+            if schedule.kind is ScheduleKind.RUN:
+                schedule = await _on_series(context.session, schedule)
         except ScheduleError as error:
             raise ToolPreparationError(
                 "schedule_unclear",
                 str(error),
-                "Ask the user this exact question, then call reminder again with their "
-                "answer in when. Never invent a time.",
+                "Tell the user what is unclear and these forms, then call reminder again with "
+                "their answer in when. Never invent a time.",
             ) from error
         prepared["schedule"] = schedule_payload(schedule)
         prepared["schedule_text"] = describe(schedule, tz=tz, now=now)
@@ -122,6 +127,14 @@ class ReminderProposalHandler:
                 actor=ActorType.AI,
             )
         return [reminder.id]
+
+
+async def _on_series(session: AsyncSession, schedule: Schedule) -> Schedule:
+    """The run on the whole series of the Check named, whichever instance it was."""
+    series_id = await series_of(session, schedule.run_series_id)
+    if series_id is None:
+        raise unclear(f"Check #{schedule.run_series_id} does not exist.", "check")
+    return replace(schedule, run_series_id=series_id)
 
 
 async def owner_reminders(session: AsyncSession) -> list[tuple[int, str]]:

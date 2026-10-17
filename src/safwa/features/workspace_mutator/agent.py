@@ -41,6 +41,7 @@ An Action can hold a note, captured idea or draft. Use Tag "{inbox_tag}" to capt
 
 # Reminders
 - Pass the user's own words through in `when`. Never invent a date or an hour.
+- A Reminder on a Check's answers names that Check by #id in `when`, e.g. 'every 3 Missed in a row of Check #12'.
 - The Morning and Evening times are Profile fields, not Reminders.
 
 # Read the data

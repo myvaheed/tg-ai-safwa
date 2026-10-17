@@ -680,6 +680,11 @@ the Cue row, exactly as for anything else Safwa says first.
   composes the message.
 - `reminders.start`, a `Run` on `OnStarted()`, works out again a time-of-day Reminder a timezone
   move left on the wrong moment and rolls on a repeat overdue past the grace (`RM-START-020`).
+- A run Reminder has no `next_fire_at`, so neither the tick nor the start ever touches it.
+  `reminders.check_run`, a `Run` on `OnCommitted(check.answered)`, counts the answered Check's
+  series back with `checks/api.py` and writes the Cue of each run Reminder on that series whose
+  run is now a multiple of its count. It writes even while other words wait: the answer that
+  made the run will not come again (`RM-RUN-026`).
 
 ### A committed change, or a time of day, writes a hook's Cue
 

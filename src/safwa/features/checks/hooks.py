@@ -6,7 +6,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.changes import Committed
@@ -14,6 +13,7 @@ from tg_agent_shell.hooks.contracts import Advise, HookSpec, OnCommitted
 
 from ...foundation.workspace import require_workspace
 from ..cards.api import Card
+from .api import answer_run
 from .model import Check, CheckOutcome
 from .use_cases import CHECK_MISSED, check_card_id
 
@@ -32,25 +32,6 @@ async def missed_checks(event: Committed) -> tuple[int, ...]:
     return (event.subject_id,)
 
 
-async def missed_run(session: AsyncSession, check: Check) -> list[Check]:
-    """The series' newest answers back to its last Passed, newest first; Pending is skipped."""
-    series_id = check.series_id or check.id
-    answered = await session.scalars(
-        select(Check)
-        .where(
-            or_(Check.series_id == series_id, Check.id == series_id),
-            Check.outcome.is_not(None),
-        )
-        .order_by(Check.id.desc())
-    )
-    run: list[Check] = []
-    for instance in answered:
-        if instance.outcome != CheckOutcome.MISSED.value:
-            break
-        run.append(instance)
-    return run
-
-
 async def missed_run_request(session: AsyncSession, items: Sequence[int]) -> str | None:
     """The request about the series whose run of Missed is a multiple of MISSED_RUN now.
 
@@ -65,7 +46,7 @@ async def missed_run_request(session: AsyncSession, items: Sequence[int]) -> str
         if check is None or (check.series_id or check.id) in series_seen:
             continue
         series_seen.add(check.series_id or check.id)
-        run = await missed_run(session, check)
+        run = await answer_run(session, check.series_id or check.id, CheckOutcome.MISSED.value)
         if not run or len(run) % MISSED_RUN:
             continue
         card_id = await check_card_id(session, check.id)

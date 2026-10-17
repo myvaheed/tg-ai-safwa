@@ -1,8 +1,40 @@
-"""What another feature reads of Checks: the method for a Check."""
+"""What another feature reads of Checks: the method for a Check, a Check's series and the
+run of answers it ends on."""
 
 from __future__ import annotations
 
+from sqlalchemy import or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from ...foundation.method import Example, Method
+from .model import Check
+
+
+async def series_of(session: AsyncSession, check_id: int) -> int | None:
+    """The series a Check belongs to, or None when there is no such Check."""
+    check = await session.get(Check, check_id)
+    return None if check is None else check.series_id or check.id
+
+
+async def answer_run(session: AsyncSession, series_id: int, outcome: str) -> list[Check]:
+    """The series' newest answers back to the first other answer, newest first.
+
+    Pending is skipped, so the open instance on top neither counts nor breaks the run.
+    """
+    answered = await session.scalars(
+        select(Check)
+        .where(
+            or_(Check.series_id == series_id, Check.id == series_id),
+            Check.outcome.is_not(None),
+        )
+        .order_by(Check.id.desc())
+    )
+    run: list[Check] = []
+    for instance in answered:
+        if instance.outcome != outcome:
+            break
+        run.append(instance)
+    return run
 
 CHECK = Method(
     name="Check",

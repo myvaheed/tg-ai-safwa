@@ -78,7 +78,11 @@ from ..features.profile.api import hook_switched_on
 from ..features.profile.module import DAILY_SUMMARY_HOOK
 from ..features.profile.module import MODULE as PROFILE
 from ..features.reminders.module import MODULE as REMINDERS
-from ..features.reminders.module import REMINDER_FIRE_HOOK, REMINDER_START_HOOK
+from ..features.reminders.module import (
+    REMINDER_FIRE_HOOK,
+    REMINDER_RUN_HOOK,
+    REMINDER_START_HOOK,
+)
 from ..features.retro.module import MODULE as RETRO
 from ..features.saved_requests.module import MODULE as SAVED_REQUESTS
 from ..features.schedules.module import MODULE as SCHEDULES
@@ -174,6 +178,7 @@ HOOKS = (
     RETURN_HOOK,
     REMINDER_START_HOOK,
     REMINDER_FIRE_HOOK,
+    REMINDER_RUN_HOOK,
     HOME_HOOK,
     MEMORY_RETRO_HOOK,
     *((PLAN_HOOK,) if featuretoggles.PLAN_REQUIRED else ()),

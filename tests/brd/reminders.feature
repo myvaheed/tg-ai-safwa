@@ -1,8 +1,9 @@
 Feature: Reminders
-  A Reminder is some words and a time, and nothing else. Nobody builds a schedule by hand — not the
-  owner and not Safwa. The timing arrives as plain words, one short session turns those words into
-  parameters, and the schedule is worked out from them in code. When one comes due, exactly one thing
-  happens: the words are handed to Safwa as a request, and Safwa decides what to say.
+  A Reminder is some words and when they come due, and nothing else: a time, or a run of one Check's
+  answers. Nobody builds a schedule by hand — not the owner and not Safwa. The timing arrives as plain
+  words, one short session turns those words into parameters, and the schedule is worked out from
+  them in code. When one comes due, exactly one thing happens: the words are handed to Safwa as a
+  request, and Safwa decides what to say.
 
   Numbers below name the constant they come from; the tests read the constant.
 
@@ -188,3 +189,44 @@ Feature: Reminders
     And the next firing reads in the owner's own clock, not as the moment it is stored as
     And no Reminder is in the block of context Safwa is given before every turn, because the next
       firing moves each time one goes off, and that block has to stay the same to stay cheap
+
+  Scenario: RM-RUN-025 — A Reminder can come due on a run of a Check's answers
+    Given Safwa proposes a Reminder with the words "every 3 Missed in a row of Check #12"
+    When those words are worked through
+    Then the same short session turns them into the Check, the answer and how many in a row
+    And the screen says "each time Check #12 is Missed 3 times in a row", and shows no first firing
+    And Save makes a Reminder with no time: the clock never fires it, and a restart does not move it
+    And the Reminder follows the whole series of that Check, whichever of its instances was named
+    And a Check that does not exist is refused, with the forms of RM-UNCLEAR-028
+
+  Scenario: RM-RUN-026 — A run Reminder fires at every multiple of its count
+    Given a Reminder on 3 Missed in a row of a repeating Check
+    When an answer to that Check is saved — by hand, or from a proposal the owner saved
+    And its newest answers, counted back to the first other answer, are 3 Missed or a multiple of 3
+    Then its words go to Safwa as one request, as any Reminder's do when it comes due, saying how
+      many in a row there are now
+    And a Pending instance on top is not counted and does not break the run
+    And a fourth and a fifth Missed say nothing; the sixth says it again
+    And a Passed answer says nothing to a Reminder on Missed, and a Reminder on Passed counts Passed
+      the same way
+    And it stays after it fires, and deleting it is the only off switch, by RM-WRITE-010; it is not
+      in Profile → Hooks
+
+  Scenario: RM-RUN-027 — A run Reminder is listed and read like any other
+    Given a Reminder on a run of a Check's answers, and one with a time
+    When the owner opens /reminders
+    Then the one with a time comes first, and the run one follows, by its words and its run
+    And opening it shows its run and no next firing, and the same two things to do, by RM-UI-023
+    And Safwa reads it in ai_reminders with schedule_kind run, its Check series, its answer and its
+      count, and no next firing
+
+  Scenario: RM-UNCLEAR-028 — Words that cannot be scheduled come back with what is unclear and the forms that work
+    Given Safwa proposes a Reminder whose words do not say when, or say a time no schedule can keep
+    When those words are worked through
+    Then nothing is written, and Safwa is told what is unclear and the forms a Reminder's timing may take
+    And the words meant a time, so the forms are times: "tomorrow at 15:00", "on Thursday at 10:00",
+      "every weekday at 8:00", "every 2 hours except 22:00–09:00" (REMINDER_TIME_FORMS)
+    And words that meant a Check get the Check forms: "every 3 Missed in a row of Check #12",
+      "after 40 Passed in a row of Check #12", "each time Check #12 is Missed" (REMINDER_CHECK_FORMS)
+    And words where neither can be told, or that the short session could not read at all, get both
+    And Safwa tells the owner, and tries again with the owner's answer, by RM-SCHEDULE-002

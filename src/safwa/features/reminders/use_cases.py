@@ -29,7 +29,7 @@ from .api import (
     schedule_columns,
     schedule_of,
 )
-from .model import Reminder
+from .model import Reminder, ScheduleKind
 
 # The change a hook may follow up on: the owner's Reminder was created, however it was saved.
 REMINDER_CREATED = "reminder.created"
@@ -134,7 +134,9 @@ async def _existing_reminder(session: AsyncSession, reminder_id: int) -> Reminde
     return reminder
 
 
-def _first_fire(schedule: Schedule, tz: ZoneInfo) -> datetime:
+def _first_fire(schedule: Schedule, tz: ZoneInfo) -> datetime | None:
+    if schedule.kind is ScheduleKind.RUN:
+        return None  # an answer fires it, never the clock
     first = next_fire(schedule, previous=None, now=datetime.now(UTC), tz=tz)
     if first is None:
         raise DomainError("That schedule has no future occurrence")
@@ -150,13 +152,13 @@ async def reconcile_reminders(session: AsyncSession, now: datetime | None = None
     rolled forward, but only once it is past the catch-up grace — inside the grace the row
     stays overdue, because the first tick firing it is the catch-up.
 
-    A one-shot is never moved: it always fires, however late.
+    A one-shot is never moved: it always fires, however late. A run has no clock to move.
     """
     now = now or datetime.now(UTC)
     workspace = await session.get(Workspace, 1)
     tz = ZoneInfo(workspace.timezone if workspace else "UTC")
     grace = timedelta(minutes=REMINDER_CATCHUP_GRACE_MINUTES)
-    for reminder in await session.scalars(select(Reminder)):
+    for reminder in await session.scalars(select(Reminder).where(Reminder.next_fire_at.is_not(None))):
         schedule = schedule_of(reminder)
         if not schedule.repeating:
             continue  # a one-shot always fires, however late

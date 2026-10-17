@@ -163,8 +163,9 @@ MANUAL = f"""# Safwa
 - Correcting what a photo on a day shows renames that photo everywhere, once saved.
 
 # Reminders
-- A Reminder is words and a time. When it fires, its words come to the Advisor as a request, and the Advisor answers them.
-- In words only: create one, or change when it fires. Say the time in plain words. "🔔 Remind" on a Schedule also makes one.
+- A Reminder is words and when they come due: a time, or a run of one Check's answers. When it fires, its words come to the Advisor as a request, and the Advisor answers them.
+- In words only: create one, or change when it fires. Say the time in plain words, such as "every weekday at 8:00", or the run, such as "every 3 Missed in a row of Check #12". "🔔 Remind" on a Schedule also makes one.
+- A run Reminder fires at every multiple of its count: 3, 6, 9 Missed in a row.
 - With buttons: "⏰ Reminders" or /reminders: "✏️ Text" to change the words, "🗑 Delete".
 - Deleting is the only way to stop one.
 

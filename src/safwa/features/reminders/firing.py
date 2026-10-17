@@ -11,6 +11,10 @@ waiting writes nothing, and the due Reminders it would have carried stay due for
 after that.  A hook's request waiting is no reason to hold them: the Cue poll says everything
 waiting in one turn.
 
+A run Reminder has no clock: an answer to its Check writes its Cue, and only when that answer
+makes the run a multiple of its count. Its words go even while others wait, because the
+answer that made the run will not come again.
+
 Do not confuse the two intervals.  The tick is ``SCHEDULER_POLL_SECONDS`` and is the
 system's clock; a Reminder's own ``interval_minutes`` is a property of its row.  A deferred
 Reminder waits seconds for a quiet moment, never one of its own cycles.
@@ -27,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tg_agent_shell.cues.queue import add_cue, words_waiting
 
+from ..checks.api import answer_run, series_of
 from .api import (
     REMINDER_CATCHUP_GRACE_MINUTES,
     describe,
@@ -146,6 +151,34 @@ async def tick(
         await settle(session, firings, now=moment, tz=tz)
         await session.commit()
         return True
+
+
+async def fire_runs(session: AsyncSession, check_id: int, *, now: datetime, tz: ZoneInfo) -> bool:
+    """Write down every run Reminder that this Check's answer brought to a multiple of its
+    count. Returns whether a Cue was written."""
+    series_id = await series_of(session, check_id)
+    if series_id is None:
+        return False
+    firings: list[Firing] = []
+    for reminder in await session.scalars(
+        select(Reminder).where(Reminder.run_series_id == series_id).order_by(Reminder.id)
+    ):
+        run = await answer_run(session, series_id, reminder.run_outcome)
+        if not run or len(run) % reminder.run_length:
+            continue
+        schedule = describe(schedule_of(reminder), tz=tz)
+        firings.append(
+            Firing(
+                reminder_id=reminder.id,
+                instruction=reminder.instruction,
+                schedule=f"{schedule}; {len(run)} in a row now",
+                due_at=now,
+            )
+        )
+    if not firings:
+        return False
+    await add_cue(session, text=format_cue(firings, now=now))
+    return True
 
 
 def format_cue(firings: list[Firing], *, now: datetime) -> str:
