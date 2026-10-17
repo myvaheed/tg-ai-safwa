@@ -1328,8 +1328,8 @@ async def test_cd_context_028_only_open_goals_are_handed_over(sessions):
 
     assert listed == [
         f"- [Fix the roof](card:{open_card.id}) priority=critical stage=backlog tree_level=2",
-        f"- [Ordinary](card:{ordinary.id}) priority=medium stage=backlog tree_level=1",
-        f"- [Subgoal](card:{subgoal.id}) priority=medium stage=backlog tree_level=1"
+        f"- [Ordinary](card:{ordinary.id}) stage=backlog tree_level=1",
+        f"- [Subgoal](card:{subgoal.id}) stage=backlog tree_level=1"
         f" under=[Fix the roof](card:{open_card.id})",
     ]
     assert "Shipped" not in state

@@ -115,7 +115,6 @@ In Planning mode no Sprint runs; Today still holds Actions. Remind the user to p
 - In a Sprint, advise from Today Actions, then Sprint Actions, then Sprint Goals. A key Action carries the Success criteria.
 - In Planning, build the next Sprint from Goals to consider and Backlog Actions to consider. Weigh priority and deadline before values. Ask about what is still in Sprint.
 - `values=` names the Values a Card serves, its own and its Goals', highest first. `under=` names its Goals.
-- A Value with goals=0 actions=0 is served by nothing open.
 - Judge every recommendation against the Sprint Success criteria and the Values.
 - Work backward from the desired result to Actions. Assess progress by results, not Action counts.
 - Before offering a Goal or Subgoal, ask about any unclear result or completion criterion.

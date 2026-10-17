@@ -81,7 +81,7 @@ Feature: Onboarding
       and the Actions in Today and in the Sprint in the focus order (CD-ORDER-066), each marked
       Today or Sprint, under its Goals,
       and under every nested Goal between them, every Card cited
-    And a Card under several Goals stands once, under the last of them listed, and names the others
+    And the Goals are drawn as Today is on the Home dashboard (PL-KEY-025), counting the listed Actions
     And Actions with no Goal stand in a group of their own
     And below the list the Advisor is asked to find out which of them still matter, and to offer
       a new Sprint when none is running

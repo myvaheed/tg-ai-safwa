@@ -291,7 +291,7 @@
   Scenario: CD-CONTEXT-028 — The Goals Safwa is handed are the ones still open
     Given Goals of every Priority, some of them Done and some still open
     Then only open Goals and Subgoals are handed over, chosen as WS-CONTEXT-008 says
-    And each says its Priority, current stage and compiled Deadline when there is one
+    And each says its Priority when it is not Medium, its current stage and its compiled Deadline when there is one
     And an Action is not in a list of Goals: Safwa reads Actions in lists of their own
 
   Scenario: CD-VIEW-031 — A Card opens compact, and full editing is one button away

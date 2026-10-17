@@ -222,8 +222,9 @@
       as every default list (CD-ORDER-060)
     And a day is the workspace's local day
     When Today is shown under its Goals on the Home dashboard
-    Then each Goal and Subgoal stands once, where the first of its Actions stands in that order, with its later Actions under it
-    And a Card under several Goals stands once, under the last of them shown, and the others are named on its line
+    Then each Goal and Subgoal stands once, where the first Action under it stands in that order, with its later Actions under it
+    And a Card under several Goals stands once, under the one with the most Actions in Today under it, the higher in the common Card order on a tie, and the others are named on its line
+    And a Goal with nothing drawn under it is not drawn
     And an Action with no Goal keeps its own place
     And the Advisor reads Today as a ranked list, each Action naming its Goals on its line (WS-CONTEXT-010)
 

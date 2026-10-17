@@ -65,7 +65,8 @@
     When a Sprint is running
     Then it is handed Sprint Goals instead: the open Goals and Subgoals above an Action in Sprint or Today, in the same order and limit
     And a Done or archived Goal is in neither list
-    And each Goal says its Priority, stage, tree_level (CD-TREE-053), compiled Deadline when there is one, the Values it serves and the Goals it stands under
+    And each Goal says its Priority when it is not Medium, its stage, tree_level (CD-TREE-053), its compiled Deadline when there is one, the Values it serves and the Goals it stands under
+    And a Deadline is counted from today as an appointment is (WS-CONTEXT-010), with its time only when the Deadline names one
     And a list with no Goal has no heading
 
   Scenario: WS-CAPTURE-008 — A captured record waits for a decision, not for filled fields
@@ -84,12 +85,16 @@
 
   Scenario: WS-CONTEXT-010 — Today is a ranked list of its Actions, each with its own Priority
     Given Actions in Today
-    Then Today Actions lists every one of them in the focus order, one line each, under the day's planned executions and effort
-    And each line says its own stored Priority, key when it is key to the running Sprint, blocked when it is blocked, its executions when they are other than one, its effort while Effort Points are on, and its appointment
-    And values= names the Values it serves, its own and its Goals', highest first, as links
+    Then Today Actions lists every one of them in the focus order, one line each
+    And its heading says how many, and the planned executions left today and, while Effort Points are on, the effort left
+    And each line says its own stored Priority when it is not Medium, key when it is key to the running Sprint, blocked when it is blocked, its executions when they are other than one, its effort while Effort Points are on, and its appointment
+    And an appointment says today or tomorrow in place of its date, its year only when it is not this year, and its time unless it takes the whole day
+    And a later appointment says in how many days it comes, and a passed one says overdue, with how many days ago when it was before today
+    And an appointment for the whole day passes when that day ends
+    And values= names the Values it serves, its own and its Goals', highest first, by name
     And under= names every Goal it stands under directly, as links
     And a title's line breaks do not break its line
-    And an empty Today says its planned executions and lists nothing
+    And an empty Today says Today Actions: none
 
   Scenario: WS-CONTEXT-011 — In a Sprint, Safwa reads the work tactically
     Given a running Sprint
@@ -102,7 +107,8 @@
   Scenario: WS-CONTEXT-012 — In Planning, Safwa reads the work strategically
     Given no Sprint is running
     When Safwa reads the workspace
-    Then each Value says how many open Goals and Actions serve it, on themselves or through a Goal above them, as goals= and actions=
-    And a Value nothing open serves reads goals=0 actions=0
+    Then each Value says how many open Goals, Actions and Checks serve it, as goals=, actions= and checks=
+    And a Goal or an Action serves it on itself or through a Goal above it, and an unanswered Check on itself
+    And a count of zero is left out, so a Value nothing open serves carries no count
     And it reads Today Actions, then Goals to consider, then Backlog Actions to consider, then the Actions still in Sprint, to review
     And each of the last three is the first 10 in the focus order, which reads no stage while no Sprint runs

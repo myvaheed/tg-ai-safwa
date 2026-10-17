@@ -20,8 +20,8 @@ from tg_agent_shell.foundation.clock import utcnow
 
 from ...foundation.log_events import CREATE, DELETE, UPDATE, LogEvent
 from ...foundation.workspace import require_workspace
-from ..cards.api import effort_label, minutes_label, order_cards, tracked_between
-from ..planning.api import plan_load, today_actions, today_tree, values_in_focus
+from ..cards.api import effort_label, goal_tree, minutes_label, order_cards, tracked_between
+from ..planning.api import plan_load, today_actions, values_in_focus
 from ..profile.api import effort_tracking_on, time_tracking_on
 
 # How many changes the dashboard opens with.
@@ -90,7 +90,7 @@ async def _today(session: AsyncSession, local: datetime) -> str:
     if load.unknown_schedules:
         planned += " · Schedule quantities are unknown"
     lines = [f"**☀️ Today · {len(cards)}**", planned]
-    for row in await today_tree(session, cards, now=local):
+    for row in await goal_tree(session, cards, now=local):
         card = row.card
         # Only an Action has executions to count; a Goal stands for the Actions under it.
         quantity = load.counts.get(card.id, 1)

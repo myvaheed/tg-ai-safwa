@@ -188,18 +188,38 @@ per distinct Value at its shortest upward distance d to a carrier; r is Value or
 (1 highest), N the Value count. Children never raise a Goal's Priority. An Action key to
 the running Sprint comes before the others of its date group and Priority. A Done list reads
 newest first.
-Existing hierarchies keep each Card once and name its other parents; Home branches follow
-their first Action. See [HOME_DASHBOARD.md](HOME_DASHBOARD.md).
+Existing hierarchies keep each Card once and name its other parents. On Home and in the
+return list (`goal_tree`) a Card stands under the Goal with the most of the listed Actions under
+it, the higher on a tie, a Goal with nothing drawn under it is not drawn, and each branch
+stands where its first Action does. See [HOME_DASHBOARD.md](HOME_DASHBOARD.md).
 
-## The Goals Safwa starts from
+Which order each list uses:
 
-Each turn hands the Advisor its lists in the focus order (CD-ORDER-066), each cut to 10
-(`CONTEXT_LIST_LIMIT`): what can be worked on now comes first, so a Goal with fewer levels
-under it leads, and while a Sprint runs Today leads the Sprint. A Sprint is read tactically:
-Today Actions, the rest of the Sprint and the Goals that work serves. Planning is read
-strategically: how many open Goals and Actions serve each Value, then the Goals and Backlog
-Actions to consider and what is still in the Sprint. Each Card line carries its own Priority,
-the Values it serves and the Goals it stands under. Screens keep the common order.
+| Order | Lists |
+|---|---|
+| Common Card order (`order_cards`) | the Dashboard's Sprint and Today columns, the Backlog, the Plan and Sprint screens, a Card's parents, Today on Home before it is drawn as a tree, the energy balance hook |
+| Focus order (CD-ORDER-066) | the Advisor's context, the return list after a break (OB-RETURN-007) |
+| Flat result tree (`result_order`, CD-ORDER-054) | a Request with no ORDER BY over its whole result, a Goal's children, the Cards carrying a Value or a Tag |
+| Goal tree (`goal_tree`, PL-KEY-025) | Today on Home and in its motivation, the return list |
+| Newest Done first (`FINISHED_LAST`) | the Dashboard's Done column, the Sprint screen's Done list |
+| The query's own order (`explicit_order`, SR-RUN-006) | a Request whose ORDER BY sorts its whole result |
+| Value priority (VL-ORDER-029) | every live list of Values, and the Values a context line names |
+| Oldest first (CD-OVERDUE-065) | the morning question about passed appointments and Deadlines |
+| Creation order | the other Card hooks |
+
+## Planning reads strategically, a Sprint tactically
+
+The workspace mode decides how far the Advisor looks. In Planning, with no Sprint running, it
+looks at the whole: how many open Goals, Actions and Checks serve each Value, the Goals and
+Backlog Actions to build the next Sprint from, and what is still in the Sprint. While a Sprint
+runs it looks at the next step: Today Actions, the rest of the Sprint and the Goals that work
+serves; other Goals and the Backlog wait for the next Planning.
+
+Each list comes in the focus order (CD-ORDER-066), cut to 10 (`CONTEXT_LIST_LIMIT`): what can be
+worked on now comes first, so a Goal with fewer levels under it leads, and while a Sprint runs
+Today leads the Sprint. A Card line carries its Priority unless it is Medium, its appointment or
+Deadline counted from today (today, tomorrow, in N days, overdue), the Values it serves by name
+and the Goals it stands under. A count of zero is left out. Screens keep the common order.
 
 ## Checks
 

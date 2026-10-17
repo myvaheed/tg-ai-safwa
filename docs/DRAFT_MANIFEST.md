@@ -73,15 +73,18 @@ While there is value in the items on the right, we value the items on the left m
 11. **Work in Sprints of fixed length with Success criteria.** A running Sprint is not extended,
     paused or rewritten. It ends with a retro: Met or Not met, and one experiment for the next.
     Memory keeps the patterns the retros found, not grades.
-12. **Today is a small window.** An Action that stands in Today morning after morning is a signal
+12. **Plan strategically, work tactically.** Between Sprints the agent looks at the whole: every
+    Value, how much open work serves it, and which Goals to take next. During a Sprint it looks
+    at the Sprint alone: Today first, then the rest of it, and the Goals that work moves.
+13. **Today is a small window.** An Action that stands in Today morning after morning is a signal
     to rethink it, not a failure. Rest is planned too: each Action names what it gives and what
     it costs.
-13. **Observe state apart from work.** A Check is an observation, not a task, and no answer is not
+14. **Observe state apart from work.** A Check is an observation, not a task, and no answer is not
     a Missed.
 
 ### Measure only what helps
 
-14. **Effort Points and time are optional instruments.** The person switches them on when they
+15. **Effort Points and time are optional instruments.** The person switches them on when they
     help; without them the framework works on plain counts of Actions.
 
 ## The framework

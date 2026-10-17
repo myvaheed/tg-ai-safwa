@@ -52,10 +52,12 @@ The day and the time it was drawn head it (HM-ORDER-014), then:
   hands its id to the next item.
 - **Values in focus** (`values_in_focus`): every Value a Card in Today carries, by priority, each
   with the words written for it, or its name alone when none could be written.
-- **Today**, every Action in it under its Goals and Subgoals (`today_tree`, PL-KEY-025): a Goal
-  stands once, where its first Action stands in Today's order (`order_cards`), and its later
-  Actions come up under it; a Card under several Goals stands under the last of them, and
-  `· ↖` names the others as links; an Action with no Goal keeps its own place. The heading counts the
+- **Today**, every Action in it under its Goals and Subgoals (`goal_tree`, PL-KEY-025): a Goal
+  stands once, where the first Action under it stands in Today's order (`order_cards`), and its
+  later Actions come up under it; a Card under several Goals stands under the one with the most
+  Actions in Today under it, the higher in the common order on a tie, and `· ↖` names the others
+  as links; a Goal with nothing drawn under it is not drawn; an Action with no Goal keeps its own
+  place. The heading counts the
   Actions; the line under it gives the planned executions of the local day and, with EP on, their
   load; repeating rows show × quantity. With Today empty it says so, and no other list stands in for it: the Sprint and
   the Backlog are the Dashboard's (`📊 Dashboard` in the menu).
@@ -131,7 +133,7 @@ nothing to clear.
 [motivation.py](../src/safwa/features/home/motivation.py): one `run_mini_session` for every Value
 in focus, ending in `motivate(words)`, a list of a Value's number and its text of at most
 `MOTIVATION_MAX_CHARS = 200`. The context is About me, the local date, the current Sprint's
-Success criteria (or an explicit note that no Sprint is running), Today as `today_tree` gives it,
+Success criteria (or an explicit note that no Sprint is running), Today as `goal_tree` gives it,
 the `MOTIVATION_DONE_ACTIONS = 10` Actions finished last and the `MOTIVATION_DIARY_ENTRIES = 2`
 Diary days written last with words, however old, and previous motivation — then the Values,
 numbered, each with the Today Cards that carry it. The prompt ties each Value to those Cards and

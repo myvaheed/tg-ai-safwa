@@ -326,6 +326,64 @@ def forest_rows(cards: Sequence[Card], parents: Mapping[int, Iterable[int]]) -> 
     return rows
 
 
+async def goal_tree(
+    session: AsyncSession, actions: Sequence[Card], *, now: datetime | None = None
+) -> list[ForestRow]:
+    """`actions`, in the order given, under the Goals above them, each Card once.
+
+    A Card under several Goals stands under the one with the most of `actions` under it, the
+    higher in the common Card order on a tie, and names the others. Only the Goals on those
+    chains are shown, each where the first Action under it stands.
+    """
+    if not actions:
+        return []
+    goals = await order_cards(
+        session, await session.scalars(select(Card).where(Card.kind == CardKind.GOAL.value)), now=now
+    )
+    by_id = {card.id: card for card in [*goals, *actions]}
+    rank = {card.id: position for position, card in enumerate(goals)}
+    parents = await parents_of(session)
+    weight = dict.fromkeys(rank, 0)
+    for action in actions:
+        above: set[int] = set()
+        waiting = list(parents.get(action.id, ()))
+        while waiting:
+            if (goal_id := waiting.pop()) not in above:
+                above.add(goal_id)
+                waiting.extend(parents.get(goal_id, ()))
+        for goal_id in above:
+            weight[goal_id] += 1
+    anchor: dict[int, int | None] = {}
+    children: dict[int | None, list[int]] = {}
+
+    def place(card_id: int) -> None:
+        if card_id in anchor:
+            return
+        anchor[card_id] = min(
+            parents.get(card_id, ()), key=lambda goal_id: (-weight[goal_id], rank[goal_id]), default=None
+        )
+        if anchor[card_id] is not None:
+            place(anchor[card_id])
+        children.setdefault(anchor[card_id], []).append(card_id)
+
+    for action in actions:
+        place(action.id)
+    rows: list[ForestRow] = []
+
+    def visit(card_id: int, depth: int) -> None:
+        others = sorted(
+            (parent for parent in parents.get(card_id, ()) if parent != anchor[card_id]),
+            key=rank.__getitem__,
+        )
+        rows.append(ForestRow(depth, by_id[card_id], tuple(by_id[parent] for parent in others)))
+        for child in children.get(card_id, ()):
+            visit(child, depth + 1)
+
+    for root in children.get(None, ()):
+        visit(root, 0)
+    return rows
+
+
 GOAL = Method(
     name="Goal",
     definition=(

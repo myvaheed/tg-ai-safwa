@@ -23,9 +23,9 @@ from tg_agent_shell.ai.mini import TerminalTool, run_mini_session
 from tg_agent_shell.foundation.clock import utcnow
 
 from ...foundation.workspace import require_workspace
-from ..cards.api import finished_actions, order_cards
+from ..cards.api import finished_actions, goal_tree, order_cards
 from ..diary.api import last_entries
-from ..planning.api import today_actions, today_tree, values_in_focus
+from ..planning.api import today_actions, values_in_focus
 from ..planning.model import Sprint
 from ..profile.api import about_me
 
@@ -85,7 +85,7 @@ async def owner_context(session: AsyncSession) -> str:
         if workspace.active_sprint_id else None
     )
     actions = await order_cards(session, await today_actions(session), now=local_now)
-    today = await today_tree(session, actions, now=local_now)
+    today = await goal_tree(session, actions, now=local_now)
     done = await finished_actions(session, MOTIVATION_DONE_ACTIONS)
     days = await last_entries(session, MOTIVATION_DIARY_ENTRIES)
     lines = [

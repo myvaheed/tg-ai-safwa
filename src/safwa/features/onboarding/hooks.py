@@ -31,7 +31,7 @@ from tg_agent_shell.hooks.contracts import (
 )
 
 from ...constants import INBOX_TAG_NAME
-from ..cards.api import forest_rows, order_cards, parents_of, planned_actions
+from ..cards.api import goal_tree, order_cards, parents_of, planned_actions
 from ..cards.model import Card, CardCheck, CardKind, card_kind_name
 from ..cards.use_cases import CARD_CREATED, CARD_DONE, CARD_TODAY
 from ..checks.model import CHECK_OUTCOME_LABELS, Check
@@ -328,36 +328,11 @@ def _cited(card: Card) -> str:
 
 
 async def _tree(session: AsyncSession, actions: Sequence[Card]) -> list[str]:
-    """The selected Actions under every Goal above them, with rootless Actions last.
-
-    Under each Goal its Actions come first, then its Subgoals by id; a Card under several
-    Goals stands under the last of them and names the others.
-    """
-    index = {action.id: position for position, action in enumerate(actions)}
-    parents: dict[int, list[int]] = {}
-    found: list[Card] = []
-
-    async def place(card: Card) -> None:
-        if card.id in parents:
-            return
-        parents[card.id] = (await parents_of(session, [card.id])).get(card.id, [])
-        for parent_id in parents[card.id]:
-            await place(await session.get_one(Card, parent_id))
-        found.append(card)
-
-    for action in actions:
-        await place(action)
-    ranks = {card.id: rank for rank, card in enumerate(await order_cards(session, found))}
-    ordered = sorted(
-        found,
-        key=lambda card: (
-            card.kind == CardKind.GOAL.value,
-            ranks[card.id] if card.kind == CardKind.GOAL.value else index.get(card.id, 0),
-        ),
-    )
+    """The selected Actions under the Goals above them (`goal_tree`), with rootless Actions
+    last."""
     lines: list[str] = []
     independent: list[Card] = []
-    for row in forest_rows(ordered, parents):
+    for row in await goal_tree(session, actions):
         card = row.card
         if card.kind == CardKind.ACTION.value and not row.depth:
             independent.append(card)

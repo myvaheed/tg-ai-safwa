@@ -605,9 +605,9 @@ async def test_ob_return_007_actions_stand_under_their_goal_and_subgoal(sessions
             "It has been 20 days since your last message. In Today and the Sprint:\n"
             "\n"
             f"[Health](card:{health.id})\n"
-            f"    [Walk](card:{walk.id}) — Sprint\n"
             f"    [Sleep](card:{sleep.id})\n"
             f"        [Bed at ten](card:{bed.id}) — Today\n"
+            f"    [Walk](card:{walk.id}) — Sprint\n"
             "No Goal\n"
             f"    [Taxes](card:{taxes.id}) — Sprint"
         ),
@@ -632,8 +632,7 @@ async def test_ob_return_007_a_card_under_two_goals_stands_once(sessions):
 
     assert said.block.splitlines()[2:] == [
         f"[Health](card:{health.id})",
-        f"[Rest](card:{rest.id})",
-        f"    [Bed at ten](card:{bed.id}) — Today · ↖ [Health](card:{health.id})",
+        f"    [Bed at ten](card:{bed.id}) — Today · ↖ [Rest](card:{rest.id})",
     ]
 
 

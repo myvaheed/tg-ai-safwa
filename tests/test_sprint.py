@@ -555,7 +555,7 @@ async def test_pl_context_010_safwa_is_handed_the_sprint_and_todays_actions(sess
         context.state
     )
     assert "Success criteria: Ship v2" in context.state
-    assert "Today Actions, best first:" in context.state
+    assert "Today Actions, best first (1 of 1; " in context.state
     assert "[Ship it](card:1)" in context.state
     assert "Later" not in context.state
     # The four effort figures are not handed over; Safwa reads them when it wants them.
@@ -581,7 +581,8 @@ async def test_pl_context_020_todays_actions_are_handed_over_in_planning_as_in_a
             session, title="The dentist", stage="today", effort_points=1,
             priority="low", schedule="09:00",
         )
-        fixed_at = fixed.scheduled_at.astimezone(ZoneInfo("Europe/Istanbul"))
+        tz = ZoneInfo("Europe/Istanbul")
+        day = "today" if fixed.scheduled_at.astimezone(tz).date() == datetime.now(tz).date() else "tomorrow"
         await create_card(session, title="Later", stage="sprint", effort_points=3)
         await create_domain_card(session, title="The release", kind="goal", stage="today")
         await start_sprint(session, success_criteria="Ship v2")
@@ -593,7 +594,7 @@ async def test_pl_context_020_todays_actions_are_handed_over_in_planning_as_in_a
         planning = (await workspace_context(session)).state
 
     def today_lines(state):
-        lines = state.split("Today Actions, best first:")[1].splitlines()[1:]
+        lines = state.split("Today Actions, best first (")[1].splitlines()[1:]
         return [line for line in lines[: next(i for i, line in enumerate(lines) if line.endswith(":"))]
                 if line.startswith("- [")]
 
@@ -601,9 +602,9 @@ async def test_pl_context_020_todays_actions_are_handed_over_in_planning_as_in_a
     # the Sprint and the open Goals are handed over in lists of their own.
     handed = today_lines(running)
     assert handed == [
-        f"- [The dentist](card:{fixed.id}) priority=low effort=1 schedule_at={fixed_at:%d.%m %H:%M}",
+        f"- [The dentist](card:{fixed.id}) priority=low effort=1 at={day} 09:00",
         f"- [Ship it](card:{today.id}) priority=critical effort=5",
-        f"- [Middling](card:{medium.id}) priority=medium effort=2",
+        f"- [Middling](card:{medium.id}) effort=2",
         f"- [Sometime](card:{low.id}) priority=low effort=1",
     ]
     assert today_lines(planning) == handed

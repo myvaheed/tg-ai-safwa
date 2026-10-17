@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, select
@@ -28,11 +28,7 @@ from ..cards.api import (
     TERMINAL_STAGES,
     Card,
     CardStage,
-    ForestRow,
     actions_on_stages,
-    forest_rows,
-    order_cards,
-    parents_of,
     planned_actions,
 )
 from ..cards.model import CardKind
@@ -356,39 +352,6 @@ async def key_action_ids(session: AsyncSession) -> set[int]:
 async def today_actions(session: AsyncSession) -> list[Card]:
     """The open Actions in Today."""
     return await actions_on_stages(session, CardStage.TODAY)
-
-
-async def today_tree(
-    session: AsyncSession, actions: list[Card], *, now: datetime | None = None
-) -> list[ForestRow]:
-    """Today's Actions under their Goals and Subgoals, each with its depth, root first.
-
-    A Goal stands once, where the first of its Actions stands in `actions`, and its later
-    Actions come up under it. A Card under several Goals stands under the last of them and
-    names the others. An Action with no Goal keeps its own place.
-    """
-    if not actions:
-        return []
-    goals = await order_cards(
-        session, await session.scalars(select(Card).where(Card.kind == CardKind.GOAL.value)), now=now
-    )
-    by_id = {card.id: card for card in [*goals, *actions]}
-    position = {card.id: rank for rank, card in enumerate(goals)}
-    parents = await parents_of(session)
-    order: list[Card] = []
-    placed: set[int] = set()
-
-    def place(card: Card) -> None:
-        if card.id in placed:
-            return
-        placed.add(card.id)
-        for parent_id in sorted(parents.get(card.id, ()), key=position.__getitem__):
-            place(by_id[parent_id])
-        order.append(card)
-
-    for action in actions:
-        place(action)
-    return forest_rows(order, parents)
 
 
 async def values_in_focus(session: AsyncSession) -> list[tuple[Value, list[Card]]]:
