@@ -1,6 +1,6 @@
 Feature: Reminders
-  A Reminder is some words and when they come due, and nothing else: a time, or a run of one Check's
-  answers. Nobody builds a schedule by hand — not the owner and not Safwa. The timing arrives as plain
+  A Reminder is some words and when they come due, and nothing else: a time, or a count of answers of
+  Checks or Actions. Nobody builds a schedule by hand — not the owner and not Safwa. The timing arrives as plain
   words, one short session turns those words into parameters, and the schedule is worked out from
   them in code. When one comes due, exactly one thing happens: the words are handed to Safwa as a
   request, and Safwa decides what to say.
@@ -190,53 +190,73 @@ Feature: Reminders
     And no Reminder is in the block of context Safwa is given before every turn, because the next
       firing moves each time one goes off, and that block has to stay the same to stay cheap
 
-  Scenario: RM-RUN-025 — A Reminder can come due on a run of a Check's answers
-    Given Safwa proposes a Reminder with the words "every 3 Missed in a row of Check #12"
-    When those words are worked through
-    Then the same short session turns them into the Check, the answer and how many in a row
-    And the screen says "each time Check #12 is Missed 3 times in a row", and shows no first firing
-    And Save makes a Reminder with no time: the clock never fires it, and a restart does not move it
-    And the Reminder follows the whole series of that Check, whichever of its instances was named
-    And a Check that does not exist is refused, with the forms of RM-UNCLEAR-028
-    And a count above 1 on a Check that does not repeat is refused the same way: it is answered
-      once, so that run never comes
-    And a Check repeats when its own Schedule repeats, or when it hangs on an Action whose
-      Schedule repeats; a count of 1 is kept on any Check
-
-  Scenario: RM-RUN-026 — A run Reminder fires at every multiple of its count
-    Given a Reminder on 3 Missed in a row of a repeating Check
-    When an answer to that Check is saved — by hand, or from a proposal the owner saved
-    And its newest answers, counted back to the first other answer, are 3 Missed or a multiple of 3
-    Then its words go to Safwa as one request, as any Reminder's do when it comes due, saying how
-      many in a row there are now
-    And a Pending instance on top is not counted and does not break the run
-    And a fourth and a fifth Missed say nothing; the sixth says it again
-    And a Passed answer says nothing to a Reminder on Missed, and a Reminder on Passed counts Passed
-      the same way
-    And it stays after it fires, and deleting it is the only off switch, by RM-WRITE-010; it is not
-      in Profile → Hooks
-
-  Scenario: RM-RUN-027 — A run Reminder is listed and read like any other
-    Given a Reminder on a run of a Check's answers, and one with a time
-    When the owner opens /reminders
-    Then the one with a time comes first, and the run one follows, by its words and its run
-    And opening it shows its run and no next firing, and the same two things to do, by RM-UI-023
-    And Safwa reads it in ai_reminders with schedule_kind run, its Check series, its answer and its
-      count, and no next firing
-
   Scenario: RM-UNCLEAR-028 — Words that cannot be scheduled come back with what is unclear and the forms that work
     Given Safwa proposes a Reminder whose words do not say when, or say a time no schedule can keep
     When those words are worked through
     Then nothing is written, and Safwa is told what is unclear and the forms a Reminder's timing may take
     And the words meant a time, so the forms are times: "tomorrow at 15:00", "on Thursday at 10:00",
       "every weekday at 8:00", "every 2 hours except 22:00–09:00" (REMINDER_TIME_FORMS)
-    And words that meant a Check get the Check forms: "every 3 Missed in a row of Check #12",
-      "after 40 Passed in a row of Check #12", "each time Check #12 is Missed" (REMINDER_CHECK_FORMS)
+    And words that meant answers get the answer forms: "every 3 Missed in a row of Check #12",
+      "every 30 answers of Check #12", "every 10 Done of Actions tagged sport" (REMINDER_ANSWER_FORMS)
     And words where neither can be told, or that the short session could not read at all, get both
     And Safwa tells the owner, and tries again with the owner's answer, by RM-SCHEDULE-002
 
-  Scenario: RM-RUN-029 — A run Reminder goes with the last Check of its series
-    Given a Reminder on a run of a Check's answers
-    When the last Check left in that series is deleted — on its own, or with the Card it hangs on
-    Then the Reminder is deleted with it, as a Reminder deleted from its screen is
-    And deleting one instance while others of the series are left keeps the Reminder
+  Scenario: RM-COND-030 — A Reminder can come due on answers of Checks or Actions
+    Given Safwa proposes a Reminder with the words "every 3 Missed in a row of Check #12"
+    When those words are worked through
+    Then the short session of RM-SCHEDULE-001 reads which items, which answer, how many, and whether in a row
+    And a second short session writes those items as one SELECT of their ids, over ai_checks for a
+      Check's answer and over ai_cards for Done
+    And that session is given every Tag and Value by the name stored, so "tagged sport" finds a Tag
+      named Sport
+    And the answer is Passed, Missed, any answer of a Check, or Done of an Action, and only Passed and
+      Missed count in a row
+    And the screen says "every 3 Missed in a row of Check #12", and what the SELECT finds now by up to
+      3 titles and how many more (CONDITION_PREVIEW_TITLES = 3), and shows no first firing
+    And Save makes a Reminder with no time: the clock never fires it, and a restart does not move it
+
+  Scenario: RM-COND-031 — The SELECT is checked before the owner sees it
+    Given the second short session writes the SELECT
+    When it is not one SELECT over ai_checks and ai_cards, or a Check's answer does not read ai_checks,
+      or Done does not read ai_cards
+    Then it goes back to that session to repair, by its repair rounds (MINI_SESSION_REPAIR_ROUNDS = 3)
+    And a SELECT that still fails, does not run, or returns no id column comes back as words that
+      cannot be scheduled, with the answer forms of RM-UNCLEAR-028
+
+  Scenario: RM-COND-032 — A Reminder on answers fires at every multiple of its count
+    Given a Reminder on 3 Missed in a row of a repeating Check
+    When an answer to an item its SELECT finds is saved — by hand, or from a proposal the owner saved
+    Then the answers of every item the SELECT finds now are counted, newest first, and a Pending
+      instance is skipped
+    And in a row counts back to the first other answer, and in all counts every such answer
+    And at 3, 6 and 9 its words go to Safwa as one request, as any Reminder's do when it comes due,
+      saying how many there are now and how many Passed and Missed in all
+    And a fourth and a fifth Missed say nothing, and neither does an answer it does not count
+    And a corrected answer says nothing, even when the count it leaves is a multiple
+    And Done of an Action counts the same way, in all, and says how many are Done now
+    And it stays after it fires, and deleting it is the only off switch, by RM-WRITE-010; it is not in
+      Profile → Hooks
+
+  Scenario: RM-COND-033 — The SELECT runs again at every answer
+    Given a Reminder on "every 10 Done of Actions tagged sport"
+    When an Action tagged sport after the Reminder was made is Done
+    Then it counts
+    And deleting every item the SELECT finds leaves the Reminder, which counts nothing until its SELECT
+      finds something again
+
+  Scenario: RM-COND-034 — A count one series can never reach is refused
+    Given words whose SELECT finds one series of a Check or of an Action
+    When that series runs at most N times: once when it does not repeat, or its total by SCH-TOTAL-021
+    Then a count above N is refused with the answer forms of RM-UNCLEAR-028
+    And a Check runs as its own Schedule does, or else as the Action it hangs on
+    And a SELECT that finds more than one series, or a series that repeats without end, takes any count
+
+  Scenario: RM-COND-035 — A Reminder on answers is listed and read like any other
+    Given a Reminder on answers, and one with a time
+    When the owner opens /reminders
+    Then the one with a time comes first, and the one on answers follows, by its words and its answers
+    And opening it shows its answers and no next firing, and the same two things to do, by RM-UI-023
+    And it shows what its SELECT finds now, or, when the SELECT no longer runs, that it counts
+      nothing, why, and to ask Safwa to set it again
+    And Safwa reads it in ai_reminders with schedule_kind condition and its condition: the items, the
+      SELECT, the answer, the count and whether in a row, and no next firing

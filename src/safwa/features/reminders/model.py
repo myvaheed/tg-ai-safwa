@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, time
 from enum import StrEnum
+from typing import Any
 
 from sqlalchemy import JSON, Index, Integer, String, Text, Time
 from sqlalchemy.orm import Mapped, mapped_column
@@ -18,8 +19,8 @@ class ScheduleKind(StrEnum):
     INTERVAL = "interval"
     DAILY = "daily"
     WEEKLY = "weekly"
-    # On a run of one Check series' answers, never by the clock.
-    RUN = "run"
+    # On answers of Checks or Actions, never by the clock.
+    CONDITION = "condition"
 
 
 class Reminder(Base, TimestampMixin):
@@ -38,8 +39,9 @@ class Reminder(Base, TimestampMixin):
     nothing more: the tick writes the words down as a Cue and moves this row on in the same
     transaction, and the Cue row is what survives until the owner has them.
 
-    A run Reminder has no `next_fire_at`: the `run_*` columns name a Check series, an answer
-    and a count, and `reminders.check_run` writes its Cue when an answer makes that run.
+    A Reminder on answers has no `next_fire_at`: `condition` holds the items, the SELECT of
+    their ids, the answer, the count and whether in a row, and `reminders.condition` writes
+    its Cue when an answer makes that count.
     """
 
     __tablename__ = "reminders"
@@ -54,9 +56,7 @@ class Reminder(Base, TimestampMixin):
     interval_minutes: Mapped[int | None] = mapped_column(Integer)
     quiet_windows: Mapped[list[str]] = mapped_column(JSON, default=list)
 
-    run_series_id: Mapped[int | None] = mapped_column(Integer, index=True)
-    run_outcome: Mapped[str | None] = mapped_column(String(20))
-    run_length: Mapped[int | None] = mapped_column(Integer)
+    condition: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     next_fire_at: Mapped[datetime | None] = mapped_column(UtcDateTime, index=True)
     item_type: Mapped[str | None] = mapped_column(String(10))

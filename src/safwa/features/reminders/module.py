@@ -12,8 +12,8 @@ from tg_agent_shell.telegram.contributions import ScreenCommand
 from tg_agent_shell.telegram.manifest import FeatureModule, ProposalContribution
 
 from . import agent, proposal, telegram, views
+from .hooks import REMINDER_CONDITION_HOOK as REMINDER_CONDITION_HOOK
 from .hooks import REMINDER_FIRE_HOOK as REMINDER_FIRE_HOOK
-from .hooks import REMINDER_RUN_HOOK as REMINDER_RUN_HOOK
 from .hooks import REMINDER_START_HOOK as REMINDER_START_HOOK
 from .model import Reminder
 from .telegram import REMINDER_CALLBACK_ACTIONS, render_reminder, render_reminders

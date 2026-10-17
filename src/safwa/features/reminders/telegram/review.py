@@ -87,7 +87,8 @@ class ReminderProposalPresenter:
     async def screen(
         self, session: AsyncSession, changes: Sequence[ProposalChange]
     ) -> ProposalScreen | None:
-        """The words, when they fire and when they fire first, as the owner will meet them."""
+        """The words, when they fire and when they fire first, as the owner will meet them;
+        for a condition, what its SELECT finds now instead of a first firing."""
         change = changes[-1]
         values = dict(change.values)
         reminder = (
@@ -117,11 +118,16 @@ class ReminderProposalPresenter:
             if payload is not None
             else current.get("first"),
         }
+        timing = (
+            ShownField("🔎 Finds now", None, values["finds"])
+            if values.get("finds")
+            else ShownField("⏭ First", current.get("first"), proposed["first"])
+        )
         return ProposalScreen(
             item="Reminder",
             fields=(
                 ShownField("🔁 When", current.get("when"), proposed["when"], anchor=True),
-                ShownField("⏭ First", current.get("first"), proposed["first"]),
+                timing,
                 ShownField("Words", current.get("words"), proposed["words"], anchor=True),
             ),
             # A Reminder has no archive, so the only removal `remove` can send reads as one.

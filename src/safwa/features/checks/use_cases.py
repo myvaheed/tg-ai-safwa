@@ -21,10 +21,10 @@ from ...enums import ActorType
 from ...foundation.log_events import CREATE, DELETE, UPDATE, record_log_event, snapshot
 from ...foundation.workspace import bump_workspace
 from ..cards.model import TERMINAL_STAGES, Card, CardCheck, CardKind
-from ..reminders.use_cases import drop_run_reminders
 from ..schedules.api import (
     close_deleted_schedules,
     prepare_occurrence,
+    restart_slot,
     set_schedule,
     successor_slot,
 )
@@ -152,12 +152,21 @@ async def update_check_fields(
     *,
     actor: ActorType = ActorType.USER_UI,
 ) -> Check:
+    """Apply editable Check fields; on the last instance of a series that ended, a Schedule
+    opens its next instance, which takes every field and is returned."""
     check = await session.get(Check, check_id)
     if check is None or check.archived_at is not None:
         raise DomainError("Check does not exist or is archived")
     unknown = set(fields) - {"title", "note", "schedule", "schedule_rule"}
     if unknown:
         raise DomainError("Unsupported Check fields: " + ", ".join(sorted(unknown)))
+    if "schedule" in fields:
+        starts, slot = await restart_slot(session, check, fields.get("schedule_rule"))
+        successor = await _spawn_check_successor(session, check, slot) if starts else None
+        if successor is not None:
+            # Without the copied words even the same ones write a new revision, counted from 0.
+            successor.schedule = None
+            check = successor
     before = snapshot(check)
     if "title" in fields:
         title = str(fields["title"]).strip()
@@ -207,15 +216,11 @@ async def delete_check(session: AsyncSession, check_id: int, *, actor: ActorType
 async def _delete_checks(session: AsyncSession, check_ids: list[int]) -> None:
     if not check_ids:
         return
-    series = func.coalesce(Check.series_id, Check.id)
-    touched = set(await session.scalars(select(series).where(Check.id.in_(check_ids))))
     await close_deleted_schedules(session, Check, check_ids)
     await drop_reminders(session, Check, check_ids)
     await session.execute(delete(CheckValue).where(CheckValue.check_id.in_(check_ids)))
     await session.execute(delete(CardCheck).where(CardCheck.check_id.in_(check_ids)))
     await session.execute(delete(Check).where(Check.id.in_(check_ids)))
-    left = set(await session.scalars(select(series).where(series.in_(touched))))
-    await drop_run_reminders(session, touched - left)
 
 
 async def _copy_check(
@@ -294,7 +299,9 @@ async def _answer(
     before = snapshot(check)
     check.outcome = resolved.value
     check.resolved_by = actor.value
-    record_change(session, CHECK_ANSWERED, check.id)
+    record_change(
+        session, CHECK_ANSWERED, check.id, data=None if was_pending else {"corrected": True}
+    )
     if resolved is CheckOutcome.MISSED:
         record_change(session, CHECK_MISSED, check.id)
     if was_pending:

@@ -198,7 +198,12 @@ class CardProposalHandler:
             and set(values) <= {"tracked_mins", "effort_points"}
         )
         if card is not None and not accounting_only:
-            refusal = await closed_repeat_refusal(context.session, card, change.entity)
+            refusal = await closed_repeat_refusal(
+                context.session,
+                card,
+                change.entity,
+                starts_again=change.action is ChangeAction.UPDATE and bool(values.get("schedule")),
+            )
             if refusal is not None:
                 raise ToolPreparationError(*refusal)
         if "effort_points" in values and not await effort_tracking_on(context.session):
@@ -271,7 +276,7 @@ class CardProposalHandler:
                 if name in CARD_SCALAR_FIELDS
             }
             if scalar_fields:
-                await update_card_fields(session, card.id, scalar_fields, actor=ActorType.AI)
+                card = await update_card_fields(session, card.id, scalar_fields, actor=ActorType.AI)
             if "stage" in change.values:
                 await move_card(
                     session, card.id, CardStage(change.values["stage"]), actor=ActorType.AI

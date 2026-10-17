@@ -1,60 +1,37 @@
-"""What another feature reads of Checks: the method for a Check, a Check's series, whether
-it repeats and the run of answers it ends on."""
+"""What another feature reads of Checks: the method for a Check, and a run of answers."""
 
 from __future__ import annotations
 
-from sqlalchemy import or_, select
+from collections.abc import Sequence
+from itertools import takewhile
+from typing import Any
+
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...foundation.method import Example, Method
-from ..cards.model import Card, CardCheck
-from ..schedules.rules import repeats
 from .model import Check
 
 
-async def series_of(session: AsyncSession, check_id: int) -> int | None:
-    """The series a Check belongs to, or None when there is no such Check."""
-    check = await session.get(Check, check_id)
-    return None if check is None else check.series_id or check.id
+async def newest_answers(session: AsyncSession, check_ids: Sequence[int]) -> list[Any]:
+    """These Checks' answers, newest first, each with its id, outcome and resolved_at.
 
-
-async def check_repeats(session: AsyncSession, check_id: int) -> bool:
-    """Whether a Check's series goes on: by its own Schedule, or by the Action it hangs on.
-
-    Neither has a last occurrence when it repeats, so a Check is answered once or without end.
+    Pending is skipped, so the open instance on top neither counts nor breaks a run.
     """
-    check = await session.get(Check, check_id)
-    card = await session.scalar(
-        select(Card)
-        .join(CardCheck, CardCheck.card_id == Card.id)
-        .where(CardCheck.check_id == check_id)
-    )
-    definitions = (check.schedule_record, card.schedule_record if card is not None else None)
-    return any(
-        definition is not None and definition.rule and repeats(definition.rule)
-        for definition in definitions
+    return list(
+        (
+            await session.execute(
+                select(Check.id, Check.outcome, Check.resolved_at)
+                .where(Check.id.in_(check_ids), Check.outcome.is_not(None))
+                .order_by(Check.resolved_at.desc(), Check.id.desc())
+            )
+        ).all()
     )
 
 
-async def answer_run(session: AsyncSession, series_id: int, outcome: str) -> list[Check]:
-    """The series' newest answers back to the first other answer, newest first.
-
-    Pending is skipped, so the open instance on top neither counts nor breaks the run.
-    """
-    answered = await session.scalars(
-        select(Check)
-        .where(
-            or_(Check.series_id == series_id, Check.id == series_id),
-            Check.outcome.is_not(None),
-        )
-        .order_by(Check.id.desc())
-    )
-    run: list[Check] = []
-    for instance in answered:
-        if instance.outcome != outcome:
-            break
-        run.append(instance)
-    return run
+def answer_run(answers: Sequence[Any], outcome: str) -> list[Any]:
+    """The newest answers back to the first other one."""
+    return list(takewhile(lambda row: row.outcome == outcome, answers))
 
 CHECK = Method(
     name="Check",

@@ -64,6 +64,9 @@ class ScheduleConfig(ToolInput):
     interval_minutes: PositiveInt | None = Field(
         default=None, description="Repeat every N minutes, at least 5."
     )
+    limit: PositiveInt | None = Field(
+        default=None, description="How many times it runs in total. Only when the text says."
+    )
 
     @model_validator(mode="after")
     def one_form(self) -> ScheduleConfig:
@@ -104,6 +107,8 @@ SCHEDULE_PARSER_PROMPT = """Read one Schedule. End with set_schedule_config. Use
 'in 30 minutes': date and time of that moment.
 'every 2 hours': interval_minutes=120.
 'after I finish it': after_completion=true.
+'five times a day, 50 times in total': period=day, count=5, limit=50.
+'every Monday at 9, 10 times': days=[Mon], time=09:00, limit=10.
 Morning, evening and night are not a time: leave time out.
 A time always comes with days, date or interval_minutes.
 Resolve relative dates against Submitted at. Never invent a time or a weekday.
@@ -149,6 +154,8 @@ class ScheduleCompiler:
                         now=submitted_at,
                         tz=tz,
                     )
+                    if self.limit and not self._timing.repeating:
+                        raise ValueError("A total needs a Schedule that repeats: drop limit")
                 return self
 
         deadline = target == "deadline"
@@ -191,6 +198,8 @@ class ScheduleCompiler:
             rule = {"kind": "fixed", "timing": schedule_payload(config._timing)}
             if config._all_day:
                 rule["all_day"] = True
+        if config.limit:
+            rule["limit"] = config.limit
         if target == "action" and daily_executions(rule) > ACTION_DAILY_EXECUTIONS_MAX:
             return None, ACTION_LIMIT_QUESTION
         return rule, None

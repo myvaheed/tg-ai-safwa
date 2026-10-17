@@ -62,14 +62,17 @@ async def live_instance_hint(session: AsyncSession, entity: RepeatSeries) -> str
 
 
 async def closed_repeat_refusal(
-    session: AsyncSession, entity: RepeatSeries, label: str
+    session: AsyncSession, entity: RepeatSeries, label: str, *, starts_again: bool = False
 ) -> tuple[str, str, str] | None:
     """Why a closed instance may not be changed, or None when it is not one.
 
     Editing one is almost always aimed at the live instance instead, and the edit would
-    not reach it: the successor was copied at close time.
+    not reach it: the successor was copied at close time. A change that `starts_again` — a
+    Schedule written on a series that ended — is the one change a closed instance takes.
     """
     if not entity.is_closed_repeat():
+        return None
+    if starts_again and await live_repeat_instance_id(session, entity) is None:
         return None
     return (
         "closed_repeat",

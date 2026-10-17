@@ -62,6 +62,20 @@ does not carry forward. Every quota answer belongs to the current calendar perio
 extra answers; a late appointment answer remains attached to its appointment. One instance
 stays open at a time.
 
+Any repeating form may carry a total, `"limit": N`: "five times a day, 50 times in total". It
+counts the instances answered under that revision — Done on an Action, Passed or Missed on a
+Check — so a changed Schedule counts from 0. The instance that reaches it opens no successor
+and records `schedule.total_reached`; the `schedules.total` Advise hook then asks Safwa to tell
+the owner and ask whether to start again (`SCH-TOTAL-021`, `SCH-TOTAL-022`). A one-time
+appointment refuses a total back to the model, and a Deadline has none.
+
+Starting again is a Schedule written on the last instance of a series with nothing open
+(`SCH-TOTAL-023`). `restart_slot` says when that is; Cards and Checks then open the next
+instance, clear its copied words so even the same ones write a new revision, and write every
+field of the change on it. The last instance stays closed under its revision, and the new
+revision's total counts from 0. The proposal refusal for a closed instance lets exactly this
+change through.
+
 A Deadline (`{"kind": "deadline", "date", "time"}`) is due at its time, or by 23:59 of its
 date. Its moment is the Goal's `period_start`, so Card lists sort it with appointments. It never
 gates Done, plans no executions, is left out of `get_scheduled`, and is not compared with the
@@ -72,7 +86,7 @@ flowchart TD
     A[Finish Action or answer scheduled Check] --> B[Validate ready Schedule]
     B --> C[Record completion against revision and period]
     C --> D{Another occurrence?}
-    D -->|No| E[Keep completed instance]
+    D -->|No: one time, or total reached| E[Keep completed instance]
     D -->|Yes| F[Create one successor in the same transaction]
     F --> G{Action?}
     G -->|No| H[Check has no stage]
@@ -113,7 +127,8 @@ Each quota period the window covers in part gets its share by local days covered
 rest of the quota: `min(share, count − done in that period)`. Three a week over a
 Wednesday-to-Tuesday Sprint is 2 + 1; in Today alone it is `round(3/7) = 0`, so 1 for the
 Action itself. Over a window split at any weekday the two shares add up to the quota. An
-overdue current appointment counts once alongside the future appointments. Unknown
+overdue current appointment counts once alongside the future appointments. A total caps the
+whole at what it has left. Unknown
 quantities contribute no invented executions or EP: totals are marked as lower bounds, with
 no completion percentage or planned distribution shares.
 
@@ -155,7 +170,8 @@ Ended plans have `next_at: null`.
 `range` and `sprint` each contain `planned`, `done` and `remaining`. `planned` uses the same
 prorated windows as the load; an appointment's fact counts on its date and any other fact when
 it happened. `total` contains lifetime `done` and `remaining`; the remainder is null for
-unlimited repetition, and zero/one for an ended/open one-time appointment. For Checks, `done`
+unlimited repetition, what the total has left for a limited one, and zero/one for an
+ended/open one-time appointment. For Checks, `done`
 means answered; each block also contains `passed` and `missed`.
 
 For example, one Check answered Missed today, with a daily quota of five and no active Sprint:
@@ -186,7 +202,8 @@ request within its turn.
 ## History
 
 Source revisions are retained so changing a rule cannot reinterpret historical completions.
-Schedule can be edited only on an open Card or Pending Check. Historical revisions point to
+Schedule can be edited only on an open Card or Pending Check, or written on the last instance
+of a series with nothing open, which starts it again on a new instance. Historical revisions point to
 the current series instance, and appointments are counted only while their revision is active.
 Clearing Schedule ends its plan and allows ordinary completion and reopening of the final
 Action; earlier repeating instances remain closed. Deleting the last open instance ends its
@@ -230,7 +247,7 @@ never moves the next fire. Deleting an item deletes its Reminder with it (`drop_
 ## Where it lives
 
 The `schedules` package owns the revisions, the period arithmetic in `rules.py`, the compiler,
-the Advisor read tool and Remind. It has no hooks. Cards and Checks ask its `api.py` to change a
+the Advisor read tool, Remind and one hook, `schedules.total` in `hooks.py`. Cards and Checks ask its `api.py` to change a
 source or calculate an occurrence, and its `use_cases.py` to keep Remind in step. Their
 proposal handlers read a proposed text through `read_proposed_schedule` in its `agent.py`;
 their editors compile typed text, and draw the Remind screen, through its `telegram.py`.

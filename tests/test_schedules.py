@@ -623,6 +623,8 @@ async def test_an_unclear_proposed_schedule_is_asked_in_the_same_reply(sessions)
     from sqlalchemy import func, select
 
     from safwa.bootstrap.modules import HOOKS, PROPOSALS
+    from safwa.features.schedules.api import SCHEDULE_TOTAL_REACHED
+    from tg_agent_shell.hooks.contracts import OnCommitted
     from tg_agent_shell.proposals.api import ToolPreparationError
     from tg_agent_shell.proposals.prepare import ChangePreparer
 
@@ -637,7 +639,10 @@ async def test_an_unclear_proposed_schedule_is_asked_in_the_same_reply(sessions)
         assert (result["code"], result["error"]) == ("schedule_unclear", "When does it happen?")
         assert result["hint"].startswith("Ask the user this exact question")
         assert await session.scalar(select(func.count(Card.id))) == 0
-    assert not [hook.name for hook in HOOKS if hook.owner == "schedules"]
+    # No later message asks it again: the one Schedules hook follows a total, never a question.
+    assert [hook.on for hook in HOOKS if hook.owner == "schedules"] == [
+        (OnCommitted(kind=SCHEDULE_TOTAL_REACHED),)
+    ]
 
 
 async def test_a_schedule_the_model_cannot_read_asks_for_other_words(sessions):

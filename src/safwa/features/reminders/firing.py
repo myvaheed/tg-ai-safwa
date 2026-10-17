@@ -11,9 +11,9 @@ waiting writes nothing, and the due Reminders it would have carried stay due for
 after that.  A hook's request waiting is no reason to hold them: the Cue poll says everything
 waiting in one turn.
 
-A run Reminder has no clock: an answer to its Check writes its Cue, and only when that answer
-makes the run a multiple of its count. Its words go even while others wait, because the
-answer that made the run will not come again.
+A Reminder on answers has no clock: an answer to an item its SELECT finds writes its Cue,
+and only when that answer brings the count to a multiple. Its words go even while others
+wait, because the answer that made the count will not come again.
 
 Do not confuse the two intervals.  The tick is ``SCHEDULER_POLL_SECONDS`` and is the
 system's clock; a Reminder's own ``interval_minutes`` is a property of its row.  A deferred
@@ -22,6 +22,7 @@ Reminder waits seconds for a quiet moment, never one of its own cycles.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -31,14 +32,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tg_agent_shell.cues.queue import add_cue, words_waiting
 
-from ..checks.api import answer_run, series_of
 from .api import (
     REMINDER_CATCHUP_GRACE_MINUTES,
     describe,
     roll_forward,
     schedule_of,
 )
-from .model import Reminder
+from .conditions import ConditionError, count_now, found_ids
+from .model import Reminder, ScheduleKind
+
+logger = logging.getLogger(__name__)
 
 # How many due Reminders one Cue may carry.  Everything the tick found goes over
 # in a single advisor turn; the rest stay overdue and the next tick takes them.
@@ -153,25 +156,36 @@ async def tick(
         return True
 
 
-async def fire_runs(session: AsyncSession, check_id: int, *, now: datetime, tz: ZoneInfo) -> bool:
-    """Write down every run Reminder that this Check's answer brought to a multiple of its
-    count. Returns whether a Cue was written."""
-    series_id = await series_of(session, check_id)
-    if series_id is None:
-        return False
+async def fire_conditions(
+    session: AsyncSession, item_type: str, item_id: int, *, now: datetime, tz: ZoneInfo
+) -> bool:
+    """Write down every Reminder on answers that this answer of a Check, or Done of a Card,
+    brought to a multiple of its count. Returns whether a Cue was written."""
     firings: list[Firing] = []
     for reminder in await session.scalars(
-        select(Reminder).where(Reminder.run_series_id == series_id).order_by(Reminder.id)
+        select(Reminder)
+        .where(Reminder.schedule_kind == ScheduleKind.CONDITION.value)
+        .order_by(Reminder.id)
     ):
-        run = await answer_run(session, series_id, reminder.run_outcome)
-        if not run or len(run) % reminder.run_length:
+        schedule = schedule_of(reminder)
+        condition = schedule.condition
+        if (condition.answer == "done") != (item_type == "card"):
             continue
-        schedule = describe(schedule_of(reminder), tz=tz)
+        try:
+            ids = await found_ids(session, condition)
+        except ConditionError as error:
+            logger.warning("Reminder #%s counts nothing: %s", reminder.id, error)
+            continue
+        if item_id not in ids:
+            continue
+        count = await count_now(session, condition, ids, item_id)
+        if count is None:
+            continue
         firings.append(
             Firing(
                 reminder_id=reminder.id,
                 instruction=reminder.instruction,
-                schedule=f"{schedule}; {len(run)} in a row now",
+                schedule=f"{describe(schedule, tz=tz)}; {count}",
                 due_at=now,
             )
         )

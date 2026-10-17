@@ -1,4 +1,4 @@
-"""Reminders' hooks: the alarm clock is a tick, a Check's answer fires a run, and a start puts
+"""Reminders' hooks: the alarm clock is a tick, an answer fires a condition, and a start puts
 right what being down made wrong."""
 
 from __future__ import annotations
@@ -20,8 +20,9 @@ from tg_agent_shell.hooks.contracts import (
 
 from ...constants import SCHEDULER_POLL_SECONDS
 from ...foundation.workspace import require_workspace
+from ..cards.use_cases import CARD_DONE
 from ..checks.use_cases import CHECK_ANSWERED
-from .firing import fire_runs, tick
+from .firing import fire_conditions, tick
 from .use_cases import reconcile_reminders
 
 
@@ -46,25 +47,29 @@ REMINDER_FIRE_HOOK = HookSpec(
 )
 
 
-async def answered_check(event: Committed) -> tuple[int, ...]:
-    return (event.subject_id,)
+async def answered(event: Committed) -> tuple[tuple[str, int], ...]:
+    """A new answer; a corrected one is not a new answer, so it fires nothing."""
+    if (event.data or {}).get("corrected"):
+        return ()
+    return (("card" if event.kind == CARD_DONE else "check", event.subject_id),)
 
 
-async def fire_check_runs(check_id: int, context: RunContext) -> None:
+async def fire_on_answer(item: tuple[str, int], context: RunContext) -> None:
+    item_type, item_id = item
     async with context.sessions() as session:
         tz = ZoneInfo((await require_workspace(session)).timezone)
-        if await fire_runs(session, check_id, now=datetime.now(UTC), tz=tz):
+        if await fire_conditions(session, item_type, item_id, now=datetime.now(UTC), tz=tz):
             await session.commit()
 
 
-REMINDER_RUN_HOOK = HookSpec(
-    name="reminders.check_run",
+REMINDER_CONDITION_HOOK = HookSpec(
+    name="reminders.condition",
     owner="reminders",
-    on=(OnCommitted(kind=CHECK_ANSWERED),),
-    evaluate=answered_check,
-    effect=Run(fire_check_runs),
-    title="Reminders on a Check",
-    description="Writes down the Reminders a Check's answers just made due, for Safwa to say.",
+    on=(OnCommitted(kind=CHECK_ANSWERED), OnCommitted(kind=CARD_DONE)),
+    evaluate=answered,
+    effect=Run(fire_on_answer),
+    title="Reminders on answers",
+    description="Writes down the Reminders an answer just made due, for Safwa to say.",
 )
 
 

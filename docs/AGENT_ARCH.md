@@ -680,13 +680,16 @@ the Cue row, exactly as for anything else Safwa says first.
   composes the message.
 - `reminders.start`, a `Run` on `OnStarted()`, works out again a time-of-day Reminder a timezone
   move left on the wrong moment and rolls on a repeat overdue past the grace (`RM-START-020`).
-- A run Reminder has no `next_fire_at`, so neither the tick nor the start ever touches it.
-  `reminders.check_run`, a `Run` on `OnCommitted(check.answered)`, counts the answered Check's
-  series back with `checks/api.py` and writes the Cue of each run Reminder on that series whose
-  run is now a multiple of its count. It writes even while other words wait: the answer that
-  made the run will not come again (`RM-RUN-026`). A count above 1 is refused at preparation
-  on a Check that does not repeat (`check_repeats`), and the deletion of a series' last Check
-  deletes its run Reminders in the same transaction (`RM-RUN-029`).
+- A Reminder on answers has no `next_fire_at`, so neither the tick nor the start ever
+  touches it. Its `condition` holds the items in words, the SELECT of their ids, the answer,
+  the count and whether in a row. The `when` session returns the items as words; a second mini
+  session writes the SELECT over `ai_checks` or `ai_cards`, checked as text by its terminal
+  (`RM-COND-031`). Preparation runs it for the review screen and refuses a count one series
+  can never reach (`RM-COND-034`). `reminders.condition`, a `Run` on
+  `OnCommitted(check.answered)` and `OnCommitted(card.done)`, runs each SELECT again
+  (`reminders/conditions.py`) and writes the Cue of each Reminder whose count the answer brings
+  to a multiple. It writes even while other words wait: that answer will not come again
+  (`RM-COND-032`).
 
 ### A committed change, or a time of day, writes a hook's Cue
 
@@ -842,6 +845,8 @@ it reads. How the index behind it is kept and asked is [SEARCH.md](SEARCH.md).
 
 A saved Request shares the validation and nothing else: it runs on the ordinary session, and no cap
 applies, because its result is always a list in the interface and never enters the model's history.
+A Reminder on answers keeps its SELECT the same way, over `ai_checks` and `ai_cards` only: its ids
+are counted in code and never reach a model either.
 
 ## Citations
 

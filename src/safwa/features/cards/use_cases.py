@@ -48,6 +48,7 @@ from ..schedules.api import (
     close_deleted_schedules,
     planned_executions,
     prepare_occurrence,
+    restart_slot,
     scheduled_stage,
     set_schedule,
     successor_slot,
@@ -232,6 +233,7 @@ async def edit_card_schedule(
     card = await session.get(Card, card_id)
     if card is None or card.archived_at is not None:
         raise DomainError("Card does not exist or is archived")
+    card = await _schedule_instance(session, card, rule)
     before = snapshot(card)
     await _write_schedule(session, card, text, rule)
     card.version += 1
@@ -239,6 +241,17 @@ async def edit_card_schedule(
     await follow_remind(session, card)
     await bump_workspace(session)
     return card
+
+
+async def _schedule_instance(session: AsyncSession, card: Card, rule: dict[str, Any] | None) -> Card:
+    """The instance a Schedule is written on: a series that ended opens its next one."""
+    starts, slot = await restart_slot(session, card, rule)
+    if not starts:
+        return card
+    successor = await _copy_repeat_successor(session, card, CardStage.BACKLOG, slot)
+    # Without the copied words even the same ones write a new revision, counted from 0.
+    successor.schedule = None
+    return successor
 
 
 async def _write_schedule(
@@ -259,8 +272,9 @@ async def update_card_fields(
 ) -> Card:
     """Apply validated editable Card fields through the domain/audit boundary.
 
-    `schedule` comes with `schedule_rule`, the rule the Scheduler read it as. A
-    `blocked_description` blocks an Action, and an empty one unblocks it."""
+    `schedule` comes with `schedule_rule`, the rule the Scheduler read it as; on the last
+    instance of a series that ended, every field goes to the next instance it opens, which
+    is returned. A `blocked_description` blocks an Action, and an empty one unblocks it."""
     card = await session.get(Card, card_id)
     if card is None or card.archived_at is not None:
         raise DomainError("Card does not exist or is archived")
@@ -285,6 +299,8 @@ async def update_card_fields(
             fields.pop(name, None)
         if not fields:
             raise DomainError("Goal and Subgoal cards cannot have Action-only fields")
+    if "schedule" in fields:
+        card = await _schedule_instance(session, card, fields.get("schedule_rule"))
     before = snapshot(card)
     for name, value in fields.items():
         if name in {"title", "note", "blocked_description"}:

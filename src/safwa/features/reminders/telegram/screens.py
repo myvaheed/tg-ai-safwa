@@ -39,6 +39,7 @@ from tg_agent_shell.telegram import (
 
 from ....foundation.workspace import Workspace
 from ..api import describe, schedule_of
+from ..conditions import finds_now
 from ..model import Reminder
 from ..use_cases import delete_reminder
 
@@ -116,6 +117,7 @@ async def render_reminder(
         if reminder is None:
             raise DomainError("Reminder does not exist")
         tz = await _timezone(session)
+        condition = schedule_of(reminder).condition
         text = await render_citations(
             session,
             services,
@@ -124,6 +126,7 @@ async def render_reminder(
                 await reminder_title(session, services, reminder),
                 tz=tz,
                 now=datetime.now(UTC),
+                finds=await finds_now(session, condition) if condition else None,
             ),
             here=Place("reminder_view", {"id": reminder.id}, back),
         )
@@ -227,12 +230,16 @@ async def _timezone(session) -> ZoneInfo:  # type: ignore[no-untyped-def]
     return ZoneInfo(workspace.timezone if workspace else "UTC")
 
 
-def _detail_text(reminder: Reminder, title: str, *, tz: ZoneInfo, now: datetime) -> str:
+def _detail_text(
+    reminder: Reminder, title: str, *, tz: ZoneInfo, now: datetime, finds: str | None
+) -> str:
     schedule = schedule_of(reminder)
     when = html.escape(reminder_when(reminder, tz=tz, now=now))
     if reminder.next_fire_at is not None:
         when += f" · next {reminder.next_fire_at.astimezone(tz):%Y-%m-%d %H:%M}"
     lines = [f"<b>⏰ {html.escape(title)}</b>", when]
+    if finds is not None:
+        lines.append(html.escape(finds))
     if not schedule.repeating:
         lines.append("Fires once, then deletes itself.")
     lines.extend(["", html.escape(reminder.instruction), "", "<i>Timing is set through your advisor.</i>"])

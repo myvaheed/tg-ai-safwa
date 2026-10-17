@@ -1,12 +1,12 @@
 """How a proposed Reminder is checked and then written.
 
 Timing is resolved during preparation, before the proposal row exists, so the review
-screen shows a real schedule and Save applies exactly what the owner approved.
+screen shows a real schedule and Save applies exactly what the owner approved. A condition's
+SELECT is run there too, so the screen shows what it finds now.
 """
 
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -27,9 +27,9 @@ from tg_agent_shell.proposals.api import (
 
 from ...enums import ActorType
 from ...foundation.workspace import Workspace
-from ..checks.api import check_repeats, series_of
-from .agent import resolve_schedule, unclear
-from .api import Schedule, ScheduleError, describe, schedule_from_payload, schedule_payload
+from .agent import UNREADABLE_ITEMS, resolve_schedule, unclear
+from .api import Condition, ScheduleError, describe, schedule_from_payload, schedule_payload
+from .conditions import ConditionError, finds_text, found_ids, item_names, most_answers
 from .model import Reminder, ScheduleKind
 from .use_cases import (
     create_reminder,
@@ -67,9 +67,10 @@ class ReminderProposalHandler:
                 instruction=str(prepared.get("instruction", "")),
                 now=now,
                 tz=tz,
+                names=await item_names(context.session),
             )
-            if schedule.kind is ScheduleKind.RUN:
-                schedule = await _on_series(context.session, schedule)
+            if schedule.kind is ScheduleKind.CONDITION:
+                prepared["finds"] = await _finds(context.session, schedule.condition)
         except ScheduleError as error:
             raise ToolPreparationError(
                 "schedule_unclear",
@@ -129,19 +130,21 @@ class ReminderProposalHandler:
         return [reminder.id]
 
 
-async def _on_series(session: AsyncSession, schedule: Schedule) -> Schedule:
-    """The run on the whole series of the Check named, whichever instance it was."""
-    named = schedule.run_series_id
-    series_id = await series_of(session, named)
-    if series_id is None:
-        raise unclear(f"Check #{named} does not exist.", "check")
-    if schedule.run_length > 1 and not await check_repeats(session, named):
+async def _finds(session: AsyncSession, condition: Condition) -> str:
+    """What the condition's SELECT finds now, or why it is refused: it does not run, or it
+    finds one series that can never reach its count (RM-COND-034)."""
+    try:
+        ids = await found_ids(session, condition)
+    except ConditionError as error:
+        raise unclear(f"{UNREADABLE_ITEMS} {error}", "answers") from error
+    most = await most_answers(session, condition, ids)
+    if most is not None and condition.count > most:
+        times = "once" if most == 1 else f"{most} times"
         raise unclear(
-            f"Check #{named} does not repeat: it is answered once, so "
-            f"{schedule.run_length} in a row never comes.",
-            "check",
+            f"{condition.items} runs {times} in all, so a count of {condition.count} never comes.",
+            "answers",
         )
-    return replace(schedule, run_series_id=series_id)
+    return await finds_text(session, condition, ids)
 
 
 async def owner_reminders(session: AsyncSession) -> list[tuple[int, str]]:

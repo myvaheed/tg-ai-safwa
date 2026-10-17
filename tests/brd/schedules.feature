@@ -135,3 +135,28 @@ Feature: One plain-language Schedule for Actions and Checks
     And finishing a one-time Action, closing a Goal, or deleting the item deletes the Reminder
     And closing a Goal deletes the Reminder of a scheduled Check on it
     And deleting the Reminder in /reminders turns Remind off
+
+  Scenario: SCH-TOTAL-021 — A repeating Schedule can stop after a total
+    Given the Schedule "five times a day, 50 times in total" on an Action or a Check
+    Then the Scheduler reads it as 5 a day with a total of 50, and the screen shows "5 per day, 50 times in total."
+    And the 50th instance answered under that Schedule opens no next one: Done counts on an Action, Passed and Missed on a Check
+    And the Schedule's screen of an instance says how many of the total are answered, "12/50 answered so far."
+    And a changed Schedule counts its total from 0, as a new revision by SCH-COMPILE-004
+    And a total on a one-time Schedule goes back to the Scheduler's model to repair, and a Deadline has none
+    And planning counts no more of the work than the total has left, and the plan's lifetime remainder is what the total has left
+
+  Scenario: SCH-TOTAL-022 — Safwa says when a Schedule has run its total
+    Given an Action or a Check whose Schedule has a total
+    When its last instance is answered
+    Then Safwa is asked to tell the owner, naming it, that its Schedule ran all of its times and it no longer repeats, and to ask whether to start it again
+    And nothing is changed until the owner answers
+    And the request tells Safwa to start it again by proposing its Schedule on that item
+    And switching Schedule total off in Profile → Hooks stops the request and drops what is pending
+
+  Scenario: SCH-TOTAL-023 — A Schedule on the last instance of an ended series starts it again
+    Given an Action or a Check whose Schedule ran its total, so nothing in its series is open
+    When a proposal to write a Schedule on its last instance is saved
+    Then the next instance of the series opens with that Schedule, and every field written goes to it
+    And its total counts from 0, even in the same words, as a new revision by SCH-COMPILE-004
+    And the last instance stays closed under the revision it was answered under
+    And an instance older than the newest of its series still refuses a Schedule

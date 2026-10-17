@@ -7,7 +7,6 @@ what keeps a reworded Reminder firing at the moment it always did.
 
 from __future__ import annotations
 
-from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -116,16 +115,6 @@ async def delete_reminder(session: AsyncSession, reminder_id: int, *, actor: Act
     await bump_workspace(session)
 
 
-async def drop_run_reminders(
-    session: AsyncSession, series_ids: Collection[int], *, actor: ActorType = ActorType.USER_UI
-) -> None:
-    """A Check series with no Check left takes its run Reminders with it."""
-    for reminder_id in list(
-        await session.scalars(select(Reminder.id).where(Reminder.run_series_id.in_(series_ids)))
-    ):
-        await delete_reminder(session, reminder_id, actor=actor)
-
-
 async def _record(
     session: AsyncSession,
     reminder: Reminder,
@@ -146,7 +135,7 @@ async def _existing_reminder(session: AsyncSession, reminder_id: int) -> Reminde
 
 
 def _first_fire(schedule: Schedule, tz: ZoneInfo) -> datetime | None:
-    if schedule.kind is ScheduleKind.RUN:
+    if schedule.kind is ScheduleKind.CONDITION:
         return None  # an answer fires it, never the clock
     first = next_fire(schedule, previous=None, now=datetime.now(UTC), tz=tz)
     if first is None:
@@ -163,7 +152,8 @@ async def reconcile_reminders(session: AsyncSession, now: datetime | None = None
     rolled forward, but only once it is past the catch-up grace — inside the grace the row
     stays overdue, because the first tick firing it is the catch-up.
 
-    A one-shot is never moved: it always fires, however late. A run has no clock to move.
+    A one-shot is never moved: it always fires, however late. A condition has no clock to
+    move.
     """
     now = now or datetime.now(UTC)
     workspace = await session.get(Workspace, 1)

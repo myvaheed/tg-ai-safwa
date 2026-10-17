@@ -41,10 +41,15 @@ def first_slot(rule: dict[str, Any], at: datetime, tz: ZoneInfo) -> datetime | N
 
 
 def repeats(rule: dict[str, Any]) -> bool:
-    """Whether the rule opens one successor after another; one that does has no last one."""
+    """Whether the rule opens one successor after another."""
     if rule["kind"] in {"after_completion", "quota"}:
         return True
     return rule["kind"] == "fixed" and schedule_from_payload(rule["timing"]).repeating
+
+
+def most_runs(rule: dict[str, Any]) -> int | None:
+    """How many times the rule runs in all: once, its total, or None without end."""
+    return rule.get("limit") if repeats(rule) else 1
 
 
 def next_slot(

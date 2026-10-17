@@ -13,6 +13,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.ai.sql import DEFAULT_CELL_LIMIT, DEFAULT_CHAR_BUDGET, DEFAULT_ROW_LIMIT
+from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 
@@ -23,7 +24,15 @@ from ..checks.model import Check
 from ..reminders.api import Schedule, describe, schedule_from_payload
 from ..reminders.model import Reminder, ScheduleKind
 from .model import ScheduleDefinition
-from .rules import deadline_moment, first_slot, next_slot, period_end, period_start, windows
+from .rules import (
+    deadline_moment,
+    first_slot,
+    next_slot,
+    period_end,
+    period_start,
+    repeats,
+    windows,
+)
 
 SCHEDULE_INSTRUCTION = "Describe the schedule, e.g. every evening, every Monday, five times a day, or Tuesday at 15:00. Send off to clear it."
 DEADLINE_INSTRUCTION = "Send the deadline, e.g. 20 October, end of next month, or 20.10.2026 18:00. Send off to clear it."
@@ -33,6 +42,8 @@ SCHEDULED_RANGE_DAYS_MAX = 93
 ACTION_DAILY_EXECUTIONS_MAX = 5
 # The words of the Reminder that Remind makes; the Cue adds the Schedule it fires on.
 REMIND_TEXT = "Remind is on for {label} #{id} «{title}». Remind the owner about it."
+# The change a hook follows up on: an item's Schedule ran its total, so no next instance opened.
+SCHEDULE_TOTAL_REACHED = "schedule.total_reached"
 
 type ScheduleTarget = Literal["action", "check", "deadline"]
 
@@ -132,6 +143,15 @@ async def close_deleted_schedules(
 
 
 async def occurrence_count(session: AsyncSession, entity: Card | Check) -> int:
+    return await _answered_count(session, entity, type(entity).period_start == entity.period_start)
+
+
+async def total_count(session: AsyncSession, entity: Card | Check) -> int:
+    """The instances answered under the entity's Schedule revision: what its total counts."""
+    return await _answered_count(session, entity)
+
+
+async def _answered_count(session: AsyncSession, entity: Card | Check, *where: Any) -> int:
     model = type(entity)
     answered = (
         Card.completed_at.is_not(None) if isinstance(entity, Card) else Check.outcome.is_not(None)
@@ -140,11 +160,7 @@ async def occurrence_count(session: AsyncSession, entity: Card | Check) -> int:
         await session.scalar(
             select(func.count())
             .select_from(model)
-            .where(
-                model.schedule_id == entity.schedule_id,
-                model.period_start == entity.period_start,
-                answered,
-            )
+            .where(model.schedule_id == entity.schedule_id, answered, *where)
         )
         or 0
     )
@@ -153,10 +169,17 @@ async def occurrence_count(session: AsyncSession, entity: Card | Check) -> int:
 async def successor_slot(
     session: AsyncSession, entity: Card | Check
 ) -> tuple[bool, datetime | None]:
+    """Whether a next instance opens, and its slot. One that ran its total opens none."""
     definition = entity.schedule_record
     if definition is None or not definition.rule:
         return False, None
     await session.flush()
+    limit = definition.rule.get("limit")
+    if limit is not None and await total_count(session, entity) >= limit:
+        record_change(
+            session, SCHEDULE_TOTAL_REACHED, entity.id, data={"type": item_type(type(entity))}
+        )
+        return False, None
     return next_slot(
         definition.rule,
         entity.period_start,
@@ -164,6 +187,32 @@ async def successor_slot(
         await occurrence_count(session, entity),
         await workspace_zone(session),
     )
+
+
+async def restart_slot(
+    session: AsyncSession, entity: Card | Check, rule: dict[str, Any] | None
+) -> tuple[bool, datetime | None]:
+    """Whether a Schedule written on this instance starts its series again, and the first
+    slot of its next instance: the newest instance of a repeating series, closed, so nothing
+    in the series is open."""
+    definition = entity.schedule_record
+    if (
+        not rule
+        or is_open(entity)
+        or definition is None
+        or not definition.rule
+        or not repeats(definition.rule)
+    ):
+        return False, None
+    model = type(entity)
+    series = func.coalesce(model.repeat_series_id if model is Card else model.series_id, model.id)
+    root = (entity.repeat_series_id if model is Card else entity.series_id) or entity.id
+    newer = await session.scalar(
+        select(model.id).where(series == root, model.id > entity.id).limit(1)
+    )
+    if newer is not None:
+        return False, None
+    return True, first_slot(rule, utcnow(), await workspace_zone(session))
 
 
 async def prepare_occurrence(session: AsyncSession, entity: Card | Check) -> None:
@@ -215,20 +264,24 @@ async def schedule_summary(session: AsyncSession, entity: Card | Check) -> str |
     if definition is None:
         return None
     rule, tz = definition.rule, await workspace_zone(session)
+    label = "completed" if isinstance(entity, Card) else "answered"
     if rule["kind"] == "quota":
-        label = "completed" if isinstance(entity, Card) else "answered"
         start = entity.period_start.astimezone(tz)
-        return (
+        summary = (
             f"{await occurrence_count(session, entity)}/{rule['count']} {label} "
             f"for the {rule['period']} from {start:%d.%m.%Y}."
         )
-    if rule["kind"] != "fixed":
-        return rule_summary(rule, tz)
-    overdue = " It is overdue." if is_open(entity) and entity.period_start < utcnow() else ""
-    return (
-        f"{rule_summary(rule, tz)} Appointment: "
-        f"{appointment_label(rule, entity.period_start, tz)}.{overdue}"
-    )
+    elif rule["kind"] != "fixed":
+        summary = rule_summary(rule, tz)
+    else:
+        overdue = " It is overdue." if is_open(entity) and entity.period_start < utcnow() else ""
+        summary = (
+            f"{rule_summary(rule, tz)} Appointment: "
+            f"{appointment_label(rule, entity.period_start, tz)}.{overdue}"
+        )
+    if rule.get("limit"):
+        summary += f" {await total_count(session, entity)}/{rule['limit']} {label} so far."
+    return summary
 
 
 def remind_timing(entity: Card | Check, now: datetime) -> Schedule | None:
@@ -273,19 +326,24 @@ def appointment_label(
 
 def rule_summary(rule: dict[str, Any], tz: ZoneInfo) -> str:
     """A compiled rule in words."""
+    words = _rule_words(rule, tz)
+    return f"{words}, {rule['limit']} times in total." if rule.get("limit") else f"{words}."
+
+
+def _rule_words(rule: dict[str, Any], tz: ZoneInfo) -> str:
     if rule["kind"] == "deadline":
-        return f"Due by {deadline_moment(rule, tz).astimezone(tz):%d.%m.%Y %H:%M}."
+        return f"Due by {deadline_moment(rule, tz).astimezone(tz):%d.%m.%Y %H:%M}"
     if rule["kind"] == "after_completion":
-        return "Repeats after each completion."
+        return "Repeats after each completion"
     if rule["kind"] == "quota":
-        return f"{rule['count']} per {rule['period']}."
+        return f"{rule['count']} per {rule['period']}"
     timing = schedule_from_payload(rule["timing"])
     if not rule.get("all_day"):
-        return describe(timing, tz=tz).capitalize() + "."
+        return describe(timing, tz=tz).capitalize()
     if not timing.repeating:
-        return f"On {timing.anchor_at.astimezone(tz):%a %d.%m.%Y}, any time that day."
+        return f"On {timing.anchor_at.astimezone(tz):%a %d.%m.%Y}, any time that day"
     days = "day" if len(timing.weekdays) == len(WEEKDAY_NAMES) else ", ".join(timing.weekdays)
-    return f"Every {days}, any time that day."
+    return f"Every {days}, any time that day"
 
 
 async def planned_executions(
@@ -294,7 +352,8 @@ async def planned_executions(
     """The executions each open Action has left from today, or a later start, through the
     end date: 1 without a Schedule, None while unknown, and at least 1 for the Action itself.
 
-    Each quota period adds its share for the days covered, never more than its quota has left.
+    Each quota period adds its share for the days covered, never more than its quota has left,
+    and the whole never more than the Schedule's total has left.
     """
     tz = await workspace_zone(session)
     start, end = _date_bounds(max(start_date, utcnow().astimezone(tz).date()), end_date, tz)
@@ -337,6 +396,8 @@ async def planned_executions(
             count += max(0, min(share, limit - used))
         if rule["kind"] == "fixed" and card.period_start is not None and card.period_start < start:
             count += 1
+        if rule.get("limit"):
+            count = min(count, rule["limit"] - await total_count(session, card))
         counts[card.id] = max(1, count)
     return counts
 
@@ -534,10 +595,10 @@ async def get_scheduled(
                 )
             next_event = _next_event(current, definition, used, now, tz)
         once = bool(definition and definition.rule.get("timing", {}).get("schedule_kind") == "once")
-        total: dict[str, Any] = {
-            "done": totals.done,
-            "remaining": int(active) if once or not active else None,
-        }
+        remaining = int(active) if once or not active else None
+        if active and definition.rule.get("limit"):
+            remaining = definition.rule["limit"] - await total_count(session, current)
+        total: dict[str, Any] = {"done": totals.done, "remaining": remaining}
         if model is Check:
             total.update(passed=totals.passed, missed=totals.missed)
         item = {

@@ -47,11 +47,16 @@ class CheckProposalHandler:
 
     async def prepare(self, context: PreparationContext, change: Any) -> PreparedChange:
         check, expected_version = await require_target(context, change, Check)
+        values = dict(change.values)
         if check is not None:
-            refusal = await closed_repeat_refusal(context.session, check, change.entity)
+            refusal = await closed_repeat_refusal(
+                context.session,
+                check,
+                change.entity,
+                starts_again=change.action is ChangeAction.UPDATE and bool(values.get("schedule")),
+            )
             if refusal is not None:
                 raise ToolPreparationError(*refusal)
-        values = dict(change.values)
         await validate_named_references(context.session, values, CHECK_VALUE_REFERENCE)
         await read_proposed_schedule(context, values, "check")
         return PreparedChange(values=values, expected_version=expected_version)
@@ -73,7 +78,7 @@ class CheckProposalHandler:
         if check is None or check.version != change.expected_version:
             raise StaleStateError("A Check changed; refresh this proposal")
         if change.action is ChangeAction.UPDATE:
-            await update_check_fields(session, check.id, values, actor=ActorType.AI)
+            check = await update_check_fields(session, check.id, values, actor=ActorType.AI)
         elif change.action in CHECK_ANSWER_ACTIONS:
             await resolve_check(
                 session, check.id, CHECK_ANSWER_ACTIONS[change.action], actor=ActorType.AI

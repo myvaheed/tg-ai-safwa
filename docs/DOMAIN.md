@@ -120,8 +120,9 @@ carrying the Inbox Tag is not checked, and only creation starts the check.
   **Deadline** of a Goal or Subgoal: one date, never repeating, never gating Done and never
   planned. Its compiled revisions live in `schedules`; instances retain their revision and
   assigned period. A Schedule is compiled before it is saved, typed or proposed, and a day
-  without a clock is due by its end. An Action repeats at most `ACTION_DAILY_EXECUTIONS_MAX` times a day. Deterministic
-  code handles quotas, progress and successor placement. See [SCHEDULES.md](SCHEDULES.md).
+  without a clock is due by its end. An Action repeats at most `ACTION_DAILY_EXECUTIONS_MAX` times a day, and a repeating
+  Schedule may stop after a total. Deterministic code handles quotas, totals, progress and
+  successor placement. See [SCHEDULES.md](SCHEDULES.md).
 - Planned Actions count the executions left from today through the window's last day, a
   partly covered week by its share of the quota, and an Action on the plan at least once;
   planned EP multiply that count by the unit estimate. `SprintCommitment.planned_count`
@@ -357,8 +358,8 @@ an in-flight answer, because the answer's own autoapproved change moves `workspa
 ## Safwa speaks first only from a Cue
 
 A **Cue** is a Reminder that came due or a hook's finding — a Sprint that ended is one of those.
-The Reminders' tick, or the answer that completes a run Reminder's run, writes its words into
-`cues` in its own transaction; a hook's row carries only
+The Reminders' tick, or an answer that brings a Reminder on answers to its count, writes its
+words into `cues` in its own transaction; a hook's row carries only
 its name and what it refers to, and its feature words it just before it is said. `CueRuntime` owns
 the gate, the lease and the one turn that says everything waiting, and deletes the rows only once
 the owner has the words. That row is the single record of what Safwa still owes, so the

@@ -75,6 +75,7 @@ MANUAL = f"""# Safwa
 - A Schedule is read before it is saved. Typed into "⏱ Schedule", the Card shows how it was understood, and a missing detail is asked on the same screen. Proposed in words, the review screen shows how it was understood, and the Advisor asks for a missing detail in the same reply.
 - An Action repeats at most {ACTION_DAILY_EXECUTIONS_MAX} times a day; more often is a Check.
 - A Goal or a Subgoal has "⏰ Deadline" instead: one date, with a time if it matters. It never repeats and blocks nothing. A Card with a Deadline comes first in lists, the sooner one first.
+- A total stops repetition by itself: "five times a day, 50 times in total". The Schedule screen counts the times so far; after the last, Safwa says so and asks whether to start again; yes opens the next one, counting from 0. Schedule total in Profile → Hooks switches that off or on.
 - Clear Schedule with "off" on the current instance to stop repetition. Deleting it also stops the plan. Past instances still count; the final Action can be reopened.
 - A Schedule or Deadline with a time still ahead opens on "🔔 Remind" and "✏️ Edit"; any other opens the editor. Remind On makes a Reminder at those times that follows the Card or Check: its next copy, a changed Schedule or title. Remind Off, or deleting that Reminder, stops it.
 - Ask the Advisor for scheduled work and progress: planned, done and remaining counts for the asked dates, the current Sprint and all time.
@@ -163,9 +164,9 @@ MANUAL = f"""# Safwa
 - Correcting what a photo on a day shows renames that photo everywhere, once saved.
 
 # Reminders
-- A Reminder is words and when they come due: a time, or a run of one Check's answers. When it fires, its words come to the Advisor as a request, and the Advisor answers them.
-- In words only: create one, or change when it fires. Say the time in plain words, such as "every weekday at 8:00", or the run, such as "every 3 Missed in a row of Check #12". "🔔 Remind" on a Schedule also makes one.
-- A run Reminder fires at every multiple of its count: 3, 6, 9 Missed in a row. A count above 1 needs a Check that repeats. Deleting the last Check of the series deletes the Reminder.
+- A Reminder is words and when they come due: a time, or a count of answers of Checks or Actions. When it fires, its words come to the Advisor as a request, and the Advisor answers them.
+- In words only: create one, or change when it fires. Say the time in plain words, such as "every weekday at 8:00", or the answers, such as "every 3 Missed in a row of Check #12", "every 30 answers of Check #12" or "every 10 Done of Actions tagged sport". "🔔 Remind" on a Schedule also makes one.
+- A Reminder on answers fires at every multiple of its count: 3, 6, 9. A corrected answer fires nothing. Its words select the items again at every answer, so items made later count too, and deleting them leaves the Reminder. Its screen shows what they find now.
 - With buttons: "⏰ Reminders" or /reminders: "✏️ Text" to change the words, "🗑 Delete".
 - Deleting is the only way to stop one.
 
@@ -173,7 +174,7 @@ MANUAL = f"""# Safwa
 - Safwa speaks first on its own: about a blocked Action, an Action finished without its time or effort estimate, a day holding too much, Goals with no Action, scheduled Actions the plan does not hold, energy and rest in the Sprint and its Actions without a Category or Energy type, an Action stuck in Today, a Check Missed again and again, the whole tree of Values and Goals every {COMPASS_REVIEW_DAYS} days, the Diary, the day's summary, a Sprint's end, a Success criterion out of reach, a read too heavy for the Advisor, what stands in Today and the Sprint when the user writes after 14 days or more away, and these onboarding tips.
 - An onboarding tip leaves the chat a minute after it comes. A message that says something else too stays.
 - Open "⚙️ Profile" → "🔔 Hooks" to list the reactions by title and state. Choose one to read its description and switch it off or on on its own screen.
-- Hooks: "Helper offer", "Blocker follow-up", "Time tracking reminder", "Effort Points reminder", "Goal completion follow-up", "Open Cards under a closed Goal", "Closed parents", "Cards without a parent", "Today overload", "Goals without Actions", "Schedule outside the plan", "Overdue Schedules", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Goal clarification", "Action review", "Check review", "Value clarification", "Value link clarification", "Value unlink cleanup", "Compass review", "Diary nudge", "Daily summary", "Sprint end warning", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
+- Hooks: "Helper offer", "Blocker follow-up", "Time tracking reminder", "Effort Points reminder", "Goal completion follow-up", "Open Cards under a closed Goal", "Closed parents", "Cards without a parent", "Today overload", "Goals without Actions", "Schedule outside the plan", "Overdue Schedules", "Energy balance", "Rest in Today", "Stale in Today", "Repeated Missed", "Schedule total", "Goal clarification", "Action review", "Check review", "Value clarification", "Value link clarification", "Value unlink cleanup", "Compass review", "Diary nudge", "Daily summary", "Sprint end warning", "Sprint summary", "Unreachable criterion", "Onboarding", "Return after a break".
 - "Time tracking reminder" is in Hooks only while Time tracking is on, and asks nothing while it is off.
 - "Today overload" and "Effort Points reminder" are in Hooks only while Effort Points are on, and ask nothing while they are off.
 
