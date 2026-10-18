@@ -301,5 +301,5 @@ async def test_sc_cite_014_an_item_cited_in_a_screens_words_opens_in_its_place(s
 
     await tap_link(services, text, "💎 Family", message.bot)
     value_text, value_markup = message.bot.edits[-1][1:]
-    assert "Name: Family" in value_text
+    assert "<i>Name:</i> Family" in value_text
     assert await place_of(sessions, value_markup, "↩️ Back") == here

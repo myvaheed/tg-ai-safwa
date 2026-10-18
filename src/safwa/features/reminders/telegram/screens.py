@@ -17,6 +17,7 @@ from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from telegram_llm import markdown_to_telegram_html
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import (
@@ -188,6 +189,7 @@ async def render_reminder_text_prompt(
             ),
             back=Place("reminder_view", {"id": reminder_id}, back),
             related_id=reminder_id,
+            markdown=True,
         ),
         state={"flow": "reminder", "reminder_id": reminder_id},
     )
@@ -245,7 +247,7 @@ def _detail_text(
     elif schedule.total or schedule.until:
         fired = f"{reminder.fired} of {schedule.total} fired. " if schedule.total else ""
         lines.append(f"{fired}Deletes itself after its last time.")
-    lines.extend(["", html.escape(reminder.instruction), "", "<i>Timing is set through your advisor.</i>"])
+    lines.extend(["", markdown_to_telegram_html(reminder.instruction), "", "<i>Timing is set through your advisor.</i>"])
     return "\n".join(lines)
 
 

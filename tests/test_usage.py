@@ -220,11 +220,11 @@ async def test_profile_recalculates_usage_when_it_opens(sessions, monkeypatch):
     services, clock = tracked_services(sessions, monkeypatch)
     message = FakeMessage(4, bot_message=True, answer_as_new=True)
     await command_profile(message, services)
-    assert "Usage time: ~0m" in message.edits[-1][0]
+    assert "<i>Usage time:</i> ~0m" in message.edits[-1][0]
     await services.usage.acted()
     clock.advance(65)
     await command_profile(message, services)
-    assert "Usage time: ~1m" in message.edits[-1][0]
+    assert "<i>Usage time:</i> ~1m" in message.edits[-1][0]
     clock.advance(500)
     await command_profile(message, services)
-    assert "Usage time: ~2m" in message.edits[-1][0]
+    assert "<i>Usage time:</i> ~2m" in message.edits[-1][0]

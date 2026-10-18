@@ -42,7 +42,7 @@ async def test_reminder_text_requires_a_value_and_restores_its_view(sessions) ->
         if button.text == "✏️ Text"
     )
     await callback_token_handler(FakeCallback(edit.callback_data.split(":", 1)[1], message), services)
-    assert "Current value:\n<pre>Take a walk.</pre>" in message.bot.edits[-1][1]
+    assert "<i>Current value:</i>\n<pre>Take a walk.</pre>" in message.bot.edits[-1][1]
 
     invalid = FakeMessage(53, text=" ", bot_message=False, bot=message.bot)
     await ordinary_text(invalid, services)
@@ -176,11 +176,11 @@ async def test_a_reminder_proposal_reads_as_its_words_and_its_times(sessions) ->
 
     assert created.item == "Reminder"
     when, first, words = (field_line(field, Effect.CREATE) for field in created.fields)
-    assert when == "🔁 When: every day at 09:00" and first.startswith("⏭ First: ")
-    assert words == "Words: Call mum."
+    assert when == "<i>🔁 When:</i> every day at 09:00" and first.startswith("<i>⏭ First:</i> ")
+    assert words == "<i>Words:</i> Call mum."
     assert not any("interval" in line or "{" in line for line in (when, first, words))
     assert [field_line(field, Effect.UPDATE) for field in edited.fields] == [
         when,
         None,
-        "Words: <s>Call mum.</s> <b>Call dad.</b>",
+        "<i>Words:</i> <s>Call mum.</s> <b>Call dad.</b>",
     ]

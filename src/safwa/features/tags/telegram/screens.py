@@ -23,6 +23,7 @@ from tg_agent_shell.telegram import (
     back_button,
     edit_registered_message,
     edited_screen,
+    markdown_field,
     menu_row,
     place_button,
     render_citations,
@@ -110,7 +111,7 @@ async def render_tag(
                 await tag_cards(session, tag.id),
                 here.child("tag_cards", id=tag.id),
             )
-            linked = f"\nLinked Cards: {cards}"
+            linked = f"\n<i>Linked Cards:</i> {cards}"
         else:
             editor_values = {"name": "", "description": "", **(values or {})}
 
@@ -171,15 +172,17 @@ async def render_tag(
                 ]
             )
         rows.append([await back_button(session, services.owner_id, back)])
-        description = html.escape(editor_values["description"] or "—")
+        description = markdown_field("Description", editor_values["description"])
         if tag is not None:
             description = await render_citations(session, services, description, here=here)
+        else:
+            description = await render_citations(session, services, description, plain=True)
         await session.commit()
 
     body = (
         f"<b>{'Create Tag' if mode == 'create' else 'Tag'}</b>\n"
-        f"Name: {html.escape(editor_values['name'] or '—')}\n"
-        f"Description: {description}"
+        f"<i>Name:</i> {html.escape(editor_values['name'] or '—')}\n"
+        f"\n{description}\n"
         + linked
         + ("\nThis built-in Tag cannot be renamed or deleted." if tag and tag.is_inbox else "")
     )
@@ -262,6 +265,7 @@ async def render_tag_text_prompt(
             title=f"Edit Tag {field.title()}",
             current_value=str(state.get("values", {}).get(field, "")),
             instruction=_INSTRUCTIONS[field],
+            markdown=field == "description",
             back=Place("tag_text_back", {"mode": mode, "id": item_id}, back),
             related_id=item_id,
         ),

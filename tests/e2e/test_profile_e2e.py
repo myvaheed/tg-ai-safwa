@@ -61,8 +61,8 @@ async def test_ps_ai_019_two_fields_set_in_words_are_one_screen_and_one_change_e
             session, advisor.reviews.proposal(screen.proposal_id).changes
         )
     assert [field_line(field, Effect.UPDATE) for field in drawn.fields] == [
-        "Morning time: <s>09:00</s> <b>08:00</b>",
-        "Home after: <s>30 min</s> <b>45 min</b>",
+        "<i>Morning time:</i> <s>09:00</s> <b>08:00</b>",
+        "<i>Home after:</i> <s>30 min</s> <b>45 min</b>",
     ]
 
     provider.responses.extend(["Saved both.", "Anything else?"])

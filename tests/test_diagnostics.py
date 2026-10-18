@@ -12,7 +12,7 @@ from safwa.features.planning.use_cases import start_sprint
 
 
 def _revision(text: str) -> int:
-    return int(re.search(r"Revision: (\d+)", text).group(1))
+    return int(re.search(r"<i>Revision:</i> (\d+)", text).group(1))
 
 
 def _services(sessions):
@@ -26,7 +26,7 @@ async def test_dg_status_001_the_status_names_the_mode_and_the_revision(sessions
     await command_status(message, _services(sessions))
 
     text, markup = message.edits[-1]
-    assert "Mode: planning" in text
+    assert "<i>Mode:</i> planning" in text
     # Nothing to press: the status is read and left behind.
     assert markup is None
     revision = _revision(text)
@@ -40,6 +40,6 @@ async def test_dg_status_001_the_status_names_the_mode_and_the_revision(sessions
 
     await command_status(message, _services(sessions))
 
-    assert "Mode: sprint" in message.edits[-1][0]
+    assert "<i>Mode:</i> sprint" in message.edits[-1][0]
     assert _revision(message.edits[-1][0]) > revision
 

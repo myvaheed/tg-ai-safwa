@@ -11,6 +11,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from telegram_llm import markdown_to_telegram_html
 from tg_agent_shell.ai.contracts import AgentChange
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
@@ -237,7 +238,7 @@ async def render_diary(
             raise DomainError("Diary entry does not exist")
         label = diary_label(entry.entry_date, entry.feeling_score)
         here = Place("diary_day", {"date": entry.entry_date.isoformat()}, back)
-        body = await render_citations(session, services, html.escape(entry.body or ""), here=here)
+        body = await render_citations(session, services, markdown_to_telegram_html(entry.body or ""), here=here)
         media_ids = [media_id for media_id, _label in await day_media(session, entry_id)]
         rows = [[await back_button(session, services.owner_id, back)]]
         await session.commit()

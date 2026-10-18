@@ -258,7 +258,7 @@ async def render_settings(
     text = with_notice(
         "<b>⚙️ Life settings</b>\n"
         + "\n".join(
-            f"{field.title}: {html.escape(field.show(getattr(settings, name)))}"
+            f"<i>{field.title}:</i> {html.escape(field.show(getattr(settings, name)))}"
             for name, field in LIFE_FIELDS.items()
         ),
         notice,

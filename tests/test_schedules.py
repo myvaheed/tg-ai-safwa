@@ -686,7 +686,7 @@ async def test_a_proposed_schedule_is_read_before_its_proposal_is_saved(sessions
         proposal = ProposalChange(entity=entity, action=change.action, values=prepared.values)
         presenter = CardProposalPresenter() if entity == "card" else CheckProposalPresenter()
         screen = await presenter.screen(session, [proposal])
-        assert "Schedule: every evening" in [
+        assert "<i>Schedule:</i> every evening" in [
             field_line(field, Effect.CREATE) for field in screen.fields
         ]
         assert screen.blocks == ("1 per day.",)

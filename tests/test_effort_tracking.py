@@ -112,7 +112,7 @@ async def test_ps_ep_021_the_switch_keeps_estimates_and_capacity(sessions):
         proposal = ProposalChange(entity="profile", action=change.action, values=prepared.values)
         screen = await ProfileProposalPresenter().screen(session, [proposal])
         [field] = screen.fields
-        assert field_line(field, Effect.UPDATE) == "Effort Points: <s>off</s> <b>on</b>"
+        assert field_line(field, Effect.UPDATE) == "<i>Effort Points:</i> <s>off</s> <b>on</b>"
         await PROPOSALS.handler("profile").apply(ApplyContext(session, frozenset()), proposal)
         assert await effort_tracking_on(session)
         assert await hook_switched_on(session, TODAY_OVERLOAD_HOOK.name)

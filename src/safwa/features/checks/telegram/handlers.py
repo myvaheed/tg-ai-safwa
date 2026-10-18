@@ -121,6 +121,7 @@ async def _on_edit_note(context: CallbackContext) -> None:
             title="Edit Check Note",
             current_value=current,
             instruction="Explain what this Check observes and how it supports its Values.",
+            markdown=True,
             back=_check(context),
         ),
         state={"flow": "check_note", "id": int(context.payload["id"])},

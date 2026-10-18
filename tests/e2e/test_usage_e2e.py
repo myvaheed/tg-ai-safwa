@@ -72,7 +72,7 @@ async def test_voice_transcription_answer_and_profile_count_once(e2e_harness, mo
     assert await total(services) == 465
     profile = FakeMessage(2, bot_message=True, answer_as_new=True)
     await command_profile(profile, services)
-    assert "Usage time: ~7m" in profile.edits[-1][0]
+    assert "<i>Usage time:</i> ~7m" in profile.edits[-1][0]
 
 
 async def test_after_answer_hooks_and_system_requests_add_no_usage(e2e_harness, monkeypatch):

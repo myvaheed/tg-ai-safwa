@@ -8,10 +8,17 @@ from typing import Any
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from telegram_llm import markdown_to_telegram_html
+
 from .contributions import HOME_NAV
 
 PAGE_SIZE = 5
 CITATION_TITLE_LIMIT = 25
+
+
+def markdown_field(label: str, value: str) -> str:
+    """A free-text field, with its own label above the rendered contents."""
+    return f"<i>{html.escape(label)}:</i>\n{markdown_to_telegram_html(value or '—')}"
 
 
 def citation_title(value: str, *, short: bool) -> str:

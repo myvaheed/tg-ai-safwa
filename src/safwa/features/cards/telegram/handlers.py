@@ -118,6 +118,7 @@ async def _on_edit_text(context: CallbackContext) -> None:
             else _FIELD_INSTRUCTIONS.get(field, f"Send the new {field.replace('_', ' ')}."),
             back=_full_card(context, card_id),
             related_id=card_id,
+            markdown=field in {"note", "blocked_description"},
         ),
         state={"flow": "card", "card_id": card_id, "field": field},
     )
@@ -183,6 +184,7 @@ async def _on_toggle_field(context: CallbackContext) -> None:
                 title="Mark Card as blocked",
                 current_value="",
                 instruction="Describe what is blocking it.",
+                markdown=True,
                 back=_full_card(context, card_id),
                 related_id=card_id,
             ),

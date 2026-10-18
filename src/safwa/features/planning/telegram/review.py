@@ -122,10 +122,10 @@ class SprintProposalPresenter:
                 mode="Start",
                 item=f"{length}-day Sprint",
                 blocks=(
-                    "Success criteria: "
+                    "<i>Success criteria:</i> "
                     + html.escape(criteria or workspace.sprint_success_criteria.strip()),
                     f"{today.isoformat()} – {last.isoformat()}, {length} days",
-                    f"Planned: {cost}" + (f"\n{warning}" if warning else ""),
+                    f"<i>Planned:</i> {cost}" + (f"\n{warning}" if warning else ""),
                 ),
             )
         sprint = (

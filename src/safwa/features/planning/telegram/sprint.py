@@ -21,6 +21,7 @@ from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from telegram_llm import markdown_to_telegram_html
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
@@ -29,6 +30,7 @@ from tg_agent_shell.telegram import (
     Services,
     TextInputScreen,
     edit_registered_message,
+    markdown_field,
     menu_row,
     paginate,
     paging_row,
@@ -149,7 +151,7 @@ async def render_sprint(
                 effort = estimate * quantity if estimate is not None and quantity is not None else None
                 line += f" · {effort_label(effort)} EP"
             if view == "blocked":
-                line += f"\n<i>Reason: {html.escape(card.blocked_description)}</i>"
+                line += f"\n<i>Reason:</i> {markdown_to_telegram_html(card.blocked_description)}"
             descriptions.append(line)
         rows = []
         buttons = []
@@ -179,7 +181,7 @@ async def render_sprint(
         block = (
             f"<b>Sprint {sprint.number}</b>\n"
             f"{sprint.planned_start_date:%d.%m} – {sprint.planned_end_date:%d.%m} · Day {day} of {length}\n\n"
-            f"<b>Success criteria:</b> {html.escape(sprint.success_criteria)}\n\n"
+            f"{markdown_field('Success criteria', sprint.success_criteria)}\n\n"
             f"{totals}\n\n"
             f"<b>{label} · {list_counts[view]}</b>{page_label}\n"
             + ("\n".join(descriptions) or empty)
@@ -284,6 +286,7 @@ async def render_sprint_field_prompt(
             title=edited.title,
             current_value=current,
             instruction=edited.instruction,
+            markdown=field == "success_criteria",
             back=SPRINT_SCREEN,
         ),
         state={"flow": "sprint", "field": field},
@@ -358,9 +361,9 @@ async def _render_planning(
     cost, warning = plan_cost(load, capacity, effort_tracking=effort_tracking)
     text = with_notice(
         "<b>Planning</b>\n"
-        f"Success criteria: {html.escape(criteria) if criteria else 'not set yet'}\n"
-        f"Length: {length} days, {first:%d.%m} – {last:%d.%m}\n"
-        f"Planned: {cost}" + (f"\n{warning}" if warning else ""),
+        f"\n{markdown_field('Success criteria', criteria or 'not set yet')}\n\n"
+        f"<i>Length:</i> {length} days, {first:%d.%m} – {last:%d.%m}\n"
+        f"<i>Planned:</i> {cost}" + (f"\n{warning}" if warning else ""),
         notice,
     )
     markup = InlineKeyboardMarkup(inline_keyboard=rows)

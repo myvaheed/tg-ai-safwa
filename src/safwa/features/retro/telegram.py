@@ -24,6 +24,7 @@ from aiogram.enums import ChatAction
 from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from telegram_llm import markdown_to_telegram_html
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import (
@@ -33,6 +34,7 @@ from tg_agent_shell.telegram import (
     Progress,
     Services,
     dismiss_prior_ui,
+    markdown_field,
     menu_row,
     paginate,
     paging_row,
@@ -64,8 +66,8 @@ def retro_text(sprint: Sprint, statistics: RetroStatistics, *, effort_tracking: 
     lines = [
         f"<b>Sprint {sprint.number} retro</b>",
         f"{sprint.planned_start_date} – {sprint.planned_end_date}",
-        f"Success criteria: {html.escape(sprint.success_criteria)}",
-        f"Met: {_MET[sprint.criterion_met]}",
+        f"\n{markdown_field('Success criteria', sprint.success_criteria)}\n",
+        f"<i>Met:</i> {_MET[sprint.criterion_met]}",
         "",
     ]
     if effort_tracking:
@@ -406,13 +408,13 @@ def analysis_text(
         )
     lines += [
         "",
-        f"<i>{html.escape(analysis['headline'])}</i>",
+        markdown_to_telegram_html(analysis["headline"]),
         "",
         "<b>Trends</b>",
         *(
             [
                 f"{_TREND.get(finding['trend'], '◌')} {html.escape(finding['metric'])} — "
-                f"{html.escape(finding['note'])}"
+                f"{markdown_to_telegram_html(finding['note'])}"
                 for finding in analysis["dynamics"]
             ]
             or ["Nothing to compare yet."]
@@ -424,15 +426,15 @@ def analysis_text(
         ("What had nothing to do with it", "noise"),
     ):
         lines += ["", f"<b>{title}</b>"]
-        lines += [f"• {html.escape(item)}" for item in analysis[name]] or ["Nothing confirmed."]
+        lines += [f"• {markdown_to_telegram_html(item)}" for item in analysis[name]] or ["Nothing confirmed."]
     lines += [
         "",
         "<b>Experiment for the next Sprint</b>",
-        f"→ {html.escape(analysis['experiment'])}",
+        f"→ {markdown_to_telegram_html(analysis['experiment'])}",
     ]
     if analysis.get("notable"):
         lines += ["", "<b>Worth knowing next Sprint</b>"]
-        lines += [f"• {html.escape(item)}" for item in analysis["notable"]]
+        lines += [f"• {markdown_to_telegram_html(item)}" for item in analysis["notable"]]
     return "\n".join(lines)
 
 

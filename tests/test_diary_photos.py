@@ -118,9 +118,9 @@ async def test_di_photo_017_the_screen_names_the_photo_and_keeps_the_words(sessi
     # The photo is what the edit adds; the day's words stay on screen as they are.
     assert "📷 <b>Кот на окне</b>" in screen.blocks
     assert [field_line(field, Effect.UPDATE) for field in screen.fields] == [
-        "Date: 2026-09-26",
+        "<i>Date:</i> 2026-09-26",
         None,
-        "Entry: Утро.",
+        "<i>Entry:</i> Утро.",
     ]
     assert details == ["Date: 2026-09-26", "Photo added: Кот на окне"]
     await saved(sessions, change)

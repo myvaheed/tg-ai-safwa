@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tg_agent_shell.telegram import citation_title, with_citation_fields
+from tg_agent_shell.telegram import citation_title, markdown_field, with_citation_fields
 
 from ....foundation.marks import REPEAT_OPEN_MARKER, title_marks
 from ...profile.api import effort_tracking_on
@@ -215,64 +215,64 @@ def card_overview_text(
     kind = str(state.get("kind") or "")
     has_parent = bool(state.get("parent_ids"))
     lines = [
-        f"Kind: {html.escape(kind_label(kind, has_parent, level=state.get('tree_level', 0)))}",
-        f"Title: <b>{html.escape(str(state.get('title') or '—'))}</b>",
+        f"<i>Kind:</i> {html.escape(kind_label(kind, has_parent, level=state.get('tree_level', 0)))}",
+        f"<i>Title:</i> <b>{html.escape(str(state.get('title') or '—'))}</b>",
     ]
     if parents := state.get("parents_html"):
-        lines.append(f"{'Parent' if len(parents) == 1 else 'Parents'}: {', '.join(parents)}")
-    lines.append(f"Stage: {html.escape(str(state.get('stage') or 'backlog').title())}")
+        lines.append(f"<i>{'Parent' if len(parents) == 1 else 'Parents'}:</i> {', '.join(parents)}")
+    lines.append(f"<i>Stage:</i> {html.escape(str(state.get('stage') or 'backlog').title())}")
     if state.get("closed_at"):
-        lines.append(f"Completed at: {html.escape(str(state['closed_at']))}")
-    lines.append(f"Note: {html.escape(str(state.get('note') or '—'))}")
+        lines.append(f"<i>Completed at:</i> {html.escape(str(state['closed_at']))}")
+    lines.append(f"\n{markdown_field('Note', str(state.get('note') or ''))}\n")
     if state.get("schedule") or not compact:
         label = "Schedule" if kind == CardKind.ACTION.value else "Deadline"
-        lines.append(f"{label}: {html.escape(str(state.get('schedule') or '—'))}")
+        lines.append(f"<i>{label}:</i> {html.escape(str(state.get('schedule') or '—'))}")
         if state.get("schedule_summary"):
             lines.append(html.escape(state["schedule_summary"]))
     if not compact:
-        lines.append(f"Priority: {html.escape(str(state.get('priority') or 'medium').title())}")
+        lines.append(f"<i>Priority:</i> {html.escape(str(state.get('priority') or 'medium').title())}")
     # Only an Action is ever blocked, and its reason is what blocks it.
     if kind == CardKind.ACTION.value and not compact:
         reason = str(state.get("blocked_description") or "")
-        lines.append(f"Blocked: {'Yes' if reason else 'No'}")
+        lines.append(f"<i>Blocked:</i> {'Yes' if reason else 'No'}")
         if reason:
-            lines.append(f"Blocked description: {html.escape(reason)}")
+            lines.append(f"\n{markdown_field('Blocked description', reason)}\n")
     if kind == CardKind.ACTION.value:
         if effort_tracking:
-            lines.append(f"Effort: {effort_label(state.get('effort_points'))}")
+            lines.append(f"<i>Effort:</i> {effort_label(state.get('effort_points'))}")
         if state.get("tracked_mins"):
-            lines.append(f"Time spent: {minutes_label(state['tracked_mins'])}")
+            lines.append(f"<i>Time spent:</i> {minutes_label(state['tracked_mins'])}")
         if not compact:
             lines.extend(
                 [
-                    f"Categories: "
+                    f"<i>Categories:</i> "
                     f"{html.escape(category_expression(state.get('categories', [])))}",
-                    f"Energy: "
+                    f"<i>Energy:</i> "
                     f"{html.escape(energy_expression(state.get('energy_types', [])))}",
                 ]
             )
     else:
-        lines.append(f"Children: {state.get('children_html') or '—'}")
+        lines.append(f"<i>Children:</i> {state.get('children_html') or '—'}")
         if effort_tracking and state.get("unestimated_actions"):
             lines.append(f"{state['unestimated_actions']} Actions have no estimate.")
         if state.get("tracked_mins"):
-            lines.append(f"Time spent: {minutes_label(state['tracked_mins'])}")
+            lines.append(f"<i>Time spent:</i> {minutes_label(state['tracked_mins'])}")
     if compact:
         # A Goal keeps its Values even here: an empty list is what the compact view
         # exists to put in front of the owner, not what it hides.
         if kind == CardKind.GOAL.value and not has_parent:
-            lines.append(f"Values: {values_expression(kind, state.get('value_html', []))}")
+            lines.append(f"<i>Values:</i> {values_expression(kind, state.get('value_html', []))}")
         return f"<b>{html.escape(heading)}</b>\n" + "\n".join(lines)
     lines.extend(
         [
-            f"Values: {values_expression(kind, state.get('value_html', []), has_parent)}",
-            f"Tags: {', '.join(state.get('tag_html', [])) or '—'}",
+            f"<i>Values:</i> {values_expression(kind, state.get('value_html', []), has_parent)}",
+            f"<i>Tags:</i> {', '.join(state.get('tag_html', [])) or '—'}",
         ]
     )
     # Only when there are Checks: manual creation cannot link one, and the Card screen
     # already carries the counts on its Checks button.
     if state.get("check_html"):
-        lines.append(f"Checks: {', '.join(state['check_html'])}")
+        lines.append(f"<i>Checks:</i> {', '.join(state['check_html'])}")
     return f"<b>{html.escape(heading)}</b>\n" + "\n".join(lines)
 
 

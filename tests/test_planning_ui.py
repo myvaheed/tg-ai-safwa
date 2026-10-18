@@ -75,7 +75,7 @@ async def test_pl_screen_028_sprint_selectors_redraw_only_the_chosen_list(sessio
     await render_sprint(screen, services)
     text, markup = screen.edits[-1]
     assert text.startswith(f"<b>Sprint {sprint_number}</b>\n27.09 – 10.10 · Day 6 of 14")
-    assert "<b>Success criteria:</b> Ship &lt;v2&gt;" in text
+    assert "<i>Success criteria:</i>\nShip &lt;v2&gt;" in text
     assert "Taken <b>6 EP</b> · Done <b>1 EP</b>" in text
     assert "Review &lt;draft&gt;" in text and "Today work" not in text
     assert button_texts(markup) == [
@@ -259,7 +259,7 @@ async def test_card_move_buttons_walk_an_action_between_today_and_sprint(session
     async with sessions() as session:
         assert (await session.get(Card, action_id)).effective_stage == CardStage.SPRINT.value
     text, markup = message.edits[-1]
-    assert "Stage: Sprint" in text
+    assert "<i>Stage:</i> Sprint" in text
     await press(services, message, markup, "↩️ Back")
     assert "☀️ Today · 0" in message.edits[-1][0] and "🏃 Sprint · 1" in message.edits[-1][0]
 
@@ -294,8 +294,8 @@ async def test_pl_criteria_003_starting_a_sprint_needs_criteria_and_a_plan(sessi
     await render_sprint(message, services)
 
     text, markup = message.edits[-1]
-    assert "Success criteria: not set yet" in text
-    assert "Planned: 2 Actions · 5 EP" in text
+    assert "<i>Success criteria:</i>\nnot set yet" in text
+    assert "<i>Planned:</i> 2 Actions · 5 EP" in text
     # There is nothing to start until the Sprint is told what it is for.
     assert not any(label.startswith("▶️ Start") for label in button_texts(markup))
     criteria = next(
@@ -326,7 +326,7 @@ async def test_pl_criteria_003_starting_a_sprint_needs_criteria_and_a_plan(sessi
 
     planning_id, planning_text, planning_markup = message.bot.edits[-1]
     assert planning_id == 77
-    assert "Success criteria: Ship v2 to production" in planning_text
+    assert "<i>Success criteria:</i>\nShip v2 to production" in planning_text
     assert "▶️ Start 14-day Sprint" in button_texts(planning_markup)
 
     start = next(
@@ -369,7 +369,7 @@ async def test_pl_criteria_003_the_planning_screen_refuses_an_empty_plan(session
     await render_sprint(message, services_for(sessions))
 
     text, markup = message.edits[-1]
-    assert "Planned: 0 Actions · 0 EP" in text
+    assert "<i>Planned:</i> 0 Actions · 0 EP" in text
     assert not any(label.startswith("▶️ Start") for label in button_texts(markup))
     assert "🗓 Plan" in button_texts(markup)
 
@@ -386,7 +386,7 @@ async def test_pl_plan_016_the_plan_is_a_table_and_the_backlog_is_the_keyboard(s
     assert re.search(r'\?start=go-[\w-]+">Ship it</a>', body)
     assert re.search(r'\?start=go-[\w-]+">↩️ Return</a>', body)
     assert "<table bordered striped>" in body
-    assert "In Sprint: 1 Actions" in body
+    assert "<i>In Sprint:</i> 1 Actions" in body
     labels = button_texts(markup)
     assert all(len(row) == 1 for row in markup.inline_keyboard[:2])
     assert "Pick me (1)" in labels
@@ -597,7 +597,7 @@ async def test_pl_plan_018_the_plans_cost_is_shown_against_the_capacity(sessions
     planning = FakeMessage(120, bot_message=True)
     await render_sprint(planning, services)
 
-    assert "Planned: 1 Actions · 13 EP · capacity — EP" in planning.edits[-1][0]
+    assert "<i>Planned:</i> 1 Actions · 13 EP · capacity — EP" in planning.edits[-1][0]
     assert "Above configured capacity" not in planning.edits[-1][0]
 
     async with sessions() as session:
@@ -605,7 +605,7 @@ async def test_pl_plan_018_the_plans_cost_is_shown_against_the_capacity(sessions
         await session.commit()
 
     await render_sprint(planning, services)
-    assert "Planned: 1 Actions · 13 EP · capacity 10 EP" in planning.edits[-1][0]
+    assert "<i>Planned:</i> 1 Actions · 13 EP · capacity 10 EP" in planning.edits[-1][0]
     assert "⚠️ Above configured capacity (10 EP)." in planning.edits[-1][0]
     # Above the capacity is advice: the Sprint still starts.
     assert any(label.startswith("▶️ Start") for label in button_texts(planning.edits[-1][1]))
@@ -613,7 +613,7 @@ async def test_pl_plan_018_the_plans_cost_is_shown_against_the_capacity(sessions
     plan = FakeMessage(121, bot_message=True)
     await render_plan(plan, services)
 
-    assert "In Sprint: 1 Actions · 13 EP · capacity 10 EP" in plan.edits[-1][0]
+    assert "<i>In Sprint:</i> 1 Actions · 13 EP · capacity 10 EP" in plan.edits[-1][0]
     assert "Above configured capacity" in plan.edits[-1][0]
 
 
@@ -642,7 +642,7 @@ async def test_pl_length_035_the_next_sprints_length_is_set_on_the_planning_scre
     await render_sprint(message, services)
 
     text, markup = message.edits[-1]
-    assert "Length: 14 days, 05.10 – 18.10" in text
+    assert "<i>Length:</i> 14 days, 05.10 – 18.10" in text
     assert "🏁 Length: 14 days" in button_texts(markup)
     assert not any(label.startswith("⚖️ Capacity") for label in button_texts(markup))
 
@@ -657,7 +657,7 @@ async def test_pl_length_035_the_next_sprints_length_is_set_on_the_planning_scre
     await ordinary_text(typed, services)
 
     _, planning_text, planning_markup = message.bot.edits[-1]
-    assert "Length: 7 days, 05.10 – 11.10" in planning_text
+    assert "<i>Length:</i> 7 days, 05.10 – 11.10" in planning_text
     assert "🏁 Length: 7 days" in button_texts(planning_markup)
     async with sessions() as session:
         assert (await session.get(Workspace, 1)).sprint_length_days == 7

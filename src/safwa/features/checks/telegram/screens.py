@@ -7,6 +7,7 @@ import html
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
 
+from telegram_llm import markdown_to_telegram_html
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import (
@@ -246,17 +247,17 @@ async def render_check(
             if linked_value_ids
             else []
         )
-        note = await render_citations(session, services, html.escape(check.note or "—"), here=here)
+        note = await render_citations(session, services, markdown_to_telegram_html(check.note or "—"), here=here)
         await session.commit()
 
     body = "\n".join(
         [
             f"<b>Check</b>: {html.escape(check.title + check_marks)}",
-            f"Note: {note}",
-            f"Status: {CHECK_STATUS_EMOJIS[check.status]} {CHECK_OUTCOME_LABELS[check.status]}",
-            f"Schedule: {html.escape(check.schedule or '—')}",
-            f"Card: {html.escape(', '.join(card_titles)) or '—'}",
-            f"Values: {html.escape(', '.join(value_names)) or '—'}",
+            f"\n<i>Note:</i>\n{note}\n",
+            f"<i>Status:</i> {CHECK_STATUS_EMOJIS[check.status]} {CHECK_OUTCOME_LABELS[check.status]}",
+            f"<i>Schedule:</i> {html.escape(check.schedule or '—')}",
+            f"<i>Card:</i> {html.escape(', '.join(card_titles)) or '—'}",
+            f"<i>Values:</i> {html.escape(', '.join(value_names)) or '—'}",
         ]
     )
     if summary:

@@ -62,7 +62,7 @@ async def test_cd_button_048_goal_markers_show_subgoal_depth_on_every_surface(se
 
     message = FakeMessage(80, bot_message=True)
     await render_card(message, services, goal_id)
-    assert f"Kind: {marker} Goal" in message.edits[-1][0]
+    assert f"<i>Kind:</i> {marker} Goal" in message.edits[-1][0]
     await render_backlog(message, services, kinds="goals")
     assert marker + " Target " in message.edits[-1][0]
     await render_saved_request(message, services, request_id)
@@ -73,7 +73,7 @@ async def test_cd_button_048_goal_markers_show_subgoal_depth_on_every_surface(se
         assert f"{child_marker} Child 0 · 📚" in button_texts(message.edits[-1][1])
         assert "🎯 Sibling · 📚" in button_texts(message.edits[-1][1])
         await render_card(message, services, leaf_id)
-        assert "Kind: 🎯 Subgoal" in message.edits[-1][0]
+        assert "<i>Kind:</i> 🎯 Subgoal" in message.edits[-1][0]
 
 
 async def test_cd_button_048_markers_follow_moves_and_single_card_deletion(sessions):

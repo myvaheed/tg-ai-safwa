@@ -24,6 +24,7 @@ from tg_agent_shell.telegram import (
     choice_rows,
     edit_registered_message,
     edited_screen,
+    markdown_field,
     menu_row,
     paginate,
     place_button,
@@ -191,7 +192,7 @@ async def render_value(
                 await value_cards(session, value.id),
                 here.child("value_cards", id=value.id),
             )
-            linked = f"\nLinked Cards: {cards}\nLinked Checks: {checks}"
+            linked = f"\n<i>Linked Cards:</i> {cards}\n<i>Linked Checks:</i> {checks}"
         else:
             editor_values = {"name": "", "description": "", **(values or {})}
 
@@ -250,15 +251,17 @@ async def render_value(
                 ]
             )
         rows.append([await back_button(session, services.owner_id, back)])
-        description = html.escape(editor_values["description"] or "—")
+        description = markdown_field("Description", editor_values["description"])
         if value is not None:
             description = await render_citations(session, services, description, here=here)
+        else:
+            description = await render_citations(session, services, description, plain=True)
         await session.commit()
 
     body = (
         f"<b>{'Create Value' if mode == 'create' else 'Value'}</b>\n"
-        f"Name: {html.escape(editor_values['name'] or '—')}\n"
-        f"Description: {description}"
+        f"<i>Name:</i> {html.escape(editor_values['name'] or '—')}\n"
+        f"\n{description}\n"
         + (linked or "\nA Value is created once it has a name and a description.")
     )
     markup = InlineKeyboardMarkup(inline_keyboard=rows)
@@ -340,6 +343,7 @@ async def render_value_text_prompt(
             title=f"Edit Value {field.title()}",
             current_value=str(state.get("values", {}).get(field, "")),
             instruction=_INSTRUCTIONS[field],
+            markdown=field == "description",
             back=Place("value_text_back", {"mode": mode, "id": item_id}, back),
             related_id=item_id,
         ),

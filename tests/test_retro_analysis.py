@@ -319,21 +319,21 @@ async def test_rt_crit_004_whether_the_criteria_were_met_is_the_owners_word(
     services = _services(sessions, AnalysisProvider(), tmp_path)
     message = FakeMessage(330, bot_message=True)
     await open_retro(message, services, running.id)
-    assert "Met: not marked yet" in message.edits[-1][0]
+    assert "<i>Met:</i> not marked yet" in message.edits[-1][0]
 
     await _press(message, services, "✅ Met")
     text, markup = message.edits[-1]
-    assert "Met: yes" in text
+    assert "<i>Met:</i> yes" in text
     assert button_texts(markup)[:2] == ["❌ Not met", "❓ Unmark"]
 
     await _press(message, services, "❌ Not met")
     text, markup = message.edits[-1]
-    assert "Met: no" in text
+    assert "<i>Met:</i> no" in text
     assert button_texts(markup)[:2] == ["✅ Met", "❓ Unmark"]
 
     await _press(message, services, "❓ Unmark")
     text, markup = message.edits[-1]
-    assert "Met: not marked yet" in text
+    assert "<i>Met:</i> not marked yet" in text
     async with sessions() as session:
         assert (await session.get(Sprint, running.id)).criterion_met is None
 
@@ -627,7 +627,7 @@ async def test_rt_ai_008_what_the_run_leaves_behind(sessions, tmp_path) -> None:
     assert "the criteria then not marked" in text and "since" not in text
     for line in (
         "analysis</b>",
-        "<i>Лучший Спринт из трёх.</i>",
+        "Лучший Спринт из трёх.",
         "▲ Actions finished — 2 of 2",
         "• утренняя пробежка",
         "→ Одна пробежка каждое утро.",

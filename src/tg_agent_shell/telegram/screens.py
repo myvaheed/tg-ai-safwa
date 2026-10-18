@@ -16,6 +16,7 @@ from .place import Place
 from .services import Services
 
 logger = logging.getLogger(__name__)
+_CODE = re.compile(r"(<pre\b[^>]*>.*?</pre>|<code\b[^>]*>.*?</code>)", re.DOTALL)
 
 
 async def open_item_screen(
@@ -68,9 +69,14 @@ async def render_citations(
     link tapped on a review would leave the review unanswered.
     """
     screens = services.screens
-    matches = list(screens.citation.finditer(text))
+    # Code contains examples, including citations that must stay literal.
+    parts = _CODE.split(text)
+    matches = [match for part in parts[::2] for match in screens.citation.finditer(part)]
     if not matches:
-        return screens.markup.sub(lambda match: match[1], text)
+        return "".join(
+            part if index % 2 else screens.markup.sub(lambda match: match[1], part)
+            for index, part in enumerate(parts)
+        )
     live: dict[tuple[str, int], str | None] = {}
     if services.bot_username or plain:
         for item_type, item_id in {(match[2], int(match[3])) for match in matches}:
@@ -101,7 +107,12 @@ async def render_citations(
 
     # A target that is not an id — a stamp, a date, an invented number — never reached the
     # pass above, and raw Markdown must not stay in a message the chat keeps for good.
-    return screens.markup.sub(lambda match: match[1], screens.citation.sub(build, text))
+    return "".join(
+        part if index % 2 else screens.markup.sub(
+            lambda match: match[1], screens.citation.sub(build, part)
+        )
+        for index, part in enumerate(parts)
+    )
 
 
 async def report_open_failure(

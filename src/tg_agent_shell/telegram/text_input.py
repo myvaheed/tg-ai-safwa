@@ -42,6 +42,7 @@ class TextInputScreen:
     related_id: int | None = None
     ttl: timedelta = _DEFAULT_TTL
     extra_actions: tuple[TextInputAction, ...] = ()
+    markdown: bool = False
 
 
 type TextValidator[T] = Callable[[str], T]
@@ -69,11 +70,13 @@ def _screen_text(screen: TextInputScreen, notice: str | None) -> str:
     current = screen.current_value or "—"
     parts = [
         f"<b>{html.escape(screen.title)}</b>",
-        f"Current value:\n<pre>{html.escape(current)}</pre>",
+        f"<i>Current value:</i>\n<pre>{html.escape(current)}</pre>",
     ]
     if notice:
         parts.append(f"⚠️ {html.escape(notice)}")
     parts.append(html.escape(screen.instruction))
+    if screen.markdown:
+        parts.append("Markdown is supported: **bold**, *italic*, ~~strikethrough~~ and `code`.")
     return "\n\n".join(parts)
 
 
@@ -94,6 +97,7 @@ def _screen_from_state(state: dict[str, Any]) -> TextInputScreen:
         back=Place.at(saved["back"]),
         related_id=saved.get("related_id"),
         ttl=timedelta(seconds=int(saved.get("ttl_seconds", _DEFAULT_TTL.total_seconds()))),
+        markdown=bool(saved.get("markdown", False)),
         extra_actions=tuple(
             TextInputAction(text=str(action["text"]), place=Place.at(action["place"]))
             for action in saved.get("extra_actions", [])
@@ -124,6 +128,7 @@ async def render_text_input(
             "back": screen.back.address,
             "related_id": screen.related_id,
             "ttl_seconds": int(screen.ttl.total_seconds()),
+            "markdown": screen.markdown,
             "extra_actions": [
                 {"text": action.text, "place": action.place.address}
                 for action in screen.extra_actions

@@ -216,7 +216,7 @@ async def test_answering_checks_by_proposal_then_completing(e2e_harness):
     # A Check proposal reads like every other item: marked fields plus Save/Discard, no field
     # controls.
     assert "<b>✏️ Answer Check</b>" in message.rendered[-1]
-    assert "Status: <s>Pending</s> <b>Passed</b>" in message.rendered[-1]
+    assert "<i>Status:</i> <s>Pending</s> <b>Passed</b>" in message.rendered[-1]
     assert (await _live_actions(e2e_harness)) == {"proposal_approve", "proposal_reject"}
 
     await _claim(e2e_harness, "proposal_approve", message, services, id=outcome.proposal_id)
@@ -335,7 +335,7 @@ async def test_a_closed_repeat_is_marked_everywhere_it_is_read(e2e_harness):
     assert f"<b>Check</b>: Posture straight? [✅1, 🔄#{second_id}]" in message.sent[-1]
     # The closed screen offers the live instance the series moved to.
     await _claim(e2e_harness, "check_view", message, services, id=second_id)
-    assert "Status: ⬜ Pending" in message.rendered[-1]
+    assert "<i>Status:</i> ⬜ Pending" in message.rendered[-1]
 
     # A citation of the closed instance carries the marker too, so the link cannot pass for
     # the open one.
@@ -518,7 +518,7 @@ async def test_manual_check_screens_answer_and_edit_note(e2e_harness):
         "check_list",
         "check_delete_prompt",
     }
-    assert "Note: —" in message.rendered[-1]
+    assert "<i>Note:</i>\n—" in message.rendered[-1]
 
     await _claim(
         e2e_harness, "check_set_status", message, services, id=check_ids[0], outcome="passed"
