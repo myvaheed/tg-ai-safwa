@@ -32,7 +32,7 @@ Feature: Reminders
     And an interval with a date and a time starts at that exact moment
     And weekdays with a time fire weekly at that clock, or daily when all seven are given
     And weekdays with a date fire on the first of those days on or after it
-    And a date with a time happens once
+    And a date with a time happens once, and the review screen and /reminders say it with its weekday, "once, on Thu 22.10.2026 at 10:00"
     And a time on its own is the next time that clock comes round
     And minutes from now happen once, at that minute, counted from now in code
     And a weekday given as the date is the next such day whose time is still ahead, today included

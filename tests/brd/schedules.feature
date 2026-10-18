@@ -87,7 +87,10 @@ Feature: One plain-language Schedule for Actions and Checks
 
   Scenario: SCH-RETRY-014 — A Schedule the model cannot read asks for other words
     Given the Scheduler's model gives no valid reading within its tool calls
-    Then the owner is asked to say the Schedule in other words
+    Then the owner is asked to say the Schedule in other words, like one of the forms it may take:
+      "three times a week", "every Monday and Thursday at 9:00", "on 20 October at 15:00",
+      "every day until 30 November", "after I finish it" (SCHEDULE_FORMS)
+    And a Deadline names its own: "by 20 October", "by 20 October at 18:00", "end of next month" (DEADLINE_FORMS)
     And nothing is saved
 
   Scenario: SCH-LIMIT-015 — An Action repeats at most five times a day

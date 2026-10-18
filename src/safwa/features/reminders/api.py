@@ -619,7 +619,8 @@ def describe(schedule: Schedule, *, tz: ZoneInfo, now: datetime | None = None) -
     if schedule.kind is ScheduleKind.ONCE:
         if schedule.anchor_at is None:
             return "once"
-        return f"once, at {schedule.anchor_at.astimezone(tz):%Y-%m-%d %H:%M}"
+        moment = schedule.anchor_at.astimezone(tz)
+        return f"once, on {moment:%a %d.%m.%Y} at {moment:%H:%M}"
 
     if schedule.kind is ScheduleKind.INTERVAL:
         text = f"every {_humanize_interval(schedule.interval_minutes or 0)}"

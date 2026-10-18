@@ -27,9 +27,10 @@ from safwa.features.checks.use_cases import (
 )
 from safwa.features.schedules.agent import (
     ACTION_LIMIT_QUESTION,
+    DEADLINE_FORMS,
+    SCHEDULE_FORMS,
     SCHEDULE_FORMS_ERROR,
     SCHEDULE_PARSER_PROMPT,
-    UNREADABLE_QUESTION,
     ScheduleCompiler,
     scheduled_tool,
 )
@@ -564,7 +565,7 @@ async def test_any_other_quota_beside_weekdays_is_repaired(config):
     )
     repair = json.loads(requests[1].messages[-1]["content"])
     assert repair["retryable"] is True and SCHEDULE_FORMS_ERROR in repair["error"]
-    assert question == UNREADABLE_QUESTION.format(label="Schedule")
+    assert question.startswith("I could not read this Schedule. Say it like one of these:")
 
 
 async def test_a_count_that_equals_the_total_is_the_total_alone():
@@ -743,8 +744,23 @@ async def test_a_schedule_the_model_cannot_read_asks_for_other_words(sessions):
     async with sessions() as session:
         with pytest.raises(ToolPreparationError) as refusal:
             await ChangePreparer(provider, None, PROPOSALS).prepare(session, change)
-        assert str(refusal.value) == UNREADABLE_QUESTION.format(label="Schedule")
+        question = str(refusal.value)
+        assert question.startswith("I could not read this Schedule. Say it like one of these:")
+        assert all(f"'{form}'" in question for form in SCHEDULE_FORMS)
         assert await session.scalar(select(func.count(Check.id))) == 0
+
+
+async def test_a_deadline_the_model_cannot_read_names_the_deadline_forms():
+    """SCH-RETRY-014 — tests/brd/schedules.feature"""
+
+    async def complete(request):
+        return CompletionTurn(content="Some day.", tool_calls=[])
+
+    _, question = await ScheduleCompiler(SimpleNamespace(complete=complete)).compile(
+        "some day", datetime.now(UTC), ZoneInfo("Europe/Istanbul"), "deadline"
+    )
+    assert question.startswith("I could not read this Deadline. Say it like one of these:")
+    assert all(f"'{form}'" in question for form in DEADLINE_FORMS)
 
 
 async def test_a_clock_alone_never_makes_a_one_time_appointment():
@@ -782,7 +798,7 @@ async def test_a_clock_alone_never_makes_a_one_time_appointment():
         "this Wednesday at 15:00", monday, tz, "action"
     )
     assert question is None and once["timing"]["schedule_kind"] == "once"
-    assert rule_summary(once, tz) == "Once, at 2026-10-07 15:00."
+    assert rule_summary(once, tz) == "Once, on Wed 07.10.2026 at 15:00."
 
 
 async def test_a_schedule_without_a_clock_is_an_appointment_for_its_whole_day(

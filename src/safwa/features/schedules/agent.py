@@ -56,7 +56,16 @@ ACTION_LIMIT_QUESTION = (
     f"An Action can repeat at most {ACTION_DAILY_EXECUTIONS_MAX} times a day. "
     "Make it a Check instead, or choose fewer times."
 )
-UNREADABLE_QUESTION = "I could not read this {label}. Say it in other words."
+# The forms the owner is shown when the words cannot be read, as a Reminder's are.
+SCHEDULE_FORMS = (
+    "three times a week",
+    "every Monday and Thursday at 9:00",
+    "on 20 October at 15:00",
+    "every day until 30 November",
+    "after I finish it",
+)
+DEADLINE_FORMS = ("by 20 October", "by 20 October at 18:00", "end of next month")
+UNREADABLE_QUESTION = "I could not read this {label}. Say it like one of these: {forms}."
 SCHEDULE_QUESTION_HINT = (
     "Ask the user this exact question, then call again with their answer added to schedule. "
     "Never invent a time."
@@ -266,7 +275,10 @@ class ScheduleCompiler:
                 max_tool_calls=MINI_SESSION_MAX_TOOL_CALLS,
             )
         except MiniSessionError:
-            return None, UNREADABLE_QUESTION.format(label=label)
+            forms = DEADLINE_FORMS if deadline else SCHEDULE_FORMS
+            return None, UNREADABLE_QUESTION.format(
+                label=label, forms=", ".join(f"'{form}'" for form in forms)
+            )
         if result.name == "not_clear_enough":
             return None, result.payload.reason
         config = result.payload

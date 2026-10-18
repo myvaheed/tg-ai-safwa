@@ -362,7 +362,7 @@ def test_a_schedule_survives_the_column_round_trip(kwargs):
             {"days": ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], "clock": "08:30"},
             "every day at 08:30",
         ),
-        ({"clock": "09:00", "day": "20.08.2026"}, "once, at 2026-08-20 09:00"),
+        ({"clock": "09:00", "day": "20.08.2026"}, "once, on Thu 20.08.2026 at 09:00"),
     ],
 )
 def test_describe(kwargs, expected):

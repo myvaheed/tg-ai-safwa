@@ -35,7 +35,9 @@ proposal as `schedule_rule`, the review screen says how it was read, and Save wr
 that. A question becomes the retryable `schedule_unclear` tool result, which tells the subagent
 to ask the owner and call again with the answer; nothing is proposed meanwhile. When the model
 gives no valid reading within its tool calls, the question asks the owner to say the Schedule
-in other words. An unreachable provider fails the turn like any other model call.
+in other words and names the forms it may take, `SCHEDULE_FORMS`, or `DEADLINE_FORMS` for a
+Deadline; the last repair error stays with the model, as it names fields, not words. An
+unreachable provider fails the turn like any other model call.
 
 The compiler receives a target. `action` and `check` use one prompt; an Action planning more
 than `ACTION_DAILY_EXECUTIONS_MAX` (5) executions a day — a daily quota above it, a weekly
