@@ -36,7 +36,7 @@ SAFWA_AI_MODEL=openai/gpt-5.6-luna
 
 Every value a row derives (`SAFWA_AI_BASE_URL`, `SAFWA_AI_MAX_RETRIES`,
 `SAFWA_AI_SEND_TEMPERATURE`, `SAFWA_AI_CACHE_BREAKPOINTS`) can still be set explicitly, and
-`SAFWA_AI_REASONING_EFFORT` sets the model's effort. Which models are known to work, and what
+`SAFWA_AI_REASONING_EFFORT` sets the model's effort; Safwa is tuned with it "none", reasoning off, since a step the owner waits 5-10 seconds for is no use. Which models are known to work, and what
 breaks on which, is [docs/LLM_GATEWAY.md](docs/LLM_GATEWAY.md);
 `uv run pytest tests/test_provider_live.py --live-provider` checks the one `.env` configures. Set the
 model and Telegram credentials in `.env`. Set `SAFWA_TELEGRAM_BOT_USERNAME` without `@`; Safwa uses

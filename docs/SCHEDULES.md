@@ -52,9 +52,19 @@ Small models often read such text twice over, as once a day and as every weekday
 Once a day beside weekdays or a clock is dropped in code, so the days are the reading and no
 repair round is spent (`SCH-FORM-024`). Any other quota beside weekdays goes back to the model,
 even once a week beside one weekday: for "once a week" a model makes up Monday, and the code
-cannot tell a day it made up from one the text names. "In 30 minutes"
-arrives as `in_minutes`, and the code adds it to the moment the text is read: a model adding
-minutes to a clock gets the sum wrong.
+cannot tell a day it made up from one the text names. A count without a period that equals
+the total is the total alone. Arithmetic stays in code: "in 30 minutes" arrives as
+`in_minutes`, and "on Thursday at 10" with the weekday as its date, and the code counts the
+moment. A small model adding minutes to a clock gets the sum wrong, and to avoid counting days
+to a weekday it reads "on Thursday" as every Thursday. A Reminder's setup session reads its
+timing through the same `resolve`, so all of this holds there too.
+
+The sessions run with reasoning off, as `tests/test_timing_phrases_live.py` measures them, and
+ask for no reading in words before the call. What carries a small model instead is one example
+line per form, a repair round whose error names the fix, and the code above. Measured in
+October 2026 over 25 phrases, three runs each, 10 to 20 words of reading first took Qwen3.5 9B
+from 34 s to 49 s a run without lifting it, and made Qwen3.6 35B-A3B talk itself out of the
+clock in "по понедельникам и средам в 9" in every run.
 
 ## Rules
 

@@ -43,18 +43,10 @@ one photo; the rest is read from the providers' documentation.
 
 | Row | Models | What breaks, and on which |
 |---|---|---|
-| `local` | Qwen3.6 35B-A3B, run on LM Studio 2026-09-27; Qwen3.5 4B and 9B; GLM-4.7-Flash; any model whose chat template renders tools | The server sets the context length, never the request, and Ollama's default is 4k under 24 GB of VRAM (`OLLAMA_CONTEXT_LENGTH`).  Ollama ignores `tool_choice`.  A template that does not render tool calls. |
+| `local` | Qwen3.6 35B-A3B, run on LM Studio 2026-09-27; Qwen3.5 4B and 9B; GLM-4.7-Flash; any model whose chat template renders tools | The server sets the context length, never the request, and Ollama's default is 4k under 24 GB of VRAM (`OLLAMA_CONTEXT_LENGTH`).  Ollama ignores `tool_choice`.  A template that does not render tool calls.  LM Studio turns reasoning off only with a `reasoning_effort` of "none", not with the chat template's own thinking switch (Qwen3.5 9B, 2026-10-18). |
 | `openrouter` | `openai/gpt-5.6-luna`, in use; GPT-6; Claude Sonnet 5, Opus 5.5, Haiku 4.5; Gemini 3.x; Grok 4.x; DeepSeek V4; Qwen3.8; GLM-5.3 | Claude with thinking, a thinking Qwen and GLM-5.3 refuse `tool_choice="required"`: turn `tool_choice_required` off.  DeepSeek V4 thinking with tools wants the reasoning of every earlier turn back: send a `reasoning_effort` of "none". |
 
 On either row, a model without vision refuses a request that carries an image.
-
-Safwa is tuned to run with reasoning off: a step the owner waits 5-10 seconds for is no use.
-LM Studio turns reasoning off with a `reasoning_effort` of "none" and ignores the chat
-template's own thinking switch; `tests/test_timing_phrases_live.py` measures timing phrases that way.
-The Mutator names what it will change in the response that calls the tool. The timing sessions
-ask for no such words: measured in October 2026 on Qwen3.5 9B and Qwen3.6 35B-A3B, 10 to 20
-words of reading first cost a fifth more time, did not lift 9B, and made 35B talk itself out
-of the clock in "по понедельникам и средам в 9".
 
 Sources:
 [Ollama: OpenAI compatibility](https://docs.ollama.com/api/openai-compatibility) ·
