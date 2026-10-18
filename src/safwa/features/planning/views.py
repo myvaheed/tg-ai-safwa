@@ -19,20 +19,22 @@ AI_CURRENT_SPRINT_METRICS = SqlView(
     "ai_current_sprint_metrics",
     """SELECT sc.sprint_id,
           CASE WHEN (SELECT effort_tracking FROM user_profile WHERE id=1)
-            THEN SUM(CASE WHEN sc.scope_kind='initial' THEN COALESCE(sc.effort_snapshot,0)*COALESCE(sc.planned_count,0) ELSE 0 END) END committed,
+            THEN SUM(CASE WHEN sc.scope_kind='initial' THEN COALESCE(sc.effort_snapshot,0)*MAX(COALESCE(sc.planned_count,0),COALESCE(sc.result='done',0)) ELSE 0 END) END committed,
           CASE WHEN (SELECT effort_tracking FROM user_profile WHERE id=1)
-            THEN SUM(CASE WHEN sc.scope_kind='added' THEN COALESCE(sc.effort_snapshot,0)*COALESCE(sc.planned_count,0) ELSE 0 END) END added,
+            THEN SUM(CASE WHEN sc.scope_kind='added' THEN COALESCE(sc.effort_snapshot,0)*MAX(COALESCE(sc.planned_count,0),COALESCE(sc.result='done',0)) ELSE 0 END) END added,
           CASE WHEN (SELECT effort_tracking FROM user_profile WHERE id=1)
-            THEN SUM(CASE WHEN sc.removed_at IS NOT NULL THEN COALESCE(sc.effort_snapshot,0)*COALESCE(sc.planned_count,0) ELSE 0 END) END removed,
+            THEN SUM(CASE WHEN sc.removed_at IS NOT NULL THEN COALESCE(sc.effort_snapshot,0)*(MAX(COALESCE(sc.planned_count,0),COALESCE(sc.result='done',0))-COALESCE(sc.result='done',0)) ELSE 0 END) END removed,
           CASE WHEN (SELECT effort_tracking FROM user_profile WHERE id=1)
-            THEN SUM(CASE WHEN sc.result='done' THEN COALESCE(sc.effort_snapshot,0) ELSE 0 END) END completed,
-          SUM(CASE WHEN sc.scope_kind='initial' THEN COALESCE(sc.planned_count,0) ELSE 0 END) actions_committed,
-          SUM(CASE WHEN sc.scope_kind='added' THEN COALESCE(sc.planned_count,0) ELSE 0 END) actions_added,
-          SUM(CASE WHEN sc.removed_at IS NOT NULL THEN COALESCE(sc.planned_count,0) ELSE 0 END) actions_removed,
+            THEN SUM(CASE WHEN sc.result='done' THEN COALESCE(c.effort_points,0) ELSE 0 END) END completed,
+          SUM(CASE WHEN sc.scope_kind='initial' THEN MAX(COALESCE(sc.planned_count,0),COALESCE(sc.result='done',0)) ELSE 0 END) actions_committed,
+          SUM(CASE WHEN sc.scope_kind='added' THEN MAX(COALESCE(sc.planned_count,0),COALESCE(sc.result='done',0)) ELSE 0 END) actions_added,
+          SUM(CASE WHEN sc.removed_at IS NOT NULL THEN MAX(COALESCE(sc.planned_count,0),COALESCE(sc.result='done',0))-COALESCE(sc.result='done',0) ELSE 0 END) actions_removed,
           SUM(COALESCE(sc.result='done',0)) actions_completed,
-          SUM(CASE WHEN sc.effort_snapshot IS NULL THEN COALESCE(sc.planned_count,0) ELSE 0 END) unestimated_actions,
+          SUM(CASE WHEN sc.effort_snapshot IS NULL THEN MAX(COALESCE(sc.planned_count,0),COALESCE(sc.result='done',0))
+              WHEN sc.result='done' AND c.effort_points IS NULL THEN 1 ELSE 0 END) unestimated_actions,
           SUM(sc.planned_count IS NULL) unknown_schedules
         FROM sprint_commitments sc JOIN workspace w ON w.active_sprint_id=sc.sprint_id
+        JOIN cards c ON c.id=sc.card_id
         GROUP BY sc.sprint_id""",
     doc="""- `ai_current_sprint_metrics(sprint_id, committed, added, removed, completed, actions_committed, actions_added, actions_removed, actions_completed, unestimated_actions, unknown_schedules)`
   - `committed`, `added`, `removed`, `completed` sum known effort points; NULL while Effort Points are off

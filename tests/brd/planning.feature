@@ -86,6 +86,14 @@
     Then the Sprint counts those 5 points as completed
     When the owner reopens it
     Then the Sprint counts them as not completed
+    And reopening into Backlog removes it from the Sprint's remaining work until it returns
+    When an Action is finished directly from Backlog during the Sprint
+    Then it is included in Done, as added work if it never joined the Sprint
+    And a previously removed execution is no longer counted as removed once finished
+    When the owner corrects a finished Action's Effort Points before the Sprint ends
+    Then Done uses the corrected estimate, including an estimate first supplied after completion
+    And the initial and added plan keep their entry estimates
+    And a missing planned or finished estimate makes EP totals partial
 
   Scenario: PL-CONTEXT-010 — Safwa is handed the Sprint's number, its dates and its Success criteria
     Given a running Sprint

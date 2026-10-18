@@ -167,8 +167,12 @@ carrying the Inbox Tag is not checked, and only creation starts the check.
   preserves estimates and configured capacity and leaves Time tracking alone. On, the model
   proposes an estimate with each new Action; saving without one stays allowed.
 - A Sprint commitment freezes the estimate as it joins, including NULL for an unestimated
-  Action. Count totals include every Action; effort totals sum known estimates and name
-  missing ones. Retro keeps the missing count. Incomplete records supply no effort
+  Action, for its initial, added and removed plan. Completed effort uses the finished copy's
+  current estimate, including corrections made before the Sprint ends; retro freezes it then.
+  Finishing directly from Backlog joins the running Sprint as added work if it had no
+  commitment; finishing a removed execution stops counting that execution as removed.
+  Count totals include every Action; effort totals sum known estimates and name
+  missing planned or finished estimates, counting each execution once. Retro keeps the missing count. Incomplete records supply no effort
   completion percentages or EP/hour rates; effort aggregates omit incomplete Sprints and
   state how many records supplied each number. The current Profile switch governs both
   past retro displays and the numbers handed to AI analysis.

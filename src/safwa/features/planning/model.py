@@ -79,7 +79,7 @@ class Sprint(Base, TimestampMixin):
 
 
 class SprintCommitment(Base, TimestampMixin):
-    """What one Action was worth to one Sprint, frozen when it entered its scope."""
+    """One Action's reserved executions and planned estimate, frozen on entry to scope."""
 
     __tablename__ = "sprint_commitments"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -100,8 +100,8 @@ class SprintCommitment(Base, TimestampMixin):
 
     @property
     def quantity(self) -> int:
-        return self.planned_count or 0
+        return max(self.planned_count or 0, int(self.result == "done"))
 
     @property
     def removed_quantity(self) -> int:
-        return self.quantity if self.removed_at is not None else 0
+        return self.quantity - int(self.result == "done") if self.removed_at is not None else 0

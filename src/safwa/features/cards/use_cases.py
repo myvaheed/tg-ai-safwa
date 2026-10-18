@@ -717,6 +717,8 @@ async def finish_action(
     before = snapshot(card)
     card.manual_stage = CardStage.DONE.value
     card.effective_stage = CardStage.DONE.value
+    # Reserve the current execution before its completion reduces the Schedule quota.
+    await sync_commitment_for_stage(session, card, previous_live_stage)
     card.completed_at = utcnow()
     if tracked_mins is not None:
         card.tracked_mins = tracked_mins

@@ -147,7 +147,7 @@ async def render_sprint(
                 line += f" × {quantity if quantity is not None else '?'}"
             if effort_tracking:
                 commitment = commitments.get(card.id)
-                estimate = commitment.effort_snapshot if commitment else card.effort_points
+                estimate = commitment.effort_snapshot if commitment and view != "done" else card.effort_points
                 effort = estimate * quantity if estimate is not None and quantity is not None else None
                 line += f" · {effort_label(effort)} EP"
             if view == "blocked":

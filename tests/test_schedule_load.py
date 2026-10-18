@@ -124,7 +124,7 @@ async def test_successor_keeps_reserved_scope_and_frozen_unit_effort(sessions, e
             "committed": 15,
             "added": 0,
             "removed": 0,
-            "completed": 5,
+            "completed": 8,
         }
         counts = await sprint_counts(session, sprint.id)
         assert (counts["committed"], counts["added"], counts["completed"]) == (3, 0, 1)
@@ -138,7 +138,7 @@ async def test_successor_keeps_reserved_scope_and_frozen_unit_effort(sessions, e
             metrics["completed"],
             metrics["actions_committed"],
             metrics["actions_completed"],
-        ) == (15, 5, 3, 1)
+        ) == (15, 8, 3, 1)
         stats = await sprint_closing(session, sprint, timezone="Europe/Istanbul")
         assert (
             stats.planned,
@@ -152,8 +152,8 @@ async def test_successor_keeps_reserved_scope_and_frozen_unit_effort(sessions, e
             stats.by_category["none"].count,
             stats.by_category["none"].effort,
             stats.by_category["none"].done_effort,
-        ) == (3, 15, 5)
-        assert (stats.minutes, stats.timed, stats.timed_effort) == (30, 1, 5)
+        ) == (3, 15, 8)
+        assert (stats.minutes, stats.timed, stats.timed_effort) == (30, 1, 8)
         await move_card(session, successor.id, CardStage.BACKLOG)
         assert (await sprint_metrics(session, sprint.id))["removed"] == 10
         await move_card(session, successor.id, CardStage.SPRINT)

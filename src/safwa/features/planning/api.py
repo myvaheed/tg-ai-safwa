@@ -6,7 +6,7 @@ commitment rows are the Sprint's, and Cards never touches one itself.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, timedelta
 from zoneinfo import ZoneInfo
@@ -205,7 +205,7 @@ async def sync_commitment_for_stage(
         )
         if current in PLANNED_STAGES:
             record_change(session, SPRINT_JOINED, card.id)
-    elif commitment and was_planned and current is CardStage.BACKLOG:
+    elif commitment and (was_planned or previous_stage in TERMINAL_STAGES) and current is CardStage.BACKLOG:
         commitment.removed_at = utcnow()
         record_change(session, SPRINT_LEFT, card.id)
     if commitment is None:
@@ -229,7 +229,7 @@ async def sync_successor_commitment(session: AsyncSession, previous: Card, succe
         SprintCommitment.sprint_id == workspace.active_sprint_id,
         SprintCommitment.card_id == previous.id,
     ))
-    if source is None or source.removed_at is not None:
+    if source is None:
         await sync_commitment_for_stage(session, successor)
         return
     if CardStage(successor.effective_stage) not in PLANNED_STAGES:
@@ -275,20 +275,36 @@ async def record_sprint_result(session: AsyncSession, card_id: int) -> None:
         commitment.result = CardStage.DONE.value
 
 
-def effort_sums(commitments: Iterable[SprintCommitment]) -> dict[str, float]:
+async def completed_efforts(session: AsyncSession, sprint_id: int) -> dict[int, float | None]:
+    """Actual effort belongs to the finished copy; only planned effort is frozen on entry."""
+    return dict((await session.execute(
+        select(Card.id, Card.effort_points).join(
+            SprintCommitment, SprintCommitment.card_id == Card.id,
+        ).where(
+            SprintCommitment.sprint_id == sprint_id,
+            SprintCommitment.result == CardStage.DONE.value,
+        )
+    )).all())
+
+
+def effort_sums(
+    commitments: Iterable[SprintCommitment], actual: Mapping[int, float | None],
+) -> dict[str, float]:
     """A Sprint's effort: committed at the start, added, removed, completed. The one place
     the four are added up, for the Sprint screen while it runs and for its record when it
-    closes."""
+    closes. The plan uses entry estimates; completed effort uses the finished copies."""
     items = list(commitments)
     return {
         "committed": sum((i.effort_snapshot or 0) * i.quantity for i in items if i.scope_kind == "initial"),
         "added": sum((i.effort_snapshot or 0) * i.quantity for i in items if i.scope_kind == "added"),
         "removed": sum((i.effort_snapshot or 0) * i.removed_quantity for i in items),
-        "completed": sum(i.effort_snapshot or 0 for i in items if i.result == CardStage.DONE.value),
+        "completed": sum(actual[i.card_id] or 0 for i in items if i.result == CardStage.DONE.value),
     }
 
 
-def action_counts(commitments: Iterable[SprintCommitment]) -> dict[str, int]:
+def action_counts(
+    commitments: Iterable[SprintCommitment], actual: Mapping[int, float | None],
+) -> dict[str, int]:
     """Count Actions independently of whether they carry an estimate."""
     items = list(commitments)
     return {
@@ -296,23 +312,37 @@ def action_counts(commitments: Iterable[SprintCommitment]) -> dict[str, int]:
         "added": sum(i.quantity for i in items if i.scope_kind == "added"),
         "removed": sum(i.removed_quantity for i in items),
         "completed": sum(i.result == CardStage.DONE.value for i in items),
-        "unestimated": sum(i.quantity for i in items if i.effort_snapshot is None),
+        "unestimated": sum(
+            i.quantity if i.effort_snapshot is None else
+            int(i.result == CardStage.DONE.value and actual[i.card_id] is None)
+            for i in items
+        ),
         "unknown_schedules": sum(i.planned_count is None for i in items),
     }
 
 
 async def sprint_counts(session: AsyncSession, sprint_id: int) -> dict[str, int]:
-    return action_counts(await session.scalars(
+    counts = action_counts(await session.scalars(
         select(SprintCommitment).where(SprintCommitment.sprint_id == sprint_id)
-    ))
+    ), await completed_efforts(session, sprint_id))
+    sprint = await session.get(Sprint, sprint_id)
+    if sprint is not None and sprint.retro is not None:
+        counts["unestimated"] = sprint.retro["unestimated"]
+    return counts
 
 
 async def sprint_metrics(session: AsyncSession, sprint_id: int) -> dict[str, float]:
     """The Sprint's effort as it stands."""
+    sprint = await session.get(Sprint, sprint_id)
+    if sprint is not None and sprint.retro is not None:
+        return {name: sprint.retro[key] for name, key in (
+            ("committed", "initial"), ("added", "added"),
+            ("removed", "removed"), ("completed", "done"),
+        )}
     return effort_sums(
         await session.scalars(
             select(SprintCommitment).where(SprintCommitment.sprint_id == sprint_id)
-        )
+        ), await completed_efforts(session, sprint_id),
     )
 
 

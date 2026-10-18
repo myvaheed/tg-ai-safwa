@@ -23,7 +23,7 @@ from ..cards.model import CardCategory, CardEnergyType, Category, EnergyType, To
 from ..checks.model import Check, CheckOutcome
 from ..profile.api import active_day_minutes, time_tracking_on
 from ..values.model import CheckValue, Value
-from .api import action_counts, effort_sums
+from .api import action_counts, completed_efforts, effort_sums
 from .model import Sprint, SprintCommitment
 
 # The bucket an Action with no Category, or no Energy type, falls into: the shares of a
@@ -178,8 +178,9 @@ async def sprint_closing(
             select(SprintCommitment).where(SprintCommitment.sprint_id == sprint.id)
         )
     )
-    effort = effort_sums(commitments)
-    counts = action_counts(commitments)
+    actual = await completed_efforts(session, sprint.id)
+    effort = effort_sums(commitments, actual)
+    counts = action_counts(commitments, actual)
     finished = sum(1 for item in commitments if item.result == CardStage.DONE.value)
     open_ids = [
         item.card_id for item in commitments if item.result is None and item.removed_at is None
@@ -188,14 +189,13 @@ async def sprint_closing(
     if open_ids:
         blocked_ids = set(await session.scalars(select(Card.id).where(Card.id.in_(open_ids), Card.blocked_description != "")))
         blocked = sum(item.quantity for item in commitments if item.card_id in blocked_ids)
-    held = [item for item in commitments if item.removed_at is None]
+    held = [item for item in commitments if item.removed_at is None or item.result == CardStage.DONE.value]
     key = [item for item in held if item.key_action]
     labels = await _labels(session, [item.card_id for item in commitments])
     tz = ZoneInfo(timezone)
     tracking = await time_tracking_on(session)
     timed = await _timed_actions(session, commitments) if tracking else []
     minutes = {card_id: spent for card_id, _, spent in timed}
-    effort_of = {item.card_id: item.effort_snapshot for item in commitments}
     return RetroStatistics(
         taken=effort["committed"] + effort["added"],
         done=effort["completed"],
@@ -209,14 +209,15 @@ async def sprint_closing(
         key_total=sum(item.quantity - item.removed_quantity for item in key),
         key_finished=sum(1 for item in key if item.result == CardStage.DONE.value),
         key_unknown=sum(item.quantity - item.removed_quantity for item in held if item.key_action is None),
-        by_category=_buckets(commitments, labels[0], CATEGORY_BUCKETS, minutes),
-        by_energy=_buckets(commitments, labels[1], ENERGY_BUCKETS, minutes),
+        by_category=_buckets(commitments, labels[0], CATEGORY_BUCKETS, minutes, actual),
+        by_energy=_buckets(commitments, labels[1], ENERGY_BUCKETS, minutes, actual),
         by_category_energy={
             category: _buckets(
                 [item for item in commitments if category in labels[0][item.card_id]],
                 labels[1],
                 ENERGY_BUCKETS,
                 minutes,
+                actual,
             )
             for category in CATEGORY_BUCKETS
         },
@@ -226,7 +227,7 @@ async def sprint_closing(
         active_day_minutes=await active_day_minutes(session) if tracking else 0,
         minutes=sum(minutes.values()),
         timed=len(timed),
-        timed_effort=sum(effort_of[card_id] or 0 for card_id in minutes),
+        timed_effort=sum(actual[card_id] or 0 for card_id in minutes),
         unestimated=counts["unestimated"],
         unknown_schedules=counts["unknown_schedules"],
         longest=tuple(TimedAction(title, spent) for _, title, spent in timed[:LONGEST_SHOWN]),
@@ -280,6 +281,7 @@ def _buckets(
     labelled: dict[int, list[str]],
     names: tuple[str, ...],
     minutes: dict[int, int],
+    actual: dict[int, float | None],
 ) -> dict[str, Bucket]:
     sums: dict[str, Counter[str]] = {name: Counter() for name in names}
     for item in commitments:
@@ -287,9 +289,9 @@ def _buckets(
         for name in labelled[item.card_id]:
             sums[name].update(effort=(item.effort_snapshot or 0) * item.quantity, count=item.quantity)
             if item.result == CardStage.DONE.value:
-                sums[name].update(done_effort=item.effort_snapshot or 0, done_count=1)
+                sums[name].update(done_effort=actual[item.card_id] or 0, done_count=1)
             if spent is not None:
-                sums[name].update(minutes=spent, timed_count=1, timed_effort=item.effort_snapshot or 0)
+                sums[name].update(minutes=spent, timed_count=1, timed_effort=actual[item.card_id] or 0)
     return {name: Bucket(**tally) for name, tally in sums.items()}
 
 
