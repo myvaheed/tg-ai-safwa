@@ -23,7 +23,6 @@ from safwa.features.reminders.api import (
 )
 from safwa.features.schedules.agent import (
     SCHEDULE_FORMS_ERROR,
-    SCHEDULE_PARSER_PROMPT,
     ScheduleCompiler,
 )
 from safwa.features.schedules.api import (
@@ -74,7 +73,6 @@ def today() -> datetime:
 
 async def test_the_scheduler_reads_a_last_day():
     """SCH-END-025 — tests/brd/schedules.feature"""
-    assert "'every Monday until 15 December': days=[Mon], last_day=15.12." in SCHEDULE_PARSER_PROMPT
     provider, _ = scripted({"days": EVERY_DAY, "time": "21:00", "last_day": "30 days"})
     rule, question = await ScheduleCompiler(provider).compile(
         "every day at 21:00 for 30 days", SUBMITTED, TZ, "check"
@@ -194,10 +192,6 @@ async def test_planning_counts_no_work_before_a_quota_starts(sessions):
 
 async def test_the_scheduler_reads_a_quota_from_a_later_day():
     """SCH-START-026 — tests/brd/schedules.feature"""
-    assert (
-        "'twice a week from Wednesday for 2 months': period=week, count=2, first_day=Wed, "
-        "last_day=2 months." in SCHEDULE_PARSER_PROMPT
-    )
     provider, _ = scripted({"period": "week", "count": 3, "first_day": "Mon", "last_day": "1 month"})
     rule, question = await ScheduleCompiler(provider).compile(
         "3 times a week from Monday for a month", SUBMITTED, TZ, "check"

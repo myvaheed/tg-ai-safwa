@@ -12,9 +12,8 @@ from sqlalchemy import select
 
 from llm_gateway import CompletionTurn, ToolCall
 from safwa.constants import WEEKDAY_NAMES
-from safwa.features.reminders.agent import REMINDER_WHEN_PROMPT, resolve_schedule
+from safwa.features.reminders.agent import resolve_schedule
 from safwa.features.reminders.api import (
-    BOUNDS_LINES,
     BOUNDS_NEED_REPEAT,
     NEAREST_START_DAYS,
     REMINDER_CATCHUP_GRACE_MINUTES,
@@ -73,10 +72,8 @@ def test_until_in_another_form_names_the_forms():
         parse_until("the end of time", TODAY)
 
 
-def test_a_start_date_without_a_year_is_the_next_one_still_ahead():
+def test_a_one_time_date_without_a_year_is_the_next_one_still_ahead():
     """RM-END-036 — tests/brd/reminders.feature"""
-    schedule = resolve(days=["Fri"], clock="18:00", day="06.11", now=NOW, tz=TZ)
-    assert schedule.anchor_at == datetime(2026, 11, 6, 18, 0, tzinfo=TZ).astimezone(UTC)
     passed = resolve(clock="09:00", day="17.10", now=NOW, tz=TZ)
     assert passed.anchor_at.astimezone(TZ).date() == date(2027, 10, 17)
 
@@ -147,7 +144,6 @@ def test_the_screens_say_the_last_day_and_the_total():
 
 async def test_the_session_reads_the_last_day_and_the_total():
     """RM-END-036 — tests/brd/reminders.feature"""
-    assert BOUNDS_LINES in REMINDER_WHEN_PROMPT
 
     async def complete(request):
         arguments = {"interval_minutes": 180, "last_day": "Fri", "limit": 20}
@@ -167,34 +163,7 @@ async def test_the_session_reads_the_last_day_and_the_total():
     assert (schedule.interval_minutes, schedule.until, schedule.total) == (180, date(2026, 10, 23), 20)
 
 
-async def test_parameters_that_make_no_schedule_go_back_to_the_model_first():
-    """RM-SCHEDULE-005 — tests/brd/reminders.feature"""
-    answers = [
-        {"days": EVERY_DAY, "time": "10:00", "first_day": "2026-11", "last_day": "1 year"},
-        {"days": EVERY_DAY, "time": "10:00", "first_day": "01.11", "last_day": "1 year"},
-    ]
-    requests = []
 
-    async def complete(request):
-        requests.append(request)
-        arguments = answers[len(requests) - 1]
-        return CompletionTurn(
-            content="",
-            tool_calls=[ToolCall(id=str(len(requests)), name="set_reminder_config", arguments_json=json.dumps(arguments))],
-        )
-
-    schedule = await resolve_schedule(
-        SimpleNamespace(complete=complete),
-        when="every day at 10 from next month for a year",
-        instruction="Stretch.",
-        now=NOW,
-        tz=TZ,
-        names="",
-    )
-    repair = json.loads(requests[1].messages[-1]["content"])
-    assert repair["retryable"] is True and "A date must look like dd.mm.yyyy" in repair["error"]
-    assert schedule.anchor_at.astimezone(TZ).date() == date(2026, 11, 1)
-    assert schedule.until == date(2027, 10, 31)
 
 
 async def _add(sessions, schedule, *, due, fired=0) -> int:

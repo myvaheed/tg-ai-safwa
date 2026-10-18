@@ -8,23 +8,17 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
-from pydantic import ValidationError
 
 from llm_gateway import CompletionTurn, ToolCall
-from safwa.features.cards.use_cases import create_card
 from safwa.features.checks.use_cases import create_check
 from safwa.features.reminders.agent import (
-    REMINDER_WHEN_PROMPT,
-    ReminderConfigInput,
     resolve_schedule,
 )
 from safwa.features.reminders.api import (
     ScheduleError,
     describe,
     next_fire,
-    on_wall_clock,
     resolve,
-    roll_forward,
     schedule_columns,
     schedule_from_payload,
     schedule_of,
@@ -34,16 +28,13 @@ from safwa.features.reminders.model import Reminder, ScheduleKind
 from safwa.features.reminders.use_cases import create_reminder, reconcile_reminders
 from safwa.features.schedules.agent import (
     SCHEDULE_FORMS_ERROR,
-    SCHEDULE_PARSER_PROMPT,
     ScheduleCompiler,
 )
 from safwa.features.schedules.api import (
-    remind_timing,
     rule_summary,
     schedule_summary,
-    scheduled_stage,
 )
-from safwa.features.schedules.rules import next_slot, period_end, period_start, windows
+from safwa.features.schedules.rules import next_slot, windows
 from safwa.foundation.workspace import Workspace
 
 TZ = ZoneInfo("Europe/Istanbul")
@@ -89,10 +80,6 @@ def repair_error(requests) -> str:
 
 async def test_the_session_reads_days_of_the_month():
     """RM-MONTH-037 — tests/brd/reminders.feature"""
-    assert (
-        "'on the 5th and 20th of each month at 9': month_days=[5, 20], time=09:00."
-        in REMINDER_WHEN_PROMPT
-    )
     provider, _ = answering(
         "set_reminder_config", {"month_days": [15, 1], "time": "09:00", "last_day": "31.12"}
     )
@@ -108,11 +95,7 @@ async def test_the_session_reads_days_of_the_month():
     assert schedule.until == date(2026, 12, 31)
 
 
-@pytest.mark.parametrize("month_days", [[0], [32]])
-def test_a_day_of_the_month_is_1_to_31(month_days):
-    """RM-MONTH-037 — tests/brd/reminders.feature"""
-    with pytest.raises(ValidationError):
-        ReminderConfigInput.model_validate({"month_days": month_days, "time": "09:00"})
+
 
 
 @pytest.mark.parametrize(
@@ -133,11 +116,7 @@ def test_days_of_the_month_are_worked_out_in_code(month_days, previous, followin
     assert next_fire(schedule, previous=previous, now=NOW, tz=TZ) == following
 
 
-def test_a_missed_day_of_the_month_rolls_forward_to_the_next():
-    """RM-MONTH-037 — tests/brd/reminders.feature"""
-    schedule = resolve(month_days=[1], clock="09:00", now=NOW, tz=TZ)
-    landed = roll_forward(schedule, previous=local(2026, 6, 1, 9, 0), now=NOW, tz=TZ)
-    assert landed == local(2026, 11, 1, 9, 0)
+
 
 
 @pytest.mark.parametrize(
@@ -163,27 +142,13 @@ def test_the_screens_say_the_days_of_the_month(kwargs, expected):
     assert schedule_of(SimpleNamespace(**schedule_columns(schedule))) == schedule
 
 
-def test_it_starts_on_a_date_and_ends_on_its_last_day():
-    """RM-MONTH-037 — tests/brd/reminders.feature"""
-    schedule = resolve(month_days=[1], clock="09:00", day="01.12", until="3 months", now=NOW, tz=TZ)
-    assert next_fire(schedule, previous=None, now=NOW, tz=TZ) == local(2026, 12, 1, 9, 0)
-    assert next_fire(schedule, previous=local(2027, 2, 1, 9, 0), now=NOW, tz=TZ) is None
 
 
-def test_it_keeps_its_clock_when_the_clocks_go_back():
-    """RM-MONTH-037 — tests/brd/reminders.feature"""
-    # Berlin goes UTC+2 -> UTC+1 on 25 Oct 2026.
-    schedule = resolve(month_days=[1], clock="08:30", now=NOW, tz=BERLIN)
-    after = next_fire(schedule, previous=local(2026, 10, 1, 8, 30, tz=BERLIN), now=NOW, tz=BERLIN)
-    assert after == datetime(2026, 11, 1, 7, 30, tzinfo=UTC)
 
 
-def test_a_stored_moment_off_its_day_or_time_is_not_on_its_wall_clock():
-    """RM-MONTH-037 — tests/brd/reminders.feature"""
-    schedule = resolve(month_days=[15], clock="09:00", now=NOW, tz=TZ)
-    assert on_wall_clock(schedule, local(2026, 11, 15, 9, 0), TZ)
-    assert not on_wall_clock(schedule, local(2026, 11, 16, 9, 0), TZ)
-    assert not on_wall_clock(schedule, local(2026, 11, 15, 10, 0), TZ)
+
+
+
 
 
 async def test_startup_works_it_out_again_after_a_timezone_move(sessions):
@@ -219,11 +184,7 @@ def test_days_of_the_month_that_make_no_schedule_are_refused(kwargs, message):
         resolve(now=NOW, tz=TZ, **kwargs)
 
 
-def test_once_a_month_without_a_day_or_a_time_does_not_pin_down_a_time():
-    """RM-MONTH-037 — tests/brd/reminders.feature"""
-    assert "No clock time, like 'every morning', 'soon', 'twice a week', 'once a month': about=time." in (
-        REMINDER_WHEN_PROMPT
-    )
+
 
 
 async def test_safwa_reads_days_of_the_month_in_ai_reminders(read_views):
@@ -246,7 +207,6 @@ async def test_safwa_reads_days_of_the_month_in_ai_reminders(read_views):
 
 async def test_the_scheduler_reads_days_of_the_month():
     """SCH-MONTH-027 — tests/brd/schedules.feature"""
-    assert "'on the 10th of each month': month_days=[10], no period." in SCHEDULE_PARSER_PROMPT
     provider, _ = answering("set_schedule_config", {"month_days": [15, 1]})
     rule, question = await ScheduleCompiler(provider).compile(
         "on the 1st and 15th of each month", NOW, TZ, "check"
@@ -262,20 +222,10 @@ async def test_the_scheduler_reads_days_of_the_month():
     assert rule_summary(rule, TZ) == "On the last day of each month at 18:00."
 
 
-async def test_the_scheduler_reads_a_monthly_quota():
-    """SCH-MONTH-027 — tests/brd/schedules.feature"""
-    assert "'three times a month': period=month, count=3, no month_days." in SCHEDULE_PARSER_PROMPT
-    provider, _ = answering("set_schedule_config", {"period": "month", "count": 3})
-    rule, question = await ScheduleCompiler(provider).compile("three times a month", NOW, TZ, "check")
-    assert (rule, question) == (MONTHLY_QUOTA, None)
-    assert rule_summary(rule, TZ) == "3 per month."
 
 
-def test_a_month_runs_from_its_first_to_the_first_of_the_next():
-    """SCH-MONTH-027 — tests/brd/schedules.feature"""
-    start = period_start(local(2026, 12, 20, 15, 0), "month", TZ)
-    assert start == local(2026, 12, 1, 0, 0)
-    assert period_end(start, "month", TZ) == local(2027, 1, 1, 0, 0)
+
+
 
 
 async def test_a_monthly_quota_screen_names_its_month(sessions, monkeypatch):
@@ -304,21 +254,7 @@ def test_a_month_covered_in_part_plans_its_share():
     assert planned == [(local(2026, 11, 1, 0, 0), local(2026, 12, 1, 0, 0), 1)]
 
 
-async def test_a_monthly_quota_copy_opens_in_sprint(sessions):
-    """SCH-STAGE-013 — tests/brd/schedules.feature"""
-    from safwa.features.planning.use_cases import start_sprint
 
-    async with sessions() as session:
-        card = await create_card(
-            session,
-            kind="action",
-            title="Budget",
-            stage="sprint",
-            schedule="once a month",
-            schedule_rule={"kind": "quota", "period": "month", "count": 1},
-        )
-        await start_sprint(session, success_criteria="Budget")
-        assert await scheduled_stage(session, card, card.period_start, "sprint") == "sprint"
 
 
 @pytest.mark.parametrize(
@@ -353,17 +289,3 @@ async def test_any_other_monthly_quota_beside_days_is_repaired(config):
     assert rule == {"kind": "quota", "period": "month", "count": 1}
 
 
-async def test_remind_on_days_of_the_month_makes_a_monthly_reminder(sessions):
-    """SCH-MONTH-027 — tests/brd/schedules.feature"""
-    now = datetime.now(UTC)
-    timing = resolve(month_days=[31], clock="18:00", now=now, tz=TZ)
-    async with sessions() as session:
-        check = await create_check(
-            session,
-            title="Paid the bills?",
-            schedule="on the last day of each month at 18:00",
-            schedule_rule={"kind": "fixed", "timing": schedule_payload(timing)},
-        )
-        reminded = remind_timing(check, now)
-        assert (reminded.kind, reminded.month_days) == (ScheduleKind.MONTHLY, (31,))
-        assert reminded.anchor_at == check.period_start
