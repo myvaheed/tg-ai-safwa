@@ -6,7 +6,7 @@ from tg_agent_shell.telegram.contributions import ScreenCommand
 from tg_agent_shell.telegram.manifest import FeatureModule
 
 from .hooks import HOME_HOOK as HOME_HOOK
-from .telegram import command_clear, render_home
+from .telegram import command_clear, command_lock, render_home
 
 MODULE = FeatureModule(
     name="home",
@@ -16,6 +16,9 @@ MODULE = FeatureModule(
         ),
         ScreenCommand(
             handler=command_clear, command="clear", description="Empty the chat"
+        ),
+        ScreenCommand(
+            handler=command_lock, command="lock", description="Empty and lock the chat"
         ),
     ),
 )

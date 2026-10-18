@@ -55,7 +55,8 @@ Advisor reads the unanswered Cues and Reminders it leaves and the owner's answer
 
 Startup initializes protection before starting background tasks or accepting updates.
 When a word is set, it clears and locks the chat again. An unlocked `/clear` empties the
-chat without locking access; a locked `/clear` is just an attempted input. An application
+chat without locking access; `/lock` empties it including unanswered Cues and locks access,
+only when a Secret word is set. Locked commands are just attempted inputs. An application
 supplies the verifier reader to `AccessManager` and sets it on `Services.access`; access
 keeps no table of its own. An optional unlock renderer lets other applications draw their
 own screen after entry. Safwa opens Home only on `/start`, with one Menu button; Menu

@@ -16,7 +16,7 @@ from sqlalchemy import select
 from telegram_fakes import QueueTestMessage
 from ui_harness import FakeBot, FakeMessage, history_source, press, services_for
 
-from safwa.features.home.telegram import command_clear, render_home
+from safwa.features.home.telegram import command_clear, command_lock, render_home
 from safwa.features.profile.api import secret_word_verifier
 from safwa.features.profile.model import UserProfile
 from safwa.features.profile.telegram import command_profile
@@ -283,8 +283,9 @@ async def test_clear_leaves_access_open_and_automatic_clear_locks_without_drawin
     assert [button.text for row in anchor.markups[-1].inline_keyboard for button in row] == ["☰ Menu"]
 
 
+@pytest.mark.parametrize("manual", [False, True])
 async def test_a_clear_telegram_refuses_keeps_access_locked_and_is_tried_again(
-    sessions, monkeypatch
+    sessions, monkeypatch, manual
 ):
     """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
     await set_word(sessions)
@@ -297,8 +298,9 @@ async def test_a_clear_telegram_refuses_keeps_access_locked_and_is_tried_again(
 
     services.chat = replace(services.chat, spawn=spawn)
     monkeypatch.setattr(manager, "CLEAR_RETRY_SECONDS", 0)
-    anchor = QueueTestMessage(answer_as_new=True)
+    anchor = QueueTestMessage(message_id=3, answer_as_new=True)
     await keep(sessions, 1, "Private words", MessageKind.DIALOGUE_USER)
+    await keep(sessions, 2, "Unanswered hook")
     refusals = 2
     delete_messages = anchor.bot.delete_messages
 
@@ -311,10 +313,14 @@ async def test_a_clear_telegram_refuses_keeps_access_locked_and_is_tried_again(
 
     monkeypatch.setattr(anchor.bot, "delete_messages", flaky)
     # Startup locks too: a refusal there must not stop the bot.
-    await services.access.initialize(anchor)
+    if manual:
+        await command_lock(anchor, services)
+    else:
+        await services.access.initialize(anchor)
     assert services.access.blocked and anchor.bot.deleted == []
     await asyncio.wait_for(asyncio.gather(*retries), 5)
-    assert services.access.blocked and anchor.bot.deleted == [1] and refusals == 0
+    assert services.access.blocked and refusals == 0
+    assert anchor.bot.deleted == ([1, 2, 3] if manual else [1])
 
 
 async def test_restart_requires_the_word_again_and_leaves_reminder_words(sessions):

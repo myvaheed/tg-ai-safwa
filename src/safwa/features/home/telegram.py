@@ -91,3 +91,19 @@ async def command_clear(message: Message, services: Services) -> None:
             await services.access.clear(message)
 
     await services.turn.run_background(clear)
+
+
+async def command_lock(message: Message, services: Services) -> None:
+    """Empty the chat and require the Secret word before further input."""
+    if not await services.access.enabled():
+        await send_registered(
+            message, services, "Set Secret word in Profile before using /lock.",
+            kind=MessageKind.STATUS,
+        )
+        return
+
+    async def lock(still_current: Callable[[], bool]) -> None:
+        if still_current():
+            await services.access.lock(message, keep_unanswered=False)
+
+    await services.turn.run_background(lock)

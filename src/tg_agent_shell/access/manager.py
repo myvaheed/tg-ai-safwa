@@ -77,28 +77,35 @@ class AccessManager:
         if await self.enabled():
             await self.lock(anchor)
 
-    async def lock(self, anchor: Message) -> None:
+    async def lock(self, anchor: Message, *, keep_unanswered: bool = True) -> None:
         async with self._transition:
             if self.blocked:
                 return
             self._state = Locked()
-            if not await self._try_clear(anchor):
-                self.services.chat.spawn(self._clear_while_locked(anchor), "access-clear")
+            if not await self._try_clear(anchor, keep_unanswered=keep_unanswered):
+                self.services.chat.spawn(
+                    self._clear_while_locked(anchor, keep_unanswered=keep_unanswered), "access-clear"
+                )
 
-    async def _try_clear(self, anchor: Message) -> bool:
+    async def _try_clear(self, anchor: Message, *, keep_unanswered: bool) -> bool:
         try:
-            await self._clear(anchor, keep_unanswered=True)
+            await self._clear(
+                anchor, 0 if keep_unanswered else anchor.message_id,
+                keep_unanswered=keep_unanswered,
+            )
         except Exception:
             logger.exception("Could not clear the locked chat")
             return False
         return True
 
-    async def _clear_while_locked(self, anchor: Message) -> None:
+    async def _clear_while_locked(self, anchor: Message, *, keep_unanswered: bool) -> None:
         """Access is closed already; what is still shown is taken out once Telegram allows."""
         while True:
             await asyncio.sleep(CLEAR_RETRY_SECONDS)
             async with self._transition:
-                if not isinstance(self._state, Locked) or await self._try_clear(anchor):
+                if not isinstance(self._state, Locked) or await self._try_clear(
+                    anchor, keep_unanswered=keep_unanswered
+                ):
                     return
 
     async def clear(self, anchor: Message, *, keep_unanswered: bool = False) -> None:

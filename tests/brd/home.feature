@@ -144,3 +144,12 @@
     And Home appears only after /start, with one ☰ Menu button
     And access remains open until the next automatic clear
     But /clear while access is open empties the chat and does not lock access
+
+  Scenario: HM-LOCK-016 — /lock empties the chat and protects access immediately
+    Given Secret word is set and access is open
+    When the owner sends /lock
+    Then the chat is emptied as by /clear, including unanswered hooks and Reminders
+    And access locks immediately without drawing Home
+    And the correct Secret word opens access again
+    When Secret word is not set
+    Then /lock asks to set it in Profile without clearing or locking the chat

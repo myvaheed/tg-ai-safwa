@@ -17,6 +17,8 @@ from safwa.features.cards.use_cases import create_card
 from tg_agent_shell.access import manager
 from tg_agent_shell.access.credentials import SECRET_LIKE_DISTANCE, SECRET_LIKE_LENGTH
 from tg_agent_shell.foundation.clock import utcnow
+from tg_agent_shell.foundation.kinds import MessageKind
+from tg_agent_shell.history import register_message
 from tg_agent_shell.telegram import owner_anchor
 from tg_agent_shell.telegram.routing import build_router
 
@@ -83,6 +85,41 @@ def dispatcher(services):
     result.include_router(build_router(services.commands))
     result["services"] = services
     return result
+
+
+@pytest.mark.parametrize("protected", [False, True])
+async def test_lock_clears_everything_and_requires_a_configured_secret_word(sessions, protected):
+    """HM-LOCK-016 — tests/brd/home.feature"""
+    if protected:
+        await set_word(sessions)
+    services = protected_services(sessions)
+    async with sessions() as session:
+        for message_id, kind, text in (
+            (1, MessageKind.DIALOGUE_USER, "Private words"),
+            (2, MessageKind.CUE, "Unanswered hook"),
+            (3, MessageKind.CUE, "Unanswered Reminder"),
+        ):
+            await register_message(
+                session, 42, message_id, "in" if message_id == 1 else "out", kind, text=text,
+            )
+        await session.commit()
+    telegram = Telegram()
+    async with Bot("999999:TEST_TOKEN", session=telegram) as bot:
+        updates = dispatcher(services)
+        await updates.feed_update(bot, Update(update_id=1, message=message(bot, 4, "/lock")))
+        assert services.access.blocked is protected
+        if not protected:
+            assert not {1, 2, 3} & telegram.deleted()
+            assert "Set Secret word" in telegram.sent[-1].text
+            assert len(await services.history.dialogue(42)) == 3
+            return
+        assert {1, 2, 3, 4} <= telegram.deleted()
+        assert telegram.sent == [] and await services.history.dialogue(42) == []
+        await updates.feed_update(bot, Update(update_id=2, message=message(bot, 5, "/start")))
+        assert services.access.blocked and "Secret word" in telegram.sent[-1].text
+        await updates.feed_update(bot, Update(update_id=3, message=message(bot, 6, "x")))
+        assert not services.access.blocked
+        assert not any("🏠" in sent.text for sent in telegram.sent)
 
 
 @pytest.mark.parametrize("protected", [False, True])
