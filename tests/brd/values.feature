@@ -155,15 +155,15 @@
     When the owner puts it on a morning run, a dentist appointment and a Goal
     Then all three carry Health, and Health is carried by all three
     And taking Health off one of them leaves it on the other two
-    And the Value's screen sums up the Cards carrying it right now, by VL-LINK-025, and says how
-      many Checks carry it
+    And the Value's screen sums up the Cards carrying it right now, by VL-LINK-025, and links
+      to the Checks carrying it with their answer totals, by VL-LINK-030
 
   Scenario: VL-LINK-017 — A Card's screen names the Values on it, and a Goal with none says so
     Given a root Goal carrying no Value, and an Action carrying "Health"
     When each of them is opened
     Then every Value on the Card is a link by its name alone that opens that Value, by CD-LINK-055
-    And a root Goal carries its Values in the compact view, where every other Card shows them in
-      full editing, because a Goal is where a Value is what says why the work is there
+    And every Card carries its attached Values in both the compact view and full editing
+    And an Action or Subgoal with no Values omits the line in the compact view
     And the root Goal with no Value says so with a warning rather than a dash
     And nothing is refused over it: the link stays optional on every kind
 
@@ -237,3 +237,19 @@
     And it is a link that opens those Cards as a list, by CD-ORDER-054
     And ↩️ Back on that list returns to the Value
     And a Value no Card carries reads "Linked Cards: —", with no link
+
+  Scenario: VL-LINK-030 — Linked Checks open directly with their answer totals
+    Given a Value or Card carrying Checks, including answered and archived ones
+    When its screen is opened
+    Then "Linked Checks:" shows up to 5 attached Checks (LINKED_CHECKS_LIMIT = 5), in creation order
+    And its heading is italic, and each Check starts with a bullet
+    And each reads "Slept enough? ✅8 · ❌2", with Passed and Missed counts for that Check's series,
+      including archived answers and keeping its archive or repeat marks
+    And its title is a link opening that Check directly, and ↩️ Back returns to the Value or Card
+    And a repeating Check appears once, using the instance currently attached
+    And both the compact Card and full editing show these links
+    And more than 5 Checks add a final bullet "Others(3)", counting the remaining Checks without statuses
+    And Others opens all Checks attached to that Card or Value, including the five already shown,
+      in pages of 25 (CHECK_LIST_LIMIT = 25), with Refresh and Back
+    And at most 5 Checks offer no Others link
+    And a Value no Check carries shows a dash under "Linked Checks:", with no link

@@ -56,7 +56,8 @@ from safwa.features.cards.use_cases import (
     toggle_card_tag,
     toggle_card_value,
 )
-from safwa.features.checks.use_cases import resolve_check
+from safwa.features.checks.telegram import LINKED_CHECKS_LIMIT
+from safwa.features.checks.use_cases import resolve_check, toggle_check_value
 from safwa.features.planning.use_cases import start_sprint
 from safwa.features.tags.telegram import render_tag
 from safwa.features.tags.use_cases import create_tag
@@ -1097,6 +1098,74 @@ async def test_vl_link_017_a_goal_shows_its_values_and_says_when_it_has_none(ses
     )
 
 
+@pytest.mark.parametrize("kind,has_parent", [("goal", False), ("goal", True), ("action", True)])
+async def test_attached_values_are_links_in_the_compact_card_view(sessions, kind, has_parent) -> None:
+    """VL-LINK-017 — tests/brd/values.feature"""
+    async with sessions() as session:
+        parent = await create_card(session, kind="goal", title="Parent")
+        card = await create_card(
+            session, kind=kind, title="Card", parent_ids={parent.id} if has_parent else set()
+        )
+        first = await create_value(session, "Rest & health", "What matters")
+        second = await create_value(session, "Growth", "What matters")
+        await toggle_card_value(session, card.id, second.id)
+        await toggle_card_value(session, card.id, first.id)
+        await session.commit()
+    services = services_for(sessions)
+    message = FakeMessage(361, bot_message=True)
+    await render_card(message, services, card.id, full=False)
+    text = message.edits[-1][0]
+    assert "<i>Values:</i> <a " in text
+    assert text.index("Rest &amp; health") < text.index("Growth")
+    here = Place("card_view", {"id": card.id})
+    assert await link_place(sessions, text, "Rest &amp; health") == here.child("value_view", id=first.id)
+    await tap_link(services, text, "Rest &amp; health", message.bot)
+    assert await place_of(sessions, message.bot.edits[-1][2], "↩️ Back") == here
+
+
+async def test_a_card_shows_five_direct_checks_with_their_series_counts(sessions):
+    """VL-LINK-030 — tests/brd/values.feature"""
+    async with sessions() as session:
+        card = await create_card(session, kind="goal", title="Rest")
+        value = await create_value(session, "Health", "What matters")
+        first = await create_check(session, title="Slept & rested?", schedule="after completion")
+        await toggle_card_check(session, card.id, first.id)
+        await toggle_check_value(session, first.id, value.id)
+        _, second = await resolve_check(session, first.id, "passed")
+        _, current = await resolve_check(session, second.id, "missed")
+        for index in range(LINKED_CHECKS_LIMIT):
+            check = await create_check(session, title=f"Observation {index}?")
+            await toggle_card_check(session, card.id, check.id)
+        await session.commit()
+    services = services_for(sessions)
+    message = FakeMessage(362, bot_message=True)
+    for full in (False, True):
+        await render_card(message, services, card.id, full=full)
+        text = message.edits[-1][0]
+        assert "<i>Linked Checks:</i>\n" in text
+        assert "Slept &amp; rested?</a> ✅1 · ❌1" in text
+        assert text.count("</a> ✅") == LINKED_CHECKS_LIMIT
+        assert f"Observation {LINKED_CHECKS_LIMIT - 1}?" not in text
+    here = Place("card_view", {"id": card.id})
+    assert text.count("\n• ") == LINKED_CHECKS_LIMIT + 1
+    assert await link_place(sessions, text, "Others(1)") == here.child("check_list", card_id=card.id)
+    await tap_link(services, text, "Others(1)", message.bot)
+    result, markup = message.bot.edits[-1][1:]
+    assert f"{LINKED_CHECKS_LIMIT + 1} matching checks" in result
+    assert len([label for label in button_texts(markup) if label.startswith("⬜ ")]) == LINKED_CHECKS_LIMIT + 1
+    assert f"⬜ Observation {LINKED_CHECKS_LIMIT - 1}?" in button_texts(markup)
+    assert await place_of(sessions, markup, "↩️ Back") == here
+    await press(services, message, markup, "↩️ Back")
+    assert await link_place(sessions, text, "Slept &amp; rested?") == here.child("check_view", id=current.id)
+    await tap_link(services, text, "Slept &amp; rested?", message.bot)
+    assert "Answered: ✅1 · ❌1" in button_texts(message.bot.edits[-1][2])
+    assert await place_of(sessions, message.bot.edits[-1][2], "↩️ Back") == here
+    await render_value(message, services, mode="view", item_id=value.id)
+    text = message.edits[-1][0]
+    assert "Slept &amp; rested?</a> ✅1 · ❌1" in text
+    assert (await link_place(sessions, text, "Slept &amp; rested?")).args == {"id": current.id}
+
+
 async def test_cd_view_031_a_card_opens_compact_with_full_editing_one_button_away(sessions, effort_on) -> None:
     """CD-VIEW-031 — tests/brd/cards.feature"""
     async with sessions() as session:
@@ -1123,6 +1192,7 @@ async def test_cd_view_031_a_card_opens_compact_with_full_editing_one_button_awa
     assert "<i>Priority:</i>" not in text
     assert "<i>Blocked:</i>" not in text
     assert "<i>Tags:</i>" not in text
+    assert "<i>Values:</i>" not in text
     assert button_texts(markup) == [
         "🏃 Into Sprint",
         "☀️ Into Today",

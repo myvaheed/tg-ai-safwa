@@ -206,8 +206,7 @@ def card_overview_text(
     """What a Card reads as: everything it holds, or the little of it a day needs.
 
     The compact half is what the owner looks at while working — what this is, where
-    it stands, what it costs — and the Values of a Goal, which are the whole reason
-    that Goal is there. Everything else is one button away.
+    it stands, what it costs and the Values it carries. Everything else is one button away.
 
     The keys ending in `_html` are already HTML: the Card's screen puts links in them and
     a review screen plain words.
@@ -257,11 +256,13 @@ def card_overview_text(
             lines.append(f"{state['unestimated_actions']} Actions have no estimate.")
         if state.get("tracked_mins"):
             lines.append(f"<i>Time spent:</i> {minutes_label(state['tracked_mins'])}")
+    if state.get("check_html"):
+        lines.append("<i>Linked Checks:</i>\n" + "\n".join(state["check_html"]))
     if compact:
-        # A Goal keeps its Values even here: an empty list is what the compact view
-        # exists to put in front of the owner, not what it hides.
-        if kind == CardKind.GOAL.value and not has_parent:
-            lines.append(f"<i>Values:</i> {values_expression(kind, state.get('value_html', []))}")
+        if state.get("value_html") or (kind == CardKind.GOAL.value and not has_parent):
+            lines.append(
+                f"<i>Values:</i> {values_expression(kind, state.get('value_html', []), has_parent)}"
+            )
         return f"<b>{html.escape(heading)}</b>\n" + "\n".join(lines)
     lines.extend(
         [
@@ -269,10 +270,6 @@ def card_overview_text(
             f"<i>Tags:</i> {', '.join(state.get('tag_html', [])) or '—'}",
         ]
     )
-    # Only when there are Checks: manual creation cannot link one, and the Card screen
-    # already carries the counts on its Checks button.
-    if state.get("check_html"):
-        lines.append(f"<i>Checks:</i> {', '.join(state['check_html'])}")
     return f"<b>{html.escape(heading)}</b>\n" + "\n".join(lines)
 
 

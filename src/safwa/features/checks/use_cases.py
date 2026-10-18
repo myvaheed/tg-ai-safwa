@@ -7,6 +7,7 @@ that Goal is open.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
@@ -65,6 +66,39 @@ async def card_checks(session: AsyncSession, card_id: int) -> list[Check]:
 async def pending_checks(session: AsyncSession, card_id: int) -> list[Check]:
     """Pending is derived, never stored: a Check that has no outcome yet."""
     return [check for check in await card_checks(session, card_id) if check.outcome is None]
+
+
+async def check_answer_counts(
+    session: AsyncSession, checks: Sequence[Check]
+) -> dict[int, tuple[int, int]]:
+    """Passed and Missed per Check series, including archived answers."""
+    if not checks:
+        return {}
+    series = func.coalesce(Check.series_id, Check.id)
+    rows = await session.execute(
+        select(
+            series,
+            func.count().filter(Check.outcome == CheckOutcome.PASSED.value),
+            func.count().filter(Check.outcome == CheckOutcome.MISSED.value),
+        )
+        .where(series.in_({check.series_id or check.id for check in checks}))
+        .group_by(series)
+    )
+    counts = {series_id: (passed, missed) for series_id, passed, missed in rows}
+    return {check.id: counts[check.series_id or check.id] for check in checks}
+
+
+async def answered_checks(session: AsyncSession, check: Check) -> list[Check]:
+    """This Check's answered instances, newest observation first."""
+    answers = await session.scalars(
+        select(Check)
+        .where(
+            func.coalesce(Check.series_id, Check.id) == (check.series_id or check.id),
+            Check.outcome.is_not(None),
+        )
+        .order_by(Check.resolved_at.desc(), Check.id.desc())
+    )
+    return list(answers)
 
 
 async def check_card_id(session: AsyncSession, check_id: int) -> int | None:

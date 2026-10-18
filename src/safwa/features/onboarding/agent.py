@@ -109,7 +109,7 @@ MANUAL = f"""# Safwa
 - A Check with its own Schedule hangs on a Goal or on no Card. Its next copy opens when answered; on a Goal, only while the Goal is open, and finishing the Goal asks for its last answer. Checks on an Action follow that Action's cycle.
 - A Card is Done only when each Check on it has an answer; "✅ Done" asks for them.
 - In words: create, rename, put on a Card, answer, delete.
-- With buttons: "☑️ Checks" on its Card, counting answered of all; on the Check, "✅ Yes" answers Passed and "❌ No" answers Missed, "📝 Note", "⏱ Schedule", "💎 Values", "🗑 Delete".
+- With buttons: "☑️ Checks" on its Card, counting answered of all; on the Check, "✅ Yes" answers Passed and "❌ No" answers Missed, "📝 Note", "⏱ Schedule", "💎 Values", "🗑 Delete". "Answered: ✅8 · ❌2" opens the series' answers, newest first.
 - Not with buttons: creating a Check, or putting it on a Card. Ask the Advisor.
 - After a Check is created, Safwa silently checks that it observes a state or a result rather than work done, is answered yes or no, and is about its Card's result. "Did I exercise?" every morning is a repeating Action; "No sweets?" is a Check. If something clearly does not fit, the Advisor says the Check could be improved, suggests the change with its reason, and asks. Check review in Profile → Hooks switches this off or on.
 

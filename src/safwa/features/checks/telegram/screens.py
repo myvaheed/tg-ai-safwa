@@ -6,6 +6,7 @@ import html
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from telegram_llm import markdown_to_telegram_html
 from tg_agent_shell.foundation.errors import DomainError
@@ -19,6 +20,7 @@ from tg_agent_shell.telegram import (
     edit_registered_message,
     paginate,
     place_button,
+    place_link,
     render_citations,
     send_registered,
     with_notice,
@@ -27,13 +29,21 @@ from tg_agent_shell.telegram import (
 from ....constants import SELECTOR_PAGE_SIZE
 from ....foundation.marks import live_repeat_instance_id, title_marks
 from ...cards.api import card_labels, card_title
-from ...schedules.api import schedule_summary
+from ...schedules.api import schedule_summary, workspace_zone
 from ...values.model import Value
 from ..model import CHECK_OUTCOME_LABELS, PENDING, Check, CheckOutcome
-from ..use_cases import card_checks, check_card_id, check_value_ids, schedulable
+from ..use_cases import (
+    answered_checks,
+    card_checks,
+    check_answer_counts,
+    check_card_id,
+    check_value_ids,
+    schedulable,
+)
 
-# How many Checks one Card's screen lists before it only counts the rest.
+# How many Checks one result page lists.
 CHECK_LIST_LIMIT = 25
+LINKED_CHECKS_LIMIT = 5
 
 CHECK_STATUS_EMOJIS = {
     PENDING: "⬜",
@@ -56,6 +66,112 @@ def answer_button_label(outcome: str, *, current: str | None, prefix: str = "") 
     """One answer button; the chosen answer is marked. `prefix` tells rows apart."""
     marker = "• " if outcome == current else ""
     return f"{prefix}{marker}{CHECK_STATUS_EMOJIS[outcome]} {ANSWER_BUTTON_LABELS[outcome]}"
+
+
+async def linked_check_links(
+    session: AsyncSession, services: Services, checks: list[Check], here: Place, all_checks: Place
+) -> list[str]:
+    """Five direct Check links with answer totals, then Others linking to the whole result."""
+    shown = checks[:LINKED_CHECKS_LIMIT]
+    counts = await check_answer_counts(session, shown)
+    links = []
+    for check in shown:
+        title = html.escape(check.title + await title_marks(session, check))
+        link = await place_link(session, services, title, here.child("check_view", id=check.id))
+        passed, missed = counts[check.id]
+        links.append(f"• {link} ✅{passed} · ❌{missed}")
+    if len(checks) > len(shown):
+        link = await place_link(session, services, f"Others({len(checks) - len(shown)})", all_checks)
+        links.append(f"• {link}")
+    return links
+
+
+async def check_results(
+    session: AsyncSession, services: Services, checks: list[Check], here: Place, *, page: int = 0
+) -> tuple[str, InlineKeyboardMarkup]:
+    """All attached Checks in pages, with Refresh and the way back."""
+    current = paginate(checks, page, CHECK_LIST_LIMIT)
+    if current.index:
+        here = here.but(page=current.index)
+    rows = []
+    lines = [f"{len(checks)} matching check{'s' if len(checks) != 1 else ''}"]
+    if current.count > 1:
+        lines[0] += f" · {current.label}"
+    for check in current.items:
+        title = check.title + await title_marks(session, check)
+        lines.append(check_line(title, check.status))
+        rows.append(
+            [
+                await place_button(
+                    session,
+                    services.owner_id,
+                    f"{CHECK_STATUS_EMOJIS[check.status]} {title}"[:60],
+                    here.child("check_view", id=check.id),
+                )
+            ]
+        )
+    if not checks:
+        lines.append("No Checks yet.")
+    pages = [
+        await place_button(session, services.owner_id, label, here.but(page=index))
+        for label, index in (("←", current.index - 1), ("→", current.index + 1))
+        if 0 <= index < current.count
+    ]
+    if pages:
+        rows.append(pages)
+    rows.append([await place_button(session, services.owner_id, "↻ Refresh", here)])
+    rows.append([await back_button(session, services.owner_id, here.back)])
+    return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def render_answered_checks(
+    message: Message, services: Services, check_id: int, *, back: Place | None = None, page: int = 0
+) -> None:
+    """Every answered instance of one Check series, in pages, newest answer first."""
+    async with services.sessions() as session:
+        check = await session.get(Check, check_id)
+        if check is None:
+            raise DomainError("Check does not exist")
+        answers = await answered_checks(session, check)
+        current = paginate(answers, page)
+        here = Place("check_answered", {"id": check.id}, back)
+        if current.index:
+            here = here.but(page=current.index)
+        tz = await workspace_zone(session)
+        rows = []
+        for answer in current.items:
+            timestamp = f"{answer.resolved_at.astimezone(tz):%Y-%m-%d %H:%M}"
+            title = answer.title + await title_marks(session, answer)
+            rows.append(
+                [
+                    await place_button(
+                        session,
+                        services.owner_id,
+                        f"{CHECK_STATUS_EMOJIS[answer.status]} {timestamp} · {title}"[:60],
+                        here.child("check_view", id=answer.id),
+                    )
+                ]
+            )
+        pages = []
+        for label, index in (("←", current.index - 1), ("→", current.index + 1)):
+            if 0 <= index < current.count:
+                pages.append(
+                    await place_button(session, services.owner_id, label, here.but(page=index))
+                )
+        if pages:
+            rows.append(pages)
+        rows.append([await place_button(session, services.owner_id, "↻ Refresh", here)])
+        rows.append([await back_button(session, services.owner_id, back)])
+        await session.commit()
+    count = f"{len(answers)} matching check{'s' if len(answers) != 1 else ''}"
+    await send_registered(
+        message,
+        services,
+        f"<b>Answered: {html.escape(check.title)}</b>\n\n{count} · {current.label}",
+        kind=MessageKind.DASHBOARD,
+        markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        related_id=check.id,
+    )
 
 
 async def deliver(
@@ -98,44 +214,21 @@ async def render_checks(
     back: Place | None,
     replace_message_id: int | None = None,
     notice: str | None = None,
+    page: int = 0,
 ) -> None:
     """The Checks on one Card. `back` is that Card's screen."""
     here = Place("check_list", {"card_id": card_id}, back)
     async with services.sessions() as session:
         owner_title = await card_title(session, card_id)
         checks = await card_checks(session, card_id)
-        shown = checks[:CHECK_LIST_LIMIT]
-        rows: list[list[InlineKeyboardButton]] = []
-        titles: list[str] = []
-        for check in shown:
-            titles.append(check.title + await title_marks(session, check))
-            rows.append(
-                [
-                    await place_button(
-                        session,
-                        services.owner_id,
-                        f"{CHECK_STATUS_EMOJIS[check.status]} {titles[-1]}"[:60],
-                        here.child("check_view", id=check.id),
-                    )
-                ]
-            )
-        rows.append([await back_button(session, services.owner_id, back)])
+        body, markup = await check_results(session, services, checks, here, page=page)
         await session.commit()
 
-    lines = [f"<b>Checks — {html.escape(owner_title)}</b>"]
-    if not shown:
-        lines.append("No Checks yet.")
-    else:
-        lines.extend(
-            check_line(title, check.status) for check, title in zip(shown, titles, strict=True)
-        )
-    if len(checks) > len(shown):
-        lines.append(f"Showing the first {CHECK_LIST_LIMIT} of {len(checks)} Checks.")
     await deliver(
         message,
         services,
-        with_notice("\n".join(lines), notice),
-        InlineKeyboardMarkup(inline_keyboard=rows),
+        with_notice(f"<b>Checks — {html.escape(owner_title)}</b>\n{body}", notice),
+        markup,
         replace_message_id,
         related_id=card_id,
     )
@@ -202,6 +295,18 @@ async def render_check(
                         services.owner_id,
                         f"🔄 Current: {live_check.title}"[:60],
                         here.child("check_view", id=live_check.id),
+                    )
+                ]
+            )
+        passed, missed = (await check_answer_counts(session, [check]))[check.id]
+        if passed or missed:
+            rows.append(
+                [
+                    await place_button(
+                        session,
+                        services.owner_id,
+                        f"Answered: ✅{passed} · ❌{missed}",
+                        here.child("check_answered", id=check.id),
                     )
                 ]
             )
