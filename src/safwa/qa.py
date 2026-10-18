@@ -60,6 +60,20 @@ def _text(value: str | None) -> str | None:
     return stripped or None
 
 
+def qa_provider_settings(base: Settings | None = None, qa: QAConfig | None = None) -> Settings:
+    """The settings a live check talks to the provider with: SAFWA_QA_AI_* over SAFWA_AI_*.
+    It needs no Telegram, so a provider-only check can use it alone."""
+    base = base or Settings()
+    qa = qa or QAConfig()
+    return base.model_copy(
+        update={
+            "ai_base_url": _text(qa.ai_base_url) or base.ai_base_url,
+            "ai_api_key": SecretStr(_secret(qa.ai_api_key) or base.ai_api_key.get_secret_value()),
+            "ai_model": _text(qa.ai_model) or base.ai_model,
+        }
+    )
+
+
 def resolve_qa_config(
     *,
     data_dir: Path,
@@ -87,6 +101,7 @@ def resolve_qa_config(
         )
 
     owner_id = qa.telegram_owner_id or base.telegram_owner_id
+    provider = qa_provider_settings(base, qa)
     settings = Settings(
         _env_file=None,
         telegram_bot_token=qa_token,
@@ -95,9 +110,9 @@ def resolve_qa_config(
         database_path=database_path,
         data_dir=data_dir,
         ai_provider=base.ai_provider,
-        ai_base_url=_text(qa.ai_base_url) or base.ai_base_url,
-        ai_api_key=_secret(qa.ai_api_key) or base.ai_api_key.get_secret_value(),
-        ai_model=_text(qa.ai_model) or base.ai_model,
+        ai_base_url=provider.ai_base_url,
+        ai_api_key=provider.ai_api_key.get_secret_value(),
+        ai_model=provider.ai_model,
         ai_timeout_seconds=base.ai_timeout_seconds,
         ai_max_output_tokens=base.ai_max_output_tokens,
         ai_structured_output=base.ai_structured_output,

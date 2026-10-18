@@ -34,6 +34,9 @@ Feature: Reminders
     And weekdays with a date fire on the first of those days on or after it
     And a date with a time happens once
     And a time on its own is the next time that clock comes round
+    And minutes from now happen once, at that minute, counted from now in code
+    And a weekday given as the date is the next such day whose time is still ahead, today included
+    And every day given together with an interval is the interval alone
 
   Scenario: RM-SCHEDULE-004 — A repeat that started in the past is simply already running
     Given a repeating schedule that started before now
@@ -51,9 +54,9 @@ Feature: Reminders
     When the schedule is worked out
     Then the reason is said plainly and no schedule is made
     And each of these is such a reason: an interval under 5 minutes
-      (REMINDER_MIN_INTERVAL_MINUTES = 5), weekdays given together with an interval, quiet hours on
+      (REMINDER_MIN_INTERVAL_MINUTES = 5), weekdays other than every day given together with an interval, quiet hours on
       something that is not an interval, quiet hours that leave no time of day at all, a date with
-      no hour on it, and nothing given at all
+      no hour on it, minutes from now given with anything else, and nothing given at all
 
   Scenario: RM-CLOCK-006 — A firing time is a wall clock, not a fixed offset
     Given a daily Reminder at 08:30
@@ -207,6 +210,8 @@ Feature: Reminders
     Then the short session of RM-SCHEDULE-001 reads which items, which answer, how many, and whether in a row
     And a second short session writes those items as one SELECT of their ids, over ai_checks for a
       Check's answer and over ai_cards for Done
+    And that session is told to find the items whatever their answer, never filtering on status or
+      stage, so the answers are counted in code
     And that session is given every Tag and Value by the name stored, so "tagged sport" finds a Tag
       named Sport
     And the answer is Passed, Missed, any answer of a Check, or Done of an Action, and only Passed and

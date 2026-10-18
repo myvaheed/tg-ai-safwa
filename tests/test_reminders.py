@@ -98,6 +98,35 @@ def test_time_alone_is_once_at_its_next_occurrence():
 
 
 @pytest.mark.parametrize(
+    ("day", "clock", "moment"),
+    [
+        ("Thu", "15:00", utc(2026, 8, 13, 12, 0)),
+        ("Thursday", "10:00", utc(2026, 8, 20, 7, 0)),
+        ("Fri", "10:00", utc(2026, 8, 14, 7, 0)),
+    ],
+)
+def test_a_weekday_as_the_date_is_the_next_one_still_ahead(day, clock, moment):
+    """RM-SCHEDULE-003 — tests/brd/reminders.feature"""
+    schedule = resolve(clock=clock, day=day, now=NOW, tz=TZ)
+    assert schedule.kind is ScheduleKind.ONCE and schedule.anchor_at == moment
+
+
+def test_every_day_beside_an_interval_is_the_interval_alone():
+    """RM-SCHEDULE-003 — tests/brd/reminders.feature"""
+    every_day = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    schedule = resolve(days=every_day, interval_minutes=120, now=NOW, tz=TZ)
+    assert schedule.kind is ScheduleKind.INTERVAL and schedule.weekdays == ()
+
+
+def test_minutes_from_now_fire_once_at_that_minute():
+    """RM-SCHEDULE-003 — tests/brd/reminders.feature"""
+    schedule = resolve(in_minutes=90, now=NOW.replace(second=40), tz=TZ)
+    assert schedule.kind is ScheduleKind.ONCE
+    assert schedule.anchor_at == utc(2026, 8, 13, 10, 30)
+    assert schedule.at_time == time(13, 30)
+
+
+@pytest.mark.parametrize(
     ("kwargs", "message"),
     [
         ({"day": "20.08.2026"}, "needs an hour"),
@@ -109,6 +138,8 @@ def test_time_alone_is_once_at_its_next_occurrence():
         ({"days": ["Funday"], "clock": "08:30"}, "Unknown weekday"),
         ({"clock": "25:00"}, "look like HH:MM"),
         ({"day": "2026-08-20", "clock": "09:00"}, "look like dd.mm.yyyy"),
+        ({"in_minutes": 30, "clock": "08:00"}, "one moment from now"),
+        ({"in_minutes": 30, "interval_minutes": 60}, "one moment from now"),
         (
             {"interval_minutes": 60, "quiet_windows": ["09:00-22:00", "22:00-09:00"]},
             "no time of day",

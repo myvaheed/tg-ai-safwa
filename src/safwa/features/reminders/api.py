@@ -115,6 +115,7 @@ def resolve(
     clock: str | None = None,
     day: str | None = None,
     interval_minutes: int | None = None,
+    in_minutes: int | None = None,
     quiet_windows: Sequence[str] | None = None,
     now: datetime,
     tz: ZoneInfo,
@@ -122,13 +123,25 @@ def resolve(
     """Turn the setup session's parameters into a schedule, or say why they do not work.
 
     ``clock`` and ``day`` are the ``time`` and ``date`` tool parameters, renamed here only
-    because both shadow a stdlib name.
+    because both shadow a stdlib name. ``in_minutes`` is a moment counted from ``now`` here,
+    so the model never adds minutes to a clock.
     """
     weekdays = _normalize_weekdays(days)
     at_time = parse_clock(clock) if clock else None
-    on_date = parse_day(day) if day else None
+    on_date = _start_day(day, at_time, now, tz) if day else None
     windows = tuple(parse_window(item) for item in (quiet_windows or ()))
 
+    if in_minutes is not None:
+        if weekdays or at_time or on_date or interval_minutes is not None or windows:
+            raise ScheduleError(
+                "in_minutes is one moment from now: give no days, time, date or interval"
+            )
+        moment = (now + timedelta(minutes=in_minutes)).replace(second=0, microsecond=0)
+        return Schedule(kind=ScheduleKind.ONCE, at_time=moment.astimezone(tz).time(), anchor_at=moment)
+
+    if len(weekdays) == len(WEEKDAY_NAMES) and interval_minutes is not None:
+        # Every day says nothing an interval does not.
+        weekdays = ()
     if weekdays and interval_minutes is not None:
         raise ScheduleError(
             "Give either an interval or weekdays, not both — a Reminder repeats one way"
@@ -191,6 +204,19 @@ def parse_phrase(raw: str, *, now: datetime, tz: ZoneInfo) -> Schedule:
         else:
             raise ScheduleError(f"Cannot read {token!r}")
     return resolve(days=days or None, clock=clock, day=day, now=now, tz=tz)
+
+
+def _start_day(raw: str, at_time: time | None, now: datetime, tz: ZoneInfo) -> date_type:
+    """A dd.mm.yyyy date, or a weekday name for the next such day whose clock is still ahead,
+    so the model never counts days to a weekday."""
+    name = {day.lower(): day for day in WEEKDAY_NAMES}.get(raw.strip().lower()[:3])
+    if name is None:
+        return parse_day(raw)
+    today = now.astimezone(tz).date()
+    candidate = today + timedelta(days=(WEEKDAY_NAMES.index(name) - today.weekday()) % 7)
+    if at_time is not None and _combine(candidate, at_time, tz) <= now:
+        candidate += timedelta(days=len(WEEKDAY_NAMES))
+    return candidate
 
 
 def _reject_all_day_windows(windows: tuple[tuple[time, time], ...]) -> None:

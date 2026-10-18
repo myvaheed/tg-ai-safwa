@@ -109,6 +109,7 @@ Feature: One plain-language Schedule for Actions and Checks
     Then the Scheduler asks the model to add days to repeat it, or a date for one time
     And a repair with every weekday and 20:00 repeats every day at 20:00
     And a clock with a date, such as "this Wednesday at 15:00", stays one appointment at that moment
+    And minutes from now, such as "in 30 minutes", are one appointment at that minute, counted in code
 
   Scenario: SCH-DAY-018 — A Schedule without a clock is accepted
     Given a Schedule such as "every evening", "every Monday" or "20 October"
@@ -160,3 +161,12 @@ Feature: One plain-language Schedule for Actions and Checks
     And its total counts from 0, even in the same words, as a new revision by SCH-COMPILE-004
     And the last instance stays closed under the revision it was answered under
     And an instance older than the newest of its series still refuses a Schedule
+
+  Scenario: SCH-FORM-024 — Once a day beside weekdays or a clock is read as those days
+    Given the model reads "every evening at 20:00" as once a day together with every weekday and 20:00
+    Then the Scheduler reads it as every day at 20:00 without asking the model again
+    And once a day, or a daily quota without a count, beside weekdays reads as those weekdays, and beside a clock alone as every day
+    And any other quota beside weekdays goes back to the model, even once a week beside one weekday
+    And a count without a period that equals the total is the total alone, and any other count
+      without a period goes back to the model, told that a total is limit
+    And that repair names the forms: a quota without days or time, after completion, or timing without a quota

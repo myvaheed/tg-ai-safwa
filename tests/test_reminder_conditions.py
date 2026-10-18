@@ -198,6 +198,11 @@ def test_a_select_that_cannot_find_the_items_is_refused_as_text(sql, answer, err
         checked_select(sql, answer)
 
 
+def test_the_select_session_finds_the_items_whatever_their_answer():
+    """RM-COND-030 — tests/brd/reminders.feature"""
+    assert "never filter on status or stage" in REMINDER_ITEMS_PROMPT
+
+
 async def test_the_select_session_spells_tags_and_values_as_stored(sessions):
     """RM-COND-030 — tests/brd/reminders.feature"""
     assert "Spell a Tag or a Value exactly as the context lists it." in REMINDER_ITEMS_PROMPT

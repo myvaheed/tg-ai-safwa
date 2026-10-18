@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from safwa.config import Settings
-from safwa.qa import QAConfig, resolve_qa_config
+from safwa.qa import QAConfig, qa_provider_settings, resolve_qa_config
 
 
 def production_settings(tmp_path: Path) -> Settings:
@@ -66,3 +66,13 @@ def test_qa_config_rejects_the_production_bot(tmp_path: Path):
             base=base,
             qa=qa,
         )
+
+
+def test_a_live_provider_check_talks_to_the_qa_provider(tmp_path: Path):
+    base = production_settings(tmp_path)
+    qa = QAConfig(_env_file=None, ai_base_url="http://localhost:1234/v1", ai_model="qa-model")
+    config = qa_provider_settings(base, qa).ai_config()
+    assert (config.base_url, config.model) == ("http://localhost:1234/v1", "qa-model")
+    # What QA does not set comes from the provider Safwa runs on.
+    assert config.api_key == "provider-key"
+    assert qa_provider_settings(base, QAConfig(_env_file=None)).ai_config().model == "provider-model"

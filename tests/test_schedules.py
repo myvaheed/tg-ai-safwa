@@ -27,6 +27,7 @@ from safwa.features.checks.use_cases import (
 )
 from safwa.features.schedules.agent import (
     ACTION_LIMIT_QUESTION,
+    SCHEDULE_FORMS_ERROR,
     SCHEDULE_PARSER_PROMPT,
     UNREADABLE_QUESTION,
     ScheduleCompiler,
@@ -521,6 +522,80 @@ async def test_undated_repetition_reports_actual_progress_without_inventing_a_pl
         assert item["total"]["remaining"] is None
         assert item["next_at"] == {"after_completion": True}
         assert item["sprint"] is None
+
+
+EVERY_DAY = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+@pytest.mark.parametrize(
+    ("config", "weekdays", "all_day"),
+    [
+        ({"period": "day", "count": 1, "days": EVERY_DAY, "time": "20:00"}, EVERY_DAY, False),
+        ({"period": "day", "count": 1, "time": "20:00"}, EVERY_DAY, False),
+        ({"period": "day", "days": ["Mon", "Wed"], "time": "09:00"}, ["Mon", "Wed"], False),
+        ({"period": "day", "count": 1, "days": ["Mon", "Wed"]}, ["Mon", "Wed"], True),
+    ],
+)
+async def test_once_a_day_beside_weekdays_or_a_clock_is_read_as_the_days(config, weekdays, all_day):
+    """SCH-FORM-024 — tests/brd/schedules.feature"""
+    provider, requests = _answering("set_schedule_config", config)
+    rule, question = await ScheduleCompiler(provider).compile(
+        "every evening at 20:00", datetime.now(UTC), ZoneInfo("Europe/Istanbul"), "check"
+    )
+    assert question is None and len(requests) == 1
+    assert rule["kind"] == "fixed" and rule["timing"]["weekdays"] == weekdays
+    assert rule.get("all_day", False) is all_day
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"period": "week", "count": 1, "days": ["Mon"]},
+        {"period": "day", "count": 5, "days": ["Mon"]},
+    ],
+)
+async def test_any_other_quota_beside_weekdays_is_repaired(config):
+    """SCH-FORM-024 — tests/brd/schedules.feature"""
+    provider, requests = _answering("set_schedule_config", config)
+    _, question = await ScheduleCompiler(provider).compile(
+        "once a week", datetime.now(UTC), ZoneInfo("Europe/Istanbul"), "check"
+    )
+    repair = json.loads(requests[1].messages[-1]["content"])
+    assert repair["retryable"] is True and SCHEDULE_FORMS_ERROR in repair["error"]
+    assert question == UNREADABLE_QUESTION.format(label="Schedule")
+
+
+async def test_a_count_that_equals_the_total_is_the_total_alone():
+    """SCH-FORM-024 — tests/brd/schedules.feature"""
+    provider, requests = _answering(
+        "set_schedule_config", {"days": ["Mon"], "time": "09:00", "count": 10, "limit": 10}
+    )
+    rule, question = await ScheduleCompiler(provider).compile(
+        "every Monday at 9, 10 times", datetime.now(UTC), ZoneInfo("Europe/Istanbul"), "check"
+    )
+    assert question is None and len(requests) == 1
+    assert rule["kind"] == "fixed" and rule["limit"] == 10
+
+
+async def test_any_other_count_without_a_period_is_told_a_total_is_limit():
+    """SCH-FORM-024 — tests/brd/schedules.feature"""
+    provider, requests = _answering("set_schedule_config", {"days": ["Mon"], "count": 10})
+    await ScheduleCompiler(provider).compile(
+        "every Monday, 10 times", datetime.now(UTC), ZoneInfo("Europe/Istanbul"), "check"
+    )
+    assert "a total is limit" in json.loads(requests[1].messages[-1]["content"])["error"]
+
+
+async def test_minutes_from_now_are_one_appointment_at_that_minute():
+    """SCH-CLOCK-017 — tests/brd/schedules.feature"""
+    now = datetime(2026, 10, 17, 9, 0, tzinfo=UTC)
+    provider, _ = _answering("set_schedule_config", {"in_minutes": 30})
+    rule, question = await ScheduleCompiler(provider).compile(
+        "in 30 minutes", now, ZoneInfo("Europe/Istanbul"), "check"
+    )
+    assert question is None and "all_day" not in rule
+    assert rule["timing"]["schedule_kind"] == "once"
+    assert rule["timing"]["anchor_at"] == "2026-10-17T09:30:00+00:00"
 
 
 def _answering(name, arguments):

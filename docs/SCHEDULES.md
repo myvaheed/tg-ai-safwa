@@ -48,6 +48,14 @@ closest form. A part of the day is not a clock: "every evening" is once a day. A
 is refused back to the model: it has to come with weekdays to repeat, a date for one time, or
 an interval, so "every evening at 20:00" can never become a one-time appointment.
 
+Small models often read such text twice over, as once a day and as every weekday at 20:00.
+Once a day beside weekdays or a clock is dropped in code, so the days are the reading and no
+repair round is spent (`SCH-FORM-024`). Any other quota beside weekdays goes back to the model,
+even once a week beside one weekday: for "once a week" a model makes up Monday, and the code
+cannot tell a day it made up from one the text names. "In 30 minutes"
+arrives as `in_minutes`, and the code adds it to the moment the text is read: a model adding
+minutes to a clock gets the sum wrong.
+
 ## Rules
 
 The forms are calendar quotas (N per day/week), appointments (once, selected weekdays and

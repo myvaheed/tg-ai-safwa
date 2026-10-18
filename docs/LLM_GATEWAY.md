@@ -48,6 +48,14 @@ one photo; the rest is read from the providers' documentation.
 
 On either row, a model without vision refuses a request that carries an image.
 
+Safwa is tuned to run with reasoning off: a step the owner waits 5-10 seconds for is no use.
+LM Studio turns reasoning off with a `reasoning_effort` of "none" and ignores the chat
+template's own thinking switch; `tests/test_timing_phrases_live.py` measures timing phrases that way.
+The Mutator names what it will change in the response that calls the tool. The timing sessions
+ask for no such words: measured in October 2026 on Qwen3.5 9B and Qwen3.6 35B-A3B, 10 to 20
+words of reading first cost a fifth more time, did not lift 9B, and made 35B talk itself out
+of the clock in "по понедельникам и средам в 9".
+
 Sources:
 [Ollama: OpenAI compatibility](https://docs.ollama.com/api/openai-compatibility) ·
 [Ollama: context length](https://docs.ollama.com/context-length) ·

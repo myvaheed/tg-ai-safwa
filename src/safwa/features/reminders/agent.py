@@ -67,13 +67,15 @@ class ReminderConfigInput(ToolInput):
     date: str | None = Field(
         default=None,
         description=(
-            "Local calendar date dd.mm.yyyy. Always the START date when the schedule "
-            "repeats, and the date itself when it does not. Needs time as well."
+            "Local calendar date dd.mm.yyyy, or a weekday such as Thu for the next one. "
+            "Always the START date when the schedule repeats, and the date itself when it "
+            "does not. Needs time as well."
         ),
     )
     interval_minutes: PositiveInt | None = Field(
         default=None, description="Repeat every N minutes."
     )
+    in_minutes: PositiveInt | None = Field(default=None, description="Fire once, N minutes from now.")
     quiet_windows: list[str] | None = Field(
         default=None,
         description=(
@@ -125,9 +127,10 @@ A Reminder fires at a clock time, or on answers of Checks or Actions.
 Clock time, set_reminder_config:
 'every day at 8': days=[Mon, Tue, Wed, Thu, Fri, Sat, Sun], time=08:00.
 'every weekday at 8am': days=[Mon, Tue, Wed, Thu, Fri], time=08:00.
-'every Monday at 9:30': days=[Mon], time=09:30.
+'every Monday at 9:30', 'on Mondays at 9:30': days=[Mon], time=09:30.
 'tomorrow at 15:00', 'on 20 October at 15:00': date and time.
-'in 90 minutes': date and time of that moment. It fires once.
+'on Thursday at 10': date=Thu, time=10:00. It fires once.
+'in 90 minutes', 'in 2 hours': in_minutes=90, in_minutes=120. It fires once.
 'every 2 hours': interval_minutes=120.
 Resolve relative dates against the current time. Never invent a time.
 Answers, set_condition:
@@ -164,6 +167,7 @@ REMINDER_ITEMS_PROMPT = """Write the SELECT that finds the items a Reminder coun
 One SELECT of the items' ids, in a column named id.
 Read ai_checks for answers of Checks, ai_cards for Done of Actions.
 A Check or an Action named by #id means its whole series: every copy of it.
+Find the items whatever their answer: never filter on status or stage.
 Spell a Tag or a Value exactly as the context lists it.
 'Check #12': SELECT id FROM ai_checks WHERE series_id = (SELECT series_id FROM ai_checks WHERE id = 12)
 'any Check': SELECT id FROM ai_checks
@@ -264,6 +268,7 @@ async def resolve_schedule(
             clock=config.time,
             day=config.date,
             interval_minutes=config.interval_minutes,
+            in_minutes=config.in_minutes,
             quiet_windows=config.quiet_windows,
             now=now,
             tz=tz,
