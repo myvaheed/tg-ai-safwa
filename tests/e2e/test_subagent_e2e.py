@@ -264,7 +264,7 @@ async def test_a_routed_subagent_is_offered_only_its_own_tools(e2e_harness):
     await advisor.handle("Запиши сегодняшний день")
 
     offered = {tool["function"]["name"] for tool in provider.options[1]["tools"]}
-    assert offered == {"query_data", "read_day", "read_conversation", "diary", "nothing_to_do"}
+    assert offered == {"query_data", "read_day", "read_conversation", "diary"}
     # No recursion, and no reach into the workspace.
     assert "route" not in offered
     assert "action" not in offered

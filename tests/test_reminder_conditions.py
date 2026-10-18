@@ -176,9 +176,9 @@ async def test_the_review_screen_shows_what_the_select_finds_and_no_first_firing
     assert successor is not None
     lines = [field_line(field, Effect.CREATE) for field in screen.fields]
     assert lines == [
-        f"🔁 When: every 3 Missed in a row of Check #{checks[0].id}",
-        "🔎 Finds now: «Sat straight?».",
-        "Words: Cheer the owner on.",
+        f"<i>🔁 When:</i> every 3 Missed in a row of Check #{checks[0].id}",
+        "<i>🔎 Finds now:</i> «Sat straight?».",
+        "<i>Words:</i> Cheer the owner on.",
     ]
 
 

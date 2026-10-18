@@ -178,7 +178,7 @@ async def render_plan(
         await session.commit()
     body = (
         "<p><b>Sprint plan</b></p>"
-        f"<p>In Sprint: {cost}</p>"
+        f"<p><i>In Sprint:</i> {cost}</p>"
         + (f"<p>{warning}</p>" if warning else "")
         + table
     )

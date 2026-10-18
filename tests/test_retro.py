@@ -61,7 +61,7 @@ async def test_rt_open_001_a_sprint_that_ended_keeps_a_screen_of_its_own(session
     assert str(sprint.planned_end_date) in text
     assert "Ship v2" in text
     assert "Taken 2 EP, finished 0 EP (0%)" in text
-    assert "Met: not marked yet" in text
+    assert "<i>Met:</i> not marked yet" in text
     assert button_texts(markup) == [
         "✅ Met", "❌ Not met", "🔎 Analyse with AI", "📈 Charts", "↩️ Menu"
     ]

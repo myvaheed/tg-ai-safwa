@@ -130,4 +130,4 @@ async def test_di_find_025_the_diary_finds_a_day_by_what_happened_on_it(e2e_harn
     assert outcome.kind is AIOutcomeKind.PROPOSAL
     [change] = e2e_harness.reviews.proposal(outcome.proposal_id).changes
     assert (change.entity, change.entity_id) == ("diary", sea_day.id)
-    assert "No day is close: call nothing_to_do" in instructions("diary").replace("\n   ", " ")
+    assert "No day is close: say you could not find the day" in instructions("diary").replace("\n   ", " ")

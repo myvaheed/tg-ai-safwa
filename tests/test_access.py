@@ -120,7 +120,7 @@ async def test_secret_word_is_exact_salted_text_and_profile_input_is_not_dialogu
     async with sessions() as session:
         profile = await session.get(UserProfile, 1)
         assert matches_secret_word(word, profile.secret_word_hash)
-    assert "Secret word: set" in message.bot.edits[-1][1]
+    assert "<i>Secret word:</i> set" in message.bot.edits[-1][1]
     assert await services.history.dialogue(700) == []
 
 
@@ -157,7 +157,7 @@ async def test_remove_button_disables_the_secret_and_off_is_an_exact_word(sessio
     await press(services, message, message.bot.edits[-1][2], "Remove secret word")
     async with sessions() as session:
         assert (await session.get(UserProfile, 1)).secret_word_hash is None
-    assert "Secret word: off" in message.bot.edits[-1][1]
+    assert "<i>Secret word:</i> off" in message.bot.edits[-1][1]
 
 
 async def test_lock_and_unlock_leave_unanswered_hooks_and_reminders_in_the_chat(sessions):

@@ -196,8 +196,8 @@ async def test_lf_set_002_the_birth_date_and_the_years_are_the_owners_settings(s
     message = FakeMessage(940, bot_message=True, answer_as_new=True)
     await render_settings(message, services)
     text, markup = message.edits[-1]
-    assert "Birth date: not set" in text
-    assert f"Years in the grid: {LIFE_YEARS_DEFAULT}" in text
+    assert "<i>Birth date:</i> not set" in text
+    assert f"<i>Years in the grid:</i> {LIFE_YEARS_DEFAULT}" in text
     assert [button.text for row in markup.inline_keyboard for button in row] == [
         "🎂 Birth date", "📏 Years", "↩️ Back", "↩️ Menu"
     ]
@@ -224,13 +224,13 @@ async def test_lf_set_002_the_birth_date_and_the_years_are_the_owners_settings(s
         assert (ui.kind, ui.state["field"]) == ("text_input", "birth_date")
 
     taken = await typed("1992-03-14", 942)
-    assert "Birth date updated." in taken and "Birth date: 1992-03-14" in taken
+    assert "Birth date updated." in taken and "<i>Birth date:</i> 1992-03-14" in taken
 
     await _press(message, services, message.bot.edits[-1][2], "📏 Years")
     for refused in (str(LIFE_YEARS_MIN - 1), str(LIFE_YEARS_MAX + 1), "ninety"):
         assert f"from {LIFE_YEARS_MIN} to {LIFE_YEARS_MAX}" in await typed(refused, 943)
     taken = await typed("100", 944)
-    assert "Years in the grid updated." in taken and "Years in the grid: 100" in taken
+    assert "Years in the grid updated." in taken and "<i>Years in the grid:</i> 100" in taken
     async with sessions() as session:
         settings = await session.get(LifeSettings, 1)
         assert (settings.birth_date, settings.years) == (BORN, 100)

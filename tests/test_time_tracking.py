@@ -241,7 +241,7 @@ async def test_cd_time_039_the_card_screen_shows_and_takes_the_time(sessions):
         await ordinary_text(answer, services)
         async with sessions() as session:
             assert (await session.get(Card, card_id)).tracked_mins == 331
-        assert "Time spent: 5h 31m" in message.bot.edits[-1][1]
+        assert "<i>Time spent:</i> 5h 31m" in message.bot.edits[-1][1]
         markup = message.bot.edits[-1][2]
 
     await _press(message, services, markup, "⌛ Time spent")
@@ -262,7 +262,7 @@ async def test_cd_time_039_the_card_screen_shows_and_takes_the_time(sessions):
     for full in (False, True):
         shown = FakeMessage(90 + full, bot_message=True)
         await render_card(shown, services, card_id, full=full)
-        assert "Time spent: 45m" in shown.edits[-1][0]
+        assert "<i>Time spent:</i> 45m" in shown.edits[-1][0]
 
 
 async def test_cd_time_040_a_goal_shows_the_time_of_the_actions_under_it(sessions):
@@ -287,7 +287,7 @@ async def test_cd_time_040_a_goal_shows_the_time_of_the_actions_under_it(session
 
     shown = FakeMessage(95, bot_message=True)
     await render_card(shown, services_for(sessions), goal_id)
-    assert "Time spent: 1h 15m" in shown.edits[-1][0]
+    assert "<i>Time spent:</i> 1h 15m" in shown.edits[-1][0]
 
 
 # ------------------------------------------------------------------------ the question
@@ -389,7 +389,7 @@ async def test_ps_time_017_time_tracking_is_off_until_the_owner_switches_it_on(s
     await command_profile(message, services)
     rendered, markup = message.edits[-1]
     assert (
-        f"Time tracking: off — records the time an Action took; your active day runs from the "
+        f"<i>Time tracking:</i> off — records the time an Action took; your active day runs from the "
         f"Morning time to the Evening time, {MORNING_TIME_DEFAULT} to {EVENING_TIME_DEFAULT}."
     ) in rendered
     assert "⌛ Time tracking: off" in button_texts(markup)

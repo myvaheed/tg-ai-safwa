@@ -283,8 +283,11 @@ calls did, never from the rows a read returned; a Summary stays under
 
 **The Diary** reads what was said on one day with `read_conversation`, which is `day_transcript`:
 the words, each stamped to the minute and labelled with who said it. It reads the entry already
-saved apart, with `read_day`, and the conversation only when its own window does not say what to
-write.
+saved apart, with `read_day`. When writing a day, it reads the conversation only when its own
+window does not say what to write. Questions about what was discussed today, yesterday or on a
+named day are also routed to the Diary: it resolves the local date, reads that day's conversation
+and answers without proposing a change or needing `read_day`. Saved-entry questions stay with
+the Advisor. `query_data(search=…)` searches saved entries, not the conversation.
 
 ## 5. What the owner accepts with it
 

@@ -61,8 +61,8 @@ async def test_item_proposal_marks_the_edit_and_only_save_discard_footer(session
     await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
     text, markup = message.edits[-1]
     assert text.startswith("<b>✏️ Update Tag</b>")
-    assert "Name: Family" in text
-    assert "Description: <s>Old description</s> <b>Relationships and home</b>" in text
+    assert "<i>Name:</i> Family" in text
+    assert "<i>Description:</i> <s>Old description</s> <b>Relationships and home</b>" in text
     assert "→" not in text
     buttons = button_texts(markup)
     assert buttons == ["✅ Update", "🗑 Discard"]
@@ -105,12 +105,12 @@ async def test_card_proposal_marks_only_what_changes(sessions, effort_on) -> Non
     text, markup = message.edits[-1]
 
     assert text.startswith("<b>✏️ Update Action</b>")
-    assert "Kind: ⭐️ Action" in text
-    assert "Title: Evening walk" in text
+    assert "<i>Kind:</i> ⭐️ Action" in text
+    assert "<i>Title:</i> Evening walk" in text
     # What the edit leaves as it is stays off the screen.
-    assert "Effort:" not in text and "Note:" not in text
-    assert "Categories: <s>🌱 Growth</s>, <b>🫂 People</b>, <b>🔋 Rest</b>" in text
-    assert "Energy: <b>💪 Physical</b>, <b>🎭 Emotional</b>" in text
+    assert "<i>Effort:</i>" not in text and "<i>Note:</i>" not in text
+    assert "<i>Categories:</i> <s>🌱 Growth</s>, <b>🫂 People</b>, <b>🔋 Rest</b>" in text
+    assert "<i>Energy:</i> <b>💪 Physical</b>, <b>🎭 Emotional</b>" in text
     buttons = button_texts(markup)
     assert buttons == ["✅ Update", "🗑 Discard"]
     assert "↩️ Back" not in buttons
@@ -159,9 +159,9 @@ async def test_cd_tree_002_the_review_screen_shows_the_goal_becoming_a_subgoal(s
     message = FakeMessage(62, bot_message=True)
     await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
     text, _markup = message.edits[-1]
-    assert f"Kind: {marker} Subgoal" in text
+    assert f"<i>Kind:</i> {marker} Subgoal" in text
     assert "Goal</s>" not in text
-    assert "Parents: <b>Life</b>" in text
+    assert "<i>Parents:</i> <b>Life</b>" in text
 
     async with sessions() as session:
         await approve_proposal(session, store, PROPOSALS, proposal_id)
@@ -196,7 +196,7 @@ async def test_card_check_link_proposal_shows_the_check_in_overview_and_diff(ses
     await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
     text, _ = message.edits[-1]
 
-    assert "Checks: <b>Walk upright</b>" in text
+    assert "<i>Checks:</i> <b>Walk upright</b>" in text
 
 
 async def test_diary_proposal_shows_the_entry_itself_and_only_save_or_discard(
@@ -232,10 +232,10 @@ async def test_diary_proposal_shows_the_entry_itself_and_only_save_or_discard(
     text, markup = message.edits[-1]
 
     assert text.startswith("<b>✏️ Update Diary entry</b>")
-    assert "Date: 2026-08-15" in text
-    assert "Feeling: <b>6 🙂</b>" in text
+    assert "<i>Date:</i> 2026-08-15" in text
+    assert "<i>Feeling:</i> <b>6 🙂</b>" in text
     # Little of the saved day is left, so the new words read whole.
-    assert "Entry: <b>Сходил на рынок, вечером стало легче.</b>" in text
+    assert "<i>Entry:</i> <b>Сходил на рынок, вечером стало легче.</b>" in text
     assert "Утро." not in text
     assert "<i>A day that ended better than it began.</i>" in text
     assert button_texts(markup) == ["✅ Update", "🗑 Discard"]
@@ -270,7 +270,7 @@ async def test_diary_removal_shows_the_entry_it_would_delete(sessions) -> None:
     assert text.startswith("<b>🗑 Delete Diary entry</b>")
     assert "This removes that day's entry for good." in text
     # The owner reads what is about to go, plain, not an empty replacement.
-    assert "Entry: День, который уходит." in text
+    assert "<i>Entry:</i> День, который уходит." in text
     assert "<s>" not in text
     assert button_texts(markup) == ["✅ Delete", "🗑 Discard"]
 
@@ -304,12 +304,12 @@ async def test_card_creation_proposal_reads_plain_and_hides_what_was_not_chosen(
     text, markup = message.edits[-1]
 
     assert text.startswith("<b>➕ Create Action</b>")
-    assert "Kind: ⭐️ Action" in text
-    assert "Title: Evening walk" in text
-    assert "Categories: 🌱 Growth" in text
+    assert "<i>Kind:</i> ⭐️ Action" in text
+    assert "<i>Title:</i> Evening walk" in text
+    assert "<i>Categories:</i> 🌱 Growth" in text
     # Nothing is marked on a new item, and its defaults and blanks say nothing.
-    assert "<s>" not in text and "Title: <b>" not in text
-    assert "Stage:" not in text and "Priority:" not in text and "Note:" not in text
+    assert "<s>" not in text and "<i>Title:</i> <b>" not in text
+    assert "<i>Stage:</i>" not in text and "<i>Priority:</i>" not in text and "<i>Note:</i>" not in text
     assert button_texts(markup) == ["✅ Create", "🗑 Discard"]
 
 
@@ -339,7 +339,7 @@ async def test_move_proposal_exposes_only_stage_control(sessions) -> None:
     await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
     text, markup = message.edits[-1]
 
-    assert "Stage: <s>Backlog</s> <b>Today</b>" in text
+    assert "<i>Stage:</i> <s>Backlog</s> <b>Today</b>" in text
     assert button_texts(markup) == ["✅ Update", "🗑 Discard"]
 
 
@@ -391,7 +391,7 @@ async def test_saving_card_proposal_applies_every_editable_field(sessions) -> No
     message = FakeMessage(63, bot_message=True)
     await render_proposal(message, services_for(sessions, reviews=store), proposal_id)
     text, _markup = message.edits[-1]
-    assert "Schedule: <b>daily 09:00</b>" in text
+    assert "<i>Schedule:</i> <b>daily 09:00</b>" in text
     assert "Every day at 09:00." in text
 
     async with sessions() as session:
@@ -470,7 +470,7 @@ async def test_pr_cite_032_a_review_names_what_it_cites_and_links_none(sessions)
     text, _markup = message.edits[-1]
     assert "<a " not in text
     # The whole title, where an answer would cut it short.
-    assert f"Note: For 💎 Family under 🎯 {title} · " in text
+    assert f"<i>Note:</i> For 💎 Family under 🎯 {title} · " in text
     assert ", not gone." in text
 
 
@@ -508,7 +508,7 @@ def test_pr_screen_003_an_edit_strikes_what_goes_and_bolds_what_comes() -> None:
     note = ShownField("Note", None, "x " * (LONG_TEXT_CHARS // 2 + 1))
     stage = ShownField("Stage", "Backlog", "Backlog")
     assert field_line(ShownField("Note"), Effect.CREATE) is None
-    assert field_line(note, Effect.CREATE).startswith("Note:\n<blockquote expandable>x x ")
-    assert field_line(title, Effect.UPDATE) == "Title: Walk"
+    assert field_line(note, Effect.CREATE).startswith("<i>Note:</i>\n<blockquote expandable>x x ")
+    assert field_line(title, Effect.UPDATE) == "<i>Title:</i> Walk"
     assert field_line(stage, Effect.UPDATE) is None
-    assert field_line(ShownField("Stage", "Backlog", None), Effect.DELETE) == "Stage: Backlog"
+    assert field_line(ShownField("Stage", "Backlog", None), Effect.DELETE) == "<i>Stage:</i> Backlog"

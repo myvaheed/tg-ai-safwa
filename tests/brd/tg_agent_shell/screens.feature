@@ -143,3 +143,21 @@ Feature: Screens
     And an item no screen draws in another's place, such as a Diary day or a retro, opens as it
       does from Safwa's answers
     And a citation of an item that no longer exists keeps its words and is no link
+
+  Scenario: SC-LABEL-015 — A field's label is distinct from its value
+    Given a screen showing an item's fields, settings, a text editor or a review
+    Then each field label and its colon are italic, while its value keeps its own style
+    And headings stay bold and related items keep their links
+    And a review still strikes removed words and bolds added words
+
+  Scenario: SC-TEXT-016 — Free text shows Markdown while its source stays editable
+    Given a Note, description, instruction, Diary text or Sprint criteria with Markdown
+    When the owner opens its screen or a manual draft
+    Then bold, italic, strikethrough, inline code, code blocks and line breaks are shown
+    And titles, dates, settings and schedules keep their literal words
+    And a citation inside code stays literal while one in ordinary saved text remains a link
+    And citations in an unsaved draft read as words without taking the owner away from it
+    When the owner edits the text
+    Then the editor shows its copyable source and says which Markdown it supports
+    And a validation error keeps that source and guidance visible
+    And a review keeps source Markdown visible so an edit of formatting can be checked

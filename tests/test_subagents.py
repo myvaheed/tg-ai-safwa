@@ -102,9 +102,10 @@ def test_the_advisor_is_told_how_to_read_what_the_retro_left() -> None:
 def test_ad_ask_007_a_change_is_routed_only_when_the_owner_asks() -> None:
     """AD-ASK-007 — tests/brd/advisor.feature"""
     rules = SYSTEM_PROMPT.split("# Routing", 1)[1].split("\n# ", 1)[0]
-    assert "Route a change only when the user's newest message asks for it." in rules
+    assert "Route requests by the subagent's purpose below, including questions it answers." in rules
+    assert "Propose a change only when the user's newest message asks for it." in rules
     assert '"yes" to a change you offered' in rules
-    assert "When it does not ask: answer in words." in rules
+    assert "When it does not ask for a change: answer in words, routing to a specialist" in rules
     assert 'end with one question, like "Create it?"' in rules
     # The one exception the rule names stays where the photo rule is.
     assert "One exception: a photo, below." in rules

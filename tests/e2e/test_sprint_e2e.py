@@ -82,10 +82,10 @@ async def test_pl_mode_002_a_sprint_started_in_words_is_the_one_the_button_start
         )
     assert (drawn.mode, drawn.item) == ("Start", f"{SPRINT_LENGTH_DAYS}-day Sprint")
     assert drawn.blocks[:2] == (
-        "Success criteria: Ship v2",
+        "<i>Success criteria:</i> Ship v2",
         f"{today} – {last}, {SPRINT_LENGTH_DAYS} days",
     )
-    assert drawn.blocks[2].startswith("Planned: 1 Actions · 3 EP · capacity 10 EP")
+    assert drawn.blocks[2].startswith("<i>Planned:</i> 1 Actions · 3 EP · capacity 10 EP")
 
     affected, answered = await _save(
         e2e_harness, advisor, provider, screen.proposal_id, ["The Sprint is on.", forward_turn("sprint")]
@@ -259,8 +259,8 @@ async def test_pl_length_035_the_next_sprints_length_and_capacity_are_set_in_wor
         )
     assert (drawn.mode, drawn.item) == (None, "Next Sprint")
     assert [field_line(field, Effect.UPDATE) for field in drawn.fields] == [
-        f"Length: <s>{SPRINT_LENGTH_DAYS} days</s> <b>7 days</b>",
-        "Capacity: <s>off</s> <b>12.5 EP</b>",
+        f"<i>Length:</i> <s>{SPRINT_LENGTH_DAYS} days</s> <b>7 days</b>",
+        "<i>Capacity:</i> <s>off</s> <b>12.5 EP</b>",
     ]
 
     await _save(e2e_harness, advisor, provider, screen.proposal_id, ["Set.", "Done."])

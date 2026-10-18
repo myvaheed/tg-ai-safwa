@@ -16,6 +16,6 @@ async def command_status(message: Message, services: Services) -> None:
     await send_registered(
         message,
         services,
-        f"<b>Status</b>\nMode: {workspace.mode}\nRevision: {workspace.revision}",
+        f"<b>Status</b>\n<i>Mode:</i> {workspace.mode}\n<i>Revision:</i> {workspace.revision}",
         kind=MessageKind.DASHBOARD,
     )

@@ -73,8 +73,8 @@ async def test_valid_profile_input_updates_selected_field_and_auto_closes_prompt
         assert profile.advisor_instructions == "Keep this unchanged."
         assert await session.scalar(select(UiSession)) is None
     assert answer.was_deleted is True
-    assert "About me: I prefer mornings." in message.bot.edits[-1][1]
-    assert "Advisor instructions: Keep this unchanged." in message.bot.edits[-1][1]
+    assert "<i>About me:</i>\nI prefer mornings." in message.bot.edits[-1][1]
+    assert "<i>Advisor instructions:</i>\nKeep this unchanged." in message.bot.edits[-1][1]
 
 
 async def test_settings_shows_timezone_without_a_timezone_edit_action(sessions) -> None:
@@ -84,7 +84,7 @@ async def test_settings_shows_timezone_without_a_timezone_edit_action(sessions) 
 
     rendered, markup = message.edits[-1]
     labels = {item.text for row in markup.inline_keyboard for item in row}
-    assert "Timezone: Europe/Istanbul" in rendered
+    assert "<i>Timezone:</i> Europe/Istanbul" in rendered
     assert not any("timezone" in label.casefold() for label in labels)
 
 
@@ -142,7 +142,7 @@ async def test_ps_hooks_015_a_reaction_with_a_switch_is_turned_off_and_on_in_the
     rendered, markup = await _press(message, services, markup, "🔔 Helper offer: on")
     assert "<b>Helper offer</b>" in rendered
     assert HEAVY_ANALYZER_HOOK.description in rendered
-    assert "Status: on." in rendered
+    assert "<i>Status:</i> on." in rendered
     assert not any(
         hook.title in rendered
         for hook in REGISTRY.hooks.agent_related if hook.name != HEAVY_ANALYZER_HOOK.name

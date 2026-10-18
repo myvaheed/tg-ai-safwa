@@ -94,7 +94,7 @@ async def test_note_is_edited_from_the_check_screen(sessions):
     services = services_for(sessions)
     message = FakeMessage(595, bot_message=True)
     await render_check(message, services, check_id)
-    assert "Note: Original explanation" in message.edits[-1][0]
+    assert "<i>Note:</i>\nOriginal explanation" in message.edits[-1][0]
     button = _button(message, "📝 Note")
     await callback_token_handler(
         FakeCallback(button.callback_data.split(":", 1)[1], message), services
@@ -129,7 +129,7 @@ async def test_ch_archive_016_an_archived_check_keeps_its_answer(sessions) -> No
     text, labels = message.edits[-1][0], button_texts(message.edits[-1][1])
 
     assert "[📦]" in text
-    assert "Status: ✅" in text
+    assert "<i>Status:</i> ✅" in text
     assert not [label for label in labels if label in {"✅ Yes", "❌ No", "• ✅ Yes"}]
     assert not [label for label in labels if "Repeat" in label or "Values" in label]
     # The one thing it still offers is the way to the open instance of its series.

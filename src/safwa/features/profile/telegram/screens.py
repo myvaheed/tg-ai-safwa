@@ -25,6 +25,7 @@ from tg_agent_shell.telegram import (
     TextInputAction,
     TextInputScreen,
     edit_registered_message,
+    markdown_field,
     menu_row,
     render_text_input,
     send_registered,
@@ -171,22 +172,23 @@ def usage_label(seconds: int) -> str:
 
 def profile_text(profile: UserProfile, timezone: str, *, usage: int = 0) -> str:
     """Render the Profile values; timezone is deliberately display-only."""
-    lines = [
-        "<b>Profile</b>",
-        f"About me: {html.escape(profile.about_me or '—')}",
-        f"Advisor instructions: {html.escape(profile.advisor_instructions or '—')}",
-    ]
+    text_fields = {"about_me", "advisor_instructions", "diary_instructions"}
+    lines = ["<b>Profile</b>", ""]
     for name, field in PROFILE_FIELDS.items():
-        lines.append(f"{field.title}: {html.escape(field.show(getattr(profile, name)))}")
-    lines.append(f"Timezone: {html.escape(timezone)}")
-    lines.append(f"Usage time: {usage_label(usage)}")
-    lines.append(f"Secret word: {'set' if profile.secret_word_hash else 'off'}")
+        if name in text_fields:
+            lines.extend((markdown_field(field.title, getattr(profile, name)), ""))
+    for name, field in PROFILE_FIELDS.items():
+        if name not in text_fields:
+            lines.append(f"<i>{field.title}:</i> {html.escape(field.show(getattr(profile, name)))}")
+    lines.append(f"<i>Timezone:</i> {html.escape(timezone)}")
+    lines.append(f"<i>Usage time:</i> {usage_label(usage)}")
+    lines.append(f"<i>Secret word:</i> {'set' if profile.secret_word_hash else 'off'}")
     lines.append(
-        f"Effort Points: {'on' if profile.effort_tracking else 'off'} — optional estimates "
+        f"<i>Effort Points:</i> {'on' if profile.effort_tracking else 'off'} — optional estimates "
         "of Action load, a Sprint's capacity and Today overload warnings."
     )
     lines.append(
-        f"Time tracking: {'on' if profile.time_tracking else 'off'} — records the time an "
+        f"<i>Time tracking:</i> {'on' if profile.time_tracking else 'off'} — records the time an "
         f"Action took; your active day runs from the Morning time to the Evening time, "
         f"{_clock(profile.morning_time)} to {_clock(profile.evening_time)}."
     )
@@ -268,6 +270,7 @@ async def render_profile_field_prompt(
             title=field.title,
             current_value=current,
             instruction=field.instruction,
+            markdown=field_name in {"about_me", "advisor_instructions", "diary_instructions"},
             back=Place("profile_back"),
         ),
         state={"flow": "profile", "field": field_name},
@@ -437,7 +440,7 @@ async def _on_hook(context: CallbackContext, *, notice: str | None = None) -> No
             raise DomainError("That setting is no longer available.")
         text = (
             f"<b>{html.escape(hook.title)}</b>\n\n{html.escape(hook.description)}\n\n"
-            f"Status: {_switch_state(profile, hook)}."
+            f"<i>Status:</i> {_switch_state(profile, hook)}."
         )
         rows = [
             [await token_button(

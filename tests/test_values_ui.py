@@ -190,10 +190,10 @@ async def test_the_value_screen_counts_cards_and_checks(sessions) -> None:
     message = FakeMessage(99, bot_message=True)
     await render_value(message, services, mode="view", item_id=value_id)
     text, markup = message.edits[-1]
-    assert "Linked Cards: <a " in text
+    assert "<i>Linked Cards:</i> <a " in text
     linked = await link_place(sessions, text, "⭐️1")
     assert (linked.action, linked.args) == ("value_cards", {"id": value_id})
-    assert "Linked Checks: 1" in text
+    assert "<i>Linked Checks:</i> 1" in text
 
 
 async def test_no_screen_sets_a_values_focus_by_hand(sessions) -> None:
@@ -396,4 +396,4 @@ async def test_vl_link_025_a_values_linked_cards_read_as_children_and_open_as_a_
     assert await place_of(sessions, markup, "↩️ Back") == here
 
     await render_value(message, services, mode="view", item_id=empty_id)
-    assert "Linked Cards: —" in message.edits[-1][0]
+    assert "<i>Linked Cards:</i> —" in message.edits[-1][0]

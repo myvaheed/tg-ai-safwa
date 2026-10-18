@@ -7,6 +7,7 @@ import html
 from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy import select
 
+from telegram_llm import markdown_to_telegram_html
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import (
@@ -107,13 +108,13 @@ async def render_saved_request(
             session, services, matches, here, back, ordered=explicit_order(request.query_sql)
         )
         description = await render_citations(
-            session, services, html.escape(request.description or "No description."), here=here
+            session, services, markdown_to_telegram_html(request.description or "No description."), here=here
         )
         await session.commit()
     await send_registered(
         message,
         services,
-        f"<b>{html.escape(request.name)}</b>\n{description}\n\n{count}",
+        f"<b>{html.escape(request.name)}</b>\n\n{description}\n\n{count}",
         kind=MessageKind.DASHBOARD,
         markup=markup,
         related_id=request.id,

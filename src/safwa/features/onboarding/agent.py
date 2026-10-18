@@ -188,6 +188,7 @@ MANUAL = f"""# Safwa
 - Time tracking and Effort Points can also be changed in words, through a Profile proposal. Hook switches are buttons only. Onboarding alone may be turned off in words.
 
 # Screens and commands
+- Field labels are italic. Notes, descriptions, instructions, Diary text and Sprint criteria support bold, italic, strikethrough and code Markdown. Text editors show the copyable source. Review screens keep the source visible and mark added and removed words.
 - /start opens Home with one ☰ Menu button. ☰ Menu or ↩️ Menu unfolds these buttons: "🗂 Dashboard", "🏃 Sprint", "📊 Retro", "➕ Add", "💎 Values", "🏷 Tags", "📔 Diary", "⚙️ Profile", "⏰ Reminders", "🔎 Requests".
 - Commands: /start, /sprint, /retro, /values, /tags, /reminders, /requests, /memory, /status for the workspace mode, /summarize to fold the conversation into a Summary now, /clear to empty the chat now, /cancel to stop an answer being written.
 - A voice message is transcribed and answered like text.

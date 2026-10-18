@@ -114,5 +114,5 @@ def field_line(field: ShownField, effect: Effect) -> str | None:
         return None
     label = html.escape(field.label)
     if len(html.unescape(_MARKUP.sub("", text))) > LONG_TEXT_CHARS:
-        return f"{label}:\n<blockquote expandable>{text}</blockquote>"
-    return f"{label}: {text}"
+        return f"<i>{label}:</i>\n<blockquote expandable>{text}</blockquote>"
+    return f"<i>{label}:</i> {text}"

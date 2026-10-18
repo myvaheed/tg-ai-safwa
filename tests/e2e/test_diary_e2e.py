@@ -1,20 +1,22 @@
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
+from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
-from agent_turns import PLAN
+from agent_turns import PLAN, forward_turn
 from sqlalchemy import select
 from test_subagent_e2e import diary_subagent
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
-from safwa.bootstrap.modules import PROPOSALS
+from safwa.bootstrap.modules import PROPOSALS, SYSTEM_PROMPT
 from safwa.features.diary.model import DiaryEntry
 from safwa.features.diary.use_cases import create_diary_entry
 from tg_agent_shell.ai.outcome import AIOutcomeKind
-from tg_agent_shell.ai.runs import AgentRun
+from tg_agent_shell.ai.runs import AgentRun, AgentStep
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.proposals.use_cases import approve_proposal
 
@@ -345,7 +347,7 @@ async def test_di_read_006_advisor_reads_and_cites_day(e2e_harness):
         subagents=(e2e_harness.subagent("workspace_mutator"), diary_subagent(e2e_harness)),
     )
 
-    outcome = await advisor.handle("Что я писал вчера?")
+    outcome = await advisor.handle("Что записано в дневнике за вчера?")
 
     assert outcome.kind is AIOutcomeKind.ANSWER
     assert f"(diary:{entry_id})" in outcome.message
@@ -354,6 +356,78 @@ async def test_di_read_006_advisor_reads_and_cites_day(e2e_harness):
         runs = list(await session.scalars(select(AgentRun)))
     assert [(run.kind, run.status) for run in runs] == [("advisor", "completed")]
     assert "Дошёл до рынка." in json.dumps(provider.calls[1], ensure_ascii=False)
+
+
+@pytest.mark.parametrize(
+    ("question", "arguments", "day", "transcript", "answer"),
+    [
+        ("О чём мы сегодня разговаривали?", {}, "2026-10-18", "Обсудим поездку.", "Обсуждали поездку."),
+        (
+            "О чём мы вчера разговаривали?",
+            {"date": "2026-10-17"},
+            "2026-10-17",
+            "Обсудим поездку.",
+            "Обсуждали поездку.",
+        ),
+        (
+            "Напомни разговор за 10 октября 2026",
+            {"date": "2026-10-10"},
+            "2026-10-10",
+            "Обсудим поездку.",
+            "Обсуждали поездку.",
+        ),
+        ("О чём мы сегодня разговаривали?", {}, "2026-10-18", "", "За этот день переписки нет."),
+    ],
+)
+async def test_di_recall_028_a_conversation_question_is_answered_without_a_proposal(
+    e2e_harness, monkeypatch, question, arguments, day, transcript, answer
+):
+    """DI-RECALL-028 — tests/brd/diary.feature"""
+    # UTC still says yesterday; both the clock and the read use the owner's local date.
+    now = datetime(2026, 10, 17, 22, 20, tzinfo=UTC)
+    monkeypatch.setattr(
+        "safwa.features.diary.agent.SystemClock", lambda: SimpleNamespace(now=lambda: now)
+    )
+    windows = []
+
+    class History:
+        async def day_transcript(self, chat_id, *, start, end, token_budget):
+            windows.append((chat_id, start, end))
+            return f"[08:40] [User]: {transcript}" if transcript else ""
+
+    diary = e2e_harness.subagent("diary", history=History())
+    advisor, provider = e2e_harness.advisor(
+        [
+            turn(("route", {"name": "diary"})),
+            turn(("read_conversation", arguments)),
+            answer,
+            forward_turn("diary"),
+        ],
+        subagents=(diary,),
+    )
+
+    outcome = await advisor.handle(question)
+
+    assert outcome.kind is AIOutcomeKind.ANSWER
+    assert answer in outcome.message
+    assert outcome.proposal_id is None
+    local_midnight = datetime.fromisoformat(day).replace(tzinfo=ZoneInfo("Europe/Istanbul"))
+    assert windows == [
+        (42, local_midnight.astimezone(UTC), (local_midnight + timedelta(days=1)).astimezone(UTC))
+    ]
+    read_result = next(item for item in provider.calls[2] if item.get("name") == "read_conversation")
+    assert json.loads(read_result["content"])["date"] == day
+    conversation = json.loads(read_result["content"])["conversation"]
+    if transcript:
+        assert transcript in conversation
+    else:
+        assert "nothing" in conversation
+    async with e2e_harness.sessions() as session:
+        assert await session.scalar(select(DiaryEntry)) is None
+        steps = list(await session.scalars(select(AgentStep).order_by(AgentStep.id)))
+    assert [step.kind for step in steps] == ["route", "read", "forward"]
+    # Routing is chosen by the model; the scripted boundary checks the assembled instructions.
+    assert 'Questions about what we talked about today, yesterday or on a named day: `route("diary")`' in SYSTEM_PROMPT
 
 
 async def test_di_open_010_advisor_opens_day_without_routing(e2e_harness):

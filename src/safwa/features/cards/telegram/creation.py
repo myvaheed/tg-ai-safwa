@@ -20,6 +20,7 @@ from tg_agent_shell.telegram import (
     TextInputScreen,
     edit_registered_message,
     open_home,
+    render_citations,
     render_text_input,
     send_registered,
     token_button,
@@ -149,6 +150,7 @@ async def render_card_creation(
         text = card_overview_text(
             display, heading="Create Card", effort_tracking=await effort_tracking_on(session)
         )
+        text = await render_citations(session, services, text, plain=True)
         errors = card_creation_errors(state)
         if errors:
             text += "\n\n" + "\n".join(f"⚠️ {html.escape(error)}" for error in errors)
@@ -228,6 +230,7 @@ async def _on_edit_text(context: CallbackContext) -> None:
             title=f"Edit Card {'Deadline' if deadline else field.replace('_', ' ').title()}",
             current_value=current,
             instruction=instruction,
+            markdown=field in {"note", "blocked_description"},
             back=Place("card_create_view"),
         ),
         state=state,

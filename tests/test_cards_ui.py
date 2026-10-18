@@ -120,7 +120,7 @@ async def test_card_note_input_updates_same_creation_message(sessions) -> None:
 
     assert user_input.was_deleted is True
     assert bot.edits[-1][0] == 40
-    assert "Note: Weekdays" in bot.edits[-1][1]
+    assert "<i>Note:</i>\nWeekdays" in bot.edits[-1][1]
     async with sessions() as session:
         editor = await session.scalar(select(UiSession).where(UiSession.owner_id == 42))
         assert editor.kind == "card_create"
@@ -273,7 +273,7 @@ async def test_card_top_row_moves_to_either_other_stage_and_keeps_navigation(
         await callback_token_handler(
             FakeCallback(button.callback_data.split(":", 1)[1], message), services
         )
-        assert f"Stage: {target.value.title()}" in message.edits[-1][0]
+        assert f"<i>Stage:</i> {target.value.title()}" in message.edits[-1][0]
         assert await place_of(sessions, message.edits[-1][1], "↩️ Back") == back
         async with sessions() as session:
             assert (await session.get(Card, card_id)).effective_stage == target.value
@@ -361,7 +361,7 @@ async def test_moving_a_blocked_card_shows_its_warning_on_the_card_screen(sessio
     # the destination screen rather than as a message the next render overwrites.
     text = message.edits[-1][0]
     assert "Need account access" in text
-    assert "Stage: Backlog" in text
+    assert "<i>Stage:</i> Backlog" in text
 
 
 async def test_checks_button_is_on_the_card_only(sessions) -> None:
@@ -427,7 +427,7 @@ async def test_card_text_field_prompt_replaces_creation_message(sessions) -> Non
     prompt_id, prompt_text, prompt_markup = message.bot.edits[-1]
     assert prompt_id == 45
     assert "<b>Edit Card Title</b>" in prompt_text
-    assert "Current value:\n<pre>—</pre>" in prompt_text
+    assert "<i>Current value:</i>\n<pre>—</pre>" in prompt_text
     assert button_texts(prompt_markup) == ["↩️ Back"]
 
     blank = FakeMessage(46, text=" ", bot_message=False, bot=message.bot)
@@ -457,8 +457,8 @@ async def test_a_closed_card_shows_when_it_closed_and_where_its_series_went(sess
     text, markup = message.edits[-1]
     # One wording: the owner reads the marks the model does, and the id in them is the open
     # instance the series moved to. Today's mark is the screen's alone, by CD-REPEAT-032.
-    assert f"Title: <b>Run [✅1, 🔄#{live_id}]</b>" in text
-    assert "Completed at: " in text
+    assert f"<i>Title:</i> <b>Run [✅1, 🔄#{live_id}]</b>" in text
+    assert "<i>Completed at:</i> " in text
     current = next(button for button in button_texts(markup) if button.startswith("🔄 Current"))
     assert current == "🔄 Current: Run"
 
@@ -474,7 +474,7 @@ async def test_a_closed_card_shows_when_it_closed_and_where_its_series_went(sess
         ),
         services,
     )
-    assert "Stage: Today" in message.edits[-1][0]
+    assert "<i>Stage:</i> Today" in message.edits[-1][0]
     async with sessions() as session:
         assert (await session.scalar(select(UiSession))).state["card_id"] == live_id
 
@@ -500,7 +500,7 @@ async def test_card_text_and_blocked_reason_stay_on_one_validated_editor(session
     await callback_token_handler(
         FakeCallback(title_button.callback_data.split(":", 1)[1], message), services
     )
-    assert "Current value:\n<pre>Original</pre>" in message.bot.edits[-1][1]
+    assert "<i>Current value:</i>\n<pre>Original</pre>" in message.bot.edits[-1][1]
 
     invalid_title = FakeMessage(48, text=" ", bot_message=False, bot=message.bot)
     await ordinary_text(invalid_title, services)
@@ -582,7 +582,7 @@ async def test_cd_blocked_010_a_draft_is_blocked_by_its_reason(sessions) -> None
     await ordinary_text(
         FakeMessage(62, text="Line is busy", bot_message=False, bot=message.bot), services
     )
-    assert "Blocked description: Line is busy" in message.bot.edits[-1][1]
+    assert "<i>Blocked description:</i>\nLine is busy" in message.bot.edits[-1][1]
 
     # Pressed again, it takes the reason away.
     await callback_token_handler(
@@ -785,13 +785,13 @@ async def test_card_overview_uses_derived_progress_and_relationship_navigation(s
         replace_message_id=goal_message.message_id,
     )
     goal_text, goal_markup = bot.edits[-1][1:]
-    assert "Kind: 🎯² Goal" in goal_text
-    assert "Stage: Backlog" in goal_text
+    assert "<i>Kind:</i> 🎯² Goal" in goal_text
+    assert "<i>Stage:</i> Backlog" in goal_text
     # The children are counted by kind, and the effort is in the same link: no line repeats it.
-    assert "Effort:" not in goal_text
+    assert "<i>Effort:</i>" not in goal_text
     children = await link_place(sessions, goal_text, "🎯1 · ⭐️1 · ⚡3/8 EP")
     assert (children.action, children.args) == ("card_children", {"id": goal.id})
-    assert "Parent:" not in goal_text
+    assert "<i>Parent:</i>" not in goal_text
     assert not any("Children" in text or "Parent" in text for text in button_texts(goal_markup))
 
     children_message = FakeMessage(73, bot_message=True)
@@ -813,10 +813,10 @@ async def test_card_overview_uses_derived_progress_and_relationship_navigation(s
         replace_message_id=child_message.message_id,
     )
     child_text, child_markup = bot.edits[-1][1:]
-    assert "Kind: ⭐️ Action" in child_text
+    assert "<i>Kind:</i> ⭐️ Action" in child_text
     parent = await link_place(sessions, child_text, "Ship product")
     assert (parent.action, parent.args) == ("card_view", {"id": goal.id})
-    assert "Children:" not in child_text
+    assert "<i>Children:</i>" not in child_text
     assert not any("Children" in text or "Parent" in text for text in button_texts(child_markup))
 
 
@@ -853,11 +853,11 @@ async def test_cd_tree_002_the_parent_controls_the_label_and_root_values(session
     message = FakeMessage(75, bot_message=True)
     await render_card(message, services, nested_id)
     text, _ = message.edits[-1]
-    assert "Kind: 🎯 Subgoal" in text
+    assert "<i>Kind:</i> 🎯 Subgoal" in text
     assert (await link_place(sessions, text, "Health")).args == {"id": root.id}
-    assert "Values:" not in text
+    assert "<i>Values:</i>" not in text
     await render_card(message, services, nested_id, full=True)
-    assert "Values: —" in message.edits[-1][0]
+    assert "<i>Values:</i> —" in message.edits[-1][0]
 
     async with sessions() as session:
         await toggle_card_parent(session, nested_id, root.id)
@@ -865,8 +865,8 @@ async def test_cd_tree_002_the_parent_controls_the_label_and_root_values(session
         assert (await session.get(Card, nested_id)).kind == "goal"
     await render_card(message, services, nested_id, full=False)
     text, _ = message.edits[-1]
-    assert "Kind: 🎯 Goal" in text and "Parent:" not in text
-    assert "Values: ⚠️ None" in text
+    assert "<i>Kind:</i> 🎯 Goal" in text and "<i>Parent:</i>" not in text
+    assert "<i>Values:</i> ⚠️ None" in text
 
 
 async def test_no_screen_offers_a_goal_or_a_subgoal_a_stage_control(sessions) -> None:
@@ -940,7 +940,7 @@ async def test_cd_blocked_018_a_goal_screen_never_reads_as_blocked(sessions) -> 
     # The Action under it shows its own warning.
     action_message = FakeMessage(331, bot_message=True)
     await render_card(action_message, services, action_id, full=True)
-    assert "Blocked description: Shop is shut" in action_message.edits[-1][0]
+    assert "<i>Blocked description:</i>\nShop is shut" in action_message.edits[-1][0]
 
 
 async def test_cd_archive_027_an_archived_card_reads_as_archived(sessions) -> None:
@@ -1081,17 +1081,17 @@ async def test_vl_link_017_a_goal_shows_its_values_and_says_when_it_has_none(ses
     await render_card(message, services, goal_id)
     text, markup = message.edits[-1]
     # The link stays optional, so the Goal is saved and opened; it only reads as missing.
-    assert "Values: ⚠️ None" in text
+    assert "<i>Values:</i> ⚠️ None" in text
     assert not any("Health" in label for label in button_texts(markup))
 
     await render_card(message, services, action_id, full=True)
     text, markup = message.edits[-1]
     # The Value is a link by its name alone, and no button repeats it.
-    assert re.search(r'Values: <a href="[^"]+">Health</a>', text)
+    assert re.search(r'<i>Values:</i> <a href="[^"]+">Health</a>', text)
     assert "💎 Health" not in button_texts(markup)
     await tap_link(services, text, "Health", message.bot)
     text, markup = message.bot.edits[-1][1:]
-    assert "<b>Value</b>" in text and "Name: Health" in text
+    assert "<b>Value</b>" in text and "<i>Name:</i> Health" in text
     assert await place_of(sessions, markup, "↩️ Back") == Place(
         "card_view", {"id": action_id}
     )
@@ -1116,13 +1116,13 @@ async def test_cd_view_031_a_card_opens_compact_with_full_editing_one_button_awa
     message = FakeMessage(370, bot_message=True)
     await render_card(message, services, card_id)
     text, markup = message.edits[-1]
-    assert "Kind: ⭐️ Action" in text
-    assert "Stage: Backlog" in text
-    assert "Effort: 2" in text
+    assert "<i>Kind:</i> ⭐️ Action" in text
+    assert "<i>Stage:</i> Backlog" in text
+    assert "<i>Effort:</i> 2" in text
     # What full editing keeps: everything an ordinary day does not ask about.
-    assert "Priority:" not in text
-    assert "Blocked:" not in text
-    assert "Tags:" not in text
+    assert "<i>Priority:</i>" not in text
+    assert "<i>Blocked:</i>" not in text
+    assert "<i>Tags:</i>" not in text
     assert button_texts(markup) == [
         "🏃 Into Sprint",
         "☀️ Into Today",
@@ -1143,8 +1143,8 @@ async def test_cd_view_031_a_card_opens_compact_with_full_editing_one_button_awa
         FakeCallback(opener.callback_data.split(":", 1)[1], message), services
     )
     text, markup = message.edits[-1]
-    assert "Blocked: Yes" in text
-    assert "Tags: —" in text
+    assert "<i>Blocked:</i> Yes" in text
+    assert "<i>Tags:</i> —" in text
     buttons = set(button_texts(markup))
     assert {"✏️ Title", "⚠️ Priority", "🔢 Effort", "Archive", "Delete", "🗜 Compact"} <= buttons
 
@@ -1228,7 +1228,7 @@ async def test_sch_editor_016_a_typed_schedule_is_read_before_it_is_saved(sessio
 
     typed = FakeMessage(72, text="five times a day", bot_message=False, bot=message.bot)
     await ordinary_text(typed, services)
-    assert "Schedule: five times a day" in message.bot.edits[-1][1]
+    assert "<i>Schedule:</i> five times a day" in message.bot.edits[-1][1]
     assert "0/5 completed for the day from" in message.bot.edits[-1][1]
     async with sessions() as session:
         card = await session.get(Card, card_id)
@@ -1254,7 +1254,7 @@ async def test_cd_deadline_043_a_goal_offers_a_deadline_where_an_action_offers_a
     labels = button_texts(message.edits[-1][1])
     assert "⏰ Deadline" in labels and "⏱ Schedule" not in labels
     await _type_into(message, services, "⏰ Deadline", "by 20 October 18:00", 81)
-    assert "Deadline: by 20 October 18:00" in message.bot.edits[-1][1]
+    assert "<i>Deadline:</i> by 20 October 18:00" in message.bot.edits[-1][1]
     assert "Due by 20.10.2099 18:00." in message.bot.edits[-1][1]
 
     async with sessions() as session:
@@ -1314,9 +1314,9 @@ async def test_cd_link_055_a_cards_relations_are_links_in_its_words(sessions, ef
     here = Place("card_view", {"id": goal_id})
     assert await link_place(sessions, text, "Life") == here.child("card_view", id=above_id)
     children = "🎯1 · ⭐️1 · ⚡3/8 EP"
-    assert "Children: <a " in text
+    assert "<i>Children:</i> <a " in text
     assert await link_place(sessions, text, children) == here.child("card_children", id=goal_id)
-    assert "Effort:" not in text
+    assert "<i>Effort:</i>" not in text
     assert await link_place(sessions, text, "Vitality") == here.child("value_view", id=value_id)
     assert await link_place(sessions, text, "outdoors") == here.child("tag_view", id=tag_id)
     assert "💎" not in text and "🏷" not in text
@@ -1333,4 +1333,4 @@ async def test_cd_link_055_a_cards_relations_are_links_in_its_words(sessions, ef
     assert await place_of(sessions, children_markup, "↩️ Back") == here
 
     await render_card(message, services, empty_id)
-    assert "Children: —" in message.edits[-1][0]
+    assert "<i>Children:</i> —" in message.edits[-1][0]

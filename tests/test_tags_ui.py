@@ -39,7 +39,7 @@ async def test_tag_field_input_reuses_editor_message_and_deletes_input(sessions)
     await render_tag_text_prompt(callback, services, mode="create", item_id=None, field="name")
     prompt_id, prompt_text, prompt_markup = callback.bot.edits[-1]
     assert prompt_id == 30
-    assert "Current value:\n<pre>—</pre>" in prompt_text
+    assert "<i>Current value:</i>\n<pre>—</pre>" in prompt_text
     assert button_texts(prompt_markup) == ["↩️ Back"]
 
     invalid_input = FakeMessage(
@@ -66,7 +66,7 @@ async def test_tag_field_input_reuses_editor_message_and_deletes_input(sessions)
     assert user_input.was_deleted is True
     assert user_input.answers == []
     assert callback.bot.edits[-1][0] == 30
-    assert "Name: Family" in callback.bot.edits[-1][1]
+    assert "<i>Name:</i> Family" in callback.bot.edits[-1][1]
     async with sessions() as session:
         ui = await session.scalar(select(UiSession).where(UiSession.owner_id == 42))
         assert ui.kind == "item_editor"
@@ -191,4 +191,4 @@ async def test_ta_link_012_a_tags_linked_cards_read_as_children_and_open_as_a_li
     assert await place_of(sessions, markup, "↩️ Back") == here
 
     await render_tag(message, services, mode="view", item_id=empty_id)
-    assert "Linked Cards: —" in message.edits[-1][0]
+    assert "<i>Linked Cards:</i> —" in message.edits[-1][0]

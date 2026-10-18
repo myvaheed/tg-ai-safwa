@@ -1,4 +1,4 @@
-"""The Diary subagent: it reads one day and settles it, in the owner's voice."""
+"""The Diary subagent: it recalls a day's conversation or writes the day in the owner's voice."""
 
 from __future__ import annotations
 
@@ -92,19 +92,23 @@ class DiaryToolInput(ToolInput):
 
 DIARY_PROMPT = f"""You keep the user's Diary. One day, one entry, in their own voice.
 
+# Conversation questions
+Resolve the requested day from the local date below. If unclear, ask which day.
+Call `read_conversation(date)` and answer from it. If empty, say so. Do not change the Diary.
+
+# Write a day
+When the user asks to write, rewrite or delete a day, or sends a photo:
 1. Pick the day: today, unless the user names another. A day named by what happened on it,
-   not by its date: find it with `query_data` and `search`. No day is close: call nothing_to_do
-   and say so.
+   not by its date: find it with `query_data` and `search`. No day is close: say you could not
+   find the day and ask for its date, without proposing a change.
 2. Read what is saved for it with `read_day(date)`: its words, rating and photos.
 3. If this conversation does not say what to write for that day, read what was said that day
    with `read_conversation(date)`.
-4. In the response with the `diary` tool, write your plan as text: what you will write or
-   remove.
-5. The `diary` tool, in that same response:
-   - `diary(mode="update", date=…, body=…, remark=…, feeling_score=…)` — whether or not that day
-     is written already. Fold the saved words into `body`: it replaces them whole.
+4. Call `diary` with your plan as text in the same response:
+   - `diary(mode="update", date=…, body=…, remark=…, feeling_score=…)`.
+     Fold the saved words into `body`: it replaces them whole.
    - `diary(mode="delete", date=…)` — the user asked for that day to go.
-   If your sources do not make the day writable, call nothing_to_do with what is missing.
+   If your sources do not make the day writable, say what is missing without proposing a change.
 
 # Photos
 A photo the user sent reads as `[words](media:N)`, then their caption if they wrote one.
@@ -293,13 +297,17 @@ async def _diary_now(context: AgentContext) -> str:
 
 DIARY_AGENT = AgentSpec(
     name="diary",
-    purpose="write, rewrite or delete a day, and rename the photos on it.",
+    purpose=(
+        "questions about what the user and Safwa talked about today, yesterday or on a named "
+        "day; write, rewrite or delete a day, and rename the photos on it."
+    ),
     instructions=DIARY_PROMPT,
     # To find a day by what happened on it (DI-FIND-025).
     views=("ai_diary",),
     mutation_tools=("diary",),
     read_tools=_diary_read_tools,
     current=_diary_now,
+    answers_questions=True,
 )
 
 DIARY_TOOL = MutationToolSpec(

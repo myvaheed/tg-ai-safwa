@@ -13,8 +13,9 @@ Feature: Agents — the session, the hand-over, and what comes back
     Then the change is prepared by the subagent that owns that area
     And the part answering in the chat has no way to change anything itself, in any area, so a
       change is always someone else's work
-    When the owner instead asks a question about anything in their workspace, the Diary included
-    Then that same part answers it from its own reading, without handing the turn to anyone
+    When the owner instead asks a question
+    Then that same part answers it from its own reading, or hands it to a subagent whose purpose
+      includes that question, without asking for a change
 
   Scenario: AG-ROUTE-040 — The hand-over carries a name, never a retelling
     Given the owner wrote a request in their own words
