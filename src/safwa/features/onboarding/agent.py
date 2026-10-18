@@ -109,7 +109,7 @@ MANUAL = f"""# Safwa
 - A Check with its own Schedule hangs on a Goal or on no Card. Its next copy opens when answered; on a Goal, only while the Goal is open, and finishing the Goal asks for its last answer. Checks on an Action follow that Action's cycle.
 - A Card is Done only when each Check on it has an answer; "✅ Done" asks for them.
 - In words: create, rename, put on a Card, answer, delete.
-- With buttons: "☑️ Checks" on its Card, counting answered of all; on the Check, "✅ Yes" answers Passed and "❌ No" answers Missed, "📝 Note", "⏱ Schedule", "💎 Values", "🗑 Delete".
+- With buttons: "☑️ Checks" on its Card, counting answered of all; on the Check, "✅ Yes" answers Passed and "❌ No" answers Missed, "📝 Note", "⏱ Schedule", "💎 Values", "🗑 Delete". "Answered: ✅8 · ❌2" opens the series' answers, newest first.
 - Not with buttons: creating a Check, or putting it on a Card. Ask the Advisor.
 - After a Check is created, Safwa silently checks that it observes a state or a result rather than work done, is answered yes or no, and is about its Card's result. "Did I exercise?" every morning is a repeating Action; "No sweets?" is a Check. If something clearly does not fit, the Advisor says the Check could be improved, suggests the change with its reason, and asks. Check review in Profile → Hooks switches this off or on.
 
@@ -196,7 +196,7 @@ MANUAL = f"""# Safwa
 - A link in an answer opens its item. An item opened from a link or from the Home dashboard has "↩️ Menu" instead of "↩️ Back"; one opened from a screen goes "↩️ Back" to that screen.
 
 # Home dashboard
-- With Secret word set, the chat locks when it is cleared after a quiet time: Safwa answers nothing until the user sends the word. Reminders still arrive. After the word, Safwa answers the last message, voice message or photo sent while locked; texts of 5 characters or fewer, or within 3 characters of the word, are deleted unanswered. /clear empties the chat without locking it.
+- With Secret word set, the chat locks when it is cleared after a quiet time: Safwa answers nothing until the user sends the word. Reminders still arrive. After the word, Safwa answers the last message, voice message or photo sent while locked; texts of 5 characters or fewer, or within 3 characters of the word, are deleted unanswered. /clear empties the chat without locking it. /lock empties and locks the chat immediately; it requires Secret word to be set.
 - When the user does nothing in the chat for the Profile's "🏠 Home after" minutes, 30 at first, or sends /clear, Safwa empties the chat: screens, receipts, the user's messages and replies. No Home appears. Automatic clearing leaves what Safwa said on its own after the user last wrote to it; /clear removes that too.
 - /start opens the Home dashboard with ☰ Menu: the day and the time, the last 5 changes, the Values in focus, every Action in Today under its Goals and Subgoals, a Card under several standing once with ↖ naming the others, and today's tracked time when enabled. Each item is a link. Only one screen stays at the bottom. ☰ Menu unfolds navigation; another screen or a message to the Advisor replaces or removes Home. The words under Values are kept for 10 minutes; without them, they appear on Home a moment later.
 - Those words use the Today Cards that carry each Value, About me, the running Sprint's Success criteria, finished Actions and the Diary. Each new request reads the last words to avoid repeating them.

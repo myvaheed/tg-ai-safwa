@@ -506,7 +506,7 @@ async def test_manual_check_screens_answer_and_edit_note(e2e_harness):
     await render_checks(message, services, card_id, back=back)
     # The list opens a Check; its screen answers it and edits Note.
     listed = await _live_actions(e2e_harness)
-    assert listed == {"check_view", "card_view"}
+    assert listed == {"check_view", "card_view", "check_list"}
 
     await render_check(
         message, services, check_ids[0], back=Place("check_list", {"card_id": card_id}, back)
@@ -515,7 +515,6 @@ async def test_manual_check_screens_answer_and_edit_note(e2e_harness):
         "check_set_status",
         "check_choose_values",
         "check_edit_note",
-        "check_list",
         "check_delete_prompt",
     }
     assert "<i>Note:</i>\n—" in message.rendered[-1]

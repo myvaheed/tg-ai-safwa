@@ -48,6 +48,19 @@ Feature: Checks
     And the time the observation was made does not move
     And no new instance opens, and the Card it is on is untouched
 
+  Scenario: CH-HISTORY-021 — A Check opens all its answered instances from newest to oldest
+    Given a Check with answers in its series, including archived observations
+    When its screen is opened
+    Then "Answered: ✅8 · ❌2" counts that series' Passed and Missed answers
+    And pressing it opens their list ordered by answer time, newest first, with newer instances
+      first when the times are equal
+    And Pending instances and other Checks' answers are left out
+    And every answer shows its outcome and local answer time and opens that Check
+    And all answers can be reached in pages of 5 (PAGE_SIZE = 5), with ↻ Refresh and ↩️ Back
+    And returning from an answer keeps the history page, and returning from history opens the Check
+    And an unanswered singleton offers no Answered button; once answered it counts itself once
+    And correcting an answer changes its count without adding a second observation
+
   Scenario: CH-GATE-006 — A Card cannot be Done with an unanswered Check
     Given an Action carrying a Check that has never been answered
     When the owner finishes it as Done

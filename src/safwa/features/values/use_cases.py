@@ -19,6 +19,7 @@ from ...enums import ActorType
 from ...foundation.log_events import CREATE, DELETE, UPDATE, record_log_event, snapshot
 from ...foundation.workspace import bump_workspace
 from ..cards.api import Card
+from ..checks.model import Check
 from .api import record_unlinked
 from .model import CardValue, CheckValue, Value
 
@@ -128,6 +129,17 @@ async def value_link_counts(session: AsyncSession, value_id: int) -> tuple[int, 
         await session.scalars(select(CheckValue.check_id).where(CheckValue.value_id == value_id))
     )
     return len(cards), len(checks)
+
+
+async def value_checks(session: AsyncSession, value_id: int) -> list[Check]:
+    """Every Check carrying this Value, including archived observations."""
+    checks = await session.scalars(
+        select(Check)
+        .join(CheckValue, CheckValue.check_id == Check.id)
+        .where(CheckValue.value_id == value_id)
+        .order_by(Check.id)
+    )
+    return list(checks)
 
 
 async def delete_value(

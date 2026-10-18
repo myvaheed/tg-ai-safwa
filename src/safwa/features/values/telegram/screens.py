@@ -39,12 +39,14 @@ from tg_agent_shell.telegram.model import UiSession
 
 from ....constants import DESCRIPTION_MAX_CHARS
 from ...cards.telegram import card_results, cards_link
+from ...checks.telegram import check_results, linked_check_links
 from ..model import Value
 from ..use_cases import (
     create_value,
     delete_value,
     update_value_fields,
     value_cards,
+    value_checks,
     value_description,
     value_link_counts,
 )
@@ -185,14 +187,20 @@ async def render_value(
             if value is None:
                 raise DomainError("Value does not exist")
             editor_values = {"name": value.name, "description": value.description}
-            _cards, checks = await value_link_counts(session, value.id)
+            checks = await linked_check_links(
+                session,
+                services,
+                await value_checks(session, value.id),
+                here,
+                here.child("value_checks", id=value.id),
+            )
             cards = await cards_link(
                 session,
                 services,
                 await value_cards(session, value.id),
                 here.child("value_cards", id=value.id),
             )
-            linked = f"\n<i>Linked Cards:</i> {cards}\n<i>Linked Checks:</i> {checks}"
+            linked = f"\n<i>Linked Cards:</i> {cards}\n<i>Linked Checks:</i>\n" + ("\n".join(checks) or "—")
         else:
             editor_values = {"name": "", "description": "", **(values or {})}
 
@@ -303,6 +311,28 @@ async def render_value_cards(
         message,
         services,
         f"<b>Linked Cards of {html.escape(value.name)}</b>\n\n{count}",
+        kind=MessageKind.DASHBOARD,
+        markup=markup,
+        related_id=value.id,
+    )
+
+
+async def render_value_checks(
+    message: Message, services: Services, value_id: int, *, back: Place | None = None, page: int = 0
+) -> None:
+    """All Checks carrying one Value, as a result."""
+    here = Place("value_checks", {"id": value_id}, back)
+    async with services.sessions() as session:
+        value = await session.get(Value, value_id)
+        if value is None:
+            raise DomainError("Value does not exist")
+        checks = await value_checks(session, value.id)
+        body, markup = await check_results(session, services, checks, here, page=page)
+        await session.commit()
+    await send_registered(
+        message,
+        services,
+        f"<b>Linked Checks of {html.escape(value.name)}</b>\n\n{body}",
         kind=MessageKind.DASHBOARD,
         markup=markup,
         related_id=value.id,
@@ -427,6 +457,16 @@ async def _on_edit_text(context: CallbackContext) -> None:
     )
 
 
+async def _on_checks(context: CallbackContext) -> None:
+    await render_value_checks(
+        context.message,
+        context.services,
+        context.payload["id"],
+        back=context.back,
+        page=int(context.payload.get("page", 0)),
+    )
+
+
 async def _on_text_back(context: CallbackContext) -> None:
     async with context.sessions() as session:
         editor = await session.scalar(
@@ -548,6 +588,7 @@ VALUE_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "value_create_prompt": _on_create_prompt,
     "value_view": _on_view,
     "value_cards": _on_cards,
+    "value_checks": _on_checks,
     "value_edit_text": _on_edit_text,
     "value_text_back": _on_text_back,
     "value_create": _on_create,

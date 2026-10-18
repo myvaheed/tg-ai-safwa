@@ -30,7 +30,7 @@ from ...schedules.api import SCHEDULE_INSTRUCTION
 from ...schedules.telegram import compile_typed_schedule, render_schedule
 from ..model import Check, CheckOutcome
 from ..use_cases import delete_check, resolve_check, toggle_check_value, update_check_fields
-from .screens import render_check, render_check_values, render_checks
+from .screens import render_answered_checks, render_check, render_check_values, render_checks
 
 
 def _check(context: CallbackContext) -> Place:
@@ -44,6 +44,7 @@ async def _on_list(context: CallbackContext) -> None:
         context.services,
         int(context.payload["card_id"]),
         back=context.back,
+        page=int(context.payload.get("page", 0)),
     )
 
 
@@ -52,6 +53,16 @@ async def _on_choose_values(context: CallbackContext) -> None:
         context.message,
         context.services,
         context.payload["id"],
+        back=context.back,
+        page=int(context.payload.get("page", 0)),
+    )
+
+
+async def _on_answered(context: CallbackContext) -> None:
+    await render_answered_checks(
+        context.message,
+        context.services,
+        int(context.payload["id"]),
         back=context.back,
         page=int(context.payload.get("page", 0)),
     )
@@ -231,6 +242,7 @@ CHECK_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     "check_choose_values": _on_choose_values,
     "check_toggle_value": _on_toggle_value,
     "check_view": _on_view,
+    "check_answered": _on_answered,
     "check_open_schedule": _on_open_schedule,
     "check_edit_schedule": _on_edit_schedule,
     "check_edit_note": _on_edit_note,

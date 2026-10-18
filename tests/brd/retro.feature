@@ -178,6 +178,8 @@ Feature: Retro
   Scenario: RT-EP-016 — A retro distinguishes missing estimates from zero effort
     Given a Sprint ended with both estimated and unestimated Actions
     Then its record keeps the estimates it had when each Action joined and counts the missing ones
+    And finished and timed effort use the finished copies' estimates as the Sprint ends
+    And a missing finished estimate also makes effort totals partial
     And later estimates change neither that record nor its counts
     When Effort Points are off
     Then the retro screen, records read in words and AI analysis use Action counts and hide EP and capacity

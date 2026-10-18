@@ -18,7 +18,14 @@ from ui_harness import (
 from safwa.constants import DESCRIPTION_MAX_CHARS
 from safwa.features.cards.model import Card
 from safwa.features.cards.use_cases import create_card, toggle_card_value
-from safwa.features.checks.use_cases import create_check, toggle_check_value
+from safwa.features.checks.telegram import LINKED_CHECKS_LIMIT
+from safwa.features.checks.telegram.screens import CHECK_LIST_LIMIT
+from safwa.features.checks.use_cases import (
+    archive_check,
+    create_check,
+    resolve_check,
+    toggle_check_value,
+)
 from safwa.features.tags.model import CardTag, Tag
 from safwa.features.tags.telegram import render_tag
 from safwa.features.values.agent import VALUE_TOOL, ValueToolInput
@@ -193,7 +200,10 @@ async def test_the_value_screen_counts_cards_and_checks(sessions) -> None:
     assert "<i>Linked Cards:</i> <a " in text
     linked = await link_place(sessions, text, "⭐️1")
     assert (linked.action, linked.args) == ("value_cards", {"id": value_id})
-    assert "<i>Linked Checks:</i> 1" in text
+    assert "<i>Linked Checks:</i>\n• <a " in text
+    assert "</a> ✅0 · ❌0" in text
+    linked = await link_place(sessions, text, check.title)
+    assert (linked.action, linked.args) == ("check_view", {"id": check.id})
 
 
 async def test_no_screen_sets_a_values_focus_by_hand(sessions) -> None:
@@ -397,3 +407,91 @@ async def test_vl_link_025_a_values_linked_cards_read_as_children_and_open_as_a_
 
     await render_value(message, services, mode="view", item_id=empty_id)
     assert "<i>Linked Cards:</i> —" in message.edits[-1][0]
+
+
+async def test_a_values_linked_checks_open_directly_with_counts_and_return_to_the_value(sessions) -> None:
+    """VL-LINK-030 — tests/brd/values.feature"""
+    async with sessions() as session:
+        value = await create_value(session, "Health & rest", "What matters")
+        pending = await create_check(session, title="Slept enough?")
+        passed = await create_check(session, title="Feeling rested?")
+        archived = await create_check(session, title="No pain?")
+        await create_check(session, title="Unrelated?")
+        for check in (pending, passed, archived):
+            await toggle_check_value(session, check.id, value.id)
+        await resolve_check(session, passed.id, "passed")
+        await resolve_check(session, archived.id, "missed")
+        await archive_check(session, archived.id)
+        await session.commit()
+
+    services = services_for(sessions)
+    message = FakeMessage(121, bot_message=True)
+    here = Place("value_view", {"id": value.id})
+    await render_value(message, services, mode="view", item_id=value.id)
+    text = message.edits[-1][0]
+    for check, label, counts in (
+        (pending, "Slept enough?", "✅0 · ❌0"),
+        (passed, "Feeling rested?", "✅1 · ❌0"),
+        (archived, "No pain? [📦]", "✅0 · ❌1"),
+    ):
+        assert await link_place(sessions, text, label) == here.child("check_view", id=check.id)
+        assert f">{label}</a> {counts}" in text
+    assert "Unrelated?" not in text
+    assert "Others(" not in text
+    await tap_link(services, text, "Slept enough?", message.bot)
+    check_text, check_markup = message.bot.edits[-1][1:]
+    assert "Slept enough?" in check_text
+    assert await place_of(sessions, check_markup, "↩️ Back") == here
+    await press(services, message, check_markup, "↩️ Back")
+    assert "<i>Name:</i> Health &amp; rest" in message.edits[-1][0]
+    async with sessions() as session:
+        empty = await create_value(session, "Growth", "What matters")
+        await session.commit()
+    await render_value(message, services, mode="view", item_id=empty.id)
+    assert "<i>Linked Checks:</i>\n—" in message.edits[-1][0]
+
+
+@pytest.mark.parametrize("count", [LINKED_CHECKS_LIMIT, CHECK_LIST_LIMIT + 1])
+async def test_a_value_shows_five_check_links_and_others_opens_all_checks(sessions, count) -> None:
+    """VL-LINK-030 — tests/brd/values.feature"""
+    async with sessions() as session:
+        value = await create_value(session, "Health", "What matters")
+        for index in range(count):
+            check = await create_check(session, title=f"Observation {index}?")
+            await toggle_check_value(session, check.id, value.id)
+        await create_check(session, title="Unrelated?")
+        await session.commit()
+    services = services_for(sessions)
+    message = FakeMessage(122, bot_message=True)
+    await render_value(message, services, mode="view", item_id=value.id)
+    text = message.edits[-1][0]
+    assert text.count("</a> ✅0 · ❌0") == LINKED_CHECKS_LIMIT
+    assert f"Observation {LINKED_CHECKS_LIMIT}?" not in text
+    assert text.count("\n• ") == LINKED_CHECKS_LIMIT + (count > LINKED_CHECKS_LIMIT)
+    if count == LINKED_CHECKS_LIMIT:
+        assert "Others(" not in text
+        return
+    others = f"Others({count - LINKED_CHECKS_LIMIT})"
+    assert text.endswith(f">{others}</a>")
+    here = Place("value_view", {"id": value.id})
+    listing = here.child("value_checks", id=value.id)
+    assert await link_place(sessions, text, others) == listing
+    await tap_link(services, text, others, message.bot)
+    result, markup = message.bot.edits[-1][1:]
+    assert f"{count} matching checks" in result
+    assert "Unrelated?" not in result
+    assert "⬜ Observation 0?" in button_texts(markup)
+    assert await place_of(sessions, markup, "↩️ Back") == here
+    await press(services, message, markup, "→")
+    result, markup = message.edits[-1]
+    assert "page 2/2" in result and "→" not in button_texts(markup)
+    label = f"⬜ Observation {count - 1}?"
+    assert label in button_texts(markup)
+    await press(services, message, markup, label)
+    await press(services, message, message.edits[-1][1], "↩️ Back")
+    assert "page 2/2" in message.edits[-1][0]
+    markup = message.edits[-1][1]
+    await press(services, message, markup, "↻ Refresh")
+    assert f"{count} matching checks" in message.edits[-1][0]
+    await press(services, message, message.edits[-1][1], "↩️ Back")
+    assert "<i>Name:</i> Health" in message.edits[-1][0]

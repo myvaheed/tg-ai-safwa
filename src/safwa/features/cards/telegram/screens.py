@@ -25,8 +25,9 @@ from tg_agent_shell.telegram import (
 )
 from tg_agent_shell.telegram.model import UiSession
 
-from ....foundation.marks import live_repeat_instance_id, title_marks
+from ....foundation.marks import live_repeat_instance_id
 from ....foundation.workspace import Workspace
+from ...checks.telegram import linked_check_links
 from ...checks.use_cases import card_checks
 from ...profile.api import effort_tracking_on, time_tracking_on
 from ...schedules.api import schedule_summary
@@ -329,13 +330,11 @@ async def render_card(
             )
             for parent in parents
         ]
-        # Only what the view shows gets a link: a root Goal's Values even in the compact one.
         value_html = [
             await place_link(
                 session, services, html.escape(value.name), here.child("value_view", id=value.id)
             )
             for value in direct_values
-            if full or (card.kind == CardKind.GOAL.value and not parent_ids)
         ]
         tag_html = [
             await place_link(
@@ -347,10 +346,9 @@ async def render_card(
         workspace = await session.get(Workspace, 1)
         tz = ZoneInfo(workspace.timezone if workspace else "UTC")
         card_marks = await card_title_marks(session, card)
-        check_html = [
-            html.escape(check.title + await title_marks(session, check))
-            for check in direct_checks
-        ]
+        check_html = await linked_check_links(
+            session, services, direct_checks, here, here.child("check_list", card_id=card.id)
+        )
         closed_at = card.completed_at
         summary = await schedule_summary(session, card)
         level = await tree_level(session, card.kind, card.id)

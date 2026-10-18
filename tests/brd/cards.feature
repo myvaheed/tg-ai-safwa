@@ -296,8 +296,9 @@
 
   Scenario: CD-VIEW-031 — A Card opens compact, and full editing is one button away
     Given a Card the owner opens from anywhere
-    Then the screen says what it is, where it stands, its note and what it costs, and on a Goal
-      the Values it carries
+    Then the screen says what it is, where it stands, its note, what it costs and the Values
+      it carries, when any are attached
+    And its Linked Checks open directly with answer totals, up to 5 by VL-LINK-030
     And the buttons are the ones an ordinary day needs: finishing it, moving it between stages,
       and reaching its Checks; its parents, its children, its Values and its Tags are links in its
       words, by CD-LINK-055
