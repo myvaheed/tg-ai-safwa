@@ -86,7 +86,7 @@ from ..features.reminders.module import (
 from ..features.retro.module import MODULE as RETRO
 from ..features.saved_requests.module import MODULE as SAVED_REQUESTS
 from ..features.schedules.module import MODULE as SCHEDULES
-from ..features.schedules.module import SCHEDULE_TOTAL_HOOK
+from ..features.schedules.module import SCHEDULE_END_HOOK
 from ..features.summary.module import MODULE as SUMMARY
 from ..features.summary.module import SUMMARY_HOOK
 from ..features.tags.module import MODULE as TAGS
@@ -159,7 +159,7 @@ HOOKS = (
     TODAY_MORNINGS_HOOK,
     TODAY_STALE_HOOK,
     MISSED_RUN_HOOK,
-    SCHEDULE_TOTAL_HOOK,
+    SCHEDULE_END_HOOK,
     GOAL_CLARIFICATION_HOOK,
     ACTION_REVIEW_HOOK,
     CHECK_REVIEW_HOOK,

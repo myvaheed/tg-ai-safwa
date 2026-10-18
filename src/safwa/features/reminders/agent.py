@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import Field, PositiveInt, model_validator
+from pydantic import Field, PositiveInt, PrivateAttr, model_validator
 
 from llm_gateway import LlmProvider
 from tg_agent_shell.ai.contracts import RecordToolInput, ToolInput
@@ -29,7 +29,7 @@ from tg_agent_shell.ai.mini import (
 from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
 
 from ...constants import WEEKDAY_NAMES
-from .api import Condition, Schedule, ScheduleError, resolve
+from .api import BOUNDS_LINES, UNTIL_DESCRIPTION, Condition, Schedule, ScheduleError, resolve
 from .conditions import ConditionError, checked_select, items_view
 from .model import ScheduleKind
 
@@ -67,11 +67,13 @@ class ReminderConfigInput(ToolInput):
     date: str | None = Field(
         default=None,
         description=(
-            "Local calendar date dd.mm.yyyy, or a weekday such as Thu for the next one. "
-            "Always the START date when the schedule repeats, and the date itself when it "
-            "does not. Needs time as well."
+            "Local calendar date dd.mm.yyyy or dd.mm, today, tomorrow, or a weekday such as Thu "
+            "for the next one. "
+            "Always the START date when the schedule repeats, never its last day, and the date "
+            "itself when it does not. Needs time as well."
         ),
     )
+    until: str | None = Field(default=None, description=UNTIL_DESCRIPTION)
     interval_minutes: PositiveInt | None = Field(
         default=None, description="Repeat every N minutes."
     )
@@ -82,6 +84,9 @@ class ReminderConfigInput(ToolInput):
             "Local HH:MM-HH:MM ranges when it must not fire, e.g. ['22:00-09:00']. "
             "Interval schedules only. The end is exclusive."
         ),
+    )
+    limit: PositiveInt | None = Field(
+        default=None, description="How many times it fires in total. Only when the text says."
     )
 
 
@@ -122,16 +127,22 @@ REMINDER_TOOL = MutationToolSpec(
     to_change=entity_change("reminder"),
 )
 
-REMINDER_WHEN_PROMPT = """Read when one Reminder fires. End with one call: set_reminder_config, set_condition or not_clear_enough.
+REMINDER_WHEN_PROMPT = f"""Read when one Reminder fires. End with one call: set_reminder_config, set_condition or not_clear_enough.
 A Reminder fires at a clock time, or on answers of Checks or Actions.
 Clock time, set_reminder_config:
-'every day at 8': days=[Mon, Tue, Wed, Thu, Fri, Sat, Sun], time=08:00.
+'every day at 8', 'every morning at 8': days=[Mon, Tue, Wed, Thu, Fri, Sat, Sun], time=08:00.
 'every weekday at 8am': days=[Mon, Tue, Wed, Thu, Fri], time=08:00.
 'every Monday at 9:30', 'on Mondays at 9:30': days=[Mon], time=09:30.
-'tomorrow at 15:00', 'on 20 October at 15:00': date and time.
+'tomorrow at 15:00': date=tomorrow, time=15:00. 'on 20 October at 15:00': date=20.10, time=15:00.
 'on Thursday at 10': date=Thu, time=10:00. It fires once.
 'in 90 minutes', 'in 2 hours': in_minutes=90, in_minutes=120. It fires once.
 'every 2 hours': interval_minutes=120.
+'every weekday at 8 until 15 December': days=[Mon, Tue, Wed, Thu, Fri], time=08:00, until=15.12.
+'every 2 hours until Sunday': interval_minutes=120, until=Sun.
+'every day at 8 for 3 weeks': days=[Mon, Tue, Wed, Thu, Fri, Sat, Sun], time=08:00, until=3 weeks.
+'every Friday at 18 from 6 November for 2 months': days=[Fri], time=18:00, date=06.11, until=2 months.
+'every day at 9, 10 times': days=[Mon, Tue, Wed, Thu, Fri, Sat, Sun], time=09:00, limit=10.
+{BOUNDS_LINES}
 Resolve relative dates against the current time. Never invent a time.
 Answers, set_condition:
 'every 3 Missed in a row of Check #12': items='Check #12', answer=missed, count=3, in_row=true.
@@ -221,6 +232,33 @@ async def resolve_schedule(
         f"Current local time: {local:%Y-%m-%d %H:%M} ({WEEKDAY_NAMES[local.weekday()]}), "
         f"timezone {tz.key}"
     )
+    refusals: list[str] = []
+
+    # Why the parameters make no schedule goes back to the model first, so it can fix them,
+    # and to the owner when it cannot. No docstring: it would reach the model as the schema's.
+    class ResolvedConfig(ReminderConfigInput):
+        _schedule: Schedule | None = PrivateAttr(default=None)
+
+        @model_validator(mode="after")
+        def resolves(self) -> ResolvedConfig:
+            try:
+                self._schedule = resolve(
+                    days=self.days,
+                    clock=self.time,
+                    day=self.date,
+                    interval_minutes=self.interval_minutes,
+                    in_minutes=self.in_minutes,
+                    quiet_windows=self.quiet_windows,
+                    until=self.until,
+                    limit=self.limit,
+                    now=now,
+                    tz=tz,
+                )
+            except ScheduleError as error:
+                refusals.append(str(error))
+                raise ValueError(str(error)) from error
+            return self
+
     try:
         result = await run_mini_session(
             provider,
@@ -230,7 +268,7 @@ async def resolve_schedule(
                 TerminalTool(
                     name="set_reminder_config",
                     description="The phrase is a clock time; these are its parameters.",
-                    model=ReminderConfigInput,
+                    model=ResolvedConfig,
                 ),
                 TerminalTool(
                     name="set_condition",
@@ -246,6 +284,8 @@ async def resolve_schedule(
             max_tool_calls=MINI_SESSION_MAX_TOOL_CALLS,
         )
     except MiniSessionError as error:
+        if refusals:
+            raise unclear(refusals[-1], "time") from error
         raise unclear(UNREADABLE_WHEN) from error
     if result.name == "not_clear_enough":
         raise unclear(result.payload.reason, result.payload.about)
@@ -261,20 +301,7 @@ async def resolve_schedule(
                 in_row=wanted.in_row,
             ),
         )
-    config = result.payload
-    try:
-        return resolve(
-            days=config.days,
-            clock=config.time,
-            day=config.date,
-            interval_minutes=config.interval_minutes,
-            in_minutes=config.in_minutes,
-            quiet_windows=config.quiet_windows,
-            now=now,
-            tz=tz,
-        )
-    except ScheduleError as error:
-        raise unclear(str(error), "time") from error
+    return result.payload._schedule
 
 
 async def write_items_select(provider: LlmProvider, items: str, answer: str, names: str) -> str:

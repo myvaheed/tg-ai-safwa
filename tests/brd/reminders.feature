@@ -36,6 +36,7 @@ Feature: Reminders
     And a time on its own is the next time that clock comes round
     And minutes from now happen once, at that minute, counted from now in code
     And a weekday given as the date is the next such day whose time is still ahead, today included
+    And today or tomorrow given as the date is that day, counted in code
     And every day given together with an interval is the interval alone
 
   Scenario: RM-SCHEDULE-004 — A repeat that started in the past is simply already running
@@ -56,7 +57,10 @@ Feature: Reminders
     And each of these is such a reason: an interval under 5 minutes
       (REMINDER_MIN_INTERVAL_MINUTES = 5), weekdays other than every day given together with an interval, quiet hours on
       something that is not an interval, quiet hours that leave no time of day at all, a date with
-      no hour on it, minutes from now given with anything else, and nothing given at all
+      no hour on it, minutes from now given with anything else, a last day or a total on something
+      that happens once, a last day before the first firing, and nothing given at all
+    And the short session of RM-SCHEDULE-001 is told the reason first, so the model can fix its
+      parameters; when it cannot, the reason is what goes back, by RM-UNCLEAR-028
 
   Scenario: RM-CLOCK-006 — A firing time is a wall clock, not a fixed offset
     Given a daily Reminder at 08:30
@@ -265,3 +269,24 @@ Feature: Reminders
       nothing, why, and to ask Safwa to set it again
     And Safwa reads it in ai_reminders with schedule_kind condition and its condition: the items, the
       SELECT, the answer, the count and whether in a row, and no next firing
+
+  Scenario: RM-END-036 — A repeating Reminder can end on a last day or after a total
+    Given Safwa proposes a repeating Reminder whose words say until when, for how long, or how many times
+    When the short session of RM-SCHEDULE-001 reads them
+    Then the last day comes as a date, a weekday or how long, and the total as a number, and the
+      last day is worked out in code
+    And how long counts from the start date, or from today without one: 2 weeks from 17.10.2026
+      runs through 30.10.2026, and a month from 31.01.2027 through 28.02.2027
+    And a weekday is the next such day on or after the start, and a date without a year the next
+      such date
+    And a start date without a year is the next such date whose time is still ahead
+    And the review screen and /reminders say it, "every day at 09:00, until 30.11.2026, 10 times"
+    And it does not fire after its last day, nor more times than its total
+    And the request of its last firing says "This is its last time." (LAST_FIRE), and it deletes
+      itself once those words are written down
+    And one that moves on quietly past its last day, by RM-CATCHUP-019 or RM-START-020, deletes
+      itself and says nothing
+    And opening one with a total shows how many have fired, "3 of 10 fired."
+    And a new schedule counts its total from 0
+    And a last day or a total on a one-off, or a last day before the first firing, is refused, by
+      RM-SCHEDULE-005

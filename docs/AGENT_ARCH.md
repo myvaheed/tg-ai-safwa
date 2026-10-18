@@ -655,9 +655,9 @@ flowchart TB
     PEND -->|yes| TICK
     PEND -->|no| DUE{next_fire_at <= now?}
     DUE -->|no| TICK
-    DUE -->|yes| PREP[prepare: stale repeats roll forward silently]
+    DUE -->|yes| PREP[prepare: stale repeats roll forward silently, or end past their last day]
     PREP --> WRITE[one row: format_cue over up to REMINDER_FIRE_BATCH = 3]
-    WRITE --> SETTLE[settle: one-shot deleted, repeat rolled forward]
+    WRITE --> SETTLE[settle: one-shot and last fire deleted, repeat rolled forward]
     SETTLE --> TICK
 ```
 
@@ -676,6 +676,11 @@ the Cue row, exactly as for anything else Safwa says first.
   always fires, however late, and the Cue says how late.
 - A repeat advances from its **scheduled** moment, not from the tick that took it, so a late check
   does not push every later fire late with it.
+- A repeat may end: `until` is its last local day and `total` how many times it fires, counted in
+  `fired`. `next_fire` and `roll_forward` give None past the last day; the fire that reaches the
+  total, or has no next one by the last day, carries `LAST_FIRE` in its Cue and is deleted with the
+  one-shots. One that rolls past its last day silently, at a tick or at the start, is deleted
+  (`RM-END-036`).
 - Reminders are deterministic first — the tick only does schedule arithmetic, and the Advisor
   composes the message.
 - `reminders.start`, a `Run` on `OnStarted()`, works out again a time-of-day Reminder a timezone

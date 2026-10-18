@@ -111,6 +111,20 @@ def test_a_weekday_as_the_date_is_the_next_one_still_ahead(day, clock, moment):
     assert schedule.kind is ScheduleKind.ONCE and schedule.anchor_at == moment
 
 
+@pytest.mark.parametrize(
+    ("day", "clock", "moment"),
+    [
+        ("today", "15:00", utc(2026, 8, 13, 12, 0)),
+        ("tomorrow", "10:00", utc(2026, 8, 14, 7, 0)),
+        ("Tomorrow", "15:00", utc(2026, 8, 14, 12, 0)),
+    ],
+)
+def test_today_or_tomorrow_as_the_date_is_that_day(day, clock, moment):
+    """RM-SCHEDULE-003 — tests/brd/reminders.feature"""
+    schedule = resolve(clock=clock, day=day, now=NOW, tz=TZ)
+    assert schedule.kind is ScheduleKind.ONCE and schedule.anchor_at == moment
+
+
 def test_every_day_beside_an_interval_is_the_interval_alone():
     """RM-SCHEDULE-003 — tests/brd/reminders.feature"""
     every_day = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]

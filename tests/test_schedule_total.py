@@ -18,7 +18,7 @@ from safwa.features.checks.model import CheckOutcome
 from safwa.features.checks.use_cases import create_check, resolve_check, update_check_fields
 from safwa.features.schedules.agent import SCHEDULE_PARSER_PROMPT, ScheduleCompiler
 from safwa.features.schedules.api import (
-    SCHEDULE_TOTAL_REACHED,
+    SCHEDULE_ENDED,
     get_scheduled,
     remaining_occurrences,
     rule_summary,
@@ -26,7 +26,7 @@ from safwa.features.schedules.api import (
     set_schedule,
     total_count,
 )
-from safwa.features.schedules.hooks import SCHEDULE_TOTAL_HOOK, total_request
+from safwa.features.schedules.hooks import SCHEDULE_END_HOOK, end_request
 from safwa.foundation.marks import closed_repeat_refusal
 from tg_agent_shell.foundation.changes import Committed
 from tg_agent_shell.foundation.errors import DomainError
@@ -77,7 +77,7 @@ async def test_a_total_on_a_one_time_schedule_goes_back_to_repair():
         "on 20 October 2099 at 15:00", datetime.now(UTC), TZ, "check"
     )
     repair = json.loads(requests[1].messages[-1]["content"])
-    assert repair["retryable"] is True and "A total needs a Schedule that repeats" in repair["error"]
+    assert repair["retryable"] is True and "A total or a last day needs a Schedule that repeats" in repair["error"]
     assert question is None and "limit" not in rule
 
 
@@ -157,10 +157,10 @@ async def test_planning_counts_no_more_than_the_total_has_left(sessions):
 
 async def test_safwa_is_asked_to_say_a_schedule_ran_its_total(sessions):
     """SCH-TOTAL-022 — tests/brd/schedules.feature"""
-    assert SCHEDULE_TOTAL_HOOK.on == (OnCommitted(kind=SCHEDULE_TOTAL_REACHED),)
-    assert isinstance(SCHEDULE_TOTAL_HOOK.effect, Advise)
+    assert SCHEDULE_END_HOOK.on == (OnCommitted(kind=SCHEDULE_ENDED),)
+    assert isinstance(SCHEDULE_END_HOOK.effect, Advise)
     # An Advise is in Profile → Hooks, under its title.
-    assert SCHEDULE_TOTAL_HOOK.agent_related and SCHEDULE_TOTAL_HOOK.title == "Schedule total"
+    assert SCHEDULE_END_HOOK.agent_related and SCHEDULE_END_HOOK.title == "Schedule end"
     rule = {"kind": "after_completion", "limit": 1}
     async with sessions() as session:
         check = await create_check(session, title="Stretch?", schedule="once more", schedule_rule=rule)
@@ -169,13 +169,15 @@ async def test_safwa_is_asked_to_say_a_schedule_ran_its_total(sessions):
         )
         await resolve_check(session, check.id, CheckOutcome.PASSED)
         await finish_action(session, action.id)
-        assert changes_of(session, SCHEDULE_TOTAL_REACHED) == [
-            Committed(SCHEDULE_TOTAL_REACHED, check.id, {"type": "check"}),
-            Committed(SCHEDULE_TOTAL_REACHED, action.id, {"type": "card"}),
+        assert changes_of(session, SCHEDULE_ENDED) == [
+            Committed(SCHEDULE_ENDED, check.id, {"type": "check", "reason": "total"}),
+            Committed(SCHEDULE_ENDED, action.id, {"type": "card", "reason": "total"}),
         ]
         await session.commit()
 
-        request = await total_request(session, [["check", check.id], ["card", action.id]])
+        request = await end_request(
+            session, [["check", check.id, "total"], ["card", action.id, "total"]]
+        )
         assert f"- Check #{check.id} «Stretch?», total 1" in request
         assert f"- Action #{action.id} «Water», total 1" in request
         assert "ask whether to start it again" in request

@@ -242,6 +242,9 @@ def _detail_text(
         lines.append(html.escape(finds))
     if not schedule.repeating:
         lines.append("Fires once, then deletes itself.")
+    elif schedule.total or schedule.until:
+        fired = f"{reminder.fired} of {schedule.total} fired. " if schedule.total else ""
+        lines.append(f"{fired}Deletes itself after its last time.")
     lines.extend(["", html.escape(reminder.instruction), "", "<i>Timing is set through your advisor.</i>"])
     return "\n".join(lines)
 

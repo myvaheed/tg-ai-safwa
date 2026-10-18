@@ -28,7 +28,20 @@ from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.proposals.api import PreparationContext, ToolPreparationError
 
 from ...constants import WEEKDAY_NAMES
-from ..reminders.api import Schedule, parse_clock, parse_day, resolve, schedule_payload
+from ..reminders.api import (
+    BOUNDS_LINES,
+    BOUNDS_NEED_REPEAT,
+    UNTIL_BEFORE_FIRST,
+    UNTIL_DESCRIPTION,
+    Schedule,
+    next_fire,
+    parse_clock,
+    parse_day,
+    parse_until,
+    resolve,
+    schedule_payload,
+    start_day,
+)
 from .api import (
     ACTION_DAILY_EXECUTIONS_MAX,
     SCHEDULED_RANGE_DAYS_MAX,
@@ -47,8 +60,8 @@ SCHEDULE_QUESTION_HINT = (
     "Never invent a time."
 )
 SCHEDULE_FORMS_ERROR = (
-    "Give one form: period and count without days or time, after_completion, or days, time, "
-    "date, interval_minutes or in_minutes without period."
+    "Give one form: period and count, with date for its first day, without days or time; "
+    "after_completion; or days, time, date, interval_minutes or in_minutes without period."
 )
 
 
@@ -65,10 +78,11 @@ class ScheduleConfig(ToolInput):
     date: str | None = Field(
         default=None,
         description=(
-            "Local dd.mm.yyyy, or a weekday such as Thu for the next one: the day of a "
-            "one-time appointment, or the first day of a repeat."
+            "Local dd.mm.yyyy or dd.mm, today, tomorrow, or a weekday such as Thu for the next "
+            "one: the day of a one-time appointment, or the first day of a repeat or of a period."
         ),
     )
+    until: str | None = Field(default=None, description=UNTIL_DESCRIPTION)
     interval_minutes: PositiveInt | None = Field(
         default=None, description="Repeat every N minutes, at least 5."
     )
@@ -87,14 +101,20 @@ class ScheduleConfig(ToolInput):
             and not self.interval_minutes
             and (self.days or self.time)
         ):
-            # Once a day beside weekdays or a clock says what they say. A weekly count beside a
-            # weekday is not dropped: the day may be one the model made up for "once a week".
+            # Once a day beside weekdays or a clock says what they say.
             self.period = self.count = None
             self.days = self.days or list(WEEKDAY_NAMES)
+        if self.period == "week" and self.days and self.count == len(self.days) > 1:
+            # "Twice a week on Mon and Thu": as many named days as the count are those days. Once
+            # a week beside one day is not: the day may be one the model made up.
+            self.period = self.count = None
         if self.period is None and self.count is not None and self.count == self.limit:
             # "10 times" read as a count and as the total: without a period it is the total.
             self.count = None
-        fixed = any((self.days, self.time, self.date, self.interval_minutes, self.in_minutes))
+        # Beside a period, date is the first day of the quota.
+        fixed = any((self.days, self.time, self.interval_minutes, self.in_minutes)) or bool(
+            self.date and self.period is None
+        )
         if sum((self.period is not None, self.after_completion, fixed)) != 1:
             raise ValueError(SCHEDULE_FORMS_ERROR)
         if (self.count is not None) != (self.period is not None):
@@ -118,15 +138,16 @@ class DeadlineConfig(ToolInput):
         return self
 
 
-SCHEDULE_PARSER_PROMPT = """Read one Schedule. End with set_schedule_config. Use not_clear_enough only when the text names no timing at all.
+SCHEDULE_PARSER_PROMPT = f"""Read one Schedule. End with set_schedule_config. Use not_clear_enough only when the text names no timing at all.
 'five times a day': period=day, count=5.
 'once a week': period=week, count=1, no days. Weeks start on Monday.
+'three times a week on Mon, Wed and Fri': days=[Mon, Wed, Fri], no period.
 'every day', 'daily', 'every evening', 'every morning': period=day, count=1.
 A clock or named weekdays mean days, never period.
 'every day at 20:00', 'every evening at 20:00': days=[Mon, Tue, Wed, Thu, Fri, Sat, Sun], time=20:00.
 'every Monday and Wednesday at 9': days=[Mon, Wed], time=09:00.
 'every Monday', 'Monday evenings': days=[Mon], no time.
-'on 20 October', 'tomorrow': date, no time.
+'on 20 October': date=20.10, no time. 'tomorrow': date=tomorrow, no time.
 'on 20 October at 15:00', 'next Tuesday at 15:00': date and time.
 A weekday without every is one date: 'on Thursday at 10': date=Thu, time=10:00.
 'at 15:00' without a day: date of the next 15:00, time=15:00.
@@ -135,6 +156,10 @@ A weekday without every is one date: 'on Thursday at 10': date=Thu, time=10:00.
 'after I finish it': after_completion=true.
 'five times a day, 50 times in total': period=day, count=5, limit=50.
 'every Monday at 9, 10 times': days=[Mon], time=09:00, limit=10.
+'every Monday until 15 December': days=[Mon], until=15.12.
+'three times a day for 10 days': period=day, count=3, until=10 days.
+'twice a week from Wednesday for 2 months': period=week, count=2, date=Wed, until=2 months.
+{BOUNDS_LINES}
 Morning, evening and night are not a time: leave time out.
 A time always comes with days, date or interval_minutes.
 Resolve relative dates against Submitted at. Never invent a time or a weekday.
@@ -167,10 +192,17 @@ class ScheduleCompiler:
         class ResolvedConfig(ScheduleConfig):
             _timing: Schedule | None = PrivateAttr(default=None)
             _all_day: bool = PrivateAttr(default=False)
+            _start: date | None = PrivateAttr(default=None)
+            _until: date | None = PrivateAttr(default=None)
 
             @model_validator(mode="after")
             def validate_timing(self) -> ResolvedConfig:
-                if not self.period and not self.after_completion:
+                today = submitted_at.astimezone(tz).date()
+                start = first = today
+                if self.period and self.date:
+                    self._start = start = start_day(self.date, None, submitted_at, tz)
+                    first = max(start, today)
+                elif not self.period and not self.after_completion:
                     self._all_day = not (self.time or self.interval_minutes or self.in_minutes)
                     self._timing = resolve(
                         days=self.days,
@@ -181,8 +213,17 @@ class ScheduleCompiler:
                         now=submitted_at,
                         tz=tz,
                     )
-                    if self.limit and not self._timing.repeating:
-                        raise ValueError("A total needs a Schedule that repeats: drop limit")
+                    if (self.limit or self.until) and not self._timing.repeating:
+                        raise ValueError(BOUNDS_NEED_REPEAT)
+                    if self.date:
+                        start = self._timing.anchor_at.astimezone(tz).date()
+                    first = next_fire(
+                        self._timing, previous=None, now=submitted_at, tz=tz
+                    ).astimezone(tz).date()
+                if self.until:
+                    self._until = parse_until(self.until, start)
+                    if self._until < first:
+                        raise ValueError(UNTIL_BEFORE_FIRST)
                 return self
 
         deadline = target == "deadline"
@@ -219,6 +260,8 @@ class ScheduleCompiler:
             }, None
         if config.period:
             rule = {"kind": "quota", "period": config.period, "count": config.count}
+            if config._start:
+                rule["start"] = config._start.isoformat()
         elif config.after_completion:
             rule = {"kind": "after_completion"}
         else:
@@ -227,6 +270,8 @@ class ScheduleCompiler:
                 rule["all_day"] = True
         if config.limit:
             rule["limit"] = config.limit
+        if config._until:
+            rule["until"] = config._until.isoformat()
         if target == "action" and daily_executions(rule) > ACTION_DAILY_EXECUTIONS_MAX:
             return None, ACTION_LIMIT_QUESTION
         return rule, None

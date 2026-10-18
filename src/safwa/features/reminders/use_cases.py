@@ -95,6 +95,7 @@ async def reschedule_reminder(
     for column, value in schedule_columns(schedule).items():
         setattr(reminder, column, value)
     reminder.next_fire_at = first
+    reminder.fired = 0  # a new schedule's total counts from 0
     reminder.version += 1
     await _record(session, reminder, "reschedule", actor, before)
     await bump_workspace(session)
@@ -153,7 +154,7 @@ async def reconcile_reminders(session: AsyncSession, now: datetime | None = None
     stays overdue, because the first tick firing it is the catch-up.
 
     A one-shot is never moved: it always fires, however late. A condition has no clock to
-    move.
+    move. A repeat that moves past its last day is deleted.
     """
     now = now or datetime.now(UTC)
     workspace = await session.get(Workspace, 1)
@@ -163,11 +164,12 @@ async def reconcile_reminders(session: AsyncSession, now: datetime | None = None
         schedule = schedule_of(reminder)
         if not schedule.repeating:
             continue  # a one-shot always fires, however late
-        if not on_wall_clock(schedule, reminder.next_fire_at, tz):
-            rebuilt = next_fire(schedule, previous=None, now=now, tz=tz)
-            if rebuilt is not None:
-                reminder.next_fire_at = rebuilt
-        if now - reminder.next_fire_at > grace:
-            reminder.next_fire_at = roll_forward(
-                schedule, previous=reminder.next_fire_at, now=now, tz=tz
-            )
+        moment = reminder.next_fire_at
+        if not on_wall_clock(schedule, moment, tz):
+            moment = next_fire(schedule, previous=None, now=now, tz=tz)
+        if moment is not None and now - moment > grace:
+            moment = roll_forward(schedule, previous=moment, now=now, tz=tz)
+        if moment is None:
+            await session.delete(reminder)
+        else:
+            reminder.next_fire_at = moment

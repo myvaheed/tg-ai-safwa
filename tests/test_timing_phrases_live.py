@@ -15,7 +15,7 @@ fields cost the old forms anything, and `-k 1a` says whether the new ones are re
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -140,6 +140,15 @@ CASES = (
         "1a", "schedule", "каждый день в 21:00 в течение 30 дней",
         {"days": EVERY_DAY, "time": "21:00", "until": "15.11.2026"},
     ),
+    # The trap: how long comes before the timing.
+    Case(
+        "1a", "reminder", "в течение двух недель каждый вечер в 21:00",
+        {"days": EVERY_DAY, "time": "21:00", "until": "30.10.2026"},
+    ),
+    Case(
+        "1a", "schedule", "по средам до 16 декабря",
+        {"form": "fixed", "days": ["Wed"], "time": None, "until": "16.12.2026"},
+    ),
     Case("1b", "reminder", "1 и 15 числа каждого месяца в 9", {"month_days": [1, 15], "time": "09:00"}),
     Case("1b", "reminder", "в последний день месяца в 18:00", {"month_days": [31], "time": "18:00"}),
     Case(
@@ -160,6 +169,8 @@ def _timing(schedule: Schedule, *, all_day: bool = False) -> dict[str, Any]:
         "date": f"{schedule.anchor_at.astimezone(TZ):%d.%m.%Y}" if schedule.anchor_at else None,
         "interval": schedule.interval_minutes,
         "quiet": [f"{start:%H:%M}-{end:%H:%M}" for start, end in schedule.quiet_windows] or None,
+        "until": f"{schedule.until:%d.%m.%Y}" if schedule.until else None,
+        "limit": schedule.total,
     }
     if schedule.condition is not None:
         condition = schedule.condition
@@ -187,12 +198,18 @@ async def _schedule(provider, phrase: str) -> dict[str, Any]:
     rule, question = await ScheduleCompiler(provider).compile(phrase, NOW, TZ, "check")
     if question:
         return {"question": question}
-    reading: dict[str, Any] = {"form": rule["kind"], "limit": rule.get("limit")}
-    if rule["kind"] == "quota":
-        reading.update(period=rule["period"], count=rule["count"])
+    reading: dict[str, Any] = {}
     if rule["kind"] == "fixed":
         reading.update(_timing(schedule_from_payload(rule["timing"]), all_day=rule.get("all_day", False)))
+    if rule["kind"] == "quota":
+        reading.update(period=rule["period"], count=rule["count"], date=_day(rule.get("start")))
+    # The total and the last day live on the rule, never in its timing.
+    reading.update(form=rule["kind"], limit=rule.get("limit"), until=_day(rule.get("until")))
     return reading
+
+
+def _day(iso: str | None) -> str | None:
+    return f"{date.fromisoformat(iso):%d.%m.%Y}" if iso else None
 
 
 @pytest.fixture

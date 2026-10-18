@@ -50,21 +50,29 @@ an interval, so "every evening at 20:00" can never become a one-time appointment
 
 Small models often read such text twice over, as once a day and as every weekday at 20:00.
 Once a day beside weekdays or a clock is dropped in code, so the days are the reading and no
-repair round is spent (`SCH-FORM-024`). Any other quota beside weekdays goes back to the model,
-even once a week beside one weekday: for "once a week" a model makes up Monday, and the code
-cannot tell a day it made up from one the text names. A count without a period that equals
+repair round is spent (`SCH-FORM-024`). So is a weekly count beside as many named weekdays,
+two or more: "twice a week on Mon and Thu". Any other quota beside weekdays goes back to the
+model, even once a week beside one weekday: for "once a week" a model makes up Monday, and the
+code cannot tell a day it made up from one the text names. A count without a period that equals
 the total is the total alone. Arithmetic stays in code: "in 30 minutes" arrives as
-`in_minutes`, and "on Thursday at 10" with the weekday as its date, and the code counts the
-moment. A small model adding minutes to a clock gets the sum wrong, and to avoid counting days
-to a weekday it reads "on Thursday" as every Thursday. A Reminder's setup session reads its
-timing through the same `resolve`, so all of this holds there too.
+`in_minutes`, "tomorrow" and "on Thursday at 10" as words in `date`, "for a month" as `until`,
+and the code counts the day and the moment; a date may come without its year, and the code
+picks it. A small model adding minutes to a clock gets the sum wrong, to avoid counting days
+to a weekday it reads "on Thursday" as every Thursday, and Qwen3.5 9B given an example of a
+weekday as the date wrote Mon for "tomorrow". A Reminder's setup session reads its
+timing through the same `resolve`, so all of this holds there too; its terminal resolves the
+parameters as this one's does, so a refusal is a repair round there as well, and the owner
+hears the last reason only once the model gives up.
 
 The sessions run with reasoning off, as `tests/test_timing_phrases_live.py` measures them, and
 ask for no reading in words before the call. What carries a small model instead is one example
 line per form, a repair round whose error names the fix, and the code above. Measured in
 October 2026 over 25 phrases, three runs each, 10 to 20 words of reading first took Qwen3.5 9B
 from 34 s to 49 s a run without lifting it, and made Qwen3.6 35B-A3B talk itself out of the
-clock in "по понедельникам и средам в 9" in every run.
+clock in "по понедельникам и средам в 9" in every run. With the last day, the total and the
+quota start, over 40 phrases, three runs each, 35B-A3B read all 40 every time and 9B 39, 38
+and 38: 9B reads "каждый день в 9 до 30 ноября" with 30 November as the start, and
+"в четверг в 10" as every Thursday in two runs of three.
 
 ## Rules
 
@@ -83,9 +91,21 @@ stays open at a time.
 Any repeating form may carry a total, `"limit": N`: "five times a day, 50 times in total". It
 counts the instances answered under that revision — Done on an Action, Passed or Missed on a
 Check — so a changed Schedule counts from 0. The instance that reaches it opens no successor
-and records `schedule.total_reached`; the `schedules.total` Advise hook then asks Safwa to tell
-the owner and ask whether to start again (`SCH-TOTAL-021`, `SCH-TOTAL-022`). A one-time
-appointment refuses a total back to the model, and a Deadline has none.
+and records `schedule.ended` with the reason `total`; the `schedules.end` Advise hook then asks
+Safwa to tell the owner and ask whether to start again (`SCH-TOTAL-021`, `SCH-TOTAL-022`). A
+one-time appointment refuses a total back to the model, and a Deadline has none.
+
+Any repeating form may also carry a last day, `"until": "2026-11-18"`: "every Monday until 30
+November", "every day at 21:00 for 30 days" (`SCH-END-025`). It lives on the rule, never inside
+`timing`, so quotas, appointments and repetition after completion read it in one place. The model
+gives `until` as a date, a weekday or how long, and `parse_until` in Reminders works out the
+inclusive day: how long counts from the start, a month from 19.10 runs through 18.11, and one
+from 31.01 through 28.02. A slot after it opens no successor and records `schedule.ended` with the
+reason `last_day`; an instance already open stays open until it is answered. Planning clips its
+windows at the end of that day. A quota may start later, `"start": "2026-10-19"`, from `date`
+beside `period` ("3 times a week from Monday"): its first instance, every answer before that
+day and planning all begin at that period (`SCH-START-026`). Repetition after completion has no
+start, and a date beside it goes back to the model.
 
 Starting again is a Schedule written on the last instance of a series with nothing open
 (`SCH-TOTAL-023`). `restart_slot` says when that is; Cards and Checks then open the next
@@ -104,7 +124,7 @@ flowchart TD
     A[Finish Action or answer scheduled Check] --> B[Validate ready Schedule]
     B --> C[Record completion against revision and period]
     C --> D{Another occurrence?}
-    D -->|No: one time, or total reached| E[Keep completed instance]
+    D -->|No: one time, total reached, or past the last day| E[Keep completed instance]
     D -->|Yes| F[Create one successor in the same transaction]
     F --> G{Action?}
     G -->|No| H[Check has no stage]
@@ -265,7 +285,7 @@ never moves the next fire. Deleting an item deletes its Reminder with it (`drop_
 ## Where it lives
 
 The `schedules` package owns the revisions, the period arithmetic in `rules.py`, the compiler,
-the Advisor read tool, Remind and one hook, `schedules.total` in `hooks.py`. Cards and Checks ask its `api.py` to change a
+the Advisor read tool, Remind and one hook, `schedules.end` in `hooks.py`. Cards and Checks ask its `api.py` to change a
 source or calculate an occurrence, and its `use_cases.py` to keep Remind in step. Their
 proposal handlers read a proposed text through `read_proposed_schedule` in its `agent.py`;
 their editors compile typed text, and draw the Remind screen, through its `telegram.py`.

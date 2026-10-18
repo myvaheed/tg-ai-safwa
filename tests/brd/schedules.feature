@@ -146,16 +146,16 @@ Feature: One plain-language Schedule for Actions and Checks
     And a total on a one-time Schedule goes back to the Scheduler's model to repair, and a Deadline has none
     And planning counts no more of the work than the total has left, and the plan's lifetime remainder is what the total has left
 
-  Scenario: SCH-TOTAL-022 — Safwa says when a Schedule has run its total
-    Given an Action or a Check whose Schedule has a total
+  Scenario: SCH-TOTAL-022 — Safwa says when a Schedule has run its total or reached its last day
+    Given an Action or a Check whose Schedule has a total, or a last day by SCH-END-025
     When its last instance is answered
-    Then Safwa is asked to tell the owner, naming it, that its Schedule ran all of its times and it no longer repeats, and to ask whether to start it again
+    Then Safwa is asked to tell the owner, naming it with its total or its last day, that its Schedule ran all of its times or reached its last day and it no longer repeats, and to ask whether to start it again
     And nothing is changed until the owner answers
     And the request tells Safwa to start it again by proposing its Schedule on that item
-    And switching Schedule total off in Profile → Hooks stops the request and drops what is pending
+    And switching Schedule end off in Profile → Hooks stops the request and drops what is pending
 
   Scenario: SCH-TOTAL-023 — A Schedule on the last instance of an ended series starts it again
-    Given an Action or a Check whose Schedule ran its total, so nothing in its series is open
+    Given an Action or a Check whose Schedule ran its total or reached its last day, so nothing in its series is open
     When a proposal to write a Schedule on its last instance is saved
     Then the next instance of the series opens with that Schedule, and every field written goes to it
     And its total counts from 0, even in the same words, as a new revision by SCH-COMPILE-004
@@ -166,7 +166,23 @@ Feature: One plain-language Schedule for Actions and Checks
     Given the model reads "every evening at 20:00" as once a day together with every weekday and 20:00
     Then the Scheduler reads it as every day at 20:00 without asking the model again
     And once a day, or a daily quota without a count, beside weekdays reads as those weekdays, and beside a clock alone as every day
+    And a weekly count beside as many weekdays, two or more, reads as those weekdays: "twice a week on Mon and Thu"
     And any other quota beside weekdays goes back to the model, even once a week beside one weekday
     And a count without a period that equals the total is the total alone, and any other count
       without a period goes back to the model, told that a total is limit
     And that repair names the forms: a quota without days or time, after completion, or timing without a quota
+
+  Scenario: SCH-END-025 — A repeating Schedule can end on a last day
+    Given the Schedule "every day at 21:00 for 30 days", "every Monday until 30 November" or "twice a day for a week" on an Action or a Check
+    Then the Scheduler reads the last day as a date, a weekday or how long, worked out in code by RM-END-036
+    And the screen shows it, "Every day at 21:00, until 15.11.2026."
+    And no instance opens for a slot after the last day, while an open instance stays open until it is answered
+    And planning counts no work after the last day
+    And a last day on a one-time Schedule, or one before its first time, goes back to the Scheduler's model to repair, and a Deadline has none
+
+  Scenario: SCH-START-026 — A quota can start on a later day
+    Given the Schedule "3 times a week from Monday for a month", read on Saturday 17.10.2026
+    Then the Scheduler reads it as 3 a week from Monday 19.10.2026 through 18.11.2026, and the screen shows "3 per week from 19.10.2026, until 18.11.2026."
+    And its first instance belongs to the week of 19.10.2026, and an answer given before that day counts in that week
+    And planning counts no work before that day
+    And a date beside repetition after completion goes back to the Scheduler's model to repair

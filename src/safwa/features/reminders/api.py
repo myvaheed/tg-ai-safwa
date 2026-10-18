@@ -10,8 +10,9 @@ weekdays are given and a start clock otherwise.
 
 from __future__ import annotations
 
+import calendar
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime, time, timedelta
 from datetime import date as date_type
 from typing import Any
@@ -27,6 +28,21 @@ REMINDER_MIN_INTERVAL_MINUTES = 5
 # always fires, however late.
 REMINDER_CATCHUP_GRACE_MINUTES = 120
 _WORKWEEK = ("Mon", "Tue", "Wed", "Thu", "Fri")
+BOUNDS_NEED_REPEAT = "A total or a last day needs a Schedule that repeats: drop limit and until"
+UNTIL_BEFORE_FIRST = "until is before the first time it runs: until is the last day, never the start"
+UNTIL_FORMS = "until is dd.mm.yyyy, a weekday such as Fri, or how long: 30 days, 2 weeks, 1 month, 1 year"
+UNTIL_DESCRIPTION = (
+    "The last day it runs on: dd.mm.yyyy or dd.mm, a weekday such as Fri, or how long from the "
+    "start, such as 30 days, 2 weeks, 1 month or 1 year. Only when the text says."
+)
+# The prompt lines both timing sessions read date and until by.
+BOUNDS_LINES = """date is the first day, until the last day: 'from 2 November' is date, 'until 30 November' or 'till Friday' is until.
+How long stays words, never a date you count, and counts from today without a date: 'for a month': until=1 month.
+'from next week': date=Mon. 'from next month': date is the 1st of next month."""
+_RELATIVE_DAYS = {"today": 0, "tomorrow": 1}
+# How long ``until`` may say, in days or in calendar months.
+_UNTIL_DAYS = {"day": 1, "week": 7}
+_UNTIL_MONTHS = {"month": 1, "year": 12}
 
 
 class ScheduleError(ValueError):
@@ -59,6 +75,9 @@ class Schedule:
     interval_minutes: int | None = None
     quiet_windows: tuple[tuple[time, time], ...] = ()
     condition: Condition | None = None
+    # The last local day it fires on, and how many times it fires in all; None runs on.
+    until: date_type | None = None
+    total: int | None = None
 
     @property
     def repeating(self) -> bool:
@@ -117,6 +136,8 @@ def resolve(
     interval_minutes: int | None = None,
     in_minutes: int | None = None,
     quiet_windows: Sequence[str] | None = None,
+    until: str | None = None,
+    limit: int | None = None,
     now: datetime,
     tz: ZoneInfo,
 ) -> Schedule:
@@ -124,13 +145,35 @@ def resolve(
 
     ``clock`` and ``day`` are the ``time`` and ``date`` tool parameters, renamed here only
     because both shadow a stdlib name. ``in_minutes`` is a moment counted from ``now`` here,
-    so the model never adds minutes to a clock.
+    so the model never adds minutes to a clock. ``until`` and ``limit`` end a repeat: on its
+    last day, and after that many fires.
     """
     weekdays = _normalize_weekdays(days)
     at_time = parse_clock(clock) if clock else None
-    on_date = _start_day(day, at_time, now, tz) if day else None
+    on_date = start_day(day, at_time, now, tz) if day else None
     windows = tuple(parse_window(item) for item in (quiet_windows or ()))
+    schedule = _timing(weekdays, at_time, on_date, interval_minutes, in_minutes, windows, now, tz)
+    if until is None and limit is None:
+        return schedule
+    if not schedule.repeating:
+        raise ScheduleError(BOUNDS_NEED_REPEAT)
+    last = parse_until(until, on_date or now.astimezone(tz).date()) if until else None
+    schedule = replace(schedule, until=last, total=limit)
+    if next_fire(schedule, previous=None, now=now, tz=tz) is None:
+        raise ScheduleError(UNTIL_BEFORE_FIRST)
+    return schedule
 
+
+def _timing(
+    weekdays: tuple[str, ...],
+    at_time: time | None,
+    on_date: date_type | None,
+    interval_minutes: int | None,
+    in_minutes: int | None,
+    windows: tuple[tuple[time, time], ...],
+    now: datetime,
+    tz: ZoneInfo,
+) -> Schedule:
     if in_minutes is not None:
         if weekdays or at_time or on_date or interval_minutes is not None or windows:
             raise ScheduleError(
@@ -206,17 +249,69 @@ def parse_phrase(raw: str, *, now: datetime, tz: ZoneInfo) -> Schedule:
     return resolve(days=days or None, clock=clock, day=day, now=now, tz=tz)
 
 
-def _start_day(raw: str, at_time: time | None, now: datetime, tz: ZoneInfo) -> date_type:
-    """A dd.mm.yyyy date, or a weekday name for the next such day whose clock is still ahead,
-    so the model never counts days to a weekday."""
-    name = {day.lower(): day for day in WEEKDAY_NAMES}.get(raw.strip().lower()[:3])
-    if name is None:
-        return parse_day(raw)
+def start_day(raw: str, at_time: time | None, now: datetime, tz: ZoneInfo) -> date_type:
+    """A dd.mm.yyyy date; today or tomorrow; dd.mm, or a weekday name, for the next such day
+    whose clock is still ahead, so the model never counts days or picks the year."""
     today = now.astimezone(tz).date()
-    candidate = today + timedelta(days=(WEEKDAY_NAMES.index(name) - today.weekday()) % 7)
+    if raw.strip().lower() in _RELATIVE_DAYS:
+        return today + timedelta(days=_RELATIVE_DAYS[raw.strip().lower()])
+    name = _weekday(raw)
+    if name is None and raw.strip().count(".") != 1:
+        return parse_day(raw)
+    candidate = _on_or_after(today, name) if name else _day_month(raw, today)
     if at_time is not None and _combine(candidate, at_time, tz) <= now:
-        candidate += timedelta(days=len(WEEKDAY_NAMES))
+        candidate = (
+            candidate + timedelta(days=len(WEEKDAY_NAMES))
+            if name
+            else candidate.replace(year=candidate.year + 1)
+        )
     return candidate
+
+
+def parse_until(raw: str, start: date_type) -> date_type:
+    """The last day, inclusive: dd.mm.yyyy, or dd.mm on or after the start; a weekday for the
+    next such day on or after it; or how long from it, so the model never counts days.
+
+    A month from 19.10 runs through 18.11, and one from 31.01 through 28.02: a day the month
+    lacks is the first of the next, less one.
+    """
+    text = raw.strip().lower()
+    name = _weekday(text)
+    if name is not None:
+        return _on_or_after(start, name)
+    amount, _, unit = text.partition(" ")
+    unit = unit.strip().removesuffix("s")
+    if amount.isdigit() and unit in _UNTIL_DAYS:
+        return start + timedelta(days=int(amount) * _UNTIL_DAYS[unit] - 1)
+    if amount.isdigit() and unit in _UNTIL_MONTHS:
+        return _months_after(start, int(amount) * _UNTIL_MONTHS[unit]) - timedelta(days=1)
+    try:
+        return _day_month(text, start) if text.count(".") == 1 else parse_day(text)
+    except ScheduleError as error:
+        raise ScheduleError(UNTIL_FORMS) from error
+
+
+def _day_month(raw: str, start: date_type) -> date_type:
+    """dd.mm on or after the start."""
+    day = parse_day(f"{raw.strip()}.{start.year}")
+    return day if day >= start else day.replace(year=day.year + 1)
+
+
+def _weekday(raw: str) -> str | None:
+    return {day.lower(): day for day in WEEKDAY_NAMES}.get(raw.strip().lower()[:3])
+
+
+def _on_or_after(day: date_type, name: str) -> date_type:
+    return day + timedelta(days=(WEEKDAY_NAMES.index(name) - day.weekday()) % 7)
+
+
+def _months_after(day: date_type, months: int) -> date_type:
+    year, month = divmod(day.month - 1 + months, 12)
+    year, month = day.year + year, month + 1
+    length = calendar.monthrange(year, month)[1]
+    if day.day > length:
+        return date_type(year, month, length) + timedelta(days=1)
+    return day.replace(year=year, month=month)
 
 
 def _reject_all_day_windows(windows: tuple[tuple[time, time], ...]) -> None:
@@ -243,8 +338,9 @@ def next_fire(
 ) -> datetime | None:
     """The first fire strictly after ``previous``, or the first fire ever when it is None.
 
-    Returns None when a one-shot has already fired — the caller deletes the row — and for a
-    condition, which an answer fires rather than the clock.
+    Returns None when a one-shot has already fired — the caller deletes the row — once the
+    next fire falls after the last day, and for a condition, which an answer fires rather
+    than the clock.
     """
     if schedule.kind is ScheduleKind.CONDITION:
         return None
@@ -256,18 +352,21 @@ def next_fire(
             candidate = schedule.anchor_at or now
         else:
             candidate = previous + timedelta(minutes=schedule.interval_minutes or 0)
-        return _clear_quiet_windows(candidate, schedule.quiet_windows, tz)
+        return _by_last_day(schedule, _clear_quiet_windows(candidate, schedule.quiet_windows, tz), tz)
 
     if previous is not None:
-        return _next_wall_clock(schedule, previous, inclusive=False, tz=tz)
-    floor = max(schedule.anchor_at, now) if schedule.anchor_at else now
-    return _next_wall_clock(schedule, floor, inclusive=True, tz=tz)
+        candidate = _next_wall_clock(schedule, previous, inclusive=False, tz=tz)
+    else:
+        floor = max(schedule.anchor_at, now) if schedule.anchor_at else now
+        candidate = _next_wall_clock(schedule, floor, inclusive=True, tz=tz)
+    return _by_last_day(schedule, candidate, tz)
 
 
 def roll_forward(
     schedule: Schedule, *, previous: datetime, now: datetime, tz: ZoneInfo
-) -> datetime:
-    """Skip every occurrence missed while the bot was down and land on the next one.
+) -> datetime | None:
+    """Skip every occurrence missed while the bot was down and land on the next one, or None
+    once that falls after the last day.
 
     Computed rather than iterated: a five-minute interval offline for a week would be two
     thousand steps.  A one-shot is returned untouched — it always fires, however late.
@@ -280,9 +379,17 @@ def roll_forward(
         candidate = previous
         if candidate <= now and step:
             candidate += ((now - candidate) // step + 1) * step
-        return _clear_quiet_windows(candidate, schedule.quiet_windows, tz)
+        return _by_last_day(schedule, _clear_quiet_windows(candidate, schedule.quiet_windows, tz), tz)
 
-    return _next_wall_clock(schedule, max(previous, now), inclusive=False, tz=tz)
+    return _by_last_day(
+        schedule, _next_wall_clock(schedule, max(previous, now), inclusive=False, tz=tz), tz
+    )
+
+
+def _by_last_day(schedule: Schedule, moment: datetime, tz: ZoneInfo) -> datetime | None:
+    if schedule.until is not None and moment.astimezone(tz).date() > schedule.until:
+        return None
+    return moment
 
 
 def on_wall_clock(schedule: Schedule, moment: datetime, tz: ZoneInfo) -> bool:
@@ -377,6 +484,8 @@ def schedule_columns(schedule: Schedule) -> dict[str, Any]:
         "interval_minutes": schedule.interval_minutes,
         "quiet_windows": [f"{start:%H:%M}-{end:%H:%M}" for start, end in schedule.quiet_windows],
         "condition": _condition_payload(schedule.condition),
+        "until": schedule.until,
+        "total": schedule.total,
     }
 
 
@@ -398,6 +507,8 @@ def schedule_of(reminder: Any) -> Schedule:
         interval_minutes=reminder.interval_minutes,
         quiet_windows=tuple(parse_window(item) for item in (reminder.quiet_windows or ())),
         condition=_condition_of(reminder.condition),
+        until=reminder.until,
+        total=reminder.total,
     )
 
 
@@ -415,12 +526,15 @@ def schedule_payload(schedule: Schedule) -> dict[str, Any]:
         "interval_minutes": schedule.interval_minutes,
         "quiet_windows": [f"{start:%H:%M}-{end:%H:%M}" for start, end in schedule.quiet_windows],
         "condition": _condition_payload(schedule.condition),
+        "until": schedule.until.isoformat() if schedule.until else None,
+        "total": schedule.total,
     }
 
 
 def schedule_from_payload(payload: dict[str, Any]) -> Schedule:
     anchor = payload.get("anchor_at")
     at_time = payload.get("at_time")
+    until = payload.get("until")
     return Schedule(
         kind=ScheduleKind(payload["schedule_kind"]),
         weekdays=tuple(payload.get("weekdays") or ()),
@@ -429,6 +543,8 @@ def schedule_from_payload(payload: dict[str, Any]) -> Schedule:
         interval_minutes=payload.get("interval_minutes"),
         quiet_windows=tuple(parse_window(item) for item in (payload.get("quiet_windows") or ())),
         condition=_condition_of(payload.get("condition")),
+        until=date_type.fromisoformat(until) if until else None,
+        total=payload.get("total"),
     )
 
 
@@ -455,14 +571,14 @@ def describe(schedule: Schedule, *, tz: ZoneInfo, now: datetime | None = None) -
                 f"{start:%H:%M}–{end:%H:%M}" for start, end in schedule.quiet_windows
             )
             text += f" except {windows}"
-        return text + _start_suffix(schedule, tz, now)
-
-    clock = f"{schedule.at_time:%H:%M}" if schedule.at_time else "?"
-    if schedule.kind is ScheduleKind.DAILY:
-        return f"every day at {clock}" + _start_suffix(schedule, tz, now)
-    return f"every {_humanize_weekdays(schedule.weekdays)} at {clock}" + _start_suffix(
-        schedule, tz, now
-    )
+    else:
+        clock = f"{schedule.at_time:%H:%M}" if schedule.at_time else "?"
+        days = "day" if schedule.kind is ScheduleKind.DAILY else _humanize_weekdays(schedule.weekdays)
+        text = f"every {days} at {clock}"
+    text += _start_suffix(schedule, tz, now)
+    if schedule.until is not None:
+        text += f", until {schedule.until:%d.%m.%Y}"
+    return text + (f", {schedule.total} times" if schedule.total else "")
 
 
 # One answer and many, as a condition is worded: "each answer of", "every 30 answers of".

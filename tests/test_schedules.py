@@ -534,6 +534,7 @@ EVERY_DAY = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         ({"period": "day", "count": 1, "time": "20:00"}, EVERY_DAY, False),
         ({"period": "day", "days": ["Mon", "Wed"], "time": "09:00"}, ["Mon", "Wed"], False),
         ({"period": "day", "count": 1, "days": ["Mon", "Wed"]}, ["Mon", "Wed"], True),
+        ({"period": "week", "count": 2, "days": ["Mon", "Thu"]}, ["Mon", "Thu"], True),
     ],
 )
 async def test_once_a_day_beside_weekdays_or_a_clock_is_read_as_the_days(config, weekdays, all_day):
@@ -551,6 +552,7 @@ async def test_once_a_day_beside_weekdays_or_a_clock_is_read_as_the_days(config,
     "config",
     [
         {"period": "week", "count": 1, "days": ["Mon"]},
+        {"period": "week", "count": 3, "days": ["Mon", "Thu"]},
         {"period": "day", "count": 5, "days": ["Mon"]},
     ],
 )
@@ -698,7 +700,7 @@ async def test_an_unclear_proposed_schedule_is_asked_in_the_same_reply(sessions)
     from sqlalchemy import func, select
 
     from safwa.bootstrap.modules import HOOKS, PROPOSALS
-    from safwa.features.schedules.api import SCHEDULE_TOTAL_REACHED
+    from safwa.features.schedules.api import SCHEDULE_ENDED
     from tg_agent_shell.hooks.contracts import OnCommitted
     from tg_agent_shell.proposals.api import ToolPreparationError
     from tg_agent_shell.proposals.prepare import ChangePreparer
@@ -714,9 +716,9 @@ async def test_an_unclear_proposed_schedule_is_asked_in_the_same_reply(sessions)
         assert (result["code"], result["error"]) == ("schedule_unclear", "When does it happen?")
         assert result["hint"].startswith("Ask the user this exact question")
         assert await session.scalar(select(func.count(Card.id))) == 0
-    # No later message asks it again: the one Schedules hook follows a total, never a question.
+    # No later message asks it again: the one Schedules hook follows an end, never a question.
     assert [hook.on for hook in HOOKS if hook.owner == "schedules"] == [
-        (OnCommitted(kind=SCHEDULE_TOTAL_REACHED),)
+        (OnCommitted(kind=SCHEDULE_ENDED),)
     ]
 
 

@@ -27,7 +27,9 @@ from .model import ScheduleDefinition
 from .rules import (
     deadline_moment,
     first_slot,
+    from_start,
     next_slot,
+    past_until,
     period_end,
     period_start,
     repeats,
@@ -42,8 +44,9 @@ SCHEDULED_RANGE_DAYS_MAX = 93
 ACTION_DAILY_EXECUTIONS_MAX = 5
 # The words of the Reminder that Remind makes; the Cue adds the Schedule it fires on.
 REMIND_TEXT = "Remind is on for {label} #{id} «{title}». Remind the owner about it."
-# The change a hook follows up on: an item's Schedule ran its total, so no next instance opened.
-SCHEDULE_TOTAL_REACHED = "schedule.total_reached"
+# The change a hook follows up on: an item's Schedule ran its total or reached its last day, so
+# no next instance opened. Its data names which: "total" or "last_day".
+SCHEDULE_ENDED = "schedule.ended"
 
 type ScheduleTarget = Literal["action", "check", "deadline"]
 
@@ -169,24 +172,29 @@ async def _answered_count(session: AsyncSession, entity: Card | Check, *where: A
 async def successor_slot(
     session: AsyncSession, entity: Card | Check
 ) -> tuple[bool, datetime | None]:
-    """Whether a next instance opens, and its slot. One that ran its total opens none."""
+    """Whether a next instance opens, and its slot. One that ran its total, or whose next slot
+    falls after the last day, opens none."""
     definition = entity.schedule_record
     if definition is None or not definition.rule:
         return False, None
     await session.flush()
-    limit = definition.rule.get("limit")
+    rule, tz, now = definition.rule, await workspace_zone(session), utcnow()
+    limit = rule.get("limit")
     if limit is not None and await total_count(session, entity) >= limit:
-        record_change(
-            session, SCHEDULE_TOTAL_REACHED, entity.id, data={"type": item_type(type(entity))}
-        )
-        return False, None
-    return next_slot(
-        definition.rule,
-        entity.period_start,
-        utcnow(),
-        await occurrence_count(session, entity),
-        await workspace_zone(session),
+        return _ended(session, entity, "total")
+    opens, slot = next_slot(
+        rule, entity.period_start, now, await occurrence_count(session, entity), tz
     )
+    if opens and past_until(rule, slot or now, tz):
+        return _ended(session, entity, "last_day")
+    return opens, slot
+
+
+def _ended(session: AsyncSession, entity: Card | Check, reason: str) -> tuple[bool, None]:
+    record_change(
+        session, SCHEDULE_ENDED, entity.id, data={"type": item_type(type(entity)), "reason": reason}
+    )
+    return False, None
 
 
 async def restart_slot(
@@ -216,11 +224,13 @@ async def restart_slot(
 
 
 async def prepare_occurrence(session: AsyncSession, entity: Card | Check) -> None:
-    """A quota fact belongs to the period it happens in."""
+    """A quota fact belongs to the period it happens in, or the first one when it happens
+    before the quota's first day."""
     definition = entity.schedule_record
     if definition and definition.rule["kind"] == "quota":
+        tz = await workspace_zone(session)
         entity.period_start = period_start(
-            utcnow(), definition.rule["period"], await workspace_zone(session)
+            from_start(definition.rule, utcnow(), tz), definition.rule["period"], tz
         )
 
 
@@ -271,6 +281,8 @@ async def schedule_summary(session: AsyncSession, entity: Card | Check) -> str |
             f"{await occurrence_count(session, entity)}/{rule['count']} {label} "
             f"for the {rule['period']} from {start:%d.%m.%Y}."
         )
+        if rule.get("until"):
+            summary += f" Last day {date.fromisoformat(rule['until']):%d.%m.%Y}."
     elif rule["kind"] != "fixed":
         summary = rule_summary(rule, tz)
     else:
@@ -326,8 +338,14 @@ def appointment_label(
 
 def rule_summary(rule: dict[str, Any], tz: ZoneInfo) -> str:
     """A compiled rule in words."""
-    words = _rule_words(rule, tz)
+    words = _rule_words(rule, tz) + _bounds_words(rule)
     return f"{words}, {rule['limit']} times in total." if rule.get("limit") else f"{words}."
+
+
+def _bounds_words(rule: dict[str, Any]) -> str:
+    """A quota's first day and the last day, as the screens say them."""
+    words = f" from {date.fromisoformat(rule['start']):%d.%m.%Y}" if rule.get("start") else ""
+    return words + (f", until {date.fromisoformat(rule['until']):%d.%m.%Y}" if rule.get("until") else "")
 
 
 def _rule_words(rule: dict[str, Any], tz: ZoneInfo) -> str:

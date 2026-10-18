@@ -46,6 +46,8 @@ logger = logging.getLogger(__name__)
 # How many due Reminders one Cue may carry.  Everything the tick found goes over
 # in a single advisor turn; the rest stay overdue and the next tick takes them.
 REMINDER_FIRE_BATCH = 3
+# What the Cue says of a repeat's last fire, so Safwa can tell the owner it ends.
+LAST_FIRE = "This is its last time."
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +58,8 @@ class Firing:
     instruction: str
     schedule: str
     due_at: datetime
+    # The last fire of a repeat that ends; once written down the Reminder deletes itself.
+    last: bool = False
 
 
 async def due_reminders(
@@ -90,14 +94,17 @@ async def prepare(
     now: datetime,
     tz: ZoneInfo,
 ) -> list[Firing]:
-    """Resolve each due Reminder into a Firing, rolling stale repeats forward instead."""
+    """Resolve each due Reminder into a Firing, rolling stale repeats forward instead; one
+    that rolls past its last day is deleted."""
     firings: list[Firing] = []
     for reminder in reminders:
         schedule = schedule_of(reminder)
         if is_stale(reminder, now=now):
-            reminder.next_fire_at = roll_forward(
-                schedule, previous=reminder.next_fire_at, now=now, tz=tz
-            )
+            following = roll_forward(schedule, previous=reminder.next_fire_at, now=now, tz=tz)
+            if following is None:
+                await session.delete(reminder)
+            else:
+                reminder.next_fire_at = following
             continue
         firings.append(
             Firing(
@@ -105,6 +112,8 @@ async def prepare(
                 instruction=reminder.instruction,
                 schedule=describe(schedule, tz=tz, now=now),
                 due_at=reminder.next_fire_at,
+                last=(schedule.total is not None and reminder.fired + 1 >= schedule.total)
+                or roll_forward(schedule, previous=reminder.next_fire_at, now=now, tz=tz) is None,
             )
         )
     return firings
@@ -113,7 +122,8 @@ async def prepare(
 async def settle(
     session: AsyncSession, firings: list[Firing], *, now: datetime, tz: ZoneInfo
 ) -> None:
-    """Move on the rows whose words were just written down.
+    """Move on the rows whose words were just written down, and delete a one-shot and the
+    last fire of a repeat that ends.
 
     A repeat advances from its *scheduled* moment rather than the moment it was written, so
     a tick that ran late does not push every later fire late with it.
@@ -123,9 +133,10 @@ async def settle(
         if reminder is None:
             continue
         schedule = schedule_of(reminder)
-        if not schedule.repeating:
+        if firing.last or not schedule.repeating:
             await session.delete(reminder)
             continue
+        reminder.fired += 1
         reminder.next_fire_at = roll_forward(schedule, previous=firing.due_at, now=now, tz=tz)
 
 
@@ -214,6 +225,8 @@ def format_cue(firings: list[Firing], *, now: datetime) -> str:
         lateness = _lateness(firing, now=now)
         if lateness:
             blocks.append(f"   {lateness}")
+        if firing.last:
+            blocks.append(f"   {LAST_FIRE}")
         blocks.append("")
     return "\n".join(blocks).strip()
 

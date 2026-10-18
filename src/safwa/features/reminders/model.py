@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime, time
+from datetime import date, datetime, time
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import JSON, Index, Integer, String, Text, Time
+from sqlalchemy import JSON, Date, Index, Integer, String, Text, Time
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...foundation.models import Base, TimestampMixin, UtcDateTime
@@ -42,6 +42,9 @@ class Reminder(Base, TimestampMixin):
     A Reminder on answers has no `next_fire_at`: `condition` holds the items, the SELECT of
     their ids, the answer, the count and whether in a row, and `reminders.condition` writes
     its Cue when an answer makes that count.
+
+    A repeat may end: `until` is the last local day it fires on and `total` how many times it
+    fires in all, counted in `fired`. After its last fire it deletes itself, as a one-shot does.
     """
 
     __tablename__ = "reminders"
@@ -57,6 +60,9 @@ class Reminder(Base, TimestampMixin):
     quiet_windows: Mapped[list[str]] = mapped_column(JSON, default=list)
 
     condition: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    until: Mapped[date | None] = mapped_column(Date)
+    total: Mapped[int | None] = mapped_column(Integer)
+    fired: Mapped[int] = mapped_column(Integer, default=0)
 
     next_fire_at: Mapped[datetime | None] = mapped_column(UtcDateTime, index=True)
     item_type: Mapped[str | None] = mapped_column(String(10))

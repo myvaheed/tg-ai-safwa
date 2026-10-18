@@ -30,9 +30,21 @@ def deadline_moment(rule: dict[str, Any], tz: ZoneInfo) -> datetime:
     return datetime.combine(date.fromisoformat(rule["date"]), clock, tzinfo=tz).astimezone(UTC)
 
 
+def from_start(rule: dict[str, Any], at: datetime, tz: ZoneInfo) -> datetime:
+    """The moment, or the quota's first day when that is later."""
+    if "start" not in rule:
+        return at
+    return max(at, _midnight(date.fromisoformat(rule["start"]), tz))
+
+
+def past_until(rule: dict[str, Any], at: datetime, tz: ZoneInfo) -> bool:
+    """Whether a slot falls after the Schedule's last day."""
+    return "until" in rule and at.astimezone(tz).date() > date.fromisoformat(rule["until"])
+
+
 def first_slot(rule: dict[str, Any], at: datetime, tz: ZoneInfo) -> datetime | None:
     if rule["kind"] == "quota":
-        return period_start(at, rule["period"], tz)
+        return period_start(from_start(rule, at, tz), rule["period"], tz)
     if rule["kind"] == "after_completion":
         return None
     if rule["kind"] == "deadline":
@@ -59,7 +71,7 @@ def next_slot(
     if rule["kind"] == "after_completion":
         return True, None
     if rule["kind"] == "quota":
-        current = period_start(now, rule["period"], tz)
+        current = period_start(from_start(rule, now, tz), rule["period"], tz)
         start = max(previous or current, current)
         if previous == start and completed >= rule["count"]:
             start = period_end(start, rule["period"], tz)
@@ -76,9 +88,15 @@ def windows(
 ) -> list[tuple[datetime, datetime, int]]:
     """Periods intersecting [start, end), each with the executions planned inside.
 
-    A quota period covered only partly gets its share by local days covered, rounded.
+    A quota period covered only partly gets its share by local days covered, rounded. Nothing
+    is planned before a quota's first day or after the last day.
     """
     if rule["kind"] == "after_completion":
+        return []
+    start = from_start(rule, start, tz)
+    if "until" in rule:
+        end = min(end, _midnight(date.fromisoformat(rule["until"]) + timedelta(days=1), tz))
+    if start >= end:
         return []
     result = []
     if rule["kind"] == "quota":
@@ -117,3 +135,7 @@ def daily_executions(rule: dict[str, Any]) -> float:
 
 def _period_days(period: str) -> int:
     return 7 if period == "week" else 1
+
+
+def _midnight(day: date, tz: ZoneInfo) -> datetime:
+    return datetime.combine(day, time(), tzinfo=tz).astimezone(UTC)
