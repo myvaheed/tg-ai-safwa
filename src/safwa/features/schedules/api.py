@@ -17,11 +17,10 @@ from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 
-from ...constants import WEEKDAY_NAMES
 from ...foundation.workspace import require_workspace
 from ..cards.model import Card, CardKind
 from ..checks.model import Check
-from ..reminders.api import Schedule, describe, schedule_from_payload
+from ..reminders.api import Schedule, describe, repeat_days, schedule_from_payload
 from ..reminders.model import Reminder, ScheduleKind
 from .model import ScheduleDefinition
 from .rules import (
@@ -262,8 +261,8 @@ async def scheduled_stage(
     tz = await workspace_zone(session)
     day = slot.astimezone(tz).date()
     rule = card.schedule_record.rule
-    weekly = rule["kind"] == "quota" and rule["period"] == "week"
-    if not weekly and day <= utcnow().astimezone(tz).date():
+    longer = rule["kind"] == "quota" and rule["period"] != "day"
+    if not longer and day <= utcnow().astimezone(tz).date():
         return "today"
     return "sprint" if end is None or day <= end else "backlog"
 
@@ -357,11 +356,15 @@ def _rule_words(rule: dict[str, Any], tz: ZoneInfo) -> str:
         return f"{rule['count']} per {rule['period']}"
     timing = schedule_from_payload(rule["timing"])
     if not rule.get("all_day"):
-        return describe(timing, tz=tz).capitalize()
+        return _first_upper(describe(timing, tz=tz))
     if not timing.repeating:
         return f"On {timing.anchor_at.astimezone(tz):%a %d.%m.%Y}, any time that day"
-    days = "day" if len(timing.weekdays) == len(WEEKDAY_NAMES) else ", ".join(timing.weekdays)
-    return f"Every {days}, any time that day"
+    return _first_upper(f"{repeat_days(timing)}, any time that day")
+
+
+def _first_upper(text: str) -> str:
+    # str.capitalize would lower the weekdays: "Every mon".
+    return text[:1].upper() + text[1:]
 
 
 async def planned_executions(

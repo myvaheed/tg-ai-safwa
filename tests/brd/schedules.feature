@@ -10,6 +10,7 @@ Feature: One plain-language Schedule for Actions and Checks
     Given a Check scheduled three times a week without a clock
     When the Advisor queries Wednesday through Sunday of one week, and then Monday and Tuesday of it
     Then 2 answers are planned for the five days and 1 for the two: the quota times the days covered, divided by 7, rounded
+    And a month covered in part plans its share by the days of that month: 3 a month over 10 of November's 30 days plans 1
     And no appointment time is invented
 
   Scenario: SCH-CHECK-003 — A scheduled Check is an observation series
@@ -77,7 +78,7 @@ Feature: One plain-language Schedule for Actions and Checks
     Given an Action with a compiled Schedule is finished and its next copy opens
     When a Sprint is running
     Then a copy due today opens in Today, and one due later by the Sprint's planned last day opens in Sprint
-    And a weekly quota's copy opens in Sprint while its week starts by the Sprint's last day
+    And a weekly or monthly quota's copy opens in Sprint while its week or month starts by the Sprint's last day
     And a copy due after the Sprint's last day opens in Backlog
     And an after-completion copy keeps Today or Sprint, and one from Backlog opens in Sprint
     When no Sprint is running
@@ -92,7 +93,8 @@ Feature: One plain-language Schedule for Actions and Checks
   Scenario: SCH-LIMIT-015 — An Action repeats at most five times a day
     Given a Schedule on an Action that plans more than 5 executions a day (ACTION_DAILY_EXECUTIONS_MAX = 5)
     Then the Scheduler asks whether to make it a Check instead or choose fewer, rather than saving it
-    And a daily quota of 6, a weekly quota of 36 and an interval under 288 minutes are each asked about
+    And a daily quota of 6, a weekly quota of 36, a monthly quota of 151, a month counted as 30 days,
+      and an interval under 288 minutes are each asked about
     And a Check with the same Schedule is saved
 
   Scenario: SCH-EDITOR-016 — A Schedule typed into an editor is read before it is saved
@@ -167,7 +169,9 @@ Feature: One plain-language Schedule for Actions and Checks
     Then the Scheduler reads it as every day at 20:00 without asking the model again
     And once a day, or a daily quota without a count, beside weekdays reads as those weekdays, and beside a clock alone as every day
     And a weekly count beside as many weekdays, two or more, reads as those weekdays: "twice a week on Mon and Thu"
-    And any other quota beside weekdays goes back to the model, even once a week beside one weekday
+    And a monthly count beside as many days of the month, two or more, reads as those days: "twice a month on the 1st and 15th"
+    And any other quota beside weekdays or days of the month goes back to the model, even once a week beside
+      one weekday or once a month beside one day of the month
     And a count without a period that equals the total is the total alone, and any other count
       without a period goes back to the model, told that a total is limit
     And that repair names the forms: a quota without days or time, after completion, or timing without a quota
@@ -186,3 +190,11 @@ Feature: One plain-language Schedule for Actions and Checks
     And its first instance belongs to the week of 19.10.2026, and an answer given before that day counts in that week
     And planning counts no work before that day
     And a date beside repetition after completion goes back to the Scheduler's model to repair
+
+  Scenario: SCH-MONTH-027 — A Schedule can repeat on days of the month or by a monthly quota
+    Given the Schedule "on the 1st and 15th of each month", "on the last day of each month at 18:00" or "three times a month" on an Action or a Check
+    Then the Scheduler reads days of the month as numbers, worked out in code by RM-MONTH-037
+    And days of the month without a clock are an appointment for that whole day by SCH-DAY-018, and the screen shows "On the 1st and 15th of each month, any time that day."
+    And a monthly quota's period is the local calendar month, from its 1st to the 1st of the next, and the screen shows "0/3 answered for the month from 01.11.2026."
+    And a month left short opens the next one with its whole quota, and nothing carries over
+    And Remind on days of the month with a clock makes a Reminder on those days by SCH-REMIND-019

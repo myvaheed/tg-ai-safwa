@@ -19,6 +19,8 @@ class ScheduleKind(StrEnum):
     INTERVAL = "interval"
     DAILY = "daily"
     WEEKLY = "weekly"
+    # On days of the month; 31 is the last day of every month.
+    MONTHLY = "monthly"
     # On answers of Checks or Actions, never by the clock.
     CONDITION = "condition"
 
@@ -53,6 +55,7 @@ class Reminder(Base, TimestampMixin):
 
     schedule_kind: Mapped[str] = mapped_column(String(20))
     weekdays: Mapped[list[str]] = mapped_column(JSON, default=list)
+    month_days: Mapped[list[int]] = mapped_column(JSON, default=list)
     at_time: Mapped[time | None] = mapped_column(Time)
     # UTC.  The one-shot moment, or the moment a recurrence starts; a floor, never a rhythm.
     anchor_at: Mapped[datetime | None] = mapped_column(UtcDateTime)

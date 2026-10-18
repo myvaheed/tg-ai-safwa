@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from zoneinfo import ZoneInfo
 
 from pydantic import Field, PositiveInt, PrivateAttr, ValidationError, model_validator
@@ -31,6 +31,8 @@ from ...constants import WEEKDAY_NAMES
 from ..reminders.api import (
     BOUNDS_LINES,
     BOUNDS_NEED_REPEAT,
+    LAST_MONTH_DAY,
+    MONTH_DAYS_DESCRIPTION,
     UNTIL_BEFORE_FIRST,
     UNTIL_DESCRIPTION,
     Schedule,
@@ -61,19 +63,23 @@ SCHEDULE_QUESTION_HINT = (
 )
 SCHEDULE_FORMS_ERROR = (
     "Give one form: period and count, with date for its first day, without days or time; "
-    "after_completion; or days, time, date, interval_minutes or in_minutes without period."
+    "after_completion; or days, month_days, time, date, interval_minutes or in_minutes "
+    "without period."
 )
 
 
 class ScheduleConfig(ToolInput):
-    period: Literal["day", "week"] | None = None
+    period: Literal["day", "week", "month"] | None = None
     count: PositiveInt | None = None
     after_completion: bool = False
     days: list[Literal["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]] | None = Field(
         default=None, description="Weekdays it repeats on."
     )
+    month_days: list[Annotated[int, Field(ge=1, le=LAST_MONTH_DAY)]] | None = Field(
+        default=None, description=MONTH_DAYS_DESCRIPTION
+    )
     time: str | None = Field(
-        default=None, description="Local HH:MM. Only with days, date or interval_minutes."
+        default=None, description="Local HH:MM. Only with days, month_days, date or interval_minutes."
     )
     date: str | None = Field(
         default=None,
@@ -108,18 +114,21 @@ class ScheduleConfig(ToolInput):
             # "Twice a week on Mon and Thu": as many named days as the count are those days. Once
             # a week beside one day is not: the day may be one the model made up.
             self.period = self.count = None
+        if self.period == "month" and self.month_days and self.count == len(self.month_days) > 1:
+            # The same for days of the month: "twice a month, on the 1st and 15th".
+            self.period = self.count = None
         if self.period is None and self.count is not None and self.count == self.limit:
             # "10 times" read as a count and as the total: without a period it is the total.
             self.count = None
         # Beside a period, date is the first day of the quota.
-        fixed = any((self.days, self.time, self.interval_minutes, self.in_minutes)) or bool(
-            self.date and self.period is None
-        )
+        fixed = any(
+            (self.days, self.month_days, self.time, self.interval_minutes, self.in_minutes)
+        ) or bool(self.date and self.period is None)
         if sum((self.period is not None, self.after_completion, fixed)) != 1:
             raise ValueError(SCHEDULE_FORMS_ERROR)
         if (self.count is not None) != (self.period is not None):
             raise ValueError("A quota needs period and count together; a total is limit")
-        if self.time and not (self.days or self.date or self.interval_minutes):
+        if self.time and not (self.days or self.month_days or self.date or self.interval_minutes):
             raise ValueError(
                 "A time alone does not say which days: add days to repeat it, or date for one time"
             )
@@ -141,12 +150,14 @@ class DeadlineConfig(ToolInput):
 SCHEDULE_PARSER_PROMPT = f"""Read one Schedule. End with set_schedule_config. Use not_clear_enough only when the text names no timing at all.
 'five times a day': period=day, count=5.
 'once a week': period=week, count=1, no days. Weeks start on Monday.
+'three times a month': period=month, count=3, no month_days.
 'three times a week on Mon, Wed and Fri': days=[Mon, Wed, Fri], no period.
 'every day', 'daily', 'every evening', 'every morning': period=day, count=1.
 A clock or named weekdays mean days, never period.
 'every day at 20:00', 'every evening at 20:00': days=[Mon, Tue, Wed, Thu, Fri, Sat, Sun], time=20:00.
 'every Monday and Wednesday at 9': days=[Mon, Wed], time=09:00.
 'every Monday', 'Monday evenings': days=[Mon], no time.
+'on the 10th of each month': month_days=[10], no period. 'on the last day of each month': month_days=[31].
 'on 20 October': date=20.10, no time. 'tomorrow': date=tomorrow, no time.
 'on 20 October at 15:00', 'next Tuesday at 15:00': date and time.
 A weekday without every is one date: 'on Thursday at 10': date=Thu, time=10:00.
@@ -206,6 +217,7 @@ class ScheduleCompiler:
                     self._all_day = not (self.time or self.interval_minutes or self.in_minutes)
                     self._timing = resolve(
                         days=self.days,
+                        month_days=self.month_days,
                         clock=f"{END_OF_DAY:%H:%M}" if self._all_day else self.time,
                         day=self.date,
                         interval_minutes=self.interval_minutes,

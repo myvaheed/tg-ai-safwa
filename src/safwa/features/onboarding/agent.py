@@ -71,7 +71,7 @@ MANUAL = f"""# Safwa
 - Energy says what an Action costs: {_ENERGY}.
 - An Action may carry several Categories and several Energy types. Their selectors show these words on each button.
 - After an Action is created, by hand or by a saved proposal, Safwa silently checks that it is one concrete step that fits in one day and moves its Goals forward, and that its Categories, Energy types and, with EP on, Effort Points fit it. EP are compared with similar Actions, finished ones first. What the user named in the last messages is left alone. If something clearly does not fit, the Advisor says the Action could be improved, suggests the change with its reason, and asks. It may suggest a Goal instead. An Action tagged "{INBOX_TAG_NAME}" is not checked. Action review in Profile → Hooks switches this off or on.
-- Schedule holds an Action's timing in plain words: every evening, every Monday, five times a day, Tuesday at 15:00. No clock is needed: a day without one is due by its end. Calendar weeks start Monday in the workspace timezone.
+- Schedule holds an Action's timing in plain words: every evening, every Monday, five times a day, Tuesday at 15:00, on the 1st and 15th of each month, three times a month. No clock is needed: a day without one is due by its end. Calendar weeks start Monday and months on the 1st, in the workspace timezone; the 31st is the last day of every month. What a week or a month leaves undone does not carry over.
 - A Schedule is read before it is saved. Typed into "⏱ Schedule", the Card shows how it was understood, and a missing detail is asked on the same screen. Proposed in words, the review screen shows how it was understood, and the Advisor asks for a missing detail in the same reply.
 - An Action repeats at most {ACTION_DAILY_EXECUTIONS_MAX} times a day; more often is a Check.
 - A Goal or a Subgoal has "⏰ Deadline" instead: one date, with a time if it matters. It never repeats and blocks nothing. A Card with a Deadline comes first in lists, the sooner one first.
@@ -166,6 +166,7 @@ MANUAL = f"""# Safwa
 # Reminders
 - A Reminder is words and when they come due: a time, or a count of answers of Checks or Actions. When it fires, its words come to the Advisor as a request, and the Advisor answers them.
 - In words only: create one, or change when it fires. Say the time in plain words, such as "every weekday at 8:00", or the answers, such as "every 3 Missed in a row of Check #12", "every 30 answers of Check #12" or "every 10 Done of Actions tagged sport". "🔔 Remind" on a Schedule also makes one.
+- A Reminder may fire on days of the month: "on the 1st and 15th of each month at 9", "on the last day of each month at 18:00".
 - A repeating Reminder may end: "every day at 9 until 30 November", "every 2 hours for a week", "every weekday at 8, 10 times". Its last firing says so, and then it deletes itself. Its screen counts the times fired.
 - A Reminder on answers fires at every multiple of its count: 3, 6, 9. A corrected answer fires nothing. Its words select the items again at every answer, so items made later count too, and deleting them leaves the Reminder. Its screen shows what they find now.
 - With buttons: "⏰ Reminders" or /reminders: "✏️ Text" to change the words, "🗑 Delete".

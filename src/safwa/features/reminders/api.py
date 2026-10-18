@@ -5,7 +5,7 @@ Telegram, so every branch is unit-testable without a database.
 
 Two rules decide what ``date`` and ``time`` mean, and everything else follows from them:
 ``date`` is always a *start* date, never a fire clock; ``time`` is the fire clock when
-weekdays are given and a start clock otherwise.
+weekdays or days of the month are given and a start clock otherwise.
 """
 
 from __future__ import annotations
@@ -39,6 +39,11 @@ UNTIL_DESCRIPTION = (
 BOUNDS_LINES = """date is the first day, until the last day: 'from 2 November' is date, 'until 30 November' or 'till Friday' is until.
 How long stays words, never a date you count, and counts from today without a date: 'for a month': until=1 month.
 'from next week': date=Mon. 'from next month': date is the 1st of next month."""
+MONTH_DAYS_DESCRIPTION = "Days of the month it runs on, 1 to 31; 31 is the last day of every month."
+# A day of the month past the month's end is its last day.
+LAST_MONTH_DAY = 31
+# A day of the month comes round within 31 days, a weekday within 7.
+_LONGEST_GAP_DAYS = 31
 _RELATIVE_DAYS = {"today": 0, "tomorrow": 1}
 # How long ``until`` may say, in days or in calendar months.
 _UNTIL_DAYS = {"day": 1, "week": 7}
@@ -70,6 +75,7 @@ class Schedule:
 
     kind: ScheduleKind
     weekdays: tuple[str, ...] = ()
+    month_days: tuple[int, ...] = ()
     at_time: time | None = None
     anchor_at: datetime | None = None
     interval_minutes: int | None = None
@@ -131,6 +137,7 @@ def _normalize_weekdays(days: Sequence[str] | None) -> tuple[str, ...]:
 def resolve(
     *,
     days: Sequence[str] | None = None,
+    month_days: Sequence[int] | None = None,
     clock: str | None = None,
     day: str | None = None,
     interval_minutes: int | None = None,
@@ -152,7 +159,17 @@ def resolve(
     at_time = parse_clock(clock) if clock else None
     on_date = start_day(day, at_time, now, tz) if day else None
     windows = tuple(parse_window(item) for item in (quiet_windows or ()))
-    schedule = _timing(weekdays, at_time, on_date, interval_minutes, in_minutes, windows, now, tz)
+    schedule = _timing(
+        weekdays,
+        tuple(sorted(set(month_days or ()))),
+        at_time,
+        on_date,
+        interval_minutes,
+        in_minutes,
+        windows,
+        now,
+        tz,
+    )
     if until is None and limit is None:
         return schedule
     if not schedule.repeating:
@@ -166,6 +183,7 @@ def resolve(
 
 def _timing(
     weekdays: tuple[str, ...],
+    month_days: tuple[int, ...],
     at_time: time | None,
     on_date: date_type | None,
     interval_minutes: int | None,
@@ -175,9 +193,9 @@ def _timing(
     tz: ZoneInfo,
 ) -> Schedule:
     if in_minutes is not None:
-        if weekdays or at_time or on_date or interval_minutes is not None or windows:
+        if weekdays or month_days or at_time or on_date or interval_minutes is not None or windows:
             raise ScheduleError(
-                "in_minutes is one moment from now: give no days, time, date or interval"
+                "in_minutes is one moment from now: give no days, month_days, time, date or interval"
             )
         moment = (now + timedelta(minutes=in_minutes)).replace(second=0, microsecond=0)
         return Schedule(kind=ScheduleKind.ONCE, at_time=moment.astimezone(tz).time(), anchor_at=moment)
@@ -189,6 +207,10 @@ def _timing(
         raise ScheduleError(
             "Give either an interval or weekdays, not both — a Reminder repeats one way"
         )
+    if weekdays and month_days:
+        raise ScheduleError("Give days or month_days, not both")
+    if month_days and interval_minutes is not None:
+        raise ScheduleError("month_days fire at a time: give time instead of interval_minutes")
     if on_date is not None and at_time is None:
         raise ScheduleError("A date needs an hour: give time as HH:MM as well")
 
@@ -217,6 +239,13 @@ def _timing(
             raise ScheduleError("Weekdays need a time: give time as HH:MM")
         kind = ScheduleKind.DAILY if len(weekdays) == len(WEEKDAY_NAMES) else ScheduleKind.WEEKLY
         return Schedule(kind=kind, weekdays=weekdays, at_time=at_time, anchor_at=anchor)
+
+    if month_days:
+        if at_time is None:
+            raise ScheduleError("month_days need a time: give time as HH:MM")
+        return Schedule(
+            kind=ScheduleKind.MONTHLY, month_days=month_days, at_time=at_time, anchor_at=anchor
+        )
 
     if at_time is None:
         raise ScheduleError("Nothing to schedule: give a time, a date and time, or an interval")
@@ -393,33 +422,37 @@ def _by_last_day(schedule: Schedule, moment: datetime, tz: ZoneInfo) -> datetime
 
 
 def on_wall_clock(schedule: Schedule, moment: datetime, tz: ZoneInfo) -> bool:
-    """Whether a stored instant still lands on this schedule's local weekday and clock.
+    """Whether a stored instant still lands on this schedule's local day and clock.
 
-    A daily or weekly schedule stores a *local* time, so moving `workspace.timezone` makes
-    every stored `next_fire_at` name the wrong instant.  This is the exact test for that,
-    and a no-op check when the zone has not moved.  Interval schedules are pure duration
+    A daily, weekly or monthly schedule stores a *local* time, so moving `workspace.timezone`
+    makes every stored `next_fire_at` name the wrong instant.  This is the exact test for
+    that, and a no-op check when the zone has not moved.  Interval schedules are pure duration
     and always pass.
     """
-    if schedule.kind not in {ScheduleKind.DAILY, ScheduleKind.WEEKLY}:
+    if schedule.kind not in {ScheduleKind.DAILY, ScheduleKind.WEEKLY, ScheduleKind.MONTHLY}:
         return True
     if schedule.at_time is None:
         return True
     local = moment.astimezone(tz)
-    return (
-        local.time() == schedule.at_time
-        and WEEKDAY_NAMES[local.weekday()] in schedule.weekdays
-    )
+    return local.time() == schedule.at_time and _runs_on(schedule, local.date())
+
+
+def _runs_on(schedule: Schedule, day: date_type) -> bool:
+    if schedule.month_days:
+        length = calendar.monthrange(day.year, day.month)[1]
+        return day.day in {min(item, length) for item in schedule.month_days}
+    return WEEKDAY_NAMES[day.weekday()] in schedule.weekdays
 
 
 def _next_wall_clock(
     schedule: Schedule, boundary: datetime, *, inclusive: bool, tz: ZoneInfo
 ) -> datetime:
-    if schedule.at_time is None or not schedule.weekdays:
-        raise ScheduleError("A daily or weekly schedule needs weekdays and a time")
+    if schedule.at_time is None or not (schedule.weekdays or schedule.month_days):
+        raise ScheduleError("A daily, weekly or monthly schedule needs days and a time")
     start_date = boundary.astimezone(tz).date()
-    for offset in range(len(WEEKDAY_NAMES) + 1):
+    for offset in range(_LONGEST_GAP_DAYS + 1):
         day = start_date + timedelta(days=offset)
-        if WEEKDAY_NAMES[day.weekday()] not in schedule.weekdays:
+        if not _runs_on(schedule, day):
             continue
         candidate = _combine(day, schedule.at_time, tz)
         if candidate > boundary or (inclusive and candidate == boundary):
@@ -479,6 +512,7 @@ def schedule_columns(schedule: Schedule) -> dict[str, Any]:
     return {
         "schedule_kind": schedule.kind.value,
         "weekdays": list(schedule.weekdays),
+        "month_days": list(schedule.month_days),
         "at_time": schedule.at_time,
         "anchor_at": schedule.anchor_at,
         "interval_minutes": schedule.interval_minutes,
@@ -502,6 +536,7 @@ def schedule_of(reminder: Any) -> Schedule:
     return Schedule(
         kind=ScheduleKind(reminder.schedule_kind),
         weekdays=tuple(reminder.weekdays or ()),
+        month_days=tuple(reminder.month_days or ()),
         at_time=reminder.at_time,
         anchor_at=reminder.anchor_at,
         interval_minutes=reminder.interval_minutes,
@@ -521,6 +556,7 @@ def schedule_payload(schedule: Schedule) -> dict[str, Any]:
     return {
         "schedule_kind": schedule.kind.value,
         "weekdays": list(schedule.weekdays),
+        "month_days": list(schedule.month_days),
         "at_time": f"{schedule.at_time:%H:%M}" if schedule.at_time else None,
         "anchor_at": schedule.anchor_at.isoformat() if schedule.anchor_at else None,
         "interval_minutes": schedule.interval_minutes,
@@ -538,6 +574,7 @@ def schedule_from_payload(payload: dict[str, Any]) -> Schedule:
     return Schedule(
         kind=ScheduleKind(payload["schedule_kind"]),
         weekdays=tuple(payload.get("weekdays") or ()),
+        month_days=tuple(payload.get("month_days") or ()),
         at_time=parse_clock(at_time) if at_time else None,
         anchor_at=datetime.fromisoformat(anchor) if anchor else None,
         interval_minutes=payload.get("interval_minutes"),
@@ -573,8 +610,7 @@ def describe(schedule: Schedule, *, tz: ZoneInfo, now: datetime | None = None) -
             text += f" except {windows}"
     else:
         clock = f"{schedule.at_time:%H:%M}" if schedule.at_time else "?"
-        days = "day" if schedule.kind is ScheduleKind.DAILY else _humanize_weekdays(schedule.weekdays)
-        text = f"every {days} at {clock}"
+        text = f"{repeat_days(schedule)} at {clock}"
     text += _start_suffix(schedule, tz, now)
     if schedule.until is not None:
         text += f", until {schedule.until:%d.%m.%Y}"
@@ -615,5 +651,20 @@ def _humanize_interval(minutes: int) -> str:
     return f"{minutes} minutes"
 
 
-def _humanize_weekdays(weekdays: tuple[str, ...]) -> str:
-    return "weekday" if weekdays == _WORKWEEK else ", ".join(weekdays)
+def repeat_days(schedule: Schedule) -> str:
+    """The days a wall-clock schedule fires on: every day, every weekday, every Mon, Thu, or
+    on the 1st and 15th of each month."""
+    if schedule.month_days:
+        names = [_month_day(day) for day in schedule.month_days]
+        words = names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
+        return f"on the {words} of each month"
+    if schedule.kind is ScheduleKind.DAILY:
+        return "every day"
+    return "every weekday" if schedule.weekdays == _WORKWEEK else f"every {', '.join(schedule.weekdays)}"
+
+
+def _month_day(day: int) -> str:
+    if day == LAST_MONTH_DAY:
+        return "last day"
+    suffix = "th" if 10 < day % 100 < 14 else {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+    return f"{day}{suffix}"

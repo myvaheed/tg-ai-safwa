@@ -13,7 +13,7 @@ unclear, then the forms that work, so the owner always hears both.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
 from pydantic import Field, PositiveInt, PrivateAttr, model_validator
@@ -29,7 +29,16 @@ from tg_agent_shell.ai.mini import (
 from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
 
 from ...constants import WEEKDAY_NAMES
-from .api import BOUNDS_LINES, UNTIL_DESCRIPTION, Condition, Schedule, ScheduleError, resolve
+from .api import (
+    BOUNDS_LINES,
+    LAST_MONTH_DAY,
+    MONTH_DAYS_DESCRIPTION,
+    UNTIL_DESCRIPTION,
+    Condition,
+    Schedule,
+    ScheduleError,
+    resolve,
+)
 from .conditions import ConditionError, checked_select, items_view
 from .model import ScheduleKind
 
@@ -56,6 +65,9 @@ class ReminderToolInput(RecordToolInput):
 class ReminderConfigInput(ToolInput):
     days: list[Literal["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]] | None = Field(
         default=None, description="Weekdays to fire on; all seven means every day."
+    )
+    month_days: list[Annotated[int, Field(ge=1, le=LAST_MONTH_DAY)]] | None = Field(
+        default=None, description=MONTH_DAYS_DESCRIPTION
     )
     time: str | None = Field(
         default=None,
@@ -133,6 +145,8 @@ Clock time, set_reminder_config:
 'every day at 8', 'every morning at 8': days=[Mon, Tue, Wed, Thu, Fri, Sat, Sun], time=08:00.
 'every weekday at 8am': days=[Mon, Tue, Wed, Thu, Fri], time=08:00.
 'every Monday at 9:30', 'on Mondays at 9:30': days=[Mon], time=09:30.
+'on the 5th and 20th of each month at 9': month_days=[5, 20], time=09:00.
+'on the last day of each month at 21': month_days=[31], time=21:00.
 'tomorrow at 15:00': date=tomorrow, time=15:00. 'on 20 October at 15:00': date=20.10, time=15:00.
 'on Thursday at 10': date=Thu, time=10:00. It fires once.
 'in 90 minutes', 'in 2 hours': in_minutes=90, in_minutes=120. It fires once.
@@ -152,7 +166,7 @@ Answers, set_condition:
 'each time any Check is Missed': items='any Check', answer=missed, count=1.
 items: the phrase's own words for the Checks or Actions, with every #id.
 Not clear, not_clear_enough:
-No clock time, like 'every morning', 'soon', 'twice a week': about=time.
+No clock time, like 'every morning', 'soon', 'twice a week', 'once a month': about=time.
 No items, no answer or no count: about=answers.
 Cannot tell a time from answers: leave about out.
 reason: what is missing, in one short sentence.
@@ -244,6 +258,7 @@ async def resolve_schedule(
             try:
                 self._schedule = resolve(
                     days=self.days,
+                    month_days=self.month_days,
                     clock=self.time,
                     day=self.date,
                     interval_minutes=self.interval_minutes,

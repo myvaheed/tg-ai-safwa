@@ -58,7 +58,8 @@ Feature: Reminders
       (REMINDER_MIN_INTERVAL_MINUTES = 5), weekdays other than every day given together with an interval, quiet hours on
       something that is not an interval, quiet hours that leave no time of day at all, a date with
       no hour on it, minutes from now given with anything else, a last day or a total on something
-      that happens once, a last day before the first firing, and nothing given at all
+      that happens once, a last day before the first firing, days of the month given together with
+      weekdays or an interval, days of the month with no hour, and nothing given at all
     And the short session of RM-SCHEDULE-001 is told the reason first, so the model can fix its
       parameters; when it cannot, the reason is what goes back, by RM-UNCLEAR-028
 
@@ -290,3 +291,18 @@ Feature: Reminders
     And a new schedule counts its total from 0
     And a last day or a total on a one-off, or a last day before the first firing, is refused, by
       RM-SCHEDULE-005
+
+  Scenario: RM-MONTH-037 — A Reminder can fire on days of the month
+    Given Safwa proposes a Reminder whose words name days of the month and a time, such as "on the 1st
+      and 15th of each month at 9"
+    When the short session of RM-SCHEDULE-001 reads them
+    Then the days come as numbers from 1 to 31, and the dates they fall on are worked out in code
+    And 31 is the last day of every month, and a day a month lacks is that month's last day: the 30th
+      fires on 28.02.2027
+    And the review screen and /reminders say it, "on the 1st and 15th of each month at 09:00", and the
+      31st as "on the last day of each month at 18:00"
+    And it keeps its local clock when the clocks go forward or back, by RM-CLOCK-006, and startup
+      works it out again when its stored moment no longer lands on its day and time, by RM-START-020
+    And it can start on a date and end on a last day or after a total, by RM-END-036
+    And "once a month" with no day and no time does not pin down a time, by RM-SCHEDULE-002
+    And Safwa reads it in ai_reminders with schedule_kind monthly and its month_days

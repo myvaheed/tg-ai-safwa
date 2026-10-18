@@ -158,6 +158,13 @@ CASES = (
     Case("1b", "schedule", "раз в месяц", {"form": "quota", "period": "month", "count": 1}),
     Case("1b", "schedule", "10 раз в месяц", {"form": "quota", "period": "month", "count": 10}),
     Case("1b", "schedule", "1 числа каждого месяца", {"form": "fixed", "month_days": [1], "time": None}),
+    # The trap: "до конца года" is the last day, and the days come before "число".
+    Case(
+        "1b", "reminder", "каждое 1 и 15 число в 9 до конца года",
+        {"month_days": [1, 15], "time": "09:00", "until": "31.12.2026"},
+    ),
+    # The trap: a monthly count beside as many days of the month is those days.
+    Case("1b", "schedule", "дважды в месяц, 1 и 15 числа", {"form": "fixed", "month_days": [1, 15], "time": None}),
 )
 
 
@@ -165,6 +172,7 @@ def _timing(schedule: Schedule, *, all_day: bool = False) -> dict[str, Any]:
     reading: dict[str, Any] = {
         "kind": schedule.kind.value,
         "days": list(schedule.weekdays) or None,
+        "month_days": list(schedule.month_days) or None,
         "time": None if all_day or schedule.at_time is None else f"{schedule.at_time:%H:%M}",
         "date": f"{schedule.anchor_at.astimezone(TZ):%d.%m.%Y}" if schedule.anchor_at else None,
         "interval": schedule.interval_minutes,

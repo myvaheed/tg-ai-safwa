@@ -39,7 +39,8 @@ in other words. An unreachable provider fails the turn like any other model call
 
 The compiler receives a target. `action` and `check` use one prompt; an Action planning more
 than `ACTION_DAILY_EXECUTIONS_MAX` (5) executions a day — a daily quota above it, a weekly
-quota above 35, an interval under 288 minutes — becomes a question suggesting a Check.
+quota above 35, a monthly quota above 150 with a month counted as 30 days, an interval under
+288 minutes — becomes a question suggesting a Check.
 `deadline` uses its own prompt and one terminal: a date, and a time only when given.
 Repeating text there is a question.
 
@@ -51,9 +52,11 @@ an interval, so "every evening at 20:00" can never become a one-time appointment
 Small models often read such text twice over, as once a day and as every weekday at 20:00.
 Once a day beside weekdays or a clock is dropped in code, so the days are the reading and no
 repair round is spent (`SCH-FORM-024`). So is a weekly count beside as many named weekdays,
-two or more: "twice a week on Mon and Thu". Any other quota beside weekdays goes back to the
-model, even once a week beside one weekday: for "once a week" a model makes up Monday, and the
-code cannot tell a day it made up from one the text names. A count without a period that equals
+two or more: "twice a week on Mon and Thu", and a monthly count beside as many days of the
+month: "twice a month on the 1st and 15th". Any other quota beside weekdays or days of the
+month goes back to the model, even once a week beside one weekday or once a month beside one
+day: for "once a week" a model makes up Monday, and the code cannot tell a day it made up from
+one the text names. A count without a period that equals
 the total is the total alone. Arithmetic stays in code: "in 30 minutes" arrives as
 `in_minutes`, "tomorrow" and "on Thursday at 10" as words in `date`, "for a month" as `until`,
 and the code counts the day and the moment; a date may come without its year, and the code
@@ -72,18 +75,26 @@ from 34 s to 49 s a run without lifting it, and made Qwen3.6 35B-A3B talk itself
 clock in "по понедельникам и средам в 9" in every run. With the last day, the total and the
 quota start, over 40 phrases, three runs each, 35B-A3B read all 40 every time and 9B 39, 38
 and 38: 9B reads "каждый день в 9 до 30 ноября" with 30 November as the start, and
-"в четверг в 10" as every Thursday in two runs of three.
+"в четверг в 10" as every Thursday in two runs of three. With days of the month and the
+monthly quota, over 48 phrases, three runs each, 35B-A3B read 47, 48 and 48, and 9B 45, 47 and
+45: 9B also takes the 15th of this month as the start of "15 числа каждого месяца в 12:00 по 30
+апреля" in two runs of three. The one 35B-A3B miss, "в течение двух недель каждый вечер в
+21:00" read as unclear, missed 3 times in 10 before days of the month and once in 10 after.
+The example lines name other days and counts than the measured phrases, so a pass is a
+reading, not a copy.
 
 ## Rules
 
-The forms are calendar quotas (N per day/week), appointments (once, selected weekdays and
-clock, or a clock interval), repetition after completion, and a Deadline. Weekdays or a date
-without a clock are an all-day appointment: the rule's timing uses `END_OF_DAY` (23:59), the
+The forms are calendar quotas (N per day/week/month), appointments (once, selected weekdays
+or days of the month and clock, or a clock interval), repetition after completion, and a
+Deadline. Days of the month are 1 to 31, and a day the month lacks is its last day, so 31 is the
+last day of every month. Weekdays, days of the month or a date without a clock are an all-day
+appointment: the rule's timing uses `END_OF_DAY` (23:59), the
 moment a Deadline without a time uses too, and `"all_day": true` tells the screens to show
 the day without a clock. Being due at the end of its day is what puts it in Today, counts it
 in that day's plan even when it is set during the day, and makes it overdue only once the day
-ends, with no other code knowing about it. Days and
-Monday-based weeks use the workspace timezone. A quota does not invent a clock. Unused quota
+ends, with no other code knowing about it. Days, Monday-based weeks and calendar months use
+the workspace timezone. A quota does not invent a clock. Unused quota
 does not carry forward. Every quota answer belongs to the current calendar period, including
 extra answers; a late appointment answer remains attached to its appointment. One instance
 stays open at a time.
@@ -136,7 +147,7 @@ flowchart TD
     Q -->|Later| K[Sprint]
     I -->|Yes| J{Next slot}
     J -->|Daily quota or appointment due today| T[Today]
-    J -->|Weekly quota or date within Sprint| K
+    J -->|Weekly or monthly quota, or date within Sprint| K
     J -->|Beyond Sprint| B2
 ```
 
@@ -161,7 +172,7 @@ day, so an Action joining mid-Sprint counts only the days left. Planning uses th
 Sprint's length from today.
 
 Each quota period the window covers in part gets its share by local days covered:
-`round(count × days covered / days in period)`. A period's facts reduce it only beyond the
+`round(count × days covered / days in period)`, a month with the days of that month. A period's facts reduce it only beyond the
 rest of the quota: `min(share, count − done in that period)`. Three a week over a
 Wednesday-to-Tuesday Sprint is 2 + 1; in Today alone it is `round(3/7) = 0`, so 1 for the
 Action itself. Over a window split at any weekday the two shares add up to the quota. An
@@ -202,7 +213,7 @@ carries the timezone, query time and active Sprint dates; `sprint` is null when 
 An item identifies the latest instance (`id`) and stable series (`series_id`), with its title,
 Schedule and `status`, `active` or `ended`. `next_at` is a local timestamp (`at`) for an
 appointment, its local `date` for an all-day appointment, an inclusive date window and
-remaining quota for day/week repetition, or `after_completion: true` for undated repetition.
+remaining quota for day/week/month repetition, or `after_completion: true` for undated repetition.
 Ended plans have `next_at: null`.
 
 `range` and `sprint` each contain `planned`, `done` and `remaining`. `planned` uses the same

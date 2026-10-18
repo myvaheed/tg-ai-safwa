@@ -620,6 +620,8 @@ def _answering(name, arguments):
         ({"period": "day", "count": ACTION_DAILY_EXECUTIONS_MAX}, False),
         ({"period": "day", "count": ACTION_DAILY_EXECUTIONS_MAX + 1}, True),
         ({"period": "week", "count": 7 * ACTION_DAILY_EXECUTIONS_MAX + 1}, True),
+        ({"period": "month", "count": 30 * ACTION_DAILY_EXECUTIONS_MAX}, False),
+        ({"period": "month", "count": 30 * ACTION_DAILY_EXECUTIONS_MAX + 1}, True),
         ({"interval_minutes": 24 * 60 // ACTION_DAILY_EXECUTIONS_MAX}, False),
         ({"interval_minutes": 24 * 60 // ACTION_DAILY_EXECUTIONS_MAX - 1}, True),
     ],

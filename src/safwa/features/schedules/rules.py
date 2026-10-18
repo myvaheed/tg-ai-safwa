@@ -10,19 +10,24 @@ from ..reminders.api import next_fire, roll_forward, schedule_from_payload
 
 # A Deadline or an appointment without a clock is due by the end of its day.
 END_OF_DAY = time(23, 59)
+# The days of a quota period, a calendar month counted as 30 on average.
+_PERIOD_DAYS = {"day": 1, "week": 7, "month": 30}
 
 
 def period_start(at: datetime, period: str, tz: ZoneInfo) -> datetime:
-    local = at.astimezone(tz)
-    day = local.date()
+    day = at.astimezone(tz).date()
     if period == "week":
         day -= timedelta(days=day.weekday())
-    return datetime.combine(day, time(), tzinfo=tz).astimezone(UTC)
+    elif period == "month":
+        day = day.replace(day=1)
+    return _midnight(day, tz)
 
 
 def period_end(start: datetime, period: str, tz: ZoneInfo) -> datetime:
-    day = start.astimezone(tz).date() + timedelta(days=_period_days(period))
-    return datetime.combine(day, time(), tzinfo=tz).astimezone(UTC)
+    day = start.astimezone(tz).date()
+    if period == "month":
+        return _midnight((day.replace(day=1) + timedelta(days=32)).replace(day=1), tz)
+    return _midnight(day + timedelta(days=_PERIOD_DAYS[period]), tz)
 
 
 def deadline_moment(rule: dict[str, Any], tz: ZoneInfo) -> datetime:
@@ -88,8 +93,8 @@ def windows(
 ) -> list[tuple[datetime, datetime, int]]:
     """Periods intersecting [start, end), each with the executions planned inside.
 
-    A quota period covered only partly gets its share by local days covered, rounded. Nothing
-    is planned before a quota's first day or after the last day.
+    A quota period covered only partly gets its share by local days covered out of the days
+    it has, rounded. Nothing is planned before a quota's first day or after the last day.
     """
     if rule["kind"] == "after_completion":
         return []
@@ -106,7 +111,8 @@ def windows(
             first = max(at, start).astimezone(tz).date()
             last = (min(until, end) - timedelta(microseconds=1)).astimezone(tz).date()
             covered = (last - first).days + 1
-            result.append((at, until, round(rule["count"] * covered / _period_days(rule["period"]))))
+            days = (until.astimezone(tz).date() - at.astimezone(tz).date()).days
+            result.append((at, until, round(rule["count"] * covered / days)))
             at = until
         return result
     timing = schedule_from_payload(rule["timing"])
@@ -125,16 +131,13 @@ def windows(
 
 
 def daily_executions(rule: dict[str, Any]) -> float:
-    """The most executions the rule plans for one day, on average for a weekly quota."""
+    """The most executions the rule plans for one day, on average for a weekly or monthly
+    quota."""
     if rule["kind"] == "quota":
-        return rule["count"] / _period_days(rule["period"])
+        return rule["count"] / _PERIOD_DAYS[rule["period"]]
     if rule["kind"] == "fixed" and rule["timing"]["interval_minutes"]:
         return 24 * 60 / rule["timing"]["interval_minutes"]
     return 1
-
-
-def _period_days(period: str) -> int:
-    return 7 if period == "week" else 1
 
 
 def _midnight(day: date, tz: ZoneInfo) -> datetime:

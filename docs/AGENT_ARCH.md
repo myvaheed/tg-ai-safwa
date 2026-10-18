@@ -676,6 +676,9 @@ the Cue row, exactly as for anything else Safwa says first.
   always fires, however late, and the Cue says how late.
 - A repeat advances from its **scheduled** moment, not from the tick that took it, so a late check
   does not push every later fire late with it.
+- A time-of-day repeat fires on weekdays or on days of the month, `month_days`: a day the month
+  lacks is its last day, so 31 is the last day of every month, and the next one comes round
+  within 31 days (`RM-MONTH-037`).
 - A repeat may end: `until` is its last local day and `total` how many times it fires, counted in
   `fired`. `next_fire` and `roll_forward` give None past the last day; the fire that reaches the
   total, or has no next one by the last day, carries `LAST_FIRE` in its Cue and is deleted with the
