@@ -25,7 +25,8 @@ from ...enums import ActorType
 from ...foundation.marks import closed_repeat_refusal
 from ..checks.use_cases import pending_checks
 from ..profile.api import effort_tracking_on
-from ..schedules.agent import read_proposed_schedule
+from ..schedules.agent import read_proposed_remind, read_proposed_schedule
+from ..schedules.use_cases import set_remind
 from .model import (
     Card,
     CardCategory,
@@ -224,6 +225,7 @@ class CardProposalHandler:
         await read_proposed_schedule(
             context, values, "action" if proposed_kind == CardKind.ACTION.value else "deadline"
         )
+        await read_proposed_remind(context, values, card)
         return PreparedChange(values=values, expected_version=expected_version)
 
     async def apply(self, context: ApplyContext, change: ProposalChange) -> list[int]:
@@ -249,6 +251,8 @@ class CardProposalHandler:
                 check_ids=await named_ids(session, values, CHECK_REFERENCE),
                 actor=ActorType.AI,
             )
+            if values.get("remind") is not None:
+                await set_remind(session, card, values["remind"], actor=ActorType.AI)
             return [card.id]
         card = await session.get(Card, change.entity_id) if change.entity_id else None
         if card is None or card.version != change.expected_version:
@@ -282,6 +286,8 @@ class CardProposalHandler:
                     session, card.id, CardStage(change.values["stage"]), actor=ActorType.AI
                 )
             await _replace_card_sets(session, card, change.values)
+            if "remind" in change.values:
+                await set_remind(session, card, change.values["remind"], actor=ActorType.AI)
         elif change.action is ChangeAction.ARCHIVE:
             await archive_subtree(session, card.id, actor=ActorType.AI)
         elif change.action is ChangeAction.DELETE:

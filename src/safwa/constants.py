@@ -19,6 +19,13 @@ WEEKDAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 NOTE_REPLACED_WHOLE = (
     "On update, it replaces the whole Note: write what it holds now, then the new words."
 )
+# How long before its moment Remind may fire, and how the Card and the Check tools ask for it.
+REMIND_LEAD_MAX_MINUTES = 24 * 60
+REMIND_DESCRIPTION = (
+    "Remind the user at its time, 0, or this many minutes before it: "
+    "'remind me' is 0, 'remind me 25 minutes before' is 25, '3 hours before' is 180. "
+    "Only when the user asks. On update, null turns it off."
+)
 # How many rows one page of a Card or a Check selector lists.
 SELECTOR_PAGE_SIZE = 10
 # The advisor window is a token budget rather than a message count: a Summary of at most

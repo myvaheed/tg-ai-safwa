@@ -127,8 +127,14 @@ Feature: One plain-language Schedule for Actions and Checks
     Given an Action, a Goal or a Subgoal, or a Check whose Schedule or Deadline has a clock still ahead
     When the owner opens its Schedule
     Then the screen shows how it was read, with "🔔 Remind: Off", "✏️ Edit" and "↩️ Back"
-    And Remind On makes a Reminder at the Schedule's moments, with the words "Remind is on for Action #12 «Stretch». Remind the owner about it." (REMIND_TEXT)
-    And Remind Off deletes that Reminder
+    And Remind opens its choices: "Off", "At the time", "15 minutes before", "1 hour before", "1 day before",
+      "✏️ Other" and "↩️ Back", the one in force marked "✅"
+    And a choice makes a Reminder that many minutes before each of the Schedule's moments, by SCH-REMIND-028,
+      with the words "Remind is on for Action #12 «Stretch». Remind the owner about it." (REMIND_TEXT),
+      and the Schedule comes back with "🔔 Remind: 15 minutes before"
+    And a choice on a Reminder already made changes only how long before it fires
+    And Other takes the minutes typed, 0 to 1440 (REMIND_LEAD_MAX_MINUTES), and refuses any other value on the same editor
+    And Off deletes that Reminder
     And a quota, a whole-day appointment, repetition after completion, a Deadline without a time, or a one-time moment already past opens the editor at once
 
   Scenario: SCH-REMIND-020 — Remind's Reminder follows its item
@@ -137,6 +143,7 @@ Feature: One plain-language Schedule for Actions and Checks
     Then the Reminder names the next instance and fires first at that instance's appointment
     And an instance left overdue is reminded at the Schedule's next moment, and at each one after it
     And a changed Schedule moves the Reminder to it, and a Schedule without a clock deletes it
+    And the Reminder keeps how long before each moment it fires
     And a renamed item rewrites the Reminder's words
     And finishing a one-time Action, closing a Goal, or deleting the item deletes the Reminder
     And closing a Goal deletes the Reminder of a scheduled Check on it
@@ -203,3 +210,23 @@ Feature: One plain-language Schedule for Actions and Checks
     And a monthly quota's period is the local calendar month, from its 1st to the 1st of the next, and the screen shows "0/3 answered for the month from 01.11.2026."
     And a month left short opens the next one with its whole quota, and nothing carries over
     And Remind on days of the month with a clock makes a Reminder on those days by SCH-REMIND-019
+
+  Scenario: SCH-REMIND-028 — Remind fires its lead before each moment
+    Given Remind 30 minutes before on an Action every day at 00:15
+    Then it fires at 23:45 the day before, and /reminders says "every day at 00:15, 30 minutes before"
+    And 1 hour before the last day of each month at 18:00 fires at 17:00 on that day, in a short month too
+    And across a change of daylight saving time it fires that many minutes before the moment as the clock runs
+    And on an interval it fires that long before each of its moments
+    And a lead whose time has passed while the moment is still ahead fires at once
+    And a repeat whose lead passed more than 120 minutes ago (REMINDER_CATCHUP_GRACE_MINUTES) waits for its next moment
+    And what Safwa is handed when it fires says no lateness while the moment is still ahead,
+      and how late it is once the moment has passed
+
+  Scenario: SCH-REMIND-029 — Safwa can turn Remind on when it proposes an Action, a Goal or a Check
+    Given the owner asks for an Action, a Goal or a Check with "remind me an hour before"
+    When Safwa proposes it with remind of 60 minutes, on the item's own tool and never as a new Reminder
+    Then the review screen shows Remind as "1 hour before"
+    And Save writes the Schedule, then turns Remind on 1 hour before each of its moments, by SCH-REMIND-028
+    And remind of 0 is at the time, and remind null on an update turns Remind off
+    And a remind on an item whose Schedule, proposed or its own, has no clock still ahead goes back to the model,
+      "Remind needs a Schedule with a time still ahead.", and nothing is proposed

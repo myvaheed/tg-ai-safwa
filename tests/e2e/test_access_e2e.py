@@ -83,7 +83,7 @@ async def test_locked_reminders_arrive_and_hooks_wait_until_entry(
     async with sessions() as session:
         card = await create_manual_card(session, title="Stretch", schedule="daily 20:00")
         if from_schedule:
-            await set_remind(session, card, True)
+            await set_remind(session, card, 0)
             reminder = await session.scalar(select(Reminder))
         else:
             reminder = await create_reminder(

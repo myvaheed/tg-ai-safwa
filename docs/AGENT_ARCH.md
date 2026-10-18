@@ -683,6 +683,10 @@ the Cue row, exactly as for anything else Safwa says first.
   always fires, however late, and the Cue says how late.
 - A repeat advances from its **scheduled** moment, not from the tick that took it, so a late check
   does not push every later fire late with it.
+- A Reminder Remind made may fire `lead_minutes` before each moment. `next_fire` and
+  `roll_forward` work on the moments and take the lead off, so a lead already passed while its
+  moment is still ahead fires at once, and `on_wall_clock` adds it back. The Cue counts how late
+  from the moment, so it says nothing while the moment is ahead (`SCH-REMIND-028`).
 - A time-of-day repeat fires on weekdays or on days of the month, `month_days`: a day the month
   lacks is its last day, so 31 is the last day of every month, and the next one comes round
   within 31 days (`RM-MONTH-037`).

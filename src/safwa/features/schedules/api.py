@@ -17,10 +17,11 @@ from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 
+from ...constants import REMIND_LEAD_MAX_MINUTES
 from ...foundation.workspace import require_workspace
 from ..cards.model import Card, CardKind
 from ..checks.model import Check
-from ..reminders.api import Schedule, describe, repeat_days, schedule_from_payload
+from ..reminders.api import Schedule, describe, lead_words, repeat_days, schedule_from_payload
 from ..reminders.model import Reminder, ScheduleKind
 from .model import ScheduleDefinition
 from .rules import (
@@ -43,6 +44,8 @@ SCHEDULED_RANGE_DAYS_MAX = 93
 ACTION_DAILY_EXECUTIONS_MAX = 5
 # The words of the Reminder that Remind makes; the Cue adds the Schedule it fires on.
 REMIND_TEXT = "Remind is on for {label} #{id} «{title}». Remind the owner about it."
+REMIND_NEEDS_TIME = "Remind needs a Schedule with a time still ahead."
+REMIND_LEAD_RANGE = f"Remind takes 0 to {REMIND_LEAD_MAX_MINUTES} minutes before its time."
 # The change a hook follows up on: an item's Schedule ran its total or reached its last day, so
 # no next instance opened. Its data names which: "total" or "last_day".
 SCHEDULE_ENDED = "schedule.ended"
@@ -295,23 +298,34 @@ async def schedule_summary(session: AsyncSession, entity: Card | Check) -> str |
     return summary
 
 
-def remind_timing(entity: Card | Check, now: datetime) -> Schedule | None:
+def remind_timing(entity: Card | Check, now: datetime, lead: int = 0) -> Schedule | None:
     """The Reminder timing Remind gives an open item: its Schedule's clock, counted from the
-    open instance's moment, so a copy finished early is reminded at its next appointment.
-    None when the Schedule has no clock, or a one-time moment has passed."""
+    open instance's moment, so a copy finished early is reminded at its next appointment, and
+    firing `lead` minutes before each moment. None when the Schedule has no clock, or a
+    one-time moment has passed."""
     definition = entity.schedule_record
     if definition is None or not is_open(entity):
         return None
-    rule = definition.rule
+    timing = clock_timing(definition.rule)
+    if timing is None or (not timing.repeating and entity.period_start <= now):
+        return None
+    return replace(timing, anchor_at=entity.period_start, lead_minutes=lead)
+
+
+def clock_timing(rule: dict[str, Any]) -> Schedule | None:
+    """The timing of a rule's clock: a Deadline's time or a fixed Schedule's; None without one."""
     if rule["kind"] == "deadline" and rule["time"]:
-        timing = Schedule(kind=ScheduleKind.ONCE, at_time=time.fromisoformat(rule["time"]))
-    elif rule["kind"] == "fixed" and not rule.get("all_day"):
-        timing = schedule_from_payload(rule["timing"])
-    else:
-        return None
-    if not timing.repeating and entity.period_start <= now:
-        return None
-    return replace(timing, anchor_at=entity.period_start)
+        return Schedule(kind=ScheduleKind.ONCE, at_time=time.fromisoformat(rule["time"]))
+    if rule["kind"] == "fixed" and not rule.get("all_day"):
+        return schedule_from_payload(rule["timing"])
+    return None
+
+
+def remind_label(lead: int | None) -> str:
+    """Remind as the screens say it: Off, At the time, or how long before."""
+    if lead is None:
+        return "Off"
+    return f"{lead_words(lead)} before" if lead else "At the time"
 
 
 def remind_text(entity: Card | Check) -> str:

@@ -47,6 +47,9 @@ class Reminder(Base, TimestampMixin):
 
     A repeat may end: `until` is the last local day it fires on and `total` how many times it
     fires in all, counted in `fired`. After its last fire it deletes itself, as a one-shot does.
+
+    One Remind made may fire `lead_minutes` before each of its moments; `next_fire_at` is then
+    that earlier instant, and every other column still names the moments.
     """
 
     __tablename__ = "reminders"
@@ -66,6 +69,7 @@ class Reminder(Base, TimestampMixin):
     until: Mapped[date | None] = mapped_column(Date)
     total: Mapped[int | None] = mapped_column(Integer)
     fired: Mapped[int] = mapped_column(Integer, default=0)
+    lead_minutes: Mapped[int] = mapped_column(Integer, default=0)
 
     next_fire_at: Mapped[datetime | None] = mapped_column(UtcDateTime, index=True)
     item_type: Mapped[str | None] = mapped_column(String(10))

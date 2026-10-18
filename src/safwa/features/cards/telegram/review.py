@@ -31,7 +31,7 @@ from tg_agent_shell.proposals.render import (
     result_value,
 )
 
-from ...schedules.api import rule_summary, workspace_zone
+from ...schedules.api import entity_reminder, remind_label, rule_summary, workspace_zone
 from ...tags.model import CardTag
 from ...values.model import CardValue
 from ..api import parents_of, tree_level
@@ -55,6 +55,7 @@ CARD_DETAIL_FIELDS = (
     "stage",
     "priority",
     "schedule",
+    "remind",
     "blocked_description",
     "effort_points",
     "tracked_mins",
@@ -87,6 +88,8 @@ def normalized_card_details(values: dict[str, Any], *, creating: bool) -> dict[s
             fields.setdefault("energy_types", [])
     if "kind" in fields:
         fields["kind"] = card_kind_name(fields["kind"], bool(values.get(PARENT_REFERENCE.field))).lower()
+    if "remind" in fields:
+        fields["remind"] = remind_label(fields["remind"])
     for spec in CARD_REFERENCE_SPECS:
         if referenced := reference_details(values, spec):
             fields[spec.field] = referenced
@@ -102,6 +105,7 @@ def _detail(field: str, value: Any) -> str:
 
 async def _card_detail_snapshot(session: AsyncSession, card: Card) -> dict[str, Any]:
     parents = (await parents_of(session, [card.id])).get(card.id, [])
+    reminder = await entity_reminder(session, card)
     return {
         "kind": card_kind_name(card.kind, bool(parents)).lower(),
         "title": card.title,
@@ -109,6 +113,7 @@ async def _card_detail_snapshot(session: AsyncSession, card: Card) -> dict[str, 
         "stage": card.effective_stage,
         "priority": card.priority,
         "schedule": card.schedule,
+        "remind": remind_label(reminder.lead_minutes if reminder else None),
         "blocked_description": card.blocked_description,
         "effort_points": card.effort_points,
         "tracked_mins": card.tracked_mins,
@@ -148,6 +153,7 @@ async def _card_states(
     if changes[0].entity_id:
         card = await session.get(Card, changes[0].entity_id)
         if card is not None:
+            reminder = await entity_reminder(session, card)
             current = {
                 "id": card.id,
                 "kind": card.kind,
@@ -156,6 +162,7 @@ async def _card_states(
                 "stage": card.effective_stage,
                 "priority": card.priority,
                 "schedule": card.schedule,
+                "remind": reminder.lead_minutes if reminder else None,
                 "blocked_description": card.blocked_description,
                 "effort_points": card.effort_points,
                 "tracked_mins": card.tracked_mins,
@@ -226,6 +233,8 @@ async def _card_shown(
         return tuple(expression([item]) for item in value or ())
     if field == "tracked_mins":
         return minutes_label(value) if value else None
+    if field == "remind":
+        return None if value is None else remind_label(value)
     if field in {"stage", "priority"} and value:
         return str(value).title()
     return shown(value)
@@ -246,6 +255,7 @@ async def _card_fields(
         "stage": "Stage",
         "note": "Note",
         "schedule": "Schedule" if action else "Deadline",
+        "remind": "Remind",
         "priority": "Priority",
         "blocked_description": "Blocked",
         "effort_points": "Effort",
@@ -394,6 +404,8 @@ class CardProposalPresenter:
             if values.get("schedule"):
                 label = "Schedule" if kind == CardKind.ACTION.value else "Deadline"
                 parts.append(f"{label} {values['schedule']}")
+            if values.get("remind") is not None:
+                parts.append(f"Remind {remind_label(values['remind'])}")
             if values.get("blocked_description"):
                 parts.append("Blocked")
             others = tuple(spec for spec in CARD_REFERENCE_SPECS if spec is not PARENT_REFERENCE)

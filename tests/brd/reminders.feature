@@ -195,6 +195,7 @@ Feature: Reminders
     When Safwa needs to know about them
     Then it looks them up, and gets the schedule exactly as it is stored
     And the next firing reads in the owner's own clock, not as the moment it is stored as
+    And a Reminder Remind made says how many minutes before each moment it fires in `lead_minutes`, by SCH-REMIND-028
     And no Reminder is in the block of context Safwa is given before every turn, because the next
       firing moves each time one goes off, and that block has to stay the same to stay cheap
 

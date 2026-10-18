@@ -29,7 +29,7 @@ from tg_agent_shell.proposals.render import (
 from tg_agent_shell.telegram import citation_title
 
 from ....foundation.marks import title_marks
-from ...schedules.api import rule_summary, workspace_zone
+from ...schedules.api import entity_reminder, remind_label, rule_summary, workspace_zone
 from ..model import CHECK_OUTCOME_LABELS, Check
 from ..proposal import CHECK_ANSWER_ACTIONS
 from ..references import CHECK_VALUE_REFERENCE
@@ -63,6 +63,8 @@ class CheckProposalPresenter:
         proposed = {
             name: values[name] for name in ("title", "note", "schedule") if name in values
         }
+        if "remind" in values:
+            proposed["remind"] = remind_label(values["remind"])
         if change.action in CHECK_ANSWER_ACTIONS:
             proposed["outcome"] = CHECK_OUTCOME_LABELS[CHECK_ANSWER_ACTIONS[change.action]]
         check = (
@@ -74,10 +76,12 @@ class CheckProposalPresenter:
             return detail_lines(proposed, CHECK_LABELS)
         if change.action is ChangeAction.ARCHIVE:
             return [f"Check: #{check.id} “{result_value(check.title)}”"]
+        reminder = await entity_reminder(session, check)
         before = {
             "title": check.title,
             "note": check.note,
             "schedule": check.schedule,
+            "remind": remind_label(reminder.lead_minutes if reminder else None),
             "outcome": CHECK_OUTCOME_LABELS[check.status],
         }
         return [
@@ -110,10 +114,12 @@ class CheckProposalPresenter:
             check = await session.get(Check, first.entity_id)
             if check is not None:
                 linked = set(await check_value_ids(session, check.id))
+                reminder = await entity_reminder(session, check)
                 current = {
                     "title": check.title,
                     "note": check.note,
                     "schedule": check.schedule,
+                    "remind": remind_label(reminder.lead_minutes) if reminder else None,
                     "status": CHECK_OUTCOME_LABELS[check.status],
                     "values": await _value_names(session, list(linked)),
                 }
@@ -123,8 +129,11 @@ class CheckProposalPresenter:
             proposed.update(
                 (k, v)
                 for k, v in change.values.items()
-                if k not in {CHECK_VALUE_REFERENCE.field, "schedule_rule"}
+                if k not in {CHECK_VALUE_REFERENCE.field, "schedule_rule", "remind"}
             )
+            if "remind" in change.values:
+                lead = change.values["remind"]
+                proposed["remind"] = None if lead is None else remind_label(lead)
             if "schedule" in change.values:
                 rule = change.values.get("schedule_rule")
             if change.action in {ChangeAction.LINK, ChangeAction.UNLINK}:
@@ -148,6 +157,7 @@ class CheckProposalPresenter:
                     ("note", "Note"),
                     ("status", "Status"),
                     ("schedule", "Schedule"),
+                    ("remind", "Remind"),
                     ("values", "Values"),
                 )
             ),

@@ -28,6 +28,8 @@ from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.proposals.api import PreparationContext, ToolPreparationError
 
 from ...constants import WEEKDAY_NAMES
+from ..cards.model import Card
+from ..checks.model import Check
 from ..reminders.api import (
     BOUNDS_LINES,
     BOUNDS_NEED_REPEAT,
@@ -46,12 +48,16 @@ from ..reminders.api import (
 )
 from .api import (
     ACTION_DAILY_EXECUTIONS_MAX,
+    REMIND_NEEDS_TIME,
     SCHEDULED_RANGE_DAYS_MAX,
     ScheduleTarget,
+    clock_timing,
     get_scheduled,
+    remind_timing,
 )
-from .rules import END_OF_DAY, daily_executions
+from .rules import END_OF_DAY, daily_executions, first_slot
 
+REMIND_TIME_HINT = "Ask the user when it happens, then send schedule with that time and remind."
 ACTION_LIMIT_QUESTION = (
     f"An Action can repeat at most {ACTION_DAILY_EXECUTIONS_MAX} times a day. "
     "Make it a Check instead, or choose fewer times."
@@ -324,6 +330,26 @@ async def read_proposed_schedule(
     if question:
         raise ToolPreparationError("schedule_unclear", question, SCHEDULE_QUESTION_HINT)
     values.update(schedule=text, schedule_rule=rule)
+
+
+async def read_proposed_remind(
+    context: PreparationContext, values: dict[str, Any], item: Card | Check | None
+) -> None:
+    """Remind needs a clock still ahead: the proposed Schedule's, once it is read, or the
+    item's own."""
+    if values.get("remind") is None:
+        return
+    now = utcnow()
+    if "schedule" in values:
+        rule = values.get("schedule_rule")
+        timing = clock_timing(rule) if rule else None
+        ahead = timing is not None and (
+            timing.repeating or first_slot(rule, now, ZoneInfo(context.world.timezone)) > now
+        )
+    else:
+        ahead = item is not None and remind_timing(item, now) is not None
+    if not ahead:
+        raise ToolPreparationError("remind_needs_time", REMIND_NEEDS_TIME, REMIND_TIME_HINT)
 
 
 class ScheduledQuery(ToolInput):

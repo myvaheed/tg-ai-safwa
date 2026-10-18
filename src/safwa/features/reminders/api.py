@@ -86,10 +86,16 @@ class Schedule:
     # The last local day it fires on, and how many times it fires in all; None runs on.
     until: date_type | None = None
     total: int | None = None
+    # How long before each moment it fires: Remind's lead. Every rule here reads the moments.
+    lead_minutes: int = 0
 
     @property
     def repeating(self) -> bool:
         return self.kind is not ScheduleKind.ONCE
+
+    @property
+    def lead(self) -> timedelta:
+        return timedelta(minutes=self.lead_minutes)
 
 
 # --- parsing --------------------------------------------------------------
@@ -389,8 +395,19 @@ def next_fire(
 
     Returns None when a one-shot has already fired — the caller deletes the row — once the
     next fire falls after the last day, and for a condition, which an answer fires rather
-    than the clock.
+    than the clock. A lead fires that long before each moment, and the first fire ever is
+    for the next moment still ahead, so a lead already passed fires at once.
     """
+    lead = schedule.lead
+    moment = _next_moment(
+        schedule, previous=None if previous is None else previous + lead, now=now, tz=tz
+    )
+    return None if moment is None else moment - lead
+
+
+def _next_moment(
+    schedule: Schedule, *, previous: datetime | None, now: datetime, tz: ZoneInfo
+) -> datetime | None:
     if schedule.kind is ScheduleKind.CONDITION:
         return None
     if schedule.kind is ScheduleKind.ONCE:
@@ -418,8 +435,18 @@ def roll_forward(
     once that falls after the last day.
 
     Computed rather than iterated: a five-minute interval offline for a week would be two
-    thousand steps.  A one-shot is returned untouched — it always fires, however late.
+    thousand steps.  A one-shot is returned untouched — it always fires, however late. A lead
+    skips the moments already past, and a fire ahead of its moment moves on from that moment.
     """
+    lead = schedule.lead
+    moment = previous + lead
+    following = _roll_moment(schedule, previous=moment, now=max(now, moment), tz=tz)
+    return None if following is None else following - lead
+
+
+def _roll_moment(
+    schedule: Schedule, *, previous: datetime, now: datetime, tz: ZoneInfo
+) -> datetime | None:
     if schedule.kind is ScheduleKind.ONCE:
         return previous
 
@@ -447,13 +474,13 @@ def on_wall_clock(schedule: Schedule, moment: datetime, tz: ZoneInfo) -> bool:
     A daily, weekly or monthly schedule stores a *local* time, so moving `workspace.timezone`
     makes every stored `next_fire_at` name the wrong instant.  This is the exact test for
     that, and a no-op check when the zone has not moved.  Interval schedules are pure duration
-    and always pass.
+    and always pass. A lead is added back first: the moment is what lands on the clock.
     """
     if schedule.kind not in {ScheduleKind.DAILY, ScheduleKind.WEEKLY, ScheduleKind.MONTHLY}:
         return True
     if schedule.at_time is None:
         return True
-    local = moment.astimezone(tz)
+    local = (moment + schedule.lead).astimezone(tz)
     return local.time() == schedule.at_time and _runs_on(schedule, local.date())
 
 
@@ -540,6 +567,7 @@ def schedule_columns(schedule: Schedule) -> dict[str, Any]:
         "condition": _condition_payload(schedule.condition),
         "until": schedule.until,
         "total": schedule.total,
+        "lead_minutes": schedule.lead_minutes,
     }
 
 
@@ -564,6 +592,7 @@ def schedule_of(reminder: Any) -> Schedule:
         condition=_condition_of(reminder.condition),
         until=reminder.until,
         total=reminder.total,
+        lead_minutes=reminder.lead_minutes,
     )
 
 
@@ -620,7 +649,7 @@ def describe(schedule: Schedule, *, tz: ZoneInfo, now: datetime | None = None) -
         if schedule.anchor_at is None:
             return "once"
         moment = schedule.anchor_at.astimezone(tz)
-        return f"once, on {moment:%a %d.%m.%Y} at {moment:%H:%M}"
+        return f"once, on {moment:%a %d.%m.%Y} at {moment:%H:%M}" + _lead_suffix(schedule)
 
     if schedule.kind is ScheduleKind.INTERVAL:
         text = f"every {_humanize_interval(schedule.interval_minutes or 0)}"
@@ -632,7 +661,7 @@ def describe(schedule: Schedule, *, tz: ZoneInfo, now: datetime | None = None) -
     else:
         clock = f"{schedule.at_time:%H:%M}" if schedule.at_time else "?"
         text = f"{repeat_days(schedule)} at {clock}"
-    text += _start_suffix(schedule, tz, now)
+    text += _lead_suffix(schedule) + _start_suffix(schedule, tz, now)
     if schedule.until is not None:
         text += f", until {schedule.until:%d.%m.%Y}"
     return text + (f", {schedule.total} times" if schedule.total else "")
@@ -660,6 +689,15 @@ def _start_suffix(schedule: Schedule, tz: ZoneInfo, now: datetime | None) -> str
     if schedule.anchor_at is None or now is None or schedule.anchor_at <= now:
         return ""
     return f", from {schedule.anchor_at.astimezone(tz):%d.%m.%Y %H:%M}"
+
+
+def _lead_suffix(schedule: Schedule) -> str:
+    return f", {lead_words(schedule.lead_minutes)} before" if schedule.lead_minutes else ""
+
+
+def lead_words(minutes: int) -> str:
+    """How long before a moment, as the screens say it: 15 minutes, 1 hour, 1 day."""
+    return {1: "1 minute", 60: "1 hour", MINUTES_PER_DAY: "1 day"}.get(minutes) or _humanize_interval(minutes)
 
 
 def _humanize_interval(minutes: int) -> str:

@@ -60,6 +60,8 @@ class Firing:
     due_at: datetime
     # The last fire of a repeat that ends; once written down the Reminder deletes itself.
     last: bool = False
+    # How long before its moment it fires; how late it is counts from the moment.
+    lead_minutes: int = 0
 
 
 async def due_reminders(
@@ -114,6 +116,7 @@ async def prepare(
                 due_at=reminder.next_fire_at,
                 last=(schedule.total is not None and reminder.fired + 1 >= schedule.total)
                 or roll_forward(schedule, previous=reminder.next_fire_at, now=now, tz=tz) is None,
+                lead_minutes=schedule.lead_minutes,
             )
         )
     return firings
@@ -232,7 +235,7 @@ def format_cue(firings: list[Firing], *, now: datetime) -> str:
 
 
 def _lateness(firing: Firing, *, now: datetime) -> str:
-    minutes = int((now - firing.due_at).total_seconds() // 60)
+    minutes = int((now - firing.due_at).total_seconds() // 60) - firing.lead_minutes
     if minutes < 15:
         return ""
     if minutes < 120:

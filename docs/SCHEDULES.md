@@ -282,14 +282,44 @@ A Schedule or Deadline with a clock can remind. `remind_timing` gives the Remind
 open item has: a `fixed` rule that is not all-day, or a Deadline with a time, with `anchor_at`
 set to the open instance's moment, and nothing for a one-time moment already past. While it
 has one, or Remind is on, the "⏱ Schedule" or "⏰ Deadline" button opens a screen with how the
-Schedule was read, `🔔 Remind: Off|On`, `✏️ Edit` and `↩️ Back`; otherwise it opens the editor
-at once. Every kind is offered it alike: Action, Goal (including nested Goals) and scheduled Check.
+Schedule was read, `🔔 Remind: Off`, `At the time` or how long before, `✏️ Edit` and `↩️ Back`;
+otherwise it opens the editor at once. Every kind is offered it alike: Action, Goal (including
+nested Goals) and scheduled Check.
 
-Remind On is an ordinary Reminder, fired by the Reminders' tick, with the words of
-`REMIND_TEXT` naming the item by `#id` and title. Its `item_type` and `item_id` name the item.
-The link is on the Reminder because SQLite hands a deleted row's id out again: a link on the
-Card would outlive a Reminder deleted from `/reminders` or by its one-time firing, and point at
-someone else's. Remind Off deletes the Reminder, and deleting it anywhere turns Remind off.
+Remind opens its choices: Off, At the time, 15 minutes, 1 hour and 1 day before
+(`REMIND_LEADS`), and `✏️ Other` for the minutes typed, 0 to `REMIND_LEAD_MAX_MINUTES`. A choice
+is an ordinary Reminder, fired by the Reminders' tick, with the words of `REMIND_TEXT` naming the
+item by `#id` and title, firing `lead_minutes` before each of the Schedule's moments; a choice on
+a Reminder already made reschedules it by the new lead. Its `item_type` and `item_id` name the
+item. The link is on the Reminder because SQLite hands a deleted row's id out again: a link on
+the Card would outlive a Reminder deleted from `/reminders` or by its one-time firing, and point
+at someone else's. Off deletes the Reminder, and deleting it anywhere turns Remind off.
+
+The lead is part of the Reminder's timing, never a clock moved earlier: "00:15, 30 minutes
+before" falls on the day before, and "the last day of each month at 18:00, a day before" is no
+day of the month at all, so a moved clock can say neither. `next_fire` and `roll_forward` find
+each moment as they would without a lead and take the lead off it, so midnight, a month's end,
+an interval and a change of daylight saving time are the moments' own arithmetic
+(`SCH-REMIND-028`).
+
+Safwa turns Remind on through `remind` on the `action`, `goal` and `check` tools: the minutes
+before, 0 at the time, and null on an update turns it off. `read_proposed_remind` refuses one
+whose Schedule, the proposed one or the item's own, has no clock still ahead, with
+`REMIND_NEEDS_TIME` as a retryable error the model asks the owner about. The review screen shows
+Remind beside the Schedule, and Save calls `set_remind` once the Schedule is written. Like a
+Reminder's proposal, it always takes the review screen: no auto-approval rule names `remind`
+(`SCH-REMIND-029`). The mutator's prompt says a reminder of an item's own time is `remind` on
+its tool, never a Reminder, which follows the item only as Remind does.
+
+`test_remind_phrases_live.py` measures it with the mutator and the Scheduler live, reasoning
+off, over six phrases that ask for a lead and one that does not, three runs a model. The first
+description, "'remind me 15 minutes before' is 15, 'an hour before' is 60, 'remind me' is 0",
+read 19 of 21 on Qwen3.6 35B-A3B and 12 of 21 on Qwen3.5 9B: 9B copied its 60 for "remind me
+when it is time" and turned "10 minutes before" into 600, and both models sometimes made no
+call on the Action for "remind me about my run 45 minutes before". With 0 first, no 60 to copy, and the
+prompt line, 35B read 20 of 21 and 9B 18 of 21; every 9B call read `remind` right, and its
+three misses are one Goal phrase where its `query_data` looped until the tool budget ran out
+before any call.
 
 ```mermaid
 flowchart TD
@@ -299,7 +329,7 @@ flowchart TD
     C -->|None: closed, no clock, past| D[Delete the Reminder]
     C -->|Timing| E[Point it at the open item, rewrite its words]
     E --> F{Timing changed?}
-    F -->|Yes| G[Reschedule: next fire from the new anchor]
+    F -->|Yes| G[Reschedule: next fire from the new anchor, by its lead]
     F -->|No| H[Keep its next fire]
 ```
 
@@ -307,15 +337,17 @@ flowchart TD
 a title changed, an Action finished or a Goal closed, a Check answered. A copy finished early
 moves the Reminder to the next copy, whose moment is its anchor, so it is not said for the
 appointment already done. An overdue copy keeps it: a repeating Reminder fires at each later
-moment of the rule until the copy is finished. Only a changed timing reschedules, so a rename
-never moves the next fire. Deleting an item deletes its Reminder with it (`drop_reminders`).
+moment of the rule until the copy is finished. The lead stays with the Reminder through all of
+it. Only a changed timing reschedules, so a rename never moves the next fire. Deleting an item
+deletes its Reminder with it (`drop_reminders`).
 
 ## Where it lives
 
 The `schedules` package owns the revisions, the period arithmetic in `rules.py`, the compiler,
 the Advisor read tool, Remind and one hook, `schedules.end` in `hooks.py`. Cards and Checks ask its `api.py` to change a
 source or calculate an occurrence, and its `use_cases.py` to keep Remind in step. Their
-proposal handlers read a proposed text through `read_proposed_schedule` in its `agent.py`;
+proposal handlers read a proposed text through `read_proposed_schedule`, and check a proposed
+`remind` through `read_proposed_remind`, in its `agent.py`;
 their editors compile typed text, and draw the Remind screen, through its `telegram.py`.
 Bootstrap binds the editors' compiler to the provider in `SafwaFeatures`, which Telegram
 adapters reach as `services.features`; preparation builds one on the proposal's provider.

@@ -22,7 +22,8 @@ from tg_agent_shell.proposals.api import (
 
 from ...enums import ActorType
 from ...foundation.marks import closed_repeat_refusal
-from ..schedules.agent import read_proposed_schedule
+from ..schedules.agent import read_proposed_remind, read_proposed_schedule
+from ..schedules.use_cases import set_remind
 from .model import Check, CheckOutcome
 from .references import CHECK_VALUE_REFERENCE
 from .use_cases import (
@@ -59,6 +60,7 @@ class CheckProposalHandler:
                 raise ToolPreparationError(*refusal)
         await validate_named_references(context.session, values, CHECK_VALUE_REFERENCE)
         await read_proposed_schedule(context, values, "check")
+        await read_proposed_remind(context, values, check)
         return PreparedChange(values=values, expected_version=expected_version)
 
     async def apply(self, context: ApplyContext, change: ProposalChange) -> list[int]:
@@ -73,12 +75,18 @@ class CheckProposalHandler:
                 schedule_rule=values.get("schedule_rule"),
                 actor=ActorType.AI,
             )
+            if values.get("remind") is not None:
+                await set_remind(session, created, values["remind"], actor=ActorType.AI)
             return [created.id]
         check = await session.get(Check, change.entity_id) if change.entity_id else None
         if check is None or check.version != change.expected_version:
             raise StaleStateError("A Check changed; refresh this proposal")
         if change.action is ChangeAction.UPDATE:
-            check = await update_check_fields(session, check.id, values, actor=ActorType.AI)
+            fields = {name: value for name, value in values.items() if name != "remind"}
+            if fields:
+                check = await update_check_fields(session, check.id, fields, actor=ActorType.AI)
+            if "remind" in values:
+                await set_remind(session, check, values["remind"], actor=ActorType.AI)
         elif change.action in CHECK_ANSWER_ACTIONS:
             await resolve_check(
                 session, check.id, CHECK_ANSWER_ACTIONS[change.action], actor=ActorType.AI

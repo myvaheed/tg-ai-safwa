@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 
+from ...constants import REMIND_LEAD_MAX_MINUTES
 from ...enums import ActorType
 from ..cards.model import Card
 from ..checks.model import Check
@@ -26,26 +27,47 @@ from ..reminders.use_cases import (
     reschedule_reminder,
     update_reminder_text,
 )
-from .api import entity_reminder, item_type, remind_text, remind_timing, workspace_zone
+from .api import (
+    REMIND_LEAD_RANGE,
+    REMIND_NEEDS_TIME,
+    entity_reminder,
+    item_type,
+    remind_text,
+    remind_timing,
+    workspace_zone,
+)
 
 
-async def set_remind(session: AsyncSession, entity: Card | Check, on: bool) -> None:
-    """On makes a Reminder at the Schedule's moments; off deletes it."""
+async def set_remind(
+    session: AsyncSession,
+    entity: Card | Check,
+    lead: int | None,
+    *,
+    actor: ActorType = ActorType.USER_UI,
+) -> None:
+    """A lead makes a Reminder that many minutes before each of the Schedule's moments, or
+    moves the one there by it; None deletes it."""
     reminder = await entity_reminder(session, entity)
-    if not on:
+    if lead is None:
         if reminder is not None:
-            await delete_reminder(session, reminder.id)
+            await delete_reminder(session, reminder.id, actor=actor)
         return
-    if reminder is not None:
-        return
-    timing = remind_timing(entity, utcnow())
+    if not 0 <= lead <= REMIND_LEAD_MAX_MINUTES:
+        raise DomainError(REMIND_LEAD_RANGE)
+    timing = remind_timing(entity, utcnow(), lead)
     if timing is None:
-        raise DomainError("Remind needs a Schedule with a time that is still ahead")
+        raise DomainError(REMIND_NEEDS_TIME)
+    tz = await workspace_zone(session)
+    if reminder is not None:
+        if schedule_of(reminder) != timing:
+            await reschedule_reminder(session, reminder.id, schedule=timing, tz=tz, actor=actor)
+        return
     await create_reminder(
         session,
         instruction=remind_text(entity),
         schedule=timing,
-        tz=await workspace_zone(session),
+        tz=tz,
+        actor=actor,
         item_type=item_type(type(entity)),
         item_id=entity.id,
     )
@@ -64,7 +86,7 @@ async def follow_remind(
     if reminder is None:
         return
     current = successor or entity
-    timing = remind_timing(current, utcnow())
+    timing = remind_timing(current, utcnow(), reminder.lead_minutes)
     if timing is None:
         await delete_reminder(session, reminder.id, actor=actor)
         return
