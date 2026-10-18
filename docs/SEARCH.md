@@ -6,6 +6,9 @@ repeats. One index serves both: it lives in the encrypted database file, it rank
 `ai_*` views. The shell owns the mechanism; an application chooses the model, its prompts, the
 language and what is searched.
 
+Conversation messages are not indexed or exposed through `query_data(search=…)`. The Diary
+searches saved entry bodies; it reads a known day's messages separately with `read_conversation`.
+
 The rules are AG-SEARCH-058 to AG-SEARCH-060 in
 [agents.feature](../tests/brd/tg_agent_shell/agents.feature), PR-SIMILAR-030 in
 [proposals.feature](../tests/brd/tg_agent_shell/proposals.feature), DI-FIND-025 in

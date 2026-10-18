@@ -47,7 +47,8 @@ Feature: Diary
     When Safwa answers
     Then Safwa reads the Diary itself, without handing the question to anyone
     And it can point at that day in its answer
-    And only writing to the Diary is handed over
+    And reading a saved entry stays with Safwa; questions about that day's conversation are
+      handed to the Diary instead (DI-RECALL-028)
 
   Scenario: DI-LINK-007 — What Safwa points at is the whole day, read-only
     Given 15.08.2026 reads "День с рынком.", rated 6
@@ -194,3 +195,12 @@ Feature: Diary
     Then all 7 dates up to today appear newest first (DIARY_RECENT_DAYS = 7)
     And each date opens its saved entry, or says "No entry for this day."
     And Back returns to Last 7 days, then to the Diary years
+
+  Scenario: DI-RECALL-028 — Questions about a day's conversation are answered from that conversation
+    Given the owner asks what they and Safwa talked about today, yesterday or on a named day
+    When Safwa hands the question to the Diary
+    Then the Diary reads that day's conversation in the owner's timezone and answers from it
+    And it need not read a saved Diary entry, and proposes no change
+    And no saved entry for that day does not mean that no conversation took place
+    And a day with no conversation is reported as empty
+    And searching saved Diary entries does not search messages

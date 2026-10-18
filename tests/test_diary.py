@@ -354,8 +354,8 @@ async def test_di_read_013_the_entry_and_what_was_said_are_read_apart_and_nothin
         "read_day",
         "read_conversation",
         "query_data",
-        "nothing_to_do",
     }
+    assert not adapters.definition("diary").first_call_required
     assert routed.query_runner.views == {"ai_diary"}
     assert written == {
         "date": "2026-08-22",

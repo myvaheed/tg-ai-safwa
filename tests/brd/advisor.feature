@@ -60,6 +60,7 @@ Feature: Advisor
   Scenario: AD-ASK-007 — Safwa hands over a change only when the owner asks for it
     Given the owner asks a question, asks for advice, or talks over a plan
     Then Safwa answers in words and hands nothing over to be changed
+    And a question in a specialist's area is handed to that specialist to answer
     And when a change would help, it asks whether to make it
     When the owner asks for a change, or says yes to one Safwa offered
     Then Safwa hands it to the part that makes it

@@ -385,6 +385,10 @@ new request rather than a correction to this one (`PR-EXPIRE-029`).
 
 The routing rules in `SYSTEM_PROMPT` are generated from the roster, so a subagent is routed to
 exactly when its `AgentSpec` is in `MODULES`; its `purpose` **is** the prompt line.
+Requests are routed by that purpose, including questions a specialist answers. Only changes
+require the owner's request (apart from the declared photo rule). The Diary answers questions
+about a named day's conversation with `read_conversation`; saved-entry questions stay with the
+Advisor. Compass and Retro also answer questions without changing workspace data.
 
 ### A subagent that changed nothing
 
@@ -430,9 +434,12 @@ answered "yes", routes to the same answer again.
 Where it does not reach:
 
 - A subagent that `answers_questions` is outside it: words are its expected outcome. One that
-  answered questions and changed one of many items would not be covered; that is a reason to split
-  it, not to widen the rule. Profile changes its fields and can turn onboarding off;
-  onboarding only answers questions and gives tips; compass only reads the tree and asks.
+  also changes items is outside this check for change requests too. The Diary now both recalls
+  conversations and proposes entries: a refusal to write is an ordinary answer, without
+  `nothing_to_do` or the citation check. Its `diary.read_first` hook still requires a successful
+  `read_day` before replacement words are proposed. Profile also changes its fields and can turn
+  onboarding off; onboarding only answers questions and gives tips; compass only reads the tree
+  and asks.
 - An application with nothing to cite gets a question every time, which is the safe direction.
 - It proves that the cited item exists, not that it is the one the owner meant: it makes that
   mistake visible rather than impossible.
@@ -473,7 +480,7 @@ flowchart LR
 
 | | `route` | `call_helper` |
 |---|---|---|
-| what it does | hands the turn to a subagent that **writes** | asks one that only **reads** |
+| what it does | hands the turn to a subagent that **answers or proposes changes** | asks one that only **reads** |
 | a screen | it may open one | it cannot |
 | the caller's turn | suspends | stays with the caller |
 | in the tool set | by the roster | only where a read offered it |
@@ -521,8 +528,8 @@ flowchart LR
   may not have made it yet. It stands between the answer and the chat, so it asks with no tools
   and `reasoning_effort` "none", and its verdict is one line, `done` or `missing: …`. It reads
   only a request that made a change: that is where the Advisor stops after one part of a
-  request that needs several subagents. A request that made none is the Advisor answering
-  itself, and whether the owner asked for a change is its routing call; a second model with no
+  request that needs several subagents. A request that made none may be answered by the Advisor
+  or a specialist, and whether the owner asked for a change is its routing call; a second model with no
   reasoning would only second-guess it, and a wrong `missing` there opens a screen nobody
   asked for.
 - **Every mutation tool belongs to a subagent**, never to the Advisor. `workspace_mutator` owns the workspace,
