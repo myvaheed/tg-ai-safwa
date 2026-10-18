@@ -16,6 +16,7 @@ from safwa.features.reminders.agent import REMINDER_WHEN_PROMPT, resolve_schedul
 from safwa.features.reminders.api import (
     BOUNDS_LINES,
     BOUNDS_NEED_REPEAT,
+    NEAREST_START_DAYS,
     REMINDER_CATCHUP_GRACE_MINUTES,
     UNTIL_BEFORE_FIRST,
     UNTIL_FORMS,
@@ -28,6 +29,7 @@ from safwa.features.reminders.api import (
     schedule_columns,
     schedule_from_payload,
     schedule_payload,
+    start_day,
 )
 from safwa.features.reminders.firing import LAST_FIRE, tick
 from safwa.features.reminders.model import Reminder
@@ -77,6 +79,22 @@ def test_a_start_date_without_a_year_is_the_next_one_still_ahead():
     assert schedule.anchor_at == datetime(2026, 11, 6, 18, 0, tzinfo=TZ).astimezone(UTC)
     passed = resolve(clock="09:00", day="17.10", now=NOW, tz=TZ)
     assert passed.anchor_at.astimezone(TZ).date() == date(2027, 10, 17)
+
+
+def test_a_repeats_start_without_a_year_is_the_one_nearest_today():
+    """RM-END-036 — tests/brd/reminders.feature"""
+    schedule = resolve(month_days=[15], clock="12:00", day="15.10", until="30.04", now=NOW, tz=TZ)
+    assert schedule.anchor_at.astimezone(TZ).date() == date(2026, 10, 15)
+    first = next_fire(schedule, previous=None, now=NOW, tz=TZ)
+    assert first == datetime(2026, 11, 15, 12, 0, tzinfo=TZ)
+    assert schedule.until == date(2027, 4, 30)
+    december = datetime(2026, 12, 28, 9, 0, tzinfo=TZ)
+    later = resolve(days=EVERY_DAY, clock="09:00", day="10.01", now=december, tz=TZ)
+    assert later.anchor_at.astimezone(TZ).date() == date(2027, 1, 10)
+    edge = TODAY - timedelta(days=NEAREST_START_DAYS)
+    assert start_day(f"{edge:%d.%m}", None, NOW, TZ, repeats=True) == edge
+    beyond = edge - timedelta(days=1)
+    assert start_day(f"{beyond:%d.%m}", None, NOW, TZ, repeats=True) == beyond.replace(year=2027)
 
 
 def test_how_long_counts_from_the_start_or_from_today():
@@ -132,7 +150,7 @@ async def test_the_session_reads_the_last_day_and_the_total():
     assert BOUNDS_LINES in REMINDER_WHEN_PROMPT
 
     async def complete(request):
-        arguments = {"interval_minutes": 180, "until": "Fri", "limit": 20}
+        arguments = {"interval_minutes": 180, "last_day": "Fri", "limit": 20}
         return CompletionTurn(
             content="",
             tool_calls=[ToolCall(id="1", name="set_reminder_config", arguments_json=json.dumps(arguments))],
@@ -152,8 +170,8 @@ async def test_the_session_reads_the_last_day_and_the_total():
 async def test_parameters_that_make_no_schedule_go_back_to_the_model_first():
     """RM-SCHEDULE-005 — tests/brd/reminders.feature"""
     answers = [
-        {"days": EVERY_DAY, "time": "10:00", "date": "2026-11", "until": "1 year"},
-        {"days": EVERY_DAY, "time": "10:00", "date": "01.11", "until": "1 year"},
+        {"days": EVERY_DAY, "time": "10:00", "first_day": "2026-11", "last_day": "1 year"},
+        {"days": EVERY_DAY, "time": "10:00", "first_day": "01.11", "last_day": "1 year"},
     ]
     requests = []
 

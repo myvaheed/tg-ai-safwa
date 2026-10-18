@@ -280,7 +280,10 @@ Feature: Reminders
       runs through 30.10.2026, and a month from 31.01.2027 through 28.02.2027
     And a weekday is the next such day on or after the start, and a date without a year the next
       such date
-    And a start date without a year is the next such date whose time is still ahead
+    And a one-time date without a year is the next such date whose time is still ahead
+    And a repeat's start date without a year is the one at most 183 days behind or ahead of
+      today (NEAREST_START_DAYS = 183): from 15.10 on 17.10.2026 it has begun on 15.10.2026 and
+      fires from the next time, and from 10.01 on 28.12.2026 it begins on 10.01.2027
     And the review screen and /reminders say it, "every day at 09:00, until 30.11.2026, 10 times"
     And it does not fire after its last day, nor more times than its total
     And the request of its last firing says "This is its last time." (LAST_FIRE), and it deletes

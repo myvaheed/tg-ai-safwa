@@ -170,6 +170,7 @@ Feature: One plain-language Schedule for Actions and Checks
     And once a day, or a daily quota without a count, beside weekdays reads as those weekdays, and beside a clock alone as every day
     And a weekly count beside as many weekdays, two or more, reads as those weekdays: "twice a week on Mon and Thu"
     And a monthly count beside as many days of the month, two or more, reads as those days: "twice a month on the 1st and 15th"
+    And all seven weekdays beside any other quota are the quota alone, as every day beside an interval is the interval alone by RM-SCHEDULE-003
     And any other quota beside weekdays or days of the month goes back to the model, even once a week beside
       one weekday or once a month beside one day of the month
     And a count without a period that equals the total is the total alone, and any other count
@@ -189,6 +190,7 @@ Feature: One plain-language Schedule for Actions and Checks
     Then the Scheduler reads it as 3 a week from Monday 19.10.2026 through 18.11.2026, and the screen shows "3 per week from 19.10.2026, until 18.11.2026."
     And its first instance belongs to the week of 19.10.2026, and an answer given before that day counts in that week
     And planning counts no work before that day
+    And a start without a year is the one nearest today by RM-END-036: "3 times a week from 12.10" read on 17.10.2026 has begun in the week of 12.10.2026
     And a date beside repetition after completion goes back to the Scheduler's model to repair
 
   Scenario: SCH-MONTH-027 — A Schedule can repeat on days of the month or by a monthly quota

@@ -3,8 +3,8 @@
 Pure functions over a :class:`Schedule` value.  Nothing here opens a session or talks to
 Telegram, so every branch is unit-testable without a database.
 
-Two rules decide what ``date`` and ``time`` mean, and everything else follows from them:
-``date`` is always a *start* date, never a fire clock; ``time`` is the fire clock when
+Two rules decide what ``first_day`` and ``time`` mean, and everything else follows from
+them: ``first_day`` is always a *start* day, never a fire clock; ``time`` is the fire clock when
 weekdays or days of the month are given and a start clock otherwise.
 """
 
@@ -28,24 +28,26 @@ REMINDER_MIN_INTERVAL_MINUTES = 5
 # always fires, however late.
 REMINDER_CATCHUP_GRACE_MINUTES = 120
 _WORKWEEK = ("Mon", "Tue", "Wed", "Thu", "Fri")
-BOUNDS_NEED_REPEAT = "A total or a last day needs a Schedule that repeats: drop limit and until"
-UNTIL_BEFORE_FIRST = "until is before the first time it runs: until is the last day, never the start"
-UNTIL_FORMS = "until is dd.mm.yyyy, a weekday such as Fri, or how long: 30 days, 2 weeks, 1 month, 1 year"
+BOUNDS_NEED_REPEAT = "A total or a last day needs a Schedule that repeats: drop limit and last_day"
+UNTIL_BEFORE_FIRST = "last_day is before the first time it runs: the start is first_day"
+UNTIL_FORMS = "last_day is dd.mm.yyyy, a weekday such as Fri, or how long: 30 days, 2 weeks, 1 month, 1 year"
 UNTIL_DESCRIPTION = (
     "The last day it runs on: dd.mm.yyyy or dd.mm, a weekday such as Fri, or how long from the "
     "start, such as 30 days, 2 weeks, 1 month or 1 year. Only when the text says."
 )
-# The prompt lines both timing sessions read date and until by.
-BOUNDS_LINES = """date is the first day, until the last day: 'from 2 November' is date, 'until 30 November' or 'till Friday' is until.
-How long stays words, never a date you count, and counts from today without a date: 'for a month': until=1 month.
-'from next week': date=Mon. 'from next month': date is the 1st of next month."""
+# The prompt lines both timing sessions read first_day and last_day by.
+BOUNDS_LINES = """first_day is the first day, last_day the last day: 'from 3 December' is first_day, 'until 25 December' or 'till Friday' is last_day.
+How long stays words, never a date you count, and counts from today without first_day: 'for a month': last_day=1 month.
+'from next week': first_day=Mon. 'from next month': first_day is the 1st of next month."""
 MONTH_DAYS_DESCRIPTION = "Days of the month it runs on, 1 to 31; 31 is the last day of every month."
 # A day of the month past the month's end is its last day.
 LAST_MONTH_DAY = 31
 # A day of the month comes round within 31 days, a weekday within 7.
 _LONGEST_GAP_DAYS = 31
 _RELATIVE_DAYS = {"today": 0, "tomorrow": 1}
-# How long ``until`` may say, in days or in calendar months.
+# A repeat's start without a year lies at most this many days behind or ahead of today.
+NEAREST_START_DAYS = 183
+# How long ``last_day`` may say, in days or in calendar months.
 _UNTIL_DAYS = {"day": 1, "week": 7}
 _UNTIL_MONTHS = {"month": 1, "year": 12}
 
@@ -150,14 +152,15 @@ def resolve(
 ) -> Schedule:
     """Turn the setup session's parameters into a schedule, or say why they do not work.
 
-    ``clock`` and ``day`` are the ``time`` and ``date`` tool parameters, renamed here only
-    because both shadow a stdlib name. ``in_minutes`` is a moment counted from ``now`` here,
+    ``clock``, ``day`` and ``until`` take the ``time``, ``first_day`` and ``last_day`` tool
+    parameters. ``in_minutes`` is a moment counted from ``now`` here,
     so the model never adds minutes to a clock. ``until`` and ``limit`` end a repeat: on its
     last day, and after that many fires.
     """
     weekdays = _normalize_weekdays(days)
     at_time = parse_clock(clock) if clock else None
-    on_date = start_day(day, at_time, now, tz) if day else None
+    repeats = bool(weekdays or month_days or interval_minutes)
+    on_date = start_day(day, at_time, now, tz, repeats=repeats) if day else None
     windows = tuple(parse_window(item) for item in (quiet_windows or ()))
     schedule = _timing(
         weekdays,
@@ -195,7 +198,7 @@ def _timing(
     if in_minutes is not None:
         if weekdays or month_days or at_time or on_date or interval_minutes is not None or windows:
             raise ScheduleError(
-                "in_minutes is one moment from now: give no days, month_days, time, date or interval"
+                "in_minutes is one moment from now: give no days, month_days, time, first_day or interval"
             )
         moment = (now + timedelta(minutes=in_minutes)).replace(second=0, microsecond=0)
         return Schedule(kind=ScheduleKind.ONCE, at_time=moment.astimezone(tz).time(), anchor_at=moment)
@@ -212,7 +215,7 @@ def _timing(
     if month_days and interval_minutes is not None:
         raise ScheduleError("month_days fire at a time: give time instead of interval_minutes")
     if on_date is not None and at_time is None:
-        raise ScheduleError("A date needs an hour: give time as HH:MM as well")
+        raise ScheduleError("first_day needs an hour: give time as HH:MM as well")
 
     anchor = _combine(on_date, at_time, tz) if on_date is not None and at_time else None
 
@@ -278,15 +281,22 @@ def parse_phrase(raw: str, *, now: datetime, tz: ZoneInfo) -> Schedule:
     return resolve(days=days or None, clock=clock, day=day, now=now, tz=tz)
 
 
-def start_day(raw: str, at_time: time | None, now: datetime, tz: ZoneInfo) -> date_type:
+def start_day(
+    raw: str, at_time: time | None, now: datetime, tz: ZoneInfo, *, repeats: bool = False
+) -> date_type:
     """A dd.mm.yyyy date; today or tomorrow; dd.mm, or a weekday name, for the next such day
-    whose clock is still ahead, so the model never counts days or picks the year."""
+    whose clock is still ahead, so the model never counts days or picks the year.
+
+    A repeat's dd.mm is the one nearest today instead: one a few days past has begun.
+    """
     today = now.astimezone(tz).date()
     if raw.strip().lower() in _RELATIVE_DAYS:
         return today + timedelta(days=_RELATIVE_DAYS[raw.strip().lower()])
     name = _weekday(raw)
     if name is None and raw.strip().count(".") != 1:
         return parse_day(raw)
+    if name is None and repeats:
+        return _nearest_day_month(raw, today)
     candidate = _on_or_after(today, name) if name else _day_month(raw, today)
     if at_time is not None and _combine(candidate, at_time, tz) <= now:
         candidate = (
@@ -324,6 +334,16 @@ def _day_month(raw: str, start: date_type) -> date_type:
     """dd.mm on or after the start."""
     day = parse_day(f"{raw.strip()}.{start.year}")
     return day if day >= start else day.replace(year=day.year + 1)
+
+
+def _nearest_day_month(raw: str, today: date_type) -> date_type:
+    """dd.mm in the year that puts it at most NEAREST_START_DAYS from today."""
+    day = parse_day(f"{raw.strip()}.{today.year}")
+    if (day - today).days > NEAREST_START_DAYS:
+        return _months_after(day, -12)
+    if (today - day).days > NEAREST_START_DAYS:
+        return _months_after(day, 12)
+    return day
 
 
 def _weekday(raw: str) -> str | None:

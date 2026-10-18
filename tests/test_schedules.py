@@ -777,7 +777,7 @@ async def test_a_clock_alone_never_makes_a_one_time_appointment():
     assert question is None and rule["timing"]["schedule_kind"] == "daily"
     assert rule_summary(rule, tz) == "Every day at 20:00."
     monday = datetime(2026, 10, 5, 10, tzinfo=tz).astimezone(UTC)
-    provider, _ = _answering("set_schedule_config", {"date": "07.10.2026", "time": "15:00"})
+    provider, _ = _answering("set_schedule_config", {"first_day": "07.10.2026", "time": "15:00"})
     once, question = await ScheduleCompiler(provider).compile(
         "this Wednesday at 15:00", monday, tz, "action"
     )
@@ -803,7 +803,7 @@ async def test_a_schedule_without_a_clock_is_an_appointment_for_its_whole_day(
     rule, question = await ScheduleCompiler(provider).compile("every Monday", noon, tz, "action")
     assert question is None and rule["all_day"] is True
     assert rule_summary(rule, tz) == "Every Mon, any time that day."
-    provider, _ = _answering("set_schedule_config", {"date": "05.10.2026"})
+    provider, _ = _answering("set_schedule_config", {"first_day": "05.10.2026"})
     once, question = await ScheduleCompiler(provider).compile("today", noon, tz, "action")
     assert question is None and rule_summary(once, tz) == "On Mon 05.10.2026, any time that day."
 

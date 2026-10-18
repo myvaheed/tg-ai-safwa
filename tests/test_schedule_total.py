@@ -71,7 +71,7 @@ async def test_the_scheduler_reads_a_total_beside_the_repetition():
 
 async def test_a_total_on_a_one_time_schedule_goes_back_to_repair():
     """SCH-TOTAL-021 — tests/brd/schedules.feature"""
-    once = {"date": "20.10.2099", "time": "15:00"}
+    once = {"first_day": "20.10.2099", "time": "15:00"}
     provider, requests = scripted({**once, "limit": 3}, once)
     rule, question = await ScheduleCompiler(provider).compile(
         "on 20 October 2099 at 15:00", datetime.now(UTC), TZ, "check"

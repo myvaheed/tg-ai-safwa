@@ -94,7 +94,7 @@ async def test_the_session_reads_days_of_the_month():
         in REMINDER_WHEN_PROMPT
     )
     provider, _ = answering(
-        "set_reminder_config", {"month_days": [15, 1], "time": "09:00", "until": "31.12"}
+        "set_reminder_config", {"month_days": [15, 1], "time": "09:00", "last_day": "31.12"}
     )
     schedule = await resolve_schedule(
         provider,
@@ -210,7 +210,7 @@ async def test_startup_works_it_out_again_after_a_timezone_move(sessions):
         ({"days": ["Mon"], "month_days": [1], "clock": "09:00"}, "Give days or month_days, not both"),
         ({"month_days": [1], "interval_minutes": 120}, "give time instead of interval_minutes"),
         ({"month_days": [1]}, "month_days need a time"),
-        ({"month_days": [1], "in_minutes": 30}, "give no days, month_days, time, date or interval"),
+        ({"month_days": [1], "in_minutes": 30}, "give no days, month_days, time, first_day or interval"),
     ],
 )
 def test_days_of_the_month_that_make_no_schedule_are_refused(kwargs, message):

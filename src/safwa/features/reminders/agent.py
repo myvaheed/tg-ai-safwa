@@ -76,16 +76,15 @@ class ReminderConfigInput(ToolInput):
             "when the schedule starts."
         ),
     )
-    date: str | None = Field(
+    first_day: str | None = Field(
         default=None,
         description=(
             "Local calendar date dd.mm.yyyy or dd.mm, today, tomorrow, or a weekday such as Thu "
-            "for the next one. "
-            "Always the START date when the schedule repeats, never its last day, and the date "
-            "itself when it does not. Needs time as well."
+            "for the next one: the day when it fires once, the first day when it repeats. "
+            "Needs time as well."
         ),
     )
-    until: str | None = Field(default=None, description=UNTIL_DESCRIPTION)
+    last_day: str | None = Field(default=None, description=UNTIL_DESCRIPTION)
     interval_minutes: PositiveInt | None = Field(
         default=None, description="Repeat every N minutes."
     )
@@ -143,18 +142,19 @@ REMINDER_WHEN_PROMPT = f"""Read when one Reminder fires. End with one call: set_
 A Reminder fires at a clock time, or on answers of Checks or Actions.
 Clock time, set_reminder_config:
 'every day at 8', 'every morning at 8': days=[Mon, Tue, Wed, Thu, Fri, Sat, Sun], time=08:00.
+'every evening at 19': days=[Mon, Tue, Wed, Thu, Fri, Sat, Sun], time=19:00.
 'every weekday at 8am': days=[Mon, Tue, Wed, Thu, Fri], time=08:00.
 'every Monday at 9:30', 'on Mondays at 9:30': days=[Mon], time=09:30.
+'on Monday at 9:30', without every: first_day=Mon, time=09:30. It fires once.
 'on the 5th and 20th of each month at 9': month_days=[5, 20], time=09:00.
 'on the last day of each month at 21': month_days=[31], time=21:00.
-'tomorrow at 15:00': date=tomorrow, time=15:00. 'on 20 October at 15:00': date=20.10, time=15:00.
-'on Thursday at 10': date=Thu, time=10:00. It fires once.
+'tomorrow at 15:00': first_day=tomorrow, time=15:00. 'on 20 October at 15:00': first_day=20.10, time=15:00.
 'in 90 minutes', 'in 2 hours': in_minutes=90, in_minutes=120. It fires once.
 'every 2 hours': interval_minutes=120.
-'every weekday at 8 until 15 December': days=[Mon, Tue, Wed, Thu, Fri], time=08:00, until=15.12.
-'every 2 hours until Sunday': interval_minutes=120, until=Sun.
-'every day at 8 for 3 weeks': days=[Mon, Tue, Wed, Thu, Fri, Sat, Sun], time=08:00, until=3 weeks.
-'every Friday at 18 from 6 November for 2 months': days=[Fri], time=18:00, date=06.11, until=2 months.
+'every weekday at 8 until 15 December': days=[Mon, Tue, Wed, Thu, Fri], time=08:00, last_day=15.12.
+'every 2 hours until Sunday': interval_minutes=120, last_day=Sun.
+'every day at 8 for 3 weeks': days=[Mon, Tue, Wed, Thu, Fri, Sat, Sun], time=08:00, last_day=3 weeks.
+'every Friday at 18 from 6 November for 2 months': days=[Fri], time=18:00, first_day=06.11, last_day=2 months.
 'every day at 9, 10 times': days=[Mon, Tue, Wed, Thu, Fri, Sat, Sun], time=09:00, limit=10.
 {BOUNDS_LINES}
 Resolve relative dates against the current time. Never invent a time.
@@ -260,11 +260,11 @@ async def resolve_schedule(
                     days=self.days,
                     month_days=self.month_days,
                     clock=self.time,
-                    day=self.date,
+                    day=self.first_day,
                     interval_minutes=self.interval_minutes,
                     in_minutes=self.in_minutes,
                     quiet_windows=self.quiet_windows,
-                    until=self.until,
+                    until=self.last_day,
                     limit=self.limit,
                     now=now,
                     tz=tz,

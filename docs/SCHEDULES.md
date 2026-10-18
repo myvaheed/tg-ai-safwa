@@ -53,14 +53,14 @@ Small models often read such text twice over, as once a day and as every weekday
 Once a day beside weekdays or a clock is dropped in code, so the days are the reading and no
 repair round is spent (`SCH-FORM-024`). So is a weekly count beside as many named weekdays,
 two or more: "twice a week on Mon and Thu", and a monthly count beside as many days of the
-month: "twice a month on the 1st and 15th". Any other quota beside weekdays or days of the
-month goes back to the model, even once a week beside one weekday or once a month beside one
-day: for "once a week" a model makes up Monday, and the code cannot tell a day it made up from
-one the text names. A count without a period that equals
-the total is the total alone. Arithmetic stays in code: "in 30 minutes" arrives as
-`in_minutes`, "tomorrow" and "on Thursday at 10" as words in `date`, "for a month" as `until`,
-and the code counts the day and the moment; a date may come without its year, and the code
-picks it. A small model adding minutes to a clock gets the sum wrong, to avoid counting days
+month: "twice a month on the 1st and 15th". All seven weekdays beside any other quota name no
+days and are dropped, as they are beside an interval. Any other quota beside weekdays or days
+of the month goes back to the model, even once a week beside one weekday or once a month beside
+one day: for "once a week" a model makes up Monday, and the code cannot tell a day it made up
+from one the text names. A count without a period that equals the total is the total alone.
+Arithmetic stays in code: "in 30 minutes" arrives as `in_minutes`, "tomorrow" and "on Thursday
+at 10" as words in `first_day`, "for a month" as `last_day`, and the code counts the day and the
+moment; a date may come without its year, and the code picks it. A small model adding minutes to a clock gets the sum wrong, to avoid counting days
 to a weekday it reads "on Thursday" as every Thursday, and Qwen3.5 9B given an example of a
 weekday as the date wrote Mon for "tomorrow". A Reminder's setup session reads its
 timing through the same `resolve`, so all of this holds there too; its terminal resolves the
@@ -80,8 +80,20 @@ monthly quota, over 48 phrases, three runs each, 35B-A3B read 47, 48 and 48, and
 45: 9B also takes the 15th of this month as the start of "15 числа каждого месяца в 12:00 по 30
 апреля" in two runs of three. The one 35B-A3B miss, "в течение двух недель каждый вечер в
 21:00" read as unclear, missed 3 times in 10 before days of the month and once in 10 after.
-The example lines name other days and counts than the measured phrases, so a pass is a
-reading, not a copy.
+
+The bounds are `first_day` and `last_day` because a field named `date` takes every named day.
+With `date` and `until`, 9B read "каждый день в 9 до 30 ноября" with 30 November as the start
+in 10 runs of 10 once no example line named 30 November, and with `date` and `last_day` in 10 of
+10 as well; with `first_day` it read the last day in 10 of 10. `first_day` costs two readings
+the code takes back. 9B reads "15 числа каждого месяца в 12:00 по 30 апреля" as a range from the
+15th of this month, which the nearest start leaves begun, and adds all seven weekdays to
+"3 раза в неделю с понедельника в течение месяца", which the code drops. An every-evening
+example took 35B-A3B from 6 to 10 of 10 on "в течение двух недель каждый вечер в 21:00". Over
+the 48 phrases, three runs each, 35B-A3B read 48, 47 and 48, and 9B 47, 46 and 47. 9B still
+reads "в четверг в 10" in a Reminder as every Thursday in nearly every run, whether the prompt
+shows that example once, as a pair beside "on Mondays", or `days` as weekdays it repeats on; the
+Scheduler reads the same phrase. The example lines name other days and counts than the measured
+phrases, so a pass is a reading, not a copy.
 
 ## Rules
 
@@ -109,13 +121,16 @@ one-time appointment refuses a total back to the model, and a Deadline has none.
 Any repeating form may also carry a last day, `"until": "2026-11-18"`: "every Monday until 30
 November", "every day at 21:00 for 30 days" (`SCH-END-025`). It lives on the rule, never inside
 `timing`, so quotas, appointments and repetition after completion read it in one place. The model
-gives `until` as a date, a weekday or how long, and `parse_until` in Reminders works out the
+gives `last_day` as a date, a weekday or how long, and `parse_until` in Reminders works out the
 inclusive day: how long counts from the start, a month from 19.10 runs through 18.11, and one
 from 31.01 through 28.02. A slot after it opens no successor and records `schedule.ended` with the
 reason `last_day`; an instance already open stays open until it is answered. Planning clips its
-windows at the end of that day. A quota may start later, `"start": "2026-10-19"`, from `date`
+windows at the end of that day. A quota may start later, `"start": "2026-10-19"`, from `first_day`
 beside `period` ("3 times a week from Monday"): its first instance, every answer before that
-day and planning all begin at that period (`SCH-START-026`). Repetition after completion has no
+day and planning all begin at that period (`SCH-START-026`). A repeat's start without a year,
+for a quota or an appointment, is the one at most `NEAREST_START_DAYS` (183) days behind or
+ahead of today, so one a few days past has begun and runs from now; a one-time date without a
+year is the next one still ahead (`RM-END-036`). Repetition after completion has no
 start, and a date beside it goes back to the model.
 
 Starting again is a Schedule written on the last instance of a series with nothing open

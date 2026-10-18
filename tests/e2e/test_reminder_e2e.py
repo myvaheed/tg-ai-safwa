@@ -406,7 +406,7 @@ async def test_rm_unclear_028_a_time_no_schedule_can_keep_gets_the_time_forms(e2
         unclear_script(
             # The reason goes back to the model each time, and to the owner once the prose
             # before them and these have spent every repair round.
-            *[turn(("set_reminder_config", {"date": "20.10.2099"}), prefix="setup")]
+            *[turn(("set_reminder_config", {"first_day": "20.10.2099"}), prefix="setup")]
             * MINI_SESSION_REPAIR_ROUNDS,
             when="on 20 October 2099",
         )

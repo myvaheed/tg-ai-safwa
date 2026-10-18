@@ -74,8 +74,8 @@ def today() -> datetime:
 
 async def test_the_scheduler_reads_a_last_day():
     """SCH-END-025 — tests/brd/schedules.feature"""
-    assert "'every Monday until 15 December': days=[Mon], until=15.12." in SCHEDULE_PARSER_PROMPT
-    provider, _ = scripted({"days": EVERY_DAY, "time": "21:00", "until": "30 days"})
+    assert "'every Monday until 15 December': days=[Mon], last_day=15.12." in SCHEDULE_PARSER_PROMPT
+    provider, _ = scripted({"days": EVERY_DAY, "time": "21:00", "last_day": "30 days"})
     rule, question = await ScheduleCompiler(provider).compile(
         "every day at 21:00 for 30 days", SUBMITTED, TZ, "check"
     )
@@ -83,15 +83,15 @@ async def test_the_scheduler_reads_a_last_day():
     assert schedule_from_payload(rule["timing"]).until is None
     assert rule_summary(rule, TZ) == "Every day at 21:00, until 15.11.2026."
 
-    provider, _ = scripted({"period": "day", "count": 2, "until": "1 week"})
+    provider, _ = scripted({"period": "day", "count": 2, "last_day": "1 week"})
     rule, _ = await ScheduleCompiler(provider).compile("twice a day for a week", SUBMITTED, TZ, "check")
     assert rule == {"kind": "quota", "period": "day", "count": 2, "until": "2026-10-23"}
 
 
 async def test_a_last_day_on_a_one_time_schedule_goes_back_to_repair():
     """SCH-END-025 — tests/brd/schedules.feature"""
-    once = {"date": "20.10.2026", "time": "15:00"}
-    provider, requests = scripted({**once, "until": "Fri"}, once)
+    once = {"first_day": "20.10.2026", "time": "15:00"}
+    provider, requests = scripted({**once, "last_day": "Fri"}, once)
     rule, question = await ScheduleCompiler(provider).compile(
         "on 20 October at 15:00", SUBMITTED, TZ, "check"
     )
@@ -101,7 +101,7 @@ async def test_a_last_day_on_a_one_time_schedule_goes_back_to_repair():
 
 async def test_a_last_day_before_its_first_time_goes_back_to_repair():
     """SCH-END-025 — tests/brd/schedules.feature"""
-    provider, requests = scripted({"days": ["Mon"], "until": "Sat"}, {"days": ["Mon"]})
+    provider, requests = scripted({"days": ["Mon"], "last_day": "Sat"}, {"days": ["Mon"]})
     rule, question = await ScheduleCompiler(provider).compile(
         "every Monday until Saturday", SUBMITTED, TZ, "check"
     )
@@ -195,10 +195,10 @@ async def test_planning_counts_no_work_before_a_quota_starts(sessions):
 async def test_the_scheduler_reads_a_quota_from_a_later_day():
     """SCH-START-026 — tests/brd/schedules.feature"""
     assert (
-        "'twice a week from Wednesday for 2 months': period=week, count=2, date=Wed, until=2 months."
-        in SCHEDULE_PARSER_PROMPT
+        "'twice a week from Wednesday for 2 months': period=week, count=2, first_day=Wed, "
+        "last_day=2 months." in SCHEDULE_PARSER_PROMPT
     )
-    provider, _ = scripted({"period": "week", "count": 3, "date": "Mon", "until": "1 month"})
+    provider, _ = scripted({"period": "week", "count": 3, "first_day": "Mon", "last_day": "1 month"})
     rule, question = await ScheduleCompiler(provider).compile(
         "3 times a week from Monday for a month", SUBMITTED, TZ, "check"
     )
@@ -208,10 +208,33 @@ async def test_the_scheduler_reads_a_quota_from_a_later_day():
     assert rule_summary(rule, TZ) == "3 per week from 19.10.2026, until 18.11.2026."
 
 
+async def test_a_quota_start_without_a_year_is_the_one_nearest_today():
+    """SCH-START-026 — tests/brd/schedules.feature"""
+    provider, _ = scripted({"period": "week", "count": 3, "first_day": "12.10"})
+    rule, question = await ScheduleCompiler(provider).compile(
+        "3 times a week from 12.10", SUBMITTED, TZ, "check"
+    )
+    assert question is None and rule["start"] == "2026-10-12"
+
+
+async def test_all_seven_weekdays_beside_a_quota_are_the_quota_alone():
+    """SCH-FORM-024 — tests/brd/schedules.feature"""
+    provider, requests = scripted(
+        {"period": "week", "count": 3, "days": EVERY_DAY, "first_day": "Mon", "last_day": "1 month"}
+    )
+    rule, question = await ScheduleCompiler(provider).compile(
+        "3 times a week from Monday for a month", SUBMITTED, TZ, "check"
+    )
+    assert question is None and len(requests) == 1
+    assert rule == {
+        "kind": "quota", "period": "week", "count": 3, "start": "2026-10-19", "until": "2026-11-18",
+    }
+
+
 async def test_a_date_beside_repetition_after_completion_goes_back_to_repair():
     """SCH-START-026 — tests/brd/schedules.feature"""
     provider, requests = scripted(
-        {"after_completion": True, "date": "Mon"}, {"after_completion": True}
+        {"after_completion": True, "first_day": "Mon"}, {"after_completion": True}
     )
     rule, _ = await ScheduleCompiler(provider).compile(
         "after I finish it, from Monday", SUBMITTED, TZ, "check"
