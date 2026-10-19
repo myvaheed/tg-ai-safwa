@@ -260,7 +260,8 @@ async def test_a_proposal_screen_lists_its_fields_behind_save_and_discard(e2e_ha
 
     screen = message.rendered[-1]
     assert "<i>Title:</i> <s>Release VrWalk</s> <b>Ship VrWalk</b>" in screen
-    assert message.buttons() == ["✅ Update", "🗑 Discard"]
+    # The title is a field its feature lets the owner set, so Edit stands above them.
+    assert message.buttons() == ["✏️ Edit", "✅ Update", "🗑 Discard"]
 
 
 async def test_a_proposal_holding_two_changes_lists_both_on_one_screen(e2e_harness):
@@ -290,4 +291,4 @@ async def test_a_proposal_holding_two_changes_lists_both_on_one_screen(e2e_harne
     assert "<i>Title:</i> <s>Release VrWalk</s> <b>Ship VrWalk</b>" in screen
     assert "<i>Tags:</i> <b>VrWalk</b>" in screen
     assert "→" not in screen
-    assert message.buttons() == ["✅ Update", "🗑 Discard"]
+    assert message.buttons() == ["✏️ Edit", "✅ Update", "🗑 Discard"]

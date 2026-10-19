@@ -253,3 +253,11 @@
       in pages of 25 (CHECK_LIST_LIMIT = 25), with Refresh and Back
     And at most 5 Checks offer no Others link
     And a Value no Check carries shows a dash under "Linked Checks:", with no link
+
+  Scenario: VL-EDIT-030 — A Value proposal is edited with the Value's own controls
+    Given Safwa proposes to create or change a Value
+    When the owner presses "✏️ Edit" on its review screen
+    Then each field the proposal sets has the button the Value's own screen gives it: "✏️ Name"
+      and "📝 Description"
+    And each asks for the words the Value's own screen asks for, and refuses what it refuses
+    And a Value's place has no button

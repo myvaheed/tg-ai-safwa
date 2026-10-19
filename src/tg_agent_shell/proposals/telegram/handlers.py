@@ -1,4 +1,4 @@
-"""Save, Discard, and the second confirmation a destructive change needs.
+"""Save, Discard, the second confirmation a destructive change needs, and Edit.
 
 A Save on a screen a suspended session waits on is kept, and written with the rest of its
 queue once the queue ends; a proposal nobody waits on is written at once. A failed decision
@@ -28,6 +28,7 @@ from ..model import BatchDecision
 from ..render import proposal_outcome_text
 from ..use_cases import approve_proposal
 from .answer import continue_agent_approval
+from .edit import EDIT_ACTIONS
 from .screens import render_proposal
 
 logger = logging.getLogger(__name__)
@@ -206,5 +207,6 @@ PROPOSAL_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
         "proposal_approve": _on_approve,
         "proposal_delete_confirm": _on_delete_confirm,
         "proposal_reject": _on_reject,
+        **EDIT_ACTIONS,
     }.items()
 }

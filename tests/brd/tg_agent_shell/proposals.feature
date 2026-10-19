@@ -27,8 +27,9 @@ Feature: Proposals
     When the owner looks at it
     Then its heading says what Save does and to which item: "➕ Create Action", "✏️ Update Tag",
       "📦 Archive Check" or "🗑 Delete Reminder"
-    And it carries exactly two buttons: Save, named for what it does — "✅ Create", "✅ Update",
-      "✅ Archive" or "✅ Delete" — and "🗑 Discard"
+    And it carries Save, named for what it does — "✅ Create", "✅ Update", "✅ Archive" or
+      "✅ Delete" — and "🗑 Discard" beside it, with "✏️ Edit" above them only when PR-EDIT-033
+      offers a field
     When the proposal creates the item, or archives or deletes it
     Then the screen shows the item as it will be, or as it is, all in plain words
     And a field that is empty, or that a new item takes by default, is not shown
@@ -281,3 +282,68 @@ Feature: Proposals
     Then the item reads as it does in Safwa's answers, with its emoji and its whole title
     And it is not a link
     And a citation of an item that no longer exists keeps its words
+
+  Scenario: PR-EDIT-033 — Edit offers only the fields the proposal sets, each with its item's own control
+    Given Safwa proposes to give the Action "Run" an estimate of 5 Effort Points
+    When its review screen is drawn
+    Then "✏️ Edit" stands above Save and Discard
+    When the owner presses it
+    Then the review stays in place, and under it there is one button, "🔢 Effort", then "↩️ Back"
+    When the owner presses "🔢 Effort"
+    Then the same choices the Action's own screen offers for Effort take the review's place, 5 ticked
+    And a field offers words to type, one choice to pick or several to tick, the way the item's
+      own screen offers it
+    And a field the proposal does not set has no button, and neither has a field its feature does
+      not let the owner set by hand
+    When Safwa proposes instead to link the Value "Health" to an Action that already carries "Calm"
+    Then Edit offers "💎 Values", listing every Value but "Calm", with "Health" ticked
+    And a proposal to unlink lists only the Values the Action carries
+    And whatever the proposal, an item is ticked when the proposal names it
+    When nothing the proposal sets is a field its feature offers — an archive, a delete, or an
+      item whose feature offers none
+    Then its screen has no "✏️ Edit"
+    And a field that two changes of one proposal both set has no button
+
+  Scenario: PR-EDIT-034 — The owner's value is checked the way Safwa's own would be
+    Given the owner pressed a field under Edit
+    When they pick a value, or type one
+    Then the proposal is checked again as if Safwa had sent it with that value, against the
+      workspace as it is now
+    And the review comes back in place of the field, marked by PR-SCREEN-003 from the item as it is
+      to the item as Save would leave it
+    And under its heading it names each field the owner set, as "✍️ Edited by you: 🔢 Effort"
+    And nothing is written before the owner presses Save
+    When the check refuses the value
+    Then the proposal stays as it was, and the reason is on the screen
+    When the field takes several items
+    Then each tap only moves a tick, and "↩️ Back" carries what is ticked into the proposal
+    When the owner presses "↩️ Back" on a field that takes words or one choice
+    Then the field is left as it was and Edit's buttons come back
+    When the owner presses "↩️ Back" under Edit
+    Then the review comes back with Save and Discard
+
+  Scenario: PR-EDIT-035 — Editing a proposal keeps its review open
+    Given the owner is editing a proposal under Edit
+    Then every screen of it is drawn in place of the review, and the review stays the last
+      message in the chat
+    When they send the words a field asks for
+    Then those words are the field's value, they leave the chat, and the review is not interrupted
+    When they write anything while a field's choices are on screen
+    Then the review is interrupted by PR-INTERRUPT-017
+    And a review being edited closes after 30 minutes without an answer by PR-EXPIRE-029, counted
+      from when the review was last drawn (PROPOSAL_REVIEW_MINUTES)
+    When the review closed while a field waited for words, or Safwa restarted
+    Then the words the owner sends next are their next request, not that field's value
+
+  Scenario: PR-EDIT-036 — Safwa is told what the owner changed before saving
+    Given Safwa proposed 5 Effort Points for the Action "Run"
+    And the owner set them to 3 under Edit and saved the proposal
+    When Safwa carries on with the request
+    Then it is told the proposal was saved with the owner's change: the field, what it proposed
+      and what was saved
+    And everything it reads about the saved change says 3, as does the line the chat keeps
+    And it is told to report what was saved, and never to propose its own value again
+    When the owner sets a field back to what Safwa proposed
+    Then nothing about that field is reported as changed
+    When the owner discards a proposal they edited
+    Then Safwa is told it was discarded, by PR-RESULT-011

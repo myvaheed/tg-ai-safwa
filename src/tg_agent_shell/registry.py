@@ -31,6 +31,7 @@ from .hooks.contracts import HookPolicy, HookSpec, every_switch_on
 from .hooks.registry import HookRegistry
 from .media.library import MediaLibrary, relook_tool
 from .proposals.api import (
+    EditableFields,
     MutationToolSpec,
     ProposalHandler,
     ProposalPresenter,
@@ -297,6 +298,7 @@ def _proposals(
     presenters: dict[str, ProposalPresenter] = {}
     tools: dict[str, MutationToolSpec] = {}
     similar: dict[str, SimilarItems] = {}
+    editable: dict[str, EditableFields] = {}
     # The whole of what may be saved without the owner seeing it. A feature that declares
     # nothing has nothing here, and every other change takes the review screen.
     rules: dict[tuple[str, str], AutoApprovalRule] = {}
@@ -321,6 +323,8 @@ def _proposals(
             register_tool(contribution.tool)
             if contribution.similar is not None:
                 similar[entity] = contribution.similar
+            if contribution.editable is not None:
+                editable[entity] = contribution.editable
             rules.update(
                 ((entity, action), rule)
                 for action, rule in contribution.autoapprovals.items()
@@ -329,7 +333,7 @@ def _proposals(
             register_tool(tool)
     return ProposalRegistry(
         handlers=handlers, presenters=presenters, tools=tools, views=views, world=world,
-        similar=similar, autoapprovals=rules,
+        similar=similar, autoapprovals=rules, editable=editable,
     )
 
 

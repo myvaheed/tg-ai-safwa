@@ -30,6 +30,7 @@ from .presentation import (
     progress_summary,
 )
 from .review import CardProposalPresenter
+from .review_fields import card_review_fields
 from .screens import render_card
 from .selectors import render_card_choices
 from .text_input import CARD_TEXT_INPUTS
@@ -46,6 +47,7 @@ __all__ = [
     "card_citation_label",
     "card_creation_errors",
     "card_results",
+    "card_review_fields",
     "cards_link",
     "card_overview_text",
     "category_expression",

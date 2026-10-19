@@ -56,7 +56,42 @@ async def prepare_change(
         entity_id=change.id,
         expected_version=prepared.expected_version,
         values=prepared.values,
+        source=change,
     )
+
+
+async def edit_proposal(
+    session: AsyncSession,
+    store: ProposalStore,
+    preparer: ChangePreparer,
+    proposal_id: int,
+    index: int,
+    key: str,
+    value: Any,
+) -> ProposalChange | None:
+    """Set one value a change's call names, as the owner chose it (PR-EDIT-034).
+
+    The call is prepared again with that value, the way Safwa's own is, so a refusal
+    leaves the proposal as it was. Nothing is written: Save is still the owner's.
+    ``None`` means the call already said exactly that.
+    """
+    proposal = store.proposal(proposal_id)
+    if proposal is None:
+        raise DomainError("Proposal is no longer pending")
+    change = proposal.changes[index]
+    call = change.source
+    if call is None or call.values.get(key) == value:
+        return None
+    edited = call.model_copy(update={"values": {**call.values, key: value}})
+    prepared = await preparer.prepare(session, edited)
+    proposed = change.edited.get(key, call.values.get(key))
+    change.source, change.values = edited, prepared.values
+    change.expected_version = prepared.expected_version
+    if value == proposed:
+        change.edited.pop(key, None)
+    else:
+        change.edited[key] = proposed
+    return change
 
 
 def queue_proposals(

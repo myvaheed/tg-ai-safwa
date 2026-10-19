@@ -19,6 +19,7 @@ MODULE = FeatureModule(
             tool=agent.TAG_TOOL,
             autoapprovals=agent.TAG_AUTOAPPROVALS,
             presenter=telegram.TagProposalPresenter(),
+            editable=lambda _call: telegram.TAG_REVIEW_FIELDS,
             similar=SimilarItems(field="name", open_items=proposal.every_tag),
         ),
     ),

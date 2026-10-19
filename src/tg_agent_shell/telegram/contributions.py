@@ -68,3 +68,6 @@ class TextInputFlow:
     prepare: Callable[..., Awaitable[Any]] | None = None
     # The value exactly as typed: it is not trimmed.
     raw: bool = False
+    # (services, state) -> whether the screen the editor stands in is still open; None
+    # when it always is. Words typed for a closed one are dialogue.
+    open: Callable[..., bool] | None = None

@@ -72,3 +72,10 @@
     And it is a link that opens those Cards as a list, by CD-ORDER-054
     And ↩️ Back on that list returns to the Tag
     And a Tag no Card carries reads "Linked Cards: —", with no link
+
+  Scenario: TA-EDIT-013 — A Tag proposal is edited with the Tag's own controls
+    Given Safwa proposes to create or change a Tag
+    When the owner presses "✏️ Edit" on its review screen
+    Then each field the proposal sets has the button the Tag's own screen gives it: "✏️ Name" and
+      "📝 Description"
+    And each asks for the words the Tag's own screen asks for, and refuses what it refuses

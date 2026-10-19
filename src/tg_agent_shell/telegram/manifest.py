@@ -29,6 +29,7 @@ from ..history import TelegramHistorySource
 from ..hooks.contracts import HookSpec
 from ..media.library import MediaLibrary
 from ..proposals.api import (
+    EditableFields,
     MutationToolSpec,
     ProposalHandler,
     ProposalPresenter,
@@ -123,6 +124,8 @@ class ProposalContribution:
     autoapprovals: Mapping[str, AutoApprovalRule] = field(default_factory=dict)
     # What a new item is compared with before the owner saves it, or nothing.
     similar: SimilarItems | None = None
+    # Which values of a call the owner may set by hand under Edit, or nothing.
+    editable: EditableFields | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -5,6 +5,7 @@ from __future__ import annotations
 from .review import TagProposalPresenter, tag_citation_label
 from .screens import (
     TAG_CALLBACK_ACTIONS,
+    TAG_REVIEW_FIELDS,
     TEXT_INPUT,
     command_tags,
     open_tag,
@@ -13,6 +14,7 @@ from .screens import (
 
 __all__ = [
     "TAG_CALLBACK_ACTIONS",
+    "TAG_REVIEW_FIELDS",
     "TEXT_INPUT",
     "TagProposalPresenter",
     "command_tags",

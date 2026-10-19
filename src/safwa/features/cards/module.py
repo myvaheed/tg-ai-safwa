@@ -44,6 +44,7 @@ MODULE = FeatureModule(
             autoapprovals=agent.CARD_AUTOAPPROVALS,
             presenter=telegram.CardProposalPresenter(),
             similar=SimilarItems(field="title", open_items=proposal.open_cards),
+            editable=telegram.card_review_fields,
         ),
     ),
     # A Goal and a Subgoal are Cards too: the same handler prepares and writes them.

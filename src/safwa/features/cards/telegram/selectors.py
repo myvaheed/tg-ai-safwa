@@ -127,7 +127,7 @@ CARD_RELATION_TOGGLES = {
 NAMED_CHOICE_FIELDS = frozenset({"values", "tags"})
 
 
-async def _choice_options(session: AsyncSession, field: str) -> list[tuple[str, Any]]:
+async def choice_options(session: AsyncSession, field: str) -> list[tuple[str, Any]]:
     """The selectable options for one Card field, shared by draft and committed screens."""
     if field == "kind":
         return [(kind_label(kind), kind.value) for kind in CardKind]
@@ -183,7 +183,7 @@ async def handle_card_creation_chooser(
     async with services.sessions() as session:
         draft = await require_card_draft(session, services.owner_id)
         state = sanitize_card_creation_state(dict(draft.state or {}))
-        options = await _choice_options(session, field)
+        options = await choice_options(session, field)
         current = _selector_page(field, options, page)
         if relation is not None:
             selected = set(state[relation.draft_field])
@@ -234,7 +234,7 @@ async def render_card_choices(
         card = await session.get(Card, card_id)
         if card is None or card.archived_at is not None:
             raise DomainError("Card does not exist or is archived")
-        options = await _choice_options(session, field)
+        options = await choice_options(session, field)
         current = _selector_page(field, options, page)
         if relation is not None:
             selected = set(

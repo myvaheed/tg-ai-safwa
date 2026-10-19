@@ -534,8 +534,15 @@ flowchart LR
   asked for.
 - **Every mutation tool belongs to a subagent**, never to the Advisor. `workspace_mutator` owns the workspace,
   `diary` owns the Diary. Preparation runs where the change was authored.
-- **Every proposal screen is exactly Save/Discard.** A screen that needs a field control is the
-  wrong screen.
+- **A proposal screen decides with Save and Discard, and Edit sets by hand what a call names**
+  (`PR-EDIT-033`). A feature's `ProposalContribution.editable` maps a call's values to the
+  `EditableField`s its own item screen has, and the shell offers only the values the call names.
+  Each field is drawn in place of the review and stays `MessageKind.APPROVAL`, so words written
+  over it interrupt the review and an unanswered one expires as any review does (`PR-EDIT-035`).
+  `RootSession.edit_proposal` prepares the call again with the owner's value, the way the model's
+  own is prepared, so a refusal leaves the proposal as it was (`PR-EDIT-034`). Nothing is written
+  before Save. The call's record keeps `user_edited`, what the call proposed and what is saved,
+  and the model reads it in the call's result (`PR-EDIT-036`).
 - **A screen that creates an item lists what is already there** (`PR-SIMILAR-030`). A feature's
   `ProposalContribution.similar` names the create value holding the new item's words and
   reads its open items; `SearchIndex.alike` compares that name with theirs by meaning, in the

@@ -50,6 +50,14 @@ logger = logging.getLogger(__name__)
 # The reviewer saved it, so "you decided this" would be wrong in the reply.
 AUTOAPPROVED = "auto"
 
+# What a call's record holds once the owner set some of its values by hand: each value, as
+# the call first proposed it and as it is saved (PR-EDIT-036).
+USER_EDITED = "user_edited"
+USER_EDITED_NEXT = (
+    "The user changed this before saving. user_edited has what you proposed and what was "
+    "saved. Report the saved values. Never propose your own value again. "
+)
+
 # What the owner reads under a resolved call. A decision has its own line; a call that
 # never reached a screen failed before one, and reads the same as one that failed on Save.
 _RESULT_RECEIPTS = {
@@ -343,6 +351,8 @@ def _results_summary(
             if status == BatchDecision.APPROVED and affected_ids:
                 line += " [result ID" + ("s" if len(affected_ids) != 1 else "") + ": "
                 line += ", ".join(f"#{item}" for item in affected_ids) + "]"
+            if status == BatchDecision.APPROVED and tool.get(USER_EDITED):
+                line += " [edited by the user: " + ", ".join(tool[USER_EDITED]) + "]"
         error = result.get("error")
         if error:
             line += f": {result_value(error)}"
@@ -463,6 +473,9 @@ def resolved_tool_result(
             "This one was saved without the user; they did not decide it. "
             + payload["next"]
         )
+    if decision is BatchDecision.APPROVED and tool.get(USER_EDITED):
+        payload[USER_EDITED] = tool[USER_EDITED]
+        payload["next"] = USER_EDITED_NEXT + payload["next"]
     return payload
 
 

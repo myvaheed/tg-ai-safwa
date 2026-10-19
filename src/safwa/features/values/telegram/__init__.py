@@ -6,6 +6,7 @@ from .review import ValueProposalPresenter, value_citation_label
 from .screens import (
     TEXT_INPUT,
     VALUE_CALLBACK_ACTIONS,
+    VALUE_REVIEW_FIELDS,
     command_values,
     open_value,
     render_value,
@@ -14,6 +15,7 @@ from .screens import (
 __all__ = [
     "TEXT_INPUT",
     "VALUE_CALLBACK_ACTIONS",
+    "VALUE_REVIEW_FIELDS",
     "ValueProposalPresenter",
     "command_values",
     "open_value",

@@ -22,6 +22,7 @@ from agent_runtime import (
     InteractionRef,
     Resumption,
     TurnOutcome,
+    json_safe,
 )
 from llm_gateway import LlmProvider
 from telegram_llm import DialogueMessage
@@ -47,13 +48,14 @@ from .proposals.model import BatchDecision
 from .proposals.prepare import ChangePreparer
 from .proposals.reducer import EXPIRED, INTERRUPTED
 from .proposals.render import (
+    USER_EDITED,
     ProposalRenderer,
     compose_display_outcome,
     resolved_tool_result,
     results_summary,
 )
 from .proposals.store import ProposalStore
-from .proposals.use_cases import decide_batch_item, interrupt_batch
+from .proposals.use_cases import decide_batch_item, edit_proposal, interrupt_batch
 
 logger = logging.getLogger(__name__)
 
@@ -233,6 +235,41 @@ class RootSession:
     ) -> ProposalDescription:
         """How one proposal reads to the owner, for whoever is drawing a screen."""
         return await self.review_view.describe(session, proposal_id)
+
+    async def edit_proposal(
+        self, session: AsyncSession, proposal_id: int, index: int, key: str, value: Any
+    ) -> None:
+        """Set one value of an open proposal as the owner chose it, and have the call's
+        record say what will be saved and what the owner changed (PR-EDIT-036)."""
+        change = await edit_proposal(
+            session, self.reviews, self.preparer, proposal_id, index, key, value
+        )
+        batch = self.reviews.batch_for_proposal(proposal_id)
+        item = batch.state.item_for(proposal_id) if batch is not None else None
+        if change is None or batch is None or item is None:
+            return
+        call = change.source
+        details = await self.review_view.details(session, change, call)
+        record = {
+            "details": details,
+            "display": await self.review_view.line(session, change, details),
+            "change": {
+                "entity": call.entity,
+                "action": call.action,
+                "id": call.id,
+                "values": json_safe(call.values),
+            },
+            USER_EDITED: json_safe(
+                {
+                    field: {"proposed": proposed, "saved": call.values.get(field)}
+                    for field, proposed in change.edited.items()
+                }
+            ),
+        }
+        batch.tool_calls = [
+            {**tool, **record} if str(tool.get("id")) == item.call_ids[index] else tool
+            for tool in batch.tool_calls
+        ]
 
     def has_pending_approval(self, proposal_id: int) -> bool:
         """Return whether this screen belongs to a suspended agent turn."""

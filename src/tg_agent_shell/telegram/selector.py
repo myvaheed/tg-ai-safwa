@@ -40,9 +40,12 @@ async def choice_screen(
     *,
     back: Place,
     paging: tuple[Page, Place] | None = None,
+    kind: MessageKind = MessageKind.EDITOR,
+    related_id: int | None = None,
 ) -> None:
     """The choices, then their pages, then the way back to the screen they were opened
-    from. `paging` is the page shown and this screen's own Place."""
+    from. `paging` is the page shown and this screen's own Place; `kind` is what the screen
+    it is drawn in place of is, and stays."""
     heading = title if paging is None or paging[0].count == 1 else f"{title} · {paging[0].label}"
     async with services.sessions() as session:
         rows = [
@@ -57,6 +60,7 @@ async def choice_screen(
         message,
         services,
         f"<b>{html.escape(heading)}</b>",
-        kind=MessageKind.EDITOR,
+        kind=kind,
         markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        related_id=related_id,
     )

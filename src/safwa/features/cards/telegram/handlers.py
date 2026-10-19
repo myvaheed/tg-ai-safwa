@@ -21,7 +21,6 @@ from tg_agent_shell.telegram import (
 
 from ...checks.use_cases import pending_checks
 from ...profile.api import effort_tracking_on
-from ...schedules.api import DEADLINE_INSTRUCTION, SCHEDULE_INSTRUCTION
 from ...schedules.telegram import render_schedule
 from ..hierarchy import card_children
 from ..model import Card, CardKind, CardStage, minutes_label
@@ -44,7 +43,7 @@ from .selectors import (
     RELATION_CHOICES,
     render_card_choices,
 )
-from .text_input import TIME_SPENT_INSTRUCTION
+from .text_input import CARD_MARKDOWN_FIELDS, card_text_prompt
 
 
 async def _on_view(context: CallbackContext) -> None:
@@ -81,13 +80,6 @@ async def _on_move(context: CallbackContext) -> None:
     )
 
 
-_FIELD_TITLES = {"tracked_mins": "Time Spent"}
-_FIELD_INSTRUCTIONS = {
-    "schedule": SCHEDULE_INSTRUCTION,
-    "tracked_mins": TIME_SPENT_INSTRUCTION,
-}
-
-
 def _full_card(context: CallbackContext, card_id: int) -> Place:
     """The full Card an editor opened from it stands in for: only that view has fields."""
     return Place("card_view", {"id": card_id, "full": True}, context.back)
@@ -106,19 +98,17 @@ async def _on_edit_text(context: CallbackContext) -> None:
         else:
             current = str(getattr(card, field) or "")
         deadline = field == "schedule" and card.kind != CardKind.ACTION.value
-    title = "Deadline" if deadline else _FIELD_TITLES.get(field, field.replace("_", " ").title())
+    title, instruction = card_text_prompt(field, deadline=deadline)
     await render_text_input(
         context.message,
         context.services,
         screen=TextInputScreen(
-            title=f"Edit Card {title}",
+            title=title,
             current_value=current,
-            instruction=DEADLINE_INSTRUCTION
-            if deadline
-            else _FIELD_INSTRUCTIONS.get(field, f"Send the new {field.replace('_', ' ')}."),
+            instruction=instruction,
             back=_full_card(context, card_id),
             related_id=card_id,
-            markdown=field in {"note", "blocked_description"},
+            markdown=field in CARD_MARKDOWN_FIELDS,
         ),
         state={"flow": "card", "card_id": card_id, "field": field},
     )

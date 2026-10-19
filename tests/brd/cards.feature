@@ -636,3 +636,15 @@
     And an appointment with no clock passes when its day ends, and a Deadline with no clock at the end of its day
     And one finished, archived, or moved to a later time before the question is said is left out; with none left, nothing is asked
     And the same one still overdue is asked about again the next morning
+
+  Scenario: CD-EDIT-067 — A Card proposal is edited with the Card's own controls
+    Given Safwa proposes to create an Action, or to change a Card
+    When the owner presses "✏️ Edit" on its review screen
+    Then each field the proposal sets has the button the Card's own screen gives it: "✏️ Title",
+      "📝 Note", "📍 Stage", "⚠️ Priority", "⏱ Schedule", "📝 Blocked reason", "🔢 Effort",
+      "⌛ Time spent", "🏷 Categories", "⚡ Energy", "💎 Values" and "🏷 Tags"
+    And a Goal's Schedule is "⏰ Deadline"
+    And each offers the choices the Card's own screen offers, in the same order and words, or asks
+      for the same words
+    And a Schedule typed there is read before the review comes back, as one Safwa proposed is
+    And the Goals a Card stands under and the Checks it carries have no button

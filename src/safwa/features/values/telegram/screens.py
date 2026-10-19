@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
+from tg_agent_shell.proposals.api import EditableField
 from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,
@@ -392,6 +393,24 @@ _INSTRUCTIONS = {
 
 def _validator(state: Mapping[str, Any]) -> TextValidator[str] | None:
     return required_text("Value name") if state["field"] == "name" else value_description
+
+
+# What Edit offers on a Value proposal: this screen's own fields (VL-EDIT-030).
+VALUE_REVIEW_FIELDS = {
+    "name": EditableField(
+        "✏️ Name",
+        "Edit Value Name",
+        parse=required_text("Value name"),
+        instruction=_INSTRUCTIONS["name"],
+    ),
+    "description": EditableField(
+        "📝 Description",
+        "Edit Value Description",
+        parse=value_description,
+        instruction=_INSTRUCTIONS["description"],
+        markdown=True,
+    ),
+}
 
 
 async def _apply_text(

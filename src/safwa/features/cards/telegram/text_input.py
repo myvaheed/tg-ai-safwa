@@ -14,7 +14,7 @@ from tg_agent_shell.telegram import TextValidator, edited_screen, required_text
 from tg_agent_shell.telegram.contributions import TextInputFlow
 from tg_agent_shell.telegram.model import UiSession
 
-from ...schedules.api import schedule_target
+from ...schedules.api import DEADLINE_INSTRUCTION, SCHEDULE_INSTRUCTION, schedule_target
 from ...schedules.telegram import compile_typed_schedule
 from ..model import TRACKED_MINS_MAX, Card, CardKind
 from ..use_cases import edit_card_schedule, edit_card_text, update_card_fields
@@ -30,6 +30,24 @@ TIME_SPENT_INSTRUCTION = (
     f"Send the time it took, up to {TRACKED_MINS_MAX // 60}h: 331, 5:31 or 5h 31m. "
     "Send off to clear it."
 )
+
+
+# Typed Card fields whose words may carry Markdown.
+CARD_MARKDOWN_FIELDS = frozenset({"note", "blocked_description"})
+_FIELD_TITLES = {"tracked_mins": "Time Spent"}
+_FIELD_INSTRUCTIONS = {
+    "schedule": SCHEDULE_INSTRUCTION,
+    "tracked_mins": TIME_SPENT_INSTRUCTION,
+}
+
+
+def card_text_prompt(field: str, *, deadline: bool) -> tuple[str, str]:
+    """The heading and the instruction of one typed Card field, wherever it is typed."""
+    if deadline:
+        return "Edit Card Deadline", DEADLINE_INSTRUCTION
+    title = _FIELD_TITLES.get(field, field.replace("_", " ").title())
+    instruction = _FIELD_INSTRUCTIONS.get(field, f"Send the new {field.replace('_', ' ')}.")
+    return f"Edit Card {title}", instruction
 
 
 def parse_minutes(raw: str) -> int | None:
@@ -51,7 +69,7 @@ def parse_minutes(raw: str) -> int | None:
     return minutes
 
 
-def _card_text_validator(field: str) -> TextValidator[Any] | None:
+def card_text_validator(field: str) -> TextValidator[Any] | None:
     """The time is read as minutes; only the two fields a Card cannot be left without are
     required."""
     if field == "tracked_mins":
@@ -151,21 +169,21 @@ async def _render_card(
 CARD_TEXT_INPUTS = (
     TextInputFlow(
         name="card_create",
-        validator=lambda state: _card_text_validator(str(state["input_field"])),
+        validator=lambda state: card_text_validator(str(state["input_field"])),
         apply=_apply_card_draft_text,
         render=_render_card_draft,
         prepare=_prepare_card_draft_text,
     ),
     TextInputFlow(
         name="card",
-        validator=lambda state: _card_text_validator(_saved_card_field(state)),
+        validator=lambda state: card_text_validator(_saved_card_field(state)),
         apply=_apply_card_text,
         render=_render_card,
         prepare=_prepare_card_text,
     ),
     TextInputFlow(
         name=_BLOCKED_FLOW,
-        validator=lambda state: _card_text_validator(_saved_card_field(state)),
+        validator=lambda state: card_text_validator(_saved_card_field(state)),
         apply=_apply_card_text,
         render=_render_card,
     ),

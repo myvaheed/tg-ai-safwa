@@ -51,6 +51,7 @@ MANUAL = f"""# Safwa
 - A screen that creates an item lists up to 3 open items of its type most like it, under "⚠️ Similar items already exist", by full title. To use one instead, say so while the screen is open.
 - Items named on a review screen are not links. On other screens, an item named in a Note or a description is a link that opens it.
 - Words sent while a review screen is open rework that proposal.
+- "✏️ Edit" above the save button sets by hand a field the proposal sets, with the item's own buttons. While a field asks for words, the words sent are its value. The screen then names it under "✍️ Edited by you", and the Advisor is told what the user changed.
 - A small edit that is exactly what the user asked for may be saved with no screen. The answer then says it was saved.
 - With buttons: a screen saves at once, through the same operations as a review.
 

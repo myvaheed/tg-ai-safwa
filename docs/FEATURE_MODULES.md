@@ -33,13 +33,13 @@ and SQLAlchemy; nothing that expresses a business rule imports it.
 |---|---|
 | `agents` | an `AgentSpec` — the subagent `route(name)` reaches, and the line the Advisor's prompt carries |
 | `helpers` | a `HelperSpec` — the mini session `call_helper(name)` runs, its instructions, builder and allowed views; its automatic offer is a separate hook |
-| `proposals` | a `ProposalContribution` per entity: handler, mutation tool, presenter, and which of its actions save without a screen |
+| `proposals` | a `ProposalContribution` per entity: handler, mutation tool, presenter, which of its actions save without a screen, and which values of a call the owner may set by hand under Edit |
 | `mutation_tools` | a mutation tool whose change lands on an entity another feature owns (`remove`) |
 | `views` | the `ai_*` views this feature publishes |
 | `screens` | a `ScreenSpec` per item type the owner can be taken to, and how it reads when cited |
 | `commands` | a `ScreenCommand` per screen the owner opens by name: a slash command, a menu button, or both |
 | `callback_actions` | the inline-button actions this feature's screens draw |
-| `text_inputs` | a `TextInputFlow` per editor field the owner types a value into; its optional `prepare` reads the value before the write opens a transaction, a model included |
+| `text_inputs` | a `TextInputFlow` per editor field the owner types a value into; its optional `prepare` reads the value before the write opens a transaction, a model included, and its optional `open` says whether the screen it stands in is still there |
 | `start_links` | a `StartLink` — a `/start <payload>` this feature answers instead of it opening a cited item |
 
 A capability does not get a field here by default. It first gets its own mechanism, and only a

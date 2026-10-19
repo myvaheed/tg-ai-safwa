@@ -43,6 +43,8 @@ class TextInputScreen:
     ttl: timedelta = _DEFAULT_TTL
     extra_actions: tuple[TextInputAction, ...] = ()
     markdown: bool = False
+    # What the screen it stands in is: a review being edited stays a review.
+    kind: MessageKind = MessageKind.EDITOR
 
 
 type TextValidator[T] = Callable[[str], T]
@@ -102,6 +104,7 @@ def _screen_from_state(state: dict[str, Any]) -> TextInputScreen:
             TextInputAction(text=str(action["text"]), place=Place.at(action["place"]))
             for action in saved.get("extra_actions", [])
         ),
+        kind=MessageKind(saved.get("kind", MessageKind.EDITOR.value)),
     )
 
 
@@ -133,6 +136,7 @@ async def render_text_input(
                 {"text": action.text, "place": action.place.address}
                 for action in screen.extra_actions
             ],
+            "kind": screen.kind.value,
         },
     }
     async with services.sessions() as session:
@@ -156,7 +160,7 @@ async def render_text_input(
         services,
         message_id,
         _screen_text(screen, notice),
-        kind=MessageKind.EDITOR,
+        kind=screen.kind,
         markup=InlineKeyboardMarkup(inline_keyboard=rows),
         related_id=screen.related_id,
     )
@@ -195,6 +199,9 @@ async def handle_text_input(
     """
     flow = services.text_inputs.get(str(state.get("flow", "")))
     if flow is None:
+        return False
+    if flow.open is not None and not flow.open(services, state):
+        # The screen it was typed for is gone, so the words are the owner's own.
         return False
     try:
         validator = flow.validator(state)

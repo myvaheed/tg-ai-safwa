@@ -14,7 +14,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from ..ai.contracts import ChangeAction
+from ..ai.contracts import AgentChange, ChangeAction
 
 __all__ = ["ChangeAction"]
 
@@ -30,6 +30,10 @@ class ProposalChange:
     entity_id: int | None = None
     expected_version: int | None = None
     values: dict[str, Any] = field(default_factory=dict)
+    # The call `values` were prepared from: what the owner edits, and prepares again.
+    source: AgentChange | None = None
+    # What the call first said for each value the owner set by hand.
+    edited: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

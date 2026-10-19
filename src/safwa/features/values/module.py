@@ -22,6 +22,7 @@ MODULE = FeatureModule(
             tool=agent.VALUE_TOOL,
             autoapprovals=agent.VALUE_AUTOAPPROVALS,
             presenter=telegram.ValueProposalPresenter(),
+            editable=lambda _call: telegram.VALUE_REVIEW_FIELDS,
             similar=SimilarItems(field="name", open_items=proposal.every_value),
         ),
     ),

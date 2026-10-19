@@ -20,6 +20,7 @@ repeat and `target_not_found` belong to the feature that owns the entity.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -280,6 +281,38 @@ class SimilarItems:
     open_items: Callable[[AsyncSession], Awaitable[Sequence[tuple[int, str]]]]
 
 
+Options = Callable[[AsyncSession], Awaitable[Sequence[tuple[str, Any]]]]
+
+
+@dataclass(frozen=True, slots=True)
+class EditableField:
+    """One value a call names that the owner may set by hand under Edit (PR-EDIT-033).
+
+    With no `options` the owner types it; with them they pick one, or tick several when
+    `many`. Labels, titles and options are the item's own screen's, so the field reads the
+    same in both places.
+    """
+
+    label: str
+    title: str
+    options: Options | None = None
+    many: bool = False
+    # The typed words as the call carries them; a ValueError or DomainError is the refusal.
+    parse: Callable[[str], Any] | None = None
+    instruction: str = ""
+    # Where a list names items by name or id: how they resolve, and which a link may add.
+    reference: ReferenceSpec | None = None
+    # Options per screen; None shows them all at once.
+    page_size: int | None = None
+    # Typed words that may carry Markdown, as the item's own editor says.
+    markdown: bool = False
+
+
+# Which of one call's values the owner may set by hand, in the order its item's screen lists
+# them. A call is handed in because what a field is called may depend on the item it is for.
+EditableFields = Callable[[AgentChange], Mapping[str, EditableField]]
+
+
 @dataclass(frozen=True, slots=True)
 class ProposalRegistry:
     """Every proposal capability the running application has, keyed the way it is used."""
@@ -296,6 +329,29 @@ class ProposalRegistry:
     # The whole of what may be saved without the owner seeing it, by entity and action. A
     # feature that declares nothing has nothing here, and every other change takes a screen.
     autoapprovals: Mapping[tuple[str, str], AutoApprovalRule] = field(default_factory=dict)
+    # By entity; one absent here offers nothing under Edit.
+    editable: Mapping[str, EditableFields] = field(default_factory=dict)
+
+    def edit_fields(
+        self, changes: Sequence[ProposalChange]
+    ) -> list[tuple[int, str, EditableField]]:
+        """What Edit offers on a proposal: each value one of its calls names that its feature
+        lets the owner set, as (change index, value, field). A value two calls name is left
+        out, since one button could not say which of them it sets."""
+        named = Counter(
+            key for change in changes if change.source is not None for key in change.source.values
+        )
+        offered: list[tuple[int, str, EditableField]] = []
+        for index, change in enumerate(changes):
+            fields = self.editable.get(change.entity)
+            if change.source is None or fields is None:
+                continue
+            offered.extend(
+                (index, key, field)
+                for key, field in fields(change.source).items()
+                if key in change.source.values and named[key] == 1
+            )
+        return offered
 
     def handler(self, entity: str) -> ProposalHandler:
         found = self.handlers.get(entity)
