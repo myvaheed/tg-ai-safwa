@@ -118,6 +118,16 @@ Feature: Agents — the session, the hand-over, and what comes back
     Then the time the owner takes to decide does not count against the subagent's deadline
     But an unanswered review still closes by PR-EXPIRE-029
 
+  Scenario: AG-BUDGET-062 — A read that gives back nothing new is not read again and again
+    Given a session made a read earlier in its work
+    When it makes the same read again, and the read gives back exactly what it gave before
+    Then its result is not given again, and the session is told it already has it: to answer
+      now, or to read something else
+    And each such repeat counts as one of the 5 tries (MAX_REPAIR_ROUNDS = 5)
+    And past them the session ends, and the owner is told so in one line by AG-ANSWER-013
+    When a change saved in between makes the same read give back something new
+    Then it is answered as any read is
+
   Scenario: AG-ANSWER-013 — A step that produces nothing is asked again, and the owner is never left with nothing
     Given a step ends with neither an answer nor anything to do
     When that happens
@@ -411,14 +421,15 @@ Feature: Agents — the session, the hand-over, and what comes back
     When Safwa is about to answer the owner's message, by AG-HOOK-047, and the request made a
       change
     Then one review reads it, with no tools and reasoning_effort "none", and is told that a
-      change the owner discarded, refused or took back is not missing, and neither is one the
-      answer asks them about
+      change the answer asks the owner about is not missing
     And it is told to answer one line: "done", or "missing:" and each change in the owner's words
     When it answers "missing:" and names a change
     Then Safwa is told what is not done: to route it now, or to tell the owner it was not done
     When it answers "done", or a line that is neither
     Then the answer is sent as it is
     When the request made no change, whether or not it was routed to a subagent
+    Then the answer is sent without being read
+    When the owner discarded a proposal of the request, by Discard or by writing instead
     Then the answer is sent without being read
     When the request review is off in the feature toggles
     Then no answer is read before it is sent

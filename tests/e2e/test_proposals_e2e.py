@@ -1586,6 +1586,33 @@ async def test_a_discard_tells_safwa_to_go_on_only_with_what_it_has_not_proposed
     assert "route again only for a part of the request no line in did covers" in receipt["next"]
 
 
+@pytest.mark.parametrize("decision", [BatchDecision.APPROVED, BatchDecision.DISCARDED])
+async def test_the_same_call_after_a_decision_shows_nothing_again(e2e_harness, decision):
+    """PR-RESULT-011 — tests/brd/tg_agent_shell/proposals.feature"""
+    tag = ("tag", {"mode": "create", "name": "VrWalk"})
+    advisor, provider = e2e_harness.advisor([route_turn("workspace_mutator"), mutation_turn(tag)])
+    first = await advisor.handle("Создай тег VrWalk")
+    assert first.proposal_id is not None
+    provider.responses.extend([mutation_turn(tag), "Тег уже решён.", "Готово."])
+
+    final = await advisor.resolve_approval(first.proposal_id, decision=decision, result={})
+
+    assert final is not None and final.kind is AIOutcomeKind.ANSWER
+    assert "Готово." in final.message
+    # No second screen: the only review ever opened is the one just decided.
+    assert {proposal.id for proposal in advisor.reviews.open_proposals} <= {first.proposal_id}
+    *_, refused = [
+        json.loads(str(message["content"]))
+        for message in provider.calls[3]
+        if message["role"] == "tool"
+    ]
+    assert (refused["code"], refused["error"]) == (
+        "already_decided",
+        f"The user already {decision.value} this same change.",
+    )
+    assert "Do not propose it again." in refused["next"]
+
+
 async def test_one_call_setting_several_fields_is_one_proposal(e2e_harness):
     """PR-QUEUE-005 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:

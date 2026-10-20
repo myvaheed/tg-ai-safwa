@@ -25,6 +25,8 @@ from agent_runtime import (
     AgentSession,
     PendingTool,
     TurnOutcome,
+    answered_calls,
+    call_key,
     json_safe,
     system_note,
 )
@@ -58,6 +60,7 @@ from .prepare import ChangePreparer
 from .render import (
     AUTOAPPROVED,
     ProposalRenderer,
+    already_decided,
     compose_display_outcome,
     with_queued_siblings,
     without_echoed_receipts,
@@ -177,11 +180,18 @@ class ProposalMaterializer:
         proposal_displays: dict[str, str] = {}
         # In the order the model made the calls, which is the order the owner reviews them in.
         prepared: list[tuple[str, ProposalChange]] = []
+        decided = _decided_calls(agent.messages)
         async with self.sessions() as session:
             # Preparation writes nothing, so every call of the response is made against this
             # one revision.
             revision = (await self.preparer.world(session)).revision
             for tool in mutation_tools:
+                decision = decided.get(call_key(tool.call.name, tool.call.arguments_json))
+                if decision is not None:
+                    failed_call_ids.add(tool.call.id)
+                    preparation_results[tool.call.id] = already_decided(decision)
+                    logger.info("AI TOOL %s already %s", tool.call.name, decision.value)
+                    continue
                 try:
                     change = await prepare_change(session, self.preparer, tool.change)
                 except ToolPreparationError as error:
@@ -458,6 +468,23 @@ def _owner_request(dialogue: list[dict[str, Any]]) -> str:
         ),
         "",
     )
+
+
+def _decided_calls(messages: list[dict[str, Any]]) -> dict[tuple[str, str], BatchDecision]:
+    """Each call of this session whose change the owner saved or discarded, by `call_key`.
+
+    A failed or expired one is not here: the owner did not decide it, and the same call
+    may be proposed again.
+    """
+    decided: dict[tuple[str, str], BatchDecision] = {}
+    for key, content in answered_calls(messages):
+        try:
+            status = json.loads(content).get("status")
+        except (json.JSONDecodeError, AttributeError):
+            continue
+        if status in (BatchDecision.APPROVED, BatchDecision.DISCARDED):
+            decided[key] = BatchDecision(status)
+    return decided
 
 
 def _fill_in_results(agent: AgentSession, tool_results: list[dict[str, Any]]) -> None:

@@ -312,7 +312,6 @@ async def test_an_unfinished_request_is_not_answered_yet(e2e_harness):
     options = provider.options[provider.calls.index(review)]
     assert options["tools"] == []
     assert options["reasoning_effort"] == "none"
-    assert "discarded, refused or taken back" in REQUEST_REVIEW_PROMPT
     assert "The answer asks the user about that change" in REQUEST_REVIEW_PROMPT
     read = json.loads(str(review[1]["content"]))
     assert f"<User>{request}</User>" in read["conversation"]
@@ -327,10 +326,23 @@ async def test_a_done_or_undecided_review_sends_the_answer_as_it_is(e2e_harness)
     """AG-DONE-045 — tests/brd/tg_agent_shell/agents.feature"""
     for line in ("done", "- `done`", "I am not sure.", "missing:"):
         outcome, provider = await after_a_change(
-            e2e_harness, REQUEST, BatchDecision.DISCARDED, ["Отменено.", "Ответ.", line]
+            e2e_harness, REQUEST, BatchDecision.APPROVED, ["Карточка создана.", "Ответ.", line]
         )
         assert outcome is not None and "Ответ." in outcome.message
         assert not provider.responses
+
+
+async def test_a_request_with_a_discarded_change_is_not_read(e2e_harness):
+    """AG-DONE-045 — tests/brd/tg_agent_shell/agents.feature"""
+    missing = "missing: Отжаться 30 раз"
+
+    outcome, provider = await after_a_change(
+        e2e_harness, REQUEST, BatchDecision.DISCARDED, ["Не создано.", "Ответ.", missing]
+    )
+
+    assert outcome is not None and "Ответ." in outcome.message
+    assert not [call for call in provider.calls if call[0]["content"] == REQUEST_REVIEW_PROMPT]
+    assert list(provider.responses) == [missing]
 
 
 async def test_a_request_that_made_no_change_is_not_read(e2e_harness):

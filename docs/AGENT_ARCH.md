@@ -273,6 +273,9 @@ The Advisor holds no mutation tool: every write is a proposal authored by a suba
 An immediate tool and mutation tools must not arrive in one provider response; the runtime rejects
 the mutations and the model retries them once it has seen the read.
 
+A read that repeats an earlier one of the session with the same result is answered
+`repeated_call` and charged a repair round (`AG-BUDGET-062`).
+
 A name that is not on the session's own tool list is refused before any dispatch, so the tools sent
 to the model are exactly the tools it can reach: the Advisor cannot prepare a change and a subagent
 cannot `route`. Every call is charged to `MAX_TOOL_CALLS`, a refused one included — a session that
@@ -528,8 +531,8 @@ flowchart LR
   may not have made it yet. It stands between the answer and the chat, so it asks with no tools
   and `reasoning_effort` "none", and its verdict is one line, `done` or `missing: …`. It reads
   only a request that made a change: that is where the Advisor stops after one part of a
-  request that needs several subagents. A request that made none may be answered by the Advisor
-  or a specialist, and whether the owner asked for a change is its routing call; a second model with no
+  request that needs several subagents. A request with a discarded proposal is not read. A
+  request that made none may be answered by the Advisor or a specialist, and whether the owner asked for a change is its routing call; a second model with no
   reasoning would only second-guess it, and a wrong `missing` there opens a screen nobody
   asked for.
 - **Every mutation tool belongs to a subagent**, never to the Advisor. `workspace_mutator` owns the workspace,
@@ -578,7 +581,8 @@ flowchart LR
   left in the same transaction, within one proposal and across the queue. A presenter's `screen`
   gets every change of its review. A Discard ends the queue: the screens behind it are recorded
   discarded and never shown (`PR-SAVE-010`). The model resumes only after the queue ends, each
-  result handed back as a tool result.
+  result handed back as a tool result. A call repeating one the owner saved or discarded comes back
+  `already_decided` (`PR-RESULT-011`).
 - A review and its approval batch are process state, not rows: `ProposalStore` holds both, they
   carry no status, and a batch is over when no screen is still waiting. Nothing
   survives a restart, so startup only clears what pointed at a review — the buttons, and the

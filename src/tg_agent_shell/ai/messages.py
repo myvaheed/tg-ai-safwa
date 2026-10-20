@@ -18,6 +18,10 @@ from agent_runtime import append_user_message, system_note, system_text
 from .subagents import RoutedSubagent
 from .tools import conversation_for
 
+# What heads the receipts a routed subagent reads. A Discarded line is one of them, so they
+# are not all saved.
+PRIOR_RECEIPTS = "Already proposed in this request:"
+
 
 class Memory(Protocol):
     """What the durable block is read from. Where the facts are kept is not the engine's."""
@@ -107,7 +111,7 @@ class ContextBuilder:
         """A routed subagent reads the conversation as data, under its own prompt.
 
         Same order as the Advisor's: prompt, then state, then conversation, then what this
-        turn has already saved, then its own current values — so the stable part stays
+        turn has already proposed, then its own current values — so the stable part stays
         byte-identical and the volatile part stays last.  The receipts sit outside the
         conversation, so the window the subagent declared never trims them away.
         """
@@ -131,7 +135,7 @@ class ContextBuilder:
         lines = [line for line in prior_receipts or [] if line.strip()]
         if lines:
             append_user_message(
-                messages, system_text("Already saved in this request:\n" + "\n".join(lines))
+                messages, system_text(PRIOR_RECEIPTS + "\n" + "\n".join(lines))
             )
         if routed.current is not None:
             append_user_message(messages, system_text(await routed.current()))
