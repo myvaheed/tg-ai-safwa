@@ -22,7 +22,7 @@ LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 CITATION = re.compile(rf"^({'|'.join((*SCREENS.types, MEDIA_TYPE))}):")
 
 CHECKED = [
-    ROOT / "CLAUDE.md",
+    ROOT / "AGENTS.md",
     ROOT / "README.md",
     *sorted((ROOT / "tests").rglob("README.md")),
     *sorted((ROOT / "docs").rglob("*.md")),

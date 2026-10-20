@@ -44,7 +44,7 @@ from tg_agent_shell.ai.subagents import RoutedSubagent
 
 def test_every_mutation_tool_belongs_to_the_part_that_owns_what_it_changes():
     """WS-SCOPE-001 — tests/brd/workspace_mutator.feature"""
-    # CLAUDE.md: the Advisor holds no mutation tool at all, and preparation runs where the
+    # AGENTS.md: the Advisor holds no mutation tool at all, and preparation runs where the
     # change was authored.  A new tool that reaches no subagent is unreachable.
     routed = {tool for agent in AGENTS for tool in agent.mutation_tools}
 

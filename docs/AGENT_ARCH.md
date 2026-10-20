@@ -3,7 +3,7 @@
 How the AI side of Safwa is put together: what a session is, how a turn runs, and what each
 subsystem around it owns. Every section describes the code as it stands.
 
-The rules behind these mechanisms live in [CLAUDE.md](../CLAUDE.md); this file is the shape.
+The rules behind these mechanisms live in [AGENTS.md](../AGENTS.md); this file is the shape.
 
 ## The five packages
 
