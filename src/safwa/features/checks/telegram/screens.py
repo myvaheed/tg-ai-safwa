@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+from typing import Any
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
@@ -378,6 +379,14 @@ async def render_check(
     )
 
 
+async def value_options(session: AsyncSession) -> list[tuple[str, Any]]:
+    """Every Value a Check may measure, in the order the owner ranks them."""
+    return [
+        (value.name, value.id)
+        for value in await session.scalars(select(Value).order_by(Value.order))
+    ]
+
+
 async def render_check_values(
     message: Message,
     services: Services,
@@ -392,12 +401,7 @@ async def render_check_values(
         check = await session.get(Check, check_id)
         if check is None or check.archived_at is not None:
             raise DomainError("Check does not exist or is archived")
-        options = [
-            (value.name, value.id)
-            for value in await session.scalars(
-                select(Value).order_by(Value.order)
-            )
-        ]
+        options = await value_options(session)
         current = paginate(options, page, SELECTOR_PAGE_SIZE)
         selected = set(await check_value_ids(session, check.id))
         choices = choice_rows(

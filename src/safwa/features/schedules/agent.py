@@ -313,6 +313,12 @@ class ScheduleCompiler:
         return rule, None
 
 
+def schedule_cleared(text: Any) -> bool:
+    """Whether a proposed Schedule's words take the Schedule away."""
+    words = str(text or "").strip()
+    return not words or words.casefold() == "off"
+
+
 async def read_proposed_schedule(
     context: PreparationContext, values: dict[str, Any], target: ScheduleTarget
 ) -> None:
@@ -320,9 +326,14 @@ async def read_proposed_schedule(
     and Save writes it ready. A question goes back to the model to ask the owner."""
     if "schedule" not in values:
         return
-    text = str(values["schedule"] or "").strip()
-    if not text or text.casefold() == "off":
+    if schedule_cleared(values["schedule"]):
         values.update(schedule=None, schedule_rule=None)
+        return
+    text = str(values["schedule"]).strip()
+    earlier = context.earlier
+    if earlier is not None and earlier.get("schedule") == text and earlier.get("schedule_rule"):
+        # The owner set another field by hand; the same words read as they did.
+        values.update(schedule=text, schedule_rule=earlier["schedule_rule"])
         return
     rule, question = await ScheduleCompiler(context.provider).compile(
         text, utcnow(), ZoneInfo(context.world.timezone), target

@@ -641,10 +641,27 @@
     Given Safwa proposes to create an Action, or to change a Card
     When the owner presses "✏️ Edit" on its review screen
     Then each field the proposal sets has the button the Card's own screen gives it: "✏️ Title",
-      "📝 Note", "📍 Stage", "⚠️ Priority", "⏱ Schedule", "📝 Blocked reason", "🔢 Effort",
-      "⌛ Time spent", "🏷 Categories", "⚡ Energy", "💎 Values" and "🏷 Tags"
+      "📝 Note", "📍 Stage", "⚠️ Priority", "⏱ Schedule", "🔔 Remind", "📝 Blocked reason",
+      "🔢 Effort", "⌛ Time spent", "🏷 Categories", "⚡ Energy", "💎 Values" and "🏷 Tags"
     And a Goal's Schedule is "⏰ Deadline"
     And each offers the choices the Card's own screen offers, in the same order and words, or asks
       for the same words
+    And Remind offers the choices and "✏️ Other" its Schedule offers by SCH-REMIND-019
     And a Schedule typed there is read before the review comes back, as one Safwa proposed is
+    And a Schedule left as it was is not read again when another field is set
+    And a Schedule set to off takes the proposal's Remind with it
     And the Goals a Card stands under and the Checks it carries have no button
+
+  Scenario: CD-EDIT-068 — Edit can change where a proposal leaves an Action
+    Given Safwa proposes to move an Action, to finish it as Done, or to reopen it
+    When the owner presses "✏️ Edit" on its review screen
+    Then "📍 Stage" is offered, with the stage the proposal leaves the Action in ticked
+    And it offers "Backlog", "Sprint", "Today" and "Done", all but the stage the Action is in
+    When the owner picks "Done"
+    Then Save finishes the Action
+    When they pick another stage
+    Then Save moves the Action there, or reopens it there when the proposal reopened it
+    And "⌛ Time spent" is offered only while Save finishes the Action, and a time set there goes
+      once another stage is picked
+    And picking the stage Safwa proposed brings back the time Safwa proposed
+    And finishing or reopening a Goal has no "📍 Stage"

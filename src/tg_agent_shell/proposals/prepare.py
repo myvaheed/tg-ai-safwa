@@ -11,6 +11,9 @@ orchestration: the workspace, the handler lookup, and the context every handler 
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from llm_gateway import LlmProvider
@@ -35,12 +38,19 @@ class ChangePreparer:
         """What this application reports as the state a proposal is made against."""
         return await self.proposals.world(session)
 
-    async def prepare(self, session: AsyncSession, change: AgentChange) -> PreparedChange:
+    async def prepare(
+        self,
+        session: AsyncSession,
+        change: AgentChange,
+        *,
+        earlier: Mapping[str, Any] | None = None,
+    ) -> PreparedChange:
         context = PreparationContext(
             session=session,
             world=await self.proposals.world(session),
             provider=self.provider,
             query_runner=self.query_runner,
             views=self.proposals.views,
+            earlier=earlier,
         )
         return await self.proposals.handler(change.entity).prepare(context, change)

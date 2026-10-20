@@ -310,3 +310,13 @@ Feature: Reminders
     And it can start on a date and end on a last day or after a total, by RM-END-036
     And "once a month" with no day and no time does not pin down a time, by RM-SCHEDULE-002
     And Safwa reads it in ai_reminders with schedule_kind monthly and its month_days
+
+  Scenario: RM-EDIT-038 — A Reminder proposal's words are edited as the Reminder's own Text asks
+    Given Safwa proposes to make a Reminder, or to change one's words
+    When the owner presses "✏️ Edit" on its review screen
+    Then the words have "✏️ Text", which asks for them as the Reminder's own "✏️ Text" does
+    And when the proposal sets when it fires, that is read again with the new words before the
+      review comes back, as it is for Safwa's
+    And a time that cannot be read with them leaves the proposal as it was, with what is unclear
+      on the screen
+    And when it fires has no button

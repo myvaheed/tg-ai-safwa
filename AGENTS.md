@@ -109,8 +109,9 @@ rtk proxy uv run pytest tests/test_architecture.py::test_rule_j_schema_is_unchan
 
 Safwa's domain is [DOMAIN.md](docs/DOMAIN.md). Only the retro hook writes its memory observations;
 the current contract is [SPRINT_ANALYSE_TO_RETRO_AND_MEM.md](docs/SPRINT_ANALYSE_TO_RETRO_AND_MEM.md).
-Update the [onboarding manual](src/safwa/features/onboarding/agent.py) in the same batch when
-changing or adding a screen, command, rule or reaction the owner should meet.
+Propose an [onboarding manual](src/safwa/features/onboarding/agent.py) update in the same batch
+when changing or adding a screen, command, rule or reaction the owner should meet, and discuss it
+as every prompt change below.
 These product rules do not apply to another bot using the shell.
 
 Cross-feature constants live in [constants.py](src/safwa/constants.py), which imports nothing
@@ -126,6 +127,10 @@ or backup steps and warnings to ordinary schema work.
 System prompts, tool/field descriptions, `hint` and `next` target small local models: short,
 imperative, concrete instructions, one per line, with exact names, no rationale or repeated rules.
 This does not restrict developer explanations or substantive answers.
+Discuss every prompt change with the owner before making it: a system prompt, the onboarding
+manual, a tool or field description, `hint` or `next`. Say what it adds, why it is relevant and
+important enough to spend a small model's tokens and attention on, and what it may crowd out;
+make it only once agreed.
 User-facing strings are complete sentences with Safwa's capitalized domain nouns.
 Bot messages are HTML; escape user/model text. Enums store plain `.value` strings.
 Commit subjects follow `vX.Y <short summary>`.

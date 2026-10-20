@@ -19,6 +19,7 @@ MODULE = FeatureModule(
             handler=proposal.DiaryProposalHandler(),
             tool=agent.DIARY_TOOL,
             presenter=telegram.DiaryProposalPresenter(),
+            editable=lambda _call: telegram.DIARY_REVIEW_FIELDS,
         ),
     ),
     views=views.VIEWS,

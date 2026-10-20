@@ -21,6 +21,7 @@ MODULE = FeatureModule(
             autoapprovals=agent.CHECK_AUTOAPPROVALS,
             presenter=telegram.CheckProposalPresenter(),
             similar=SimilarItems(field="title", open_items=proposal.open_checks),
+            editable=lambda _call: telegram.CHECK_REVIEW_FIELDS,
         ),
     ),
     views=views.VIEWS,

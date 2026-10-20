@@ -41,7 +41,11 @@ NOT_WRITTEN = (
 
 
 async def prepare_change(
-    session: AsyncSession, preparer: ChangePreparer, change: AgentChange
+    session: AsyncSession,
+    preparer: ChangePreparer,
+    change: AgentChange,
+    *,
+    earlier: Mapping[str, Any] | None = None,
 ) -> ProposalChange:
     """One validated mutation call, checked against live data and ready to be queued.
 
@@ -49,49 +53,53 @@ async def prepare_change(
     call's proposal: that keeps its receipt its own. Cross-proposal references resolve by
     name against committed data once the earlier proposal has been saved.
     """
-    prepared = await preparer.prepare(session, change)
+    # Preparation may settle the call in place, so what Edit prepares again is a copy of
+    # the call as it was made.
+    source = change.model_copy(deep=True)
+    prepared = await preparer.prepare(session, change, earlier=earlier)
     return ProposalChange(
         entity=change.entity,
         action=change.action,
         entity_id=change.id,
         expected_version=prepared.expected_version,
         values=prepared.values,
-        source=change,
+        source=source,
     )
 
 
 async def edit_proposal(
     session: AsyncSession,
     store: ProposalStore,
+    proposals: ProposalRegistry,
     preparer: ChangePreparer,
     proposal_id: int,
     index: int,
     key: str,
     value: Any,
-) -> ProposalChange | None:
-    """Set one value a change's call names, as the owner chose it (PR-EDIT-034).
+) -> tuple[ProposalChange, AgentChange] | None:
+    """Set one field of a change, as the owner chose it (PR-EDIT-034), and return it with
+    the call as preparation left it, as a call's record holds it.
 
-    The call is prepared again with that value, the way Safwa's own is, so a refusal
-    leaves the proposal as it was. Nothing is written: Save is still the owner's.
-    ``None`` means the call already said exactly that.
+    Safwa's call is prepared again with every value the owner set in place, the way Safwa's
+    own is, so a refusal leaves the proposal as it was; what its last preparation read goes
+    along, for what the owner left alone. Nothing is written: Save is still the owner's.
+    ``None`` means the change already says exactly that.
     """
     proposal = store.proposal(proposal_id)
     if proposal is None:
         raise DomainError("Proposal is no longer pending")
     change = proposal.changes[index]
-    call = change.source
-    if call is None or call.values.get(key) == value:
+    if change.source is None:
         return None
-    edited = call.model_copy(update={"values": {**call.values, key: value}})
-    prepared = await preparer.prepare(session, edited)
-    proposed = change.edited.get(key, call.values.get(key))
-    change.source, change.values = edited, prepared.values
-    change.expected_version = prepared.expected_version
-    if value == proposed:
-        change.edited.pop(key, None)
-    else:
-        change.edited[key] = proposed
-    return change
+    call, edits = proposals.edited(change.source, {**change.edits, key: value})
+    if edits == change.edits:
+        return None
+    settled = call.model_copy(deep=True)
+    fresh = await prepare_change(session, preparer, settled, earlier=change.values)
+    change.action, change.entity_id = fresh.action, fresh.entity_id
+    change.values, change.expected_version = fresh.values, fresh.expected_version
+    change.edits = edits
+    return change, settled
 
 
 def queue_proposals(

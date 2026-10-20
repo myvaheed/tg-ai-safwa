@@ -1,4 +1,4 @@
-"""Edit on a review screen: a value a proposal's call names, set by hand (PR-EDIT-033).
+"""Edit on a review screen: a field a proposal's call sets, set by hand (PR-EDIT-033).
 
 Every screen here is drawn in place of the review and stays one, so words written over it
 interrupt it and an unanswered one expires as any review does (PR-EDIT-035). Nothing is
@@ -11,6 +11,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from aiogram.enums import ChatAction
+from aiogram.types import Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,6 +53,16 @@ def _field(
     raise DomainError("This field cannot be edited here")
 
 
+def _values(
+    services: Services, change: ProposalChange, key: str, field: EditableField
+) -> tuple[Any, Any]:
+    """What the change gives the field now, and what Safwa's call gave it."""
+    call = services.root.proposals.current(change)
+    if call is None or change.source is None:
+        return None, None
+    return field.said(key, call), field.said(key, change.source)
+
+
 async def _ticked(session: AsyncSession, field: EditableField, value: Any) -> set[Any]:
     """The options a list stands for: names and ids alike, where they name items."""
     if field.reference is None:
@@ -63,7 +75,9 @@ async def _offered(
     session: AsyncSession, field: EditableField, change: ProposalChange
 ) -> list[tuple[str, Any]]:
     """The field's options; a link offers the items not linked yet, an unlink those linked."""
-    options = list(await field.options(session)) if field.options is not None else []
+    options = (
+        list(await field.options(session, change.entity_id)) if field.options is not None else []
+    )
     spec = field.reference
     if spec is None or change.action not in {ChangeAction.LINK, ChangeAction.UNLINK}:
         return options
@@ -89,6 +103,28 @@ async def _on_edit(context: CallbackContext) -> None:
     await render_proposal(context.message, context.services, context.payload["id"], editing=True)
 
 
+async def _typed(context: CallbackContext, *, back: Place) -> None:
+    """The field's words to type, as its item's own editor asks for them."""
+    services, payload = context.services, context.payload
+    proposal, change, field = _field(services, payload)
+    key = str(payload["key"])
+    current, _proposed = _values(services, change, key, field)
+    await render_text_input(
+        context.message,
+        services,
+        screen=TextInputScreen(
+            title=field.title,
+            current_value="" if current is None else str(current),
+            instruction=field.instruction,
+            back=back,
+            markdown=field.markdown,
+            related_id=proposal.id,
+            kind=MessageKind.APPROVAL,
+        ),
+        state={"flow": EDIT_FLOW, "id": proposal.id, "change": int(payload["change"]), "key": key},
+    )
+
+
 async def _on_field(context: CallbackContext) -> None:
     """One field, the way its item's own screen offers it."""
     services, payload = context.services, context.payload
@@ -96,30 +132,16 @@ async def _on_field(context: CallbackContext) -> None:
     key = str(payload["key"])
     address = {"id": proposal.id, "change": int(payload["change"]), "key": key}
     edit = Place("proposal_edit", {"id": proposal.id})
-    current = change.source.values.get(key) if change.source is not None else None
     if field.options is None:
-        await render_text_input(
-            context.message,
-            services,
-            screen=TextInputScreen(
-                title=field.title,
-                current_value="" if current is None else str(current),
-                instruction=field.instruction,
-                back=edit,
-                markdown=field.markdown,
-                related_id=proposal.id,
-                kind=MessageKind.APPROVAL,
-            ),
-            state={"flow": EDIT_FLOW, **address},
-        )
+        await _typed(context, back=edit)
         return
+    current, proposed = _values(services, change, key, field)
     here = Place("proposal_edit_field", address)
     async with context.sessions() as session:
         options = await _offered(session, field, change)
         if field.many:
             chosen = payload.get("chosen")
             ticked = set(chosen) if chosen is not None else await _ticked(session, field, current)
-            proposed = change.edited.get(key, current)
             # Ticked back to what Safwa proposed, the field keeps Safwa's own words.
             same = ticked == await _ticked(session, field, proposed)
             here = here.but(chosen=sorted(ticked))
@@ -129,6 +151,12 @@ async def _on_field(context: CallbackContext) -> None:
             )
         else:
             ticked, back = {current}, edit
+    # A single choice whose own screen also takes typed words offers them under Other.
+    other = (
+        [("✏️ Other", here.child("proposal_edit_other", **address))]
+        if field.parse is not None and not field.many
+        else []
+    )
     page = (
         paginate(options, int(payload.get("page", 0)), field.page_size)
         if field.page_size is not None
@@ -146,7 +174,7 @@ async def _on_field(context: CallbackContext) -> None:
         context.message,
         services,
         _title(field, change),
-        choice_rows(page.items if page is not None else options, ticked, build),
+        choice_rows(page.items if page is not None else options, ticked, build) + other,
         back=back,
         paging=(page, here) if page is not None else None,
         kind=MessageKind.APPROVAL,
@@ -154,8 +182,20 @@ async def _on_field(context: CallbackContext) -> None:
     )
 
 
+async def _on_other(context: CallbackContext) -> None:
+    """Typed words for a field whose own screen takes them beside its choices."""
+    edit = Place("proposal_edit", {"id": context.payload["id"]})
+    await _typed(context, back=context.back or edit)
+
+
+async def _typing(message: Message) -> None:
+    """Preparing the proposal again may wait on a model, as Safwa's own call did."""
+    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+
+
 async def _on_set(context: CallbackContext) -> None:
     payload = context.payload
+    await _typing(context.message)
     async with context.sessions() as session:
         await context.services.root.edit_proposal(
             session,
@@ -176,9 +216,9 @@ async def _take_typed(
 ) -> Any:
     """Put the typed value into the proposal. It is prepared again before anything is
     drawn, and may wait on a model, so it runs outside the editor's transaction."""
-    del message
     _proposal, _change, field = _field(services, state)
     parsed = field.parse(value) if field.parse is not None else value
+    await _typing(message)
     async with services.sessions() as session:
         await services.root.edit_proposal(
             session, int(state["id"]), int(state["change"]), str(state["key"]), parsed
@@ -218,5 +258,6 @@ EDIT_ACTIONS: dict[str, CallbackHandler] = {
     "proposal_review": _on_review,
     "proposal_edit": _on_edit,
     "proposal_edit_field": _on_field,
+    "proposal_edit_other": _on_other,
     "proposal_edit_set": _on_set,
 }

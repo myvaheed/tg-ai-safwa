@@ -540,10 +540,15 @@ flowchart LR
 - **A proposal screen decides with Save and Discard, and Edit sets by hand what a call names**
   (`PR-EDIT-033`). A feature's `ProposalContribution.editable` maps a call's values to the
   `EditableField`s its own item screen has, and the shell offers only the values the call names.
-  Each field is drawn in place of the review and stays `MessageKind.APPROVAL`, so words written
-  over it interrupt the review and an unanswered one expires as any review does (`PR-EDIT-035`).
-  `RootSession.edit_proposal` prepares the call again with the owner's value, the way the model's
-  own is prepared, so a refusal leaves the proposal as it was (`PR-EDIT-034`). Nothing is written
+  A field with `read` and `write` stands for what the call does instead, as an Action's Stage
+  that may finish it. Each field is drawn in place of the review and stays
+  `MessageKind.APPROVAL`, so words written over it interrupt the review and an unanswered one
+  expires as any review does (`PR-EDIT-035`). A change keeps Safwa's call as made in `source`
+  and the owner's values in `edits`; `RootSession.edit_proposal` puts every edit into a copy of
+  the call, in the order the item's screen lists its fields, and prepares it again the way the
+  model's own is prepared, so a refusal leaves the proposal as it was (`PR-EDIT-034`).
+  `PreparationContext.earlier` hands that preparation what the last one produced, so a reading
+  whose words the owner left alone, such as a Schedule's, is not made again. Nothing is written
   before Save. The call's record keeps `user_edited`, what the call proposed and what is saved,
   and the model reads it in the call's result (`PR-EDIT-036`).
 - **A screen that creates an item lists what is already there** (`PR-SIMILAR-030`). A feature's
