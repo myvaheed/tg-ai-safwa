@@ -122,7 +122,7 @@ class AgentSession:
     # Who routed here, and this session's own `route` call that has not been answered yet.
     parent_run_id: int | None = None
     awaiting_route: dict[str, Any] | None = None
-    # What this turn had already saved when the caller routed here.
+    # What this turn had already proposed, and what became of it, when the caller routed here.
     prior_receipts: list[str] = field(default_factory=list)
     # Whatever the application needs this session to still know after a suspension. The
     # runtime carries it and never reads it; a subagent's is handed to its caller when it
@@ -304,6 +304,37 @@ def tool_message(call_id: str, name: str, result: Any) -> dict[str, Any]:
         "name": name,
         "content": json.dumps(result, ensure_ascii=False, default=str),
     }
+
+
+def call_key(name: str, arguments_json: str | None) -> tuple[str, str]:
+    """A call as its name and arguments, whatever spacing or key order they were sent in."""
+    try:
+        arguments = json.dumps(
+            json.loads(arguments_json or "{}"), sort_keys=True, ensure_ascii=False
+        )
+    except json.JSONDecodeError:
+        arguments = arguments_json or ""
+    return name, arguments
+
+
+def answered_calls(transcript: Sequence[Mapping[str, Any]]) -> list[tuple[tuple[str, str], str]]:
+    """Each answered call in this transcript, oldest first: its `call_key` and its result.
+
+    A call id names the newest call that carried it, because a provider may reuse ids from
+    one response to the next.
+    """
+    calls: dict[str, tuple[str, str]] = {}
+    answered: list[tuple[tuple[str, str], str]] = []
+    for message in transcript:
+        for call in message.get("tool_calls") or ():
+            function = call.get("function") or {}
+            calls[str(call.get("id"))] = call_key(
+                str(function.get("name")), function.get("arguments")
+            )
+        call_id = str(message.get("tool_call_id"))
+        if message.get("role") == "tool" and call_id in calls:
+            answered.append((calls[call_id], str(message.get("content") or "")))
+    return answered
 
 
 def route_receipt(

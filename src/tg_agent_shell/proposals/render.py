@@ -82,6 +82,18 @@ _DECISION_NEXT_STEPS = {
 }
 
 
+def already_decided(decision: BatchDecision) -> dict[str, Any]:
+    """What a call the owner already saved or discarded in this session gets when it is
+    sent again: it is not proposed again, so they never decide the same change twice."""
+    return {
+        "status": ToolResultStatus.ERROR.value,
+        "code": "already_decided",
+        "error": f"The user already {decision.value} this same change.",
+        "next": _DECISION_NEXT_STEPS[decision],
+        "retryable": False,
+    }
+
+
 # ------------------------------------------------------------------ shared wording
 
 # The receipt renders one line under any outcome, so the verb stays imperative:

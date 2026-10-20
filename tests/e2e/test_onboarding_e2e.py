@@ -23,6 +23,7 @@ from safwa.features.profile.api import hook_switched_on, set_hook_switch
 from safwa.features.values.use_cases import create_value
 from safwa.foundation.workspace import Workspace
 from telegram_llm import DialogueMessage
+from tg_agent_shell.ai.messages import PRIOR_RECEIPTS
 from tg_agent_shell.ai.outcome import AIOutcomeKind
 from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.cues.queue import add_hook_cue
@@ -170,7 +171,7 @@ async def test_ob_ask_004_explaining_and_adding_a_check_explains_once_the_screen
     screen = await advisor.handle("Explain Checks and add one about posture")
 
     assert screen.kind is AIOutcomeKind.PROPOSAL
-    assert "Already saved" not in json.dumps(provider.calls[3], ensure_ascii=False)
+    assert PRIOR_RECEIPTS not in json.dumps(provider.calls[3], ensure_ascii=False)
     provider.responses.extend(["Added the Check.", forward_turn("onboarding")])
     answered, _ = await save(advisor, screen.proposal_id)
 

@@ -484,6 +484,49 @@ async def test_ag_budget_011_a_new_subagent_session_has_its_own_budget() -> None
     assert [store.status(run_id) for run_id in (1, 2, 3)] == [RunStatus.COMPLETED] * 3
 
 
+class _Counting(_Tools):
+    """A read whose rows are new each time it runs."""
+
+    async def run(self, agent: AgentSession, call: ToolCall) -> ToolOutcome:
+        outcome = await super().run(agent, call)
+        return ToolOutcome(result={"rows": [len(self.ran)]}) if call.name == "read" else outcome
+
+
+async def test_ag_budget_062_a_read_that_gives_back_nothing_new_ends_within_the_repair_rounds() -> None:
+    """AG-BUDGET-062 — tests/brd/tg_agent_shell/agents.feature"""
+    # The same read, spaced differently each time, as a model stuck on one query sends it.
+    provider = _Provider([
+        CompletionTurn(
+            content="",
+            tool_calls=(ToolCall(id="call-0", name="read", arguments_json=arguments),),
+        )
+        for arguments in ('{"q": 1}', '{ "q":1 }', '{"q":1}', '{"q": 1 }') * 5
+    ])
+    runtime, tools, _ = _runtime(provider, max_tool_calls=64)
+
+    answered = await runtime.handle([{"role": "user", "content": "How many?"}])
+
+    # The first read, one repeat per repair round (two here), and the repeat past them.
+    assert answered.message == ""
+    assert tools.ran == ["read"] * 4
+    results = _results(list(provider.requests[-1].messages))
+    assert [result.get("code") for result in results] == [None, "repeated_call", "repeated_call"]
+
+
+async def test_ag_budget_062_a_read_that_gives_back_something_new_is_answered() -> None:
+    """AG-BUDGET-062 — tests/brd/tg_agent_shell/agents.feature"""
+    provider = _Provider([_turn("read"), _turn("read"), _turn(content="Counted twice.")])
+    runtime, _, _ = _runtime(provider, tools=_Counting())
+
+    answered = await runtime.handle([{"role": "user", "content": "Count again."}])
+
+    assert answered.message == "Counted twice."
+    assert [result["rows"] for result in _results(list(provider.requests[-1].messages))] == [
+        [1],
+        [2],
+    ]
+
+
 @pytest.mark.parametrize("phase", ["start", "resume", "parent", "interrupted"])
 async def test_ag_turn_010_cancellation_ends_the_request_and_releases_every_claim(phase) -> None:
     """AG-TURN-010 — tests/brd/tg_agent_shell/agents.feature"""

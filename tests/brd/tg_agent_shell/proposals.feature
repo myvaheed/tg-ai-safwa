@@ -128,6 +128,10 @@ Feature: Proposals
     And for the saved one it is told not to propose it again
     And for the discarded one it is told that it did not happen, not to propose it again, and to
       go on only with the parts of the request it has not proposed yet
+    When the same session sends the same call for either of them again
+    Then nothing is prepared and no screen is shown: the call is told the owner already saved or
+      discarded that change, and not to propose it again
+    And each such call counts as one of the 5 tries (MAX_REPAIR_ROUNDS = 5)
     When the subagent hands its answer back
     Then Safwa is told to route again only for a part of the request no receipt line covers
 

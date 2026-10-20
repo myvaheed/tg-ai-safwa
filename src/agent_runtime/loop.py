@@ -21,6 +21,8 @@ from .model import (
     AgentSession,
     PendingTool,
     TurnOutcome,
+    answered_calls,
+    call_key,
     flatten_content,
     log_preview,
     routed_answers,
@@ -59,6 +61,16 @@ _NOT_SHARED = {
     },
 }
 RUNTIME_TOOLS = frozenset(_NOT_SHARED)
+
+# A read that gives back what the same read gave earlier in this session. Asked again, a
+# small model reads the same rows and sends the same call: nothing it reads ever changes.
+_REPEATED_CALL = {
+    "status": "error",
+    "code": "repeated_call",
+    "error": "You made this same call before, and it returned the same result.",
+    "next": "Use that earlier result. Answer now, or make a different call.",
+    "retryable": False,
+}
 
 _STOPPED_WITHOUT_ANSWERING = (
     "You stopped without answering. Write the answer to the owner now, "
@@ -151,8 +163,9 @@ async def run_loop(
 ) -> AgentLoopResult:
     """Run the model until it answers in words.
 
-    Stopping with no content is not an answer, so the session is told so and runs on.
-    Repair rounds bound that, and an empty result after them is the `Materializer`'s to
+    Stopping with no content is not an answer, so the session is told so and runs on, and
+    a read that gives back what the same read gave before is told it learned nothing new.
+    Repair rounds bound both, and an empty result after them is the `Materializer`'s to
     turn into something a person can read.
     """
     messages = agent.messages
@@ -179,6 +192,7 @@ async def run_loop(
             }
             has_reads = any(immediate.values())
             has_mutations = not all(immediate.values())
+            repeated = False
             for call in turn.tool_calls:
                 # Every call is charged, refused ones included: a response the loop answers
                 # without running anything is still a response, and a session that only ever
@@ -220,6 +234,12 @@ async def run_loop(
                             return AgentLoopResult(reason)
                     elif immediate[call.name]:
                         result = (await tools.run(agent, call)).result
+                        answered = (
+                            call_key(call.name, call.arguments_json),
+                            tool_message(call.id, call.name, result)["content"],
+                        )
+                        if answered in answered_calls(messages):
+                            result, repeated = _REPEATED_CALL, True
                     elif has_reads and has_mutations:
                         result = tools.refuse_mixed()
                     else:
@@ -241,9 +261,11 @@ async def run_loop(
                 for tool in pending_tools
                 if not immediate.get(tool.call.name, True) and tool.change is None
             ]
-            if invalid_mutations:
+            if invalid_mutations or repeated:
                 if agent.repair_rounds >= max_repair_rounds:
-                    return AgentLoopResult(message=tools.repair_exhausted_message())
+                    return AgentLoopResult(
+                        message=tools.repair_exhausted_message() if invalid_mutations else ""
+                    )
                 agent.repair_rounds += 1
             continue
 

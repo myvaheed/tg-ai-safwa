@@ -16,6 +16,7 @@ from safwa.features.cards.model import Card, CardKind
 from safwa.features.cards.use_cases import create_card, finish_action
 from safwa.features.diary.model import DiaryEntry
 from telegram_llm import DialogueMessage
+from tg_agent_shell.ai.messages import PRIOR_RECEIPTS
 from tg_agent_shell.ai.outcome import AIOutcomeKind
 from tg_agent_shell.ai.runs import AgentRun, AgentStep
 from tg_agent_shell.ai.subagents import RoutedSubagent
@@ -698,7 +699,7 @@ async def test_the_second_subagent_reads_what_the_first_one_saved(e2e_harness):
     # It sits outside the conversation, so the subagent window cannot trim it.
     conversation = context[context.index("<Conversation>") :]
     assert "<User>Переименуй действие и запиши день</User>" in conversation
-    assert context.index("<system>Already saved") > context.index(conversation)
+    assert context.index(f"<system>{PRIOR_RECEIPTS}") > context.index(conversation)
 
 
 DIARY_DRAFT = {
@@ -1085,7 +1086,7 @@ async def test_ag_receipt_044_words_survive_a_screen_and_open_the_message(e2e_ha
 
     # The next subagent is not told the explanation was work already saved.
     mutator_context = json.dumps(provider.calls[3], ensure_ascii=False)
-    assert "Already saved" not in mutator_context
+    assert PRIOR_RECEIPTS not in mutator_context
     assert first.kind is AIOutcomeKind.PROPOSAL
 
     provider.responses.extend(["Added the Check.", forward_turn("guide")])
