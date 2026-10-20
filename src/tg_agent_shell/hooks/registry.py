@@ -136,7 +136,7 @@ class HookRegistry:
                         every is not None
                     ):
                         event_type = Tick
-                    case OnStarted(), Run():
+                    case OnStarted(), Run() | RunAndAdvise():
                         event_type = Started
                     case _:
                         raise RuntimeError(f"Hook {spec.name} has an incompatible subscription/effect")

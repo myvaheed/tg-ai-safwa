@@ -3,9 +3,9 @@ finished, a Goal closed over open Cards, an open Card whose Goals are all closed
 deletion left without a parent, a blocker just set, an Action finished without its time or effort estimate, a day loaded
 past what it is meant to hold, a Sprint started without a kind of energy the Backlog has
 or with Actions the balance cannot read,
-an Action found in Today morning after morning, and — each morning, and when a Sprint
-starts — the Goals and Subgoals that still have no Action under them, the Schedules the
-plan does not hold, the appointments and Deadlines already passed, and a day planned
+an Action found in Today morning after morning, scheduled Actions moved into Today at
+midnight, and — each morning, and when a Sprint starts — the Goals and Subgoals that still
+have no Action under them, the appointments and Deadlines already passed, and a day planned
 without the rest the Sprint holds.
 
 The mornings themselves are written down by work of its own on the same tick, on whether
@@ -26,15 +26,18 @@ from tg_agent_shell.hooks.contracts import (
     Advise,
     HookSpec,
     OnCommitted,
+    OnStarted,
     OnTick,
     Run,
     RunAndAdvise,
     RunContext,
+    Started,
     Tick,
 )
 
 from ...constants import INBOX_TAG_NAME
-from ..planning.api import SPRINT_STARTED, active_sprint_end_date, plan_load, sprint_is_active
+from ...enums import ActorType
+from ..planning.api import SPRINT_STARTED, plan_load, sprint_is_active
 from ..profile.api import (
     EFFORT_TRACKING_REMINDER,
     TIME_TRACKING_REMINDER,
@@ -44,7 +47,7 @@ from ..profile.api import (
 )
 from ..schedules.api import appointment_label, workspace_zone
 from ..tags.model import CardTag, Tag
-from .api import PLANNED_STAGES, SCHEDULE_NOTICE_DAYS, actions_on_stages, order_cards, parents_of
+from .api import PLANNED_STAGES, actions_on_stages, order_cards, parents_of
 from .hierarchy import branch_actions, branch_ids, card_parent_ids
 from .model import (
     TERMINAL_STAGES,
@@ -69,6 +72,7 @@ from .use_cases import (
     CARD_REOPENED,
     CARD_TODAY,
     CARD_TODAY_MORNING,
+    move_card,
     record_today_morning,
 )
 
@@ -91,9 +95,10 @@ ENERGY_KINDS = {
 TODAY_STALE_DAYS = 3
 
 SCHEDULE_PLAN_REQUEST = (
-    "Scheduled Actions due soon, and where each stands:\n{cards}\n"
-    "Ask the user in one message whether to take the ones due today or tomorrow into Today, "
-    "and the others into the Sprint. Change nothing until they answer."
+    "Scheduled Actions automatically moved into Today:\n{cards}\n"
+    "Tell the user in one message that these Actions are due on the listed local day "
+    "and you have already moved them into Today. Name each with its Schedule. "
+    "Notify only; do not ask for confirmation or propose moving them."
 )
 
 TODAY_OVERLOAD_REQUEST = (
@@ -625,70 +630,68 @@ TODAY_OVERLOAD_HOOK = HookSpec(
 )
 
 
-async def plan_check_due(event: Committed | Tick) -> tuple[str, ...]:
+async def plan_check_due(event: Committed | Tick | Started) -> tuple[str, ...]:
     return (PLAN_CHECK,)
 
 
-async def schedule_plan_request(
-    session: AsyncSession, items: Sequence[str], *, now: datetime | None = None
-) -> str | None:
-    """The open Actions whose Schedule comes due before the plan holds them.
+async def schedule_midnight(session: AsyncSession) -> time:
+    return time(0, 0)
 
-    Read on the workspace's local days as the question is about to be said: an appointment
-    today or tomorrow outside Today, one by the Sprint's last day in Backlog, and a daily
-    quota with executions left today outside Today. In Planning no Sprint runs, so only
-    today and tomorrow count.
-    """
-    end = await active_sprint_end_date(session)
-    tz = await workspace_zone(session)
-    moment = now or utcnow()
-    today = moment.astimezone(tz).date()
-    near = today + timedelta(days=SCHEDULE_NOTICE_DAYS)
-    cards = await session.scalars(
-        select(Card)
-        .where(
-            Card.kind == CardKind.ACTION.value,
-            Card.archived_at.is_(None),
-            Card.effective_stage.not_in([stage.value for stage in TERMINAL_STAGES]),
-            Card.period_start.is_not(None),
-        )
-        .order_by(Card.period_start, Card.id)
-    )
-    lines: list[str] = []
-    for card in cards:
-        stage = CardStage(card.effective_stage)
-        rule = card.schedule_record.rule
-        if card.scheduled_at is not None and card.scheduled_at >= moment:
-            when = card.scheduled_at.astimezone(tz)
-            if (when.date() <= near and stage is not CardStage.TODAY) or (
-                end is not None and when.date() <= end and stage is CardStage.BACKLOG
-            ):
-                lines.append(
-                    f"- #{card.id} «{card.title}»: {appointment_label(rule, when, tz, '%Y-%m-%d')}, "
-                    f"in {stage.value.capitalize()}"
-                )
-        elif (
-            rule["kind"] == "quota"
-            and rule["period"] == "day"
-            and stage is not CardStage.TODAY
-            and card.period_start.astimezone(tz).date() <= today
-        ):
-            lines.append(
-                f"- #{card.id} «{card.title}»: {rule['count']} times a day, in {stage.value.capitalize()}"
+
+async def move_scheduled_today(marker: str, context: RunContext) -> tuple[str, ...]:
+    """Move today's scheduled work before queuing the notification, even in a busy chat."""
+    async with context.sessions() as session:
+        tz = await workspace_zone(session)
+        today = utcnow().astimezone(tz).date()
+        cards = await session.scalars(
+            select(Card)
+            .where(
+                Card.kind == CardKind.ACTION.value,
+                Card.archived_at.is_(None),
+                Card.effective_stage.in_([CardStage.SPRINT.value, CardStage.BACKLOG.value]),
+                Card.period_start.is_not(None),
             )
-    if not lines:
-        return None
-    return SCHEDULE_PLAN_REQUEST.format(cards="\n".join(lines))
+            .order_by(Card.period_start, Card.id)
+        )
+        lines: list[str] = []
+        for card in cards:
+            stage = CardStage(card.effective_stage)
+            rule = card.schedule_record.rule
+            due = False
+            if card.scheduled_at is not None:
+                when = card.scheduled_at.astimezone(tz)
+                due = when.date() == today
+                schedule = appointment_label(rule, when, tz, '%Y-%m-%d')
+            elif (
+                rule["kind"] == "quota"
+                and rule["period"] == "day"
+                and card.period_start.astimezone(tz).date() <= today
+                and (not rule.get("until") or today.isoformat() <= rule["until"])
+            ):
+                due = True
+                schedule = f"{rule['count']} times a day"
+            if due:
+                await move_card(session, card.id, CardStage.TODAY, actor=ActorType.AI)
+                lines.append(
+                    f"- {_named(card)}: {schedule}; {today.isoformat()}, "
+                    f"moved from {stage.value.capitalize()} to Today"
+                )
+        await session.commit()
+        return tuple(lines)
+
+
+async def schedule_plan_request(session: AsyncSession, items: Sequence[str]) -> str | None:
+    return SCHEDULE_PLAN_REQUEST.format(cards="\n".join(items)) if items else None
 
 
 SCHEDULE_PLAN_HOOK = HookSpec(
     name="cards.schedule_plan",
     owner="cards",
-    on=(OnCommitted(kind=SPRINT_STARTED), OnTick(at=morning_time)),
+    on=(OnTick(at=schedule_midnight), OnStarted()),
     evaluate=plan_check_due,
-    effect=Advise(prepare=schedule_plan_request),
+    effect=RunAndAdvise(run=move_scheduled_today, prepare=schedule_plan_request),
     title="Schedule outside the plan",
-    description="When a Sprint starts and each morning, asks about the scheduled Actions the plan does not hold.",
+    description="At local midnight and on startup, moves Actions due today by Schedule from Sprint or Backlog into Today and notifies you.",
 )
 
 

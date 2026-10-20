@@ -19,13 +19,10 @@ from safwa.features.cards.hooks import (
     ENERGY_BALANCE_HOOK,
     ENERGY_CANDIDATES,
     PLAN_CHECK,
-    SCHEDULE_PLAN_HOOK,
     energy_balance_request,
-    schedule_plan_request,
 )
 from safwa.features.cards.model import Card, CardStage, Category, EnergyType
 from safwa.features.cards.use_cases import (
-    archive_subtree,
     delete_card,
     finish_action,
     move_card,
@@ -74,10 +71,8 @@ from safwa.features.planning.use_cases import (
     sprint_metrics,
     start_sprint,
 )
-from safwa.features.profile.api import morning_time
 from safwa.features.reminders.model import Reminder
 from safwa.features.retro.records import aggregate, sprint_records, sprints_by_number
-from safwa.features.schedules.api import set_schedule
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.workspace import SPRINT_LENGTH_DAYS, Workspace
 from tg_agent_shell.cues.initiatives import bind_committed, hand_on_start, queue_advice
@@ -706,90 +701,6 @@ async def test_pl_scope_008_returning_to_sprint_scope_cancels_the_earlier_remova
 
         # The same effort must not be reported as both removed and selected.
         assert (await sprint_metrics(session, sprint.id))["removed"] == 0
-
-
-async def test_pl_hardtime_021_the_request_names_the_schedules_the_plan_does_not_hold(sessions):
-    """PL-HARDTIME-021 — tests/brd/planning.feature"""
-    assert SCHEDULE_PLAN_HOOK.agent_related
-    assert SCHEDULE_PLAN_HOOK.on == (OnCommitted(kind=SPRINT_STARTED), OnTick(at=morning_time))
-    tz = ZoneInfo("Europe/Istanbul")
-    today = utcnow().astimezone(tz).date()
-    # The question is asked at the last minute of the day: an appointment then is now, not past.
-    late = datetime.combine(today, time(23, 59), tzinfo=tz)
-
-    def on(days: int) -> str:
-        return f"{today + timedelta(days=days):%d.%m.%Y} 23:59"
-
-    async with sessions() as session:
-        async def fixed(title: str, days: int, **overrides):
-            return await create_card(session, title=title, schedule=on(days), **overrides)
-
-        async def daily(title: str, stage: str):
-            card = await create_card(session, title=title, stage=stage)
-            await set_schedule(session, card, "three times a day", {"kind": "quota", "period": "day", "count": 3})
-            return card
-
-        dentist = await fixed("Dentist", 1)
-        tax = await fixed("Tax office", 5)
-        # A copy of planned work left in Sprint for its next slot, as Planning places it.
-        call = await fixed("Call mom", 0, stage="sprint")
-        water = await daily("Water", "sprint")
-        await session.commit()
-        # In Planning only today and tomorrow count: no Sprint end holds the Tax office.
-        request = await schedule_plan_request(session, [PLAN_CHECK], now=late)
-        assert request is not None
-        for line in (
-            f"#{dentist.id} «Dentist»: {today + timedelta(days=1):%Y-%m-%d} 23:59, in Backlog",
-            f"#{call.id} «Call mom»: {today:%Y-%m-%d} 23:59, in Sprint",
-            f"#{water.id} «Water»: 3 times a day, in Sprint",
-        ):
-            assert line in request
-        assert "Tax office" not in request
-
-        await plan_one(session)
-        sprint = await start_sprint(session, success_criteria="Ship v2", length_days=7)
-        assert changes_of(session, SPRINT_STARTED) == [Committed(SPRINT_STARTED, sprint.id)]
-        await session.commit()
-
-        await fixed("Concert", 20)
-        await fixed("Report", 3, stage="sprint")
-        await fixed("Gym", 1, stage="today")
-        train = await fixed("Missed train", 1)
-        train.period_start = late - timedelta(days=1)
-        meeting = await fixed("Morning meeting", 0)
-        meeting.period_start = late - timedelta(hours=14)
-        paid = await fixed("Paid", 2)
-        await finish_action(session, paid.id)
-        shelved = await fixed("Shelved", 2)
-        await finish_action(session, shelved.id)
-        await archive_subtree(session, shelved.id)
-        await daily("Stretch", "today")
-        tomorrow = await daily("Tomorrow's walk", "sprint")
-        tomorrow.period_start += timedelta(days=1)
-        await session.commit()
-
-        request = await schedule_plan_request(session, [PLAN_CHECK], now=late)
-        assert request is not None
-        for line in (
-            f"#{dentist.id} «Dentist»: {today + timedelta(days=1):%Y-%m-%d} 23:59, in Backlog",
-            f"#{tax.id} «Tax office»: {today + timedelta(days=5):%Y-%m-%d} 23:59, in Backlog",
-            f"#{call.id} «Call mom»: {today:%Y-%m-%d} 23:59, in Sprint",
-            f"#{water.id} «Water»: 3 times a day, in Sprint",
-        ):
-            assert line in request
-        for absent in (
-            "Concert", "Report", "Gym", "Missed train", "Morning meeting", "Paid", "Shelved",
-            "Stretch", "Tomorrow's walk",
-        ):
-            assert absent not in request
-        assert "Change nothing until they answer" in request
-
-        # Taken into the plan before it is said, each is left out; with none left, nothing.
-        for card in (dentist, call, water):
-            await move_card(session, card.id, CardStage.TODAY)
-        await move_card(session, tax.id, CardStage.SPRINT)
-        await session.commit()
-        assert await schedule_plan_request(session, [PLAN_CHECK], now=late) is None
 
 
 async def test_pl_energy_022_the_request_names_each_kind_the_sprint_lacks_and_its_unlabeled_actions(

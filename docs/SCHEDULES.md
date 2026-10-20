@@ -212,12 +212,21 @@ the overload check. `today_days` snapshots that morning's execution count once p
 day. Retro weights planned, remaining, blocked, key and Category/Energy quantities, and keeps
 actual Done and time once per copy.
 
-## The morning hook
+## The midnight hook
 
-`cards.schedule_plan` ("Schedule outside the plan", PL-HARDTIME-021) runs when a Sprint starts
-and at the Morning time. It asks once about open Actions with an appointment today or
-tomorrow outside Today, or a daily quota with executions left today outside Today, and while
-a Sprint runs about an appointment by its end still in Backlog. It moves nothing itself.
+`cards.schedule_plan` ("Schedule outside the plan", PL-HARDTIME-021) runs at 00:00 in the
+workspace's timezone. It automatically moves open Actions from Sprint or Backlog into Today
+when their appointment falls on the new local day or their daily quota has work left for
+that day. It saves the moves before queuing one notification naming the Actions and their
+Schedules; the Advisor reports the completed moves when the chat is free, without asking
+for confirmation. It also runs in Planning. Morning time and Sprint starts do not trigger it.
+Its Profile switch disables both the moves and the notification. With nothing moved it is
+silent, and a repeated check does not notify again. On startup the same hook checks the
+current local day, so a start at 06:00 still moves today's Actions, including appointments
+earlier that day. Past days are not replayed. Actions already in Today are left alone, so
+another restart does not duplicate moves or notifications.
+Sprint expiry runs before these moves, both at midnight and on startup, so today's work
+does not enter a Sprint whose planned last day has already passed.
 
 ## Reading the plan
 

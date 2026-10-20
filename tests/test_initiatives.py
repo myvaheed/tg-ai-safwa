@@ -13,7 +13,13 @@ from telegram_fakes import QueueTestMessage, spawn_timer
 
 from telegram_llm import ChatHost
 from tg_agent_shell.cues.background import tick
-from tg_agent_shell.cues.initiatives import TickChat, TickPoll, bind_committed, queue_advice
+from tg_agent_shell.cues.initiatives import (
+    TickChat,
+    TickPoll,
+    bind_committed,
+    hand_on_start,
+    queue_advice,
+)
 from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.cues.queue import add_cue, add_hook_cue, drop_hook_cue
 from tg_agent_shell.cues.runtime import speak_on_schedule
@@ -749,7 +755,7 @@ async def test_ag_hook_061_a_switched_off_hook_neither_checks_nor_works(sessions
     assert await pending(sessions) == []
 
 
-async def test_ag_hook_061_work_on_a_schedule_keeps_what_it_found_and_none_runs_at_the_start(sessions):
+async def test_ag_hook_061_work_on_a_schedule_and_start_keeps_what_it_found(sessions):
     """AG-HOOK-061 — tests/brd/tg_agent_shell/agents.feature"""
 
     async def nine(event: Tick) -> tuple[int, ...]:
@@ -767,7 +773,36 @@ async def test_ag_hook_061_work_on_a_schedule_keeps_what_it_found_and_none_runs_
     at_start = HookSpec(
         name="test.start", owner="test", on=(OnStarted(),),
         evaluate=nine, effect=RunAndAdvise(run=found_odd, prepare=words),
-        title="Start", description="Would look at the start.",
+        title="Start", description="Looks at the start.",
     )
-    with pytest.raises(RuntimeError, match="incompatible subscription/effect"):
-        catalogue(at_start)
+    await hand_on_start(catalogue(at_start), sessions, resources=None)
+    assert await pending(sessions) == [("test.found", None, [9]), ("test.start", None, [9])]
+
+
+@pytest.mark.parametrize("payload,enabled", [(4, True), (7, True), (9, False)])
+async def test_ag_hook_061_start_work_is_silent_when_empty_or_off_and_failure_stops_start(
+    sessions, payload, enabled
+):
+    """AG-HOOK-061 — tests/brd/tg_agent_shell/agents.feature"""
+    checked = []
+
+    async def evaluate(event):
+        checked.append(event)
+        return (payload,)
+
+    async def policy(session, name):
+        return enabled
+
+    hook = HookSpec(
+        name="test.start", owner="test", on=(OnStarted(),),
+        evaluate=evaluate, effect=RunAndAdvise(run=found_odd, prepare=words),
+        title="Start", description="Looks at the start.",
+    )
+    hooks = HookRegistry.of((hook,), owners=frozenset({"test"}), policy=policy)
+    if payload == 7:
+        with pytest.raises(RuntimeError, match="work of a hook on start failed"):
+            await hand_on_start(hooks, sessions, resources=None)
+    else:
+        await hand_on_start(hooks, sessions, resources=None)
+    assert bool(checked) == enabled
+    assert await pending(sessions) == []

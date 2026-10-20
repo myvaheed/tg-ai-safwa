@@ -187,14 +187,20 @@
     And no other Card is among them
     And they are handed over the same way whether a Sprint is running or not
 
-  Scenario: PL-HARDTIME-021 — An Action whose Schedule the plan does not hold is brought up
+  Scenario: PL-HARDTIME-021 — Scheduled Actions due today enter Today automatically at midnight
     Given open Actions carry a compiled Schedule
-    When a Sprint starts, and each day when the Profile's Morning time passes (MORNING_TIME_DEFAULT = "09:00"), and the chat is free
-    Then the Advisor is asked once, in one message about all of them, naming each with its next appointment or its daily quota and the stage it is in: the ones whose appointment is today or tomorrow (SCHEDULE_NOTICE_DAYS = 1) and that are not in Today, the ones with a daily quota left for today that are not in Today, and, while a Sprint runs, the ones whose appointment falls by the Sprint's planned last day and that are in Backlog
-    And it is asked whether to take the ones due today or tomorrow into Today and the others into the Sprint; nothing is moved before the owner's answer
-    And the list is read when the question is about to be said: one already in Today, one in the Sprint whose appointment is later than tomorrow, one finished or archived, one whose appointment has passed — earlier today as much as yesterday — and one whose daily quota is met for today are left out; with none left, nothing is asked
-    And in Planning, with no Sprint running, the morning asks only about the appointments today or tomorrow and the daily quotas left for today
-    And a day is the workspace's local day
+    When 00:00 passes in the workspace's timezone and the hook is on
+    Then the Actions in Sprint or Backlog whose appointment is on the new local day, or whose daily quota has executions left for that day, are moved into Today without confirmation
+    And the moves are saved before a notification is queued, even while the chat is busy
+    And when the chat is free the Advisor tells the owner once, in one message naming each Action and its Schedule, that these Actions are due on that day and have already been moved into Today
+    And an Action already in Today, finished or archived, an appointment on another day, an expired Schedule, a daily quota met for that day or not yet started, and an Action without a dated Schedule are left alone
+    And with nothing moved no notification is queued, and a repeated check makes no duplicate move or notification
+    And the same applies in Planning without a running Sprint; starting a Sprint and the Profile's Morning time do not run this hook
+    And switching this hook off in the Profile stops both its moves and its notification
+    When Safwa starts after a missed midnight, including at 06:00
+    Then the same check runs for the current local day, including appointments earlier that day
+    And previous days are not replayed, and restarting again leaves Actions already in Today alone without another notification
+    And a Sprint whose end date passed is closed before today's Actions are moved, so those moves do not add work to the expired Sprint
 
   Scenario: PL-ENERGY-022 — A Sprint that leaves out a kind of energy the Backlog has, or holds Actions without labels, is brought up
     Given a Sprint starts, and the chat is free
