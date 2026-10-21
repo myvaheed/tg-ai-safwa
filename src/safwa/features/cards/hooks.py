@@ -44,6 +44,7 @@ from ..profile.api import (
     TODAY_OVERLOAD,
     effort_tracking_on,
     morning_time,
+    today_capacity_ep,
 )
 from ..schedules.api import appointment_label, workspace_zone
 from ..tags.model import CardTag, Tag
@@ -78,9 +79,6 @@ from .use_cases import (
 
 # How old a Goal or a Subgoal is before having no Action under it is worth a question.
 EMPTY_PARENT_GRACE_DAYS = 1
-# What a day is meant to hold, in effort points: the open Actions in Today and the ones
-# finished that day, together.
-TODAY_CAPACITY_EP = 15
 # What a plan check keeps as its one pending item: it is about the whole plan, not a Card.
 PLAN_CHECK = "plan"
 # How many Backlog Actions the energy question names for each kind the Sprint has none of.
@@ -599,7 +597,8 @@ async def today_overload_request(
     day = day_start.astimezone(await workspace_zone(session)).date()
     load = await plan_load(session, open_today, start_date=day, end_date=day)
     total = load.effort + (finished or 0)
-    if total <= TODAY_CAPACITY_EP:
+    capacity = await today_capacity_ep(session)
+    if total <= capacity:
         return None
     lines = "\n".join(
         f"- #{card.id} «{card.title}» ("
@@ -611,7 +610,7 @@ async def today_overload_request(
         lines += "\nSchedule quantities are unknown; this total is a lower bound."
     return TODAY_OVERLOAD_REQUEST.format(
         total=effort_label(total),
-        capacity=TODAY_CAPACITY_EP,
+        capacity=effort_label(capacity),
         done=effort_label(finished or 0),
         cards=lines,
     )

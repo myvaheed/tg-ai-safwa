@@ -8,7 +8,13 @@ from sqlalchemy import select
 
 from safwa.bootstrap.modules import PROPOSALS, REGISTRY
 from safwa.features.diary.hooks import DIARY_HOOK, DIARY_REQUEST, diary_request
-from safwa.features.profile.api import evening_time, morning_time, set_hook_switch
+from safwa.features.profile.api import (
+    TODAY_OVERLOAD,
+    evening_time,
+    morning_time,
+    set_hook_switch,
+    today_capacity_ep,
+)
 from safwa.features.profile.hooks import (
     DAILY_SUMMARY_HOOK,
     DAILY_SUMMARY_REQUEST,
@@ -17,6 +23,7 @@ from safwa.features.profile.hooks import (
 from safwa.features.profile.model import (
     EVENING_TIME_DEFAULT,
     MORNING_TIME_DEFAULT,
+    TODAY_CAPACITY_EP_DEFAULT,
     ProfileField,
     UserProfile,
 )
@@ -90,7 +97,7 @@ async def test_profile_rejects_an_undeclared_field_without_changes(sessions) -> 
 def test_the_declared_fields_are_exactly_the_editable_settings() -> None:
     """PS-FIELD-002 — tests/brd/profile.feature"""
     # The two feature switches are pressed rather than typed.
-    assert len(ProfileField) == 9
+    assert len(ProfileField) == 10
     assert {field.value for field in ProfileField} == set(PROFILE_FIELDS) | {
         ProfileField.TIME_TRACKING.value, ProfileField.EFFORT_TRACKING.value
     }
@@ -207,6 +214,31 @@ async def test_profile_update_bumps_workspace_revision_once(sessions) -> None:
         )
 
         assert workspace.revision == revision + 1
+
+
+async def test_today_capacity_is_positive_finite_and_kept_while_its_hook_is_off(sessions, effort_on):
+    """PS-CAPACITY-024 — tests/brd/profile.feature"""
+    async with sessions() as session:
+        assert await today_capacity_ep(session) == TODAY_CAPACITY_EP_DEFAULT
+        await set_profile_field(session, ProfileField.TODAY_CAPACITY_EP, 12.5)
+        await session.commit()
+    async with sessions() as session:
+        revision = (await session.get(Workspace, 1)).revision
+        for value in (0, -1, float("nan"), float("inf"), True, None, "20"):
+            with pytest.raises(DomainError, match="positive number"):
+                await set_profile_field(session, ProfileField.TODAY_CAPACITY_EP, value)
+        assert (await session.get(Workspace, 1)).revision == revision
+        for enabled_field in ("hook", "effort"):
+            if enabled_field == "hook":
+                await set_hook_switch(session, TODAY_OVERLOAD, on=False)
+            else:
+                await set_profile_field(session, ProfileField.EFFORT_TRACKING, False)
+            with pytest.raises(DomainError, match="only while Today overload is on"):
+                await set_profile_field(session, ProfileField.TODAY_CAPACITY_EP, 30)
+            assert await today_capacity_ep(session) == 12.5
+            await set_hook_switch(session, TODAY_OVERLOAD, on=True)
+            await set_profile_field(session, ProfileField.EFFORT_TRACKING, True)
+        assert await today_capacity_ep(session) == 12.5
 
 
 async def test_ag_hook_038_switching_a_hook_off_drops_its_pending_request_for_good(sessions) -> None:

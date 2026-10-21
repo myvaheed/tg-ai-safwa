@@ -21,7 +21,12 @@ from tg_agent_shell.proposals.api import (
 
 from ..reminders.api import parse_clock
 from .model import ProfileField, ProfileValue
-from .use_cases import profile_field, set_profile_field, validated_profile_value
+from .use_cases import (
+    profile_field,
+    require_profile_field,
+    set_profile_field,
+    validated_profile_value,
+)
 
 _CLOCKS = frozenset({ProfileField.MORNING_TIME, ProfileField.EVENING_TIME})
 
@@ -45,6 +50,7 @@ class ProfileProposalHandler:
             try:
                 field = profile_field(name)
                 validated_profile_value(field, stored_value(field, value))
+                await require_profile_field(context.session, field)
             except DomainError as error:
                 raise ToolPreparationError(
                     "invalid_value",

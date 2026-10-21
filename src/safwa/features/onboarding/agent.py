@@ -101,6 +101,7 @@ MANUAL = f"""# Safwa
 - For a repeating Action, estimate one occurrence. Work that does not fit in one day is a Subgoal with smaller Actions, not a 13 EP Action.
 - Planned load counts every scheduled execution left from today to the Sprint's last day: 5 EP repeated three times takes 3 Actions and 15 EP. A week the window covers in part counts its share of the days: three times a week over 2 of its days is 1. An Action on the plan counts at least once. Planning uses the next Sprint's length; Today uses today's remaining executions. Unknown quantities are marked as incomplete totals.
 - EP totals help compare planned load with capacity. They do not convert to hours or predict recovery exactly.
+- Today capacity in Profile is the day's EP limit.
 - With EP on, the Advisor proposes an estimate with each new Action. "🔢 Effort" in full editing or Card creation sets one; "No estimate" clears it. A Goal shows the total of its Actions, each counted once. Partial totals name the Actions without estimates and show no completion percentage or EP per hour.
 - After an Action is Done without an estimate, the Advisor asks for its EP. The answer is recorded on that finished Action, including a finished repeat. If the user does not know, it stays empty. "Effort Points reminder" in Profile → Hooks switches this question off or on.
 
