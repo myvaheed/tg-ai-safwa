@@ -293,7 +293,10 @@ path: a Value on a Goal says why the work under it is there. `every_finished_act
 worked out, and Life in weeks counts a Value's Actions by it.
 
 A Value is **in focus** while a Card in Today carries it: an Action in Today, or a Goal or Subgoal
-whose derived stage is Today because an Action under it is. Nothing sets it by hand;
+whose derived stage is Today because an Action under it is. A Pending, unarchived Check carrying
+the Value also puts it in focus while its Schedule has an appointment or daily quota left today.
+An unscheduled Check, a weekly or monthly quota alone, or repetition after completion does not.
+Nothing sets focus by hand;
 `values_in_focus` in the Planning door reads it. A Value's and a Tag's description hold at most
 400 characters (`DESCRIPTION_MAX_CHARS`).
 

@@ -196,6 +196,11 @@ Safwa and waiting for your requests, as `~2d 5h 25m`. It counts overlapping acti
 includes own voice recording time and excludes autonomous work. Its two-minute quiet window
 and restart behavior are described in [USAGE_TIME.md](docs/USAGE_TIME.md).
 
+Profile → **Motivator instructions** sets the style and emphasis of the words under Home's
+Values. Send `off` to clear it. These instructions follow the main motivator instructions in
+its system prompt; its context and scheduled Checks in focus are described in
+[HOME_DASHBOARD.md](docs/HOME_DASHBOARD.md).
+
 Profile → **Secret word** optionally locks chat access after automatic clearing and after
 restart. Entering it removes attempts and runs the hooks that waited, without Home.
 Any exact text but a command, including `off`, is accepted when sent twice the same; Remove

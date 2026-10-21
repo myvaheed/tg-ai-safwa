@@ -14,7 +14,7 @@ Feature: Profile
     And About me and Advisor instructions come after it, so they are what it goes by
 
   Scenario: PS-FIELD-002 — Profile writes only the fields it has
-    Given the eight fields
+    Given the nine fields
     When anything tries to write a name that is not one of them
     Then it is refused, no field changes, and nothing is recorded as having changed
 
@@ -36,6 +36,7 @@ Feature: Profile
     When the owner types something valid
     Then only the field they were asked for changes
     And the prompt closes itself and Profile is redrawn with the new value, by SC-INPUT-008
+    And Motivator instructions can be written and cleared like the other text instructions
 
   Scenario: PS-UI-INVALID-009 — A rejected answer changes nothing and asks again
     Given one Profile prompt is open

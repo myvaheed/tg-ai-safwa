@@ -26,6 +26,7 @@ class UserProfile(Base, TimestampMixin):
     about_me: Mapped[str] = mapped_column(Text, default="")
     advisor_instructions: Mapped[str] = mapped_column(Text, default="")
     diary_instructions: Mapped[str] = mapped_column(Text, default="")
+    motivator_instructions: Mapped[str] = mapped_column(Text, default="")
     morning_time: Mapped[time] = mapped_column(
         Time, default=time.fromisoformat(MORNING_TIME_DEFAULT)
     )
@@ -54,6 +55,7 @@ class ProfileField(StrEnum):
     MORNING_TIME = "morning_time"
     EVENING_TIME = "evening_time"
     DIARY_INSTRUCTIONS = "diary_instructions"
+    MOTIVATOR_INSTRUCTIONS = "motivator_instructions"
     TIME_TRACKING = "time_tracking"
     EFFORT_TRACKING = "effort_tracking"
     HOME_AFTER_MINUTES = "home_after_minutes"

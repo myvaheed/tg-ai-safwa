@@ -76,7 +76,7 @@ PROFILE_AGENT = AgentSpec(
     name="profile",
     purpose=(
         "change a Profile field or answer what it holds: About me, Advisor instructions, "
-        "the Morning and Evening times, the Diary instruction, Home after, "
+        "the Morning and Evening times, Diary and Motivator instructions, Home after, "
         "Time tracking, Effort Points; or asks to switch an automatic reaction or stop onboarding."
     ),
     instructions=PROFILE_PROMPT,
@@ -90,7 +90,7 @@ class ProfileToolInput(ToolInput):
     """The Profile fields to change, each with its new value."""
 
     content_fields: ClassVar[frozenset[str]] = frozenset(
-        {"about_me", "advisor_instructions", "diary_instructions"}
+        {"about_me", "advisor_instructions", "diary_instructions", "motivator_instructions"}
     )
 
     about_me: str | None = Field(default=None, description="What Safwa should know about the user.")
@@ -106,6 +106,9 @@ class ProfileToolInput(ToolInput):
     )
     diary_instructions: str | None = Field(
         default=None, description="A standing instruction for the Diary."
+    )
+    motivator_instructions: str | None = Field(
+        default=None, description="Standing instructions for the Home motivator."
     )
     home_after_minutes: int | None = Field(
         default=None,

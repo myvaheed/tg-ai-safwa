@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import time
 
+import pytest
 from sqlalchemy import select
 from ui_harness import FakeCallback, FakeMessage, button_texts, services_for
 
@@ -75,6 +76,26 @@ async def test_valid_profile_input_updates_selected_field_and_auto_closes_prompt
     assert answer.was_deleted is True
     assert "<i>About me:</i>\nI prefer mornings." in message.bot.edits[-1][1]
     assert "<i>Advisor instructions:</i>\nKeep this unchanged." in message.bot.edits[-1][1]
+
+
+@pytest.mark.parametrize("text", ["Be enthusiastic about **my progress**.", "off"])
+async def test_motivator_instructions_are_edited_and_cleared_in_profile(sessions, text):
+    """PS-UI-SAVE-008 — tests/brd/profile.feature"""
+    services = services_for(sessions)
+    async with sessions() as session:
+        await set_profile_field(session, ProfileField.MOTIVATOR_INSTRUCTIONS, "Old instruction.")
+        await session.commit()
+    message = FakeMessage(921, bot_message=True, answer_as_new=True)
+    await command_profile(message, services)
+    await _press(message, services, message.edits[-1][1], "💎 Motivator instructions")
+    answer = FakeMessage(922, text=text, bot_message=False, bot=message.bot)
+    await ordinary_text(answer, services)
+    async with sessions() as session:
+        profile = await session.get(UserProfile, 1)
+        assert profile.motivator_instructions == ("" if text == "off" else text)
+        assert await session.scalar(select(UiSession)) is None
+    assert answer.was_deleted
+    assert "<i>Motivator instructions:</i>" in message.bot.edits[-1][1]
 
 
 async def test_settings_shows_timezone_without_a_timezone_edit_action(sessions) -> None:

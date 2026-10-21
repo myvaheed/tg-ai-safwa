@@ -69,7 +69,13 @@
   Scenario: HM-VALUES-007 — Each Value in focus carries a few words written for it
     Given Values in focus (VL-FOCUS-001)
     Then each is on the dashboard as a link that opens it, with one or two sentences under it (MOTIVATION_MAX_CHARS = 200)
-    And the words for every Value are written in one request with reasoning off, from those Values each with the Today Cards that carry it, About me, the current Sprint's Success criteria, Today as its tree (PL-KEY-025), the 10 Actions finished last (MOTIVATION_DONE_ACTIONS = 10) and the 2 last Diary entries with words (MOTIVATION_DIARY_ENTRIES = 2), however long ago
+    And the words are written in groups of at most 3 Values (MOTIVATION_BATCH_SIZE = 3), with at most 2 requests running at once (MOTIVATION_CONCURRENCY = 2), with reasoning off
+    And each group reads About me, the local date and time, the current Sprint's Success criteria, Today as its tree (PL-KEY-025), scheduled Checks with answers left today, the 5 Actions finished last (MOTIVATION_DONE_ACTIONS = 5), and the latest Diary day with words and its date (MOTIVATION_DIARY_ENTRIES = 1), however long ago
+    And each Card names its Values, including those of all its Goals, and each Check names its own Values
+    And each Value in that group has its description, the Today Goals and Actions and today's scheduled Checks that serve it, and its previous motivation
+    And the main motivator instructions come first in its system prompt, followed by the Profile's Motivator instructions when set
+    And the words mention only Cards and Checks linked to that Value, without a fixed style overriding the owner's instructions
+    And a group that fails does not discard another group's words or the last successful motivation for its Values
     And with no Sprint running, the session says so instead of reading the next Sprint's draft criteria
     And the Today Cards that carry a Value and Today Actions that serve the Sprint's criteria guide the words
     And the next request reads the last successful generation by Value and asks for a different angle and wording without repeating or merely rephrasing its message
@@ -114,7 +120,7 @@
     When the owner acts before the words come, or the message no longer shows that Home
     Then the message stays as it is, and the words are kept for the next dashboard
     When the owner sends /start again while the words are written
-    Then one request is made, and only the last Home is redrawn with its words
+    Then both Homes share the generation already running, and only the last Home is redrawn with its words
     And earlier screens are removed, while what was said stays and the conversation Safwa reads goes on
     And automatic clearing, /clear and protected entry do not draw Home
 

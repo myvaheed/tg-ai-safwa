@@ -225,12 +225,12 @@ async def test_motivator_keeps_the_other_parents_of_shared_cards(sessions):
     """HM-VALUES-007 — tests/brd/home.feature"""
     async with sessions() as session:
         await _shared_post(session)
-        context = await motivation.owner_context(session)
+        context, _ = await motivation.owner_context(session)
     today = context.split("Today Actions, in Today's order, each under its Goals and Subgoals:\n")[1]
     assert today.split("\n\n")[0].splitlines() == [
-        "- Launch the blog (priority=medium)",
-        "  - First post (priority=medium) (also under: Grow audience)",
-        "    - Write it (priority=medium)",
+        "- Launch the blog (kind=goal, priority=medium, values=none)",
+        "  - First post (kind=goal, priority=medium, values=none) (also under: Grow audience)",
+        "    - Write it (kind=action, priority=medium, values=none)",
     ]
 
 
@@ -330,25 +330,28 @@ async def test_each_value_in_focus_carries_the_words_written_for_it(sessions) ->
     words = await Motivator(model, spawn=spawn_timer).write(sessions)
 
     assert words == {health.id: "A run today keeps it going."}
-    # Every Value in one request, with reasoning off.
+    # This group fits in one request, with reasoning off.
     [request] = model.requests
     assert request.reasoning_effort == "none"
     context = request.messages[1]["content"]
     assert "I run in the mornings." in context
-    assert "- Run a marathon (priority=medium)\n  - Morning run (priority=medium)" in context
+    assert (
+        "- Run a marathon (kind=goal, priority=medium, values=Health)\n"
+        "  - Morning run (kind=action, priority=medium, values=Health)"
+    ) in context
     finished = [line for line in context.splitlines() if line.startswith("- 2026-")]
     assert len(finished) == MOTIVATION_DONE_ACTIONS
-    assert finished[0].endswith(done[-1].title)
+    assert finished[0].endswith(f"{done[-1].title} (values=none)")
     assert "Run 0" not in context
     diary = context.split("Diary, newest first:\n")[1].split("\n\n")[0].splitlines()
     assert len(diary) == MOTIVATION_DIARY_ENTRIES
-    assert diary == ["2026-09-04: Slept well", "2026-09-02: A good run"]
+    assert diary == ["2026-09-04: Slept well"]
     # A Value in focus comes with the Today Cards that carry it; one carried only in the
     # Sprint is not in focus.
     assert context.endswith(
         "Values, numbered:\n"
-        "1. Health — Body first (carried today by: Run a marathon)\n"
-        "2. Family — Calls home every Sunday (carried today by: Call home)"
+        "1. Health — Body first (carried today by: Goal: Run a marathon; Action: Morning run)\n"
+        "2. Family — Calls home every Sunday (carried today by: Action: Call home)"
     )
 
     lines = _block(await _text(sessions, words), "Values in focus")
@@ -404,12 +407,12 @@ async def test_motivation_reads_sprint_criteria_and_today_as_its_tree(
     assert "Today: 2026-10-08" in context
     today = context.split("Today Actions, in Today's order, each under its Goals and Subgoals:\n")
     assert today[1].split("\n\n")[0].splitlines() == [
-        "- Critical Today Action (priority=critical)",
-        "- Walk for Health (priority=medium)",
-        "- Ordinary Today Action (priority=medium)",
-        "- Blog (priority=medium)",
-        "  - Posts (priority=medium)",
-        "    - Write a post (priority=medium)",
+        "- Critical Today Action (kind=action, priority=critical, values=none)",
+        "- Walk for Health (kind=action, priority=medium, values=Health)",
+        "- Ordinary Today Action (kind=action, priority=medium, values=none)",
+        "- Blog (kind=goal, priority=medium, values=none)",
+        "  - Posts (kind=goal, priority=medium, values=none)",
+        "    - Write a post (kind=action, priority=medium, values=none)",
     ]
     assert "Low Goal" not in context and "Priority Goals" not in context
     assert "Backlog Action" not in context and "Sprint Action" not in context

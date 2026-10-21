@@ -443,6 +443,39 @@ async def remaining_occurrences(
     return (await planned_executions(session, [card], start_date, end_date))[card.id]
 
 
+async def checks_today(
+    session: AsyncSession, *, now: datetime | None = None,
+) -> list[tuple[Check, int]]:
+    """Pending Checks with appointments or daily quota left on the local day."""
+    tz = await workspace_zone(session)
+    now = now or utcnow()
+    start = period_start(now, "day", tz)
+    end = period_end(start, "day", tz)
+    found = []
+    for check in await session.scalars(
+        select(Check).where(
+            Check.outcome.is_(None), Check.archived_at.is_(None), Check.schedule_id.is_not(None),
+        ).order_by(Check.period_start, Check.id)
+    ):
+        rule = check.schedule_record.rule
+        if past_until(rule, now, tz) or check.period_start is None or check.period_start >= end:
+            continue
+        if rule["kind"] == "quota" and rule["period"] == "day":
+            count = rule["count"] - await _answered_count(
+                session, check, Check.period_start >= start, Check.period_start < end,
+            )
+        elif rule["kind"] == "fixed":
+            count = sum(n for _, _, n in windows(rule, max(now, check.period_start), end, tz))
+            count += int(start <= check.period_start < now)
+        else:
+            continue
+        if rule.get("limit") is not None:
+            count = min(count, rule["limit"] - await total_count(session, check))
+        if count > 0:
+            found.append((check, count))
+    return found
+
+
 def _date_bounds(start: date, end: date, tz: ZoneInfo) -> tuple[datetime, datetime]:
     return (
         datetime.combine(start, time(), tzinfo=tz).astimezone(UTC),
