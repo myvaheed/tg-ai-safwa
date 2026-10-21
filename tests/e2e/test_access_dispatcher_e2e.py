@@ -8,7 +8,14 @@ from dataclasses import replace
 import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.base import BaseSession
-from aiogram.methods import DeleteMessages, EditMessageText, GetFile, GetMe, SendMessage
+from aiogram.methods import (
+    DeleteMessage,
+    DeleteMessages,
+    EditMessageText,
+    GetFile,
+    GetMe,
+    SendMessage,
+)
 from aiogram.types import CallbackQuery, Chat, File, Message, Update, User, Voice
 from test_access import protected_services, set_word
 from ui_harness import ScriptedTranscriber
@@ -58,7 +65,7 @@ class Telegram(BaseSession):
             message_id
             for method in self.calls if isinstance(method, DeleteMessages)
             for message_id in method.message_ids
-        }
+        } | {method.message_id for method in self.calls if isinstance(method, DeleteMessage)}
 
     async def stream_content(self, url, headers=None, timeout=30, chunk_size=65536, raise_for_status=True):
         if False:
@@ -93,6 +100,13 @@ async def test_lock_clears_everything_and_requires_a_configured_secret_word(sess
     if protected:
         await set_word(sessions)
     services = protected_services(sessions)
+    taken_up = []
+
+    def spawn(work, name):
+        taken_up.append(asyncio.create_task(work, name=name))
+        return taken_up[-1]
+
+    services.chat = replace(services.chat, spawn=spawn)
     async with sessions() as session:
         for message_id, kind, text in (
             (1, MessageKind.DIALOGUE_USER, "Private words"),
@@ -118,8 +132,9 @@ async def test_lock_clears_everything_and_requires_a_configured_secret_word(sess
         await updates.feed_update(bot, Update(update_id=2, message=message(bot, 5, "/start")))
         assert services.access.blocked and "Secret word" in telegram.sent[-1].text
         await updates.feed_update(bot, Update(update_id=3, message=message(bot, 6, "x")))
+        await asyncio.wait_for(asyncio.gather(*taken_up), 5)
         assert not services.access.blocked
-        assert not any("🏠" in sent.text for sent in telegram.sent)
+        assert sum("🏠" in sent.text for sent in telegram.sent) == 1
 
 
 @pytest.mark.parametrize("protected", [False, True])
@@ -236,14 +251,13 @@ async def test_the_last_words_sent_while_locked_are_answered_once_the_word_match
         tries = [
             message(bot, 3, "q" * SECRET_LIKE_LENGTH),
             message(bot, 4, "X" * SECRET_LIKE_DISTANCE + word[SECRET_LIKE_DISTANCE:]),
-            message(bot, 5, "/start"),
-            message(bot, 6, word),
+            message(bot, 5, word),
         ]
         for update_id, owner_message in enumerate([*said, *tries], 1):
             await updates.feed_update(bot, Update(update_id=update_id, message=owner_message))
         await asyncio.wait_for(asyncio.gather(*taken_up), 5)
     prompts = {item.message_id for item in telegram.sent if item.text == manager.ENTER_SECRET_WORD}
-    assert len(prompts) == len(said) + 3 and prompts | {3, 4, 5, 6} <= telegram.deleted()
+    assert len(prompts) == len(said) + 2 and prompts | {3, 4, 5} <= telegram.deleted()
     assert not any("🏠" in (item.text or "") for item in telegram.sent)
     dialogue = await services.history.dialogue(42)
     if words is None:
@@ -255,3 +269,89 @@ async def test_the_last_words_sent_while_locked_are_answered_once_the_word_match
     assert telegram.sent[-1].text == "Here is your answer."
     assert ["What is due today?" in item.content for item in dialogue] == [True, False]
     assert dialogue[-1].content.endswith("Here is your answer.")
+
+
+@pytest.mark.parametrize("inputs, word, expected", [
+    (["text", "/tags"], "open sesame", "Tags"),
+    (["/tags", "text"], "open sesame", "Here is your answer."),
+    (["/start", "/tags"], "open sesame", "Tags"),
+    (["/start card-1"], "open sesame", "Visible Card"),
+    (["/tags"], "tags", "Tags"),
+])
+async def test_unlock_processes_only_the_last_message_including_commands(
+    e2e_harness, monkeypatch, inputs, word, expected,
+):
+    """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
+    sessions = e2e_harness.sessions
+    await set_word(sessions, word)
+    async with sessions() as session:
+        await create_card(session, kind="action", title="Visible Card")
+        await session.commit()
+    services = protected_services(sessions)
+    services.root, provider = e2e_harness.advisor(["Here is your answer."], plan_required=False)
+    taken_up = []
+
+    def spawn(work, name):
+        taken_up.append(asyncio.create_task(work, name=name))
+        return taken_up[-1]
+
+    services.chat = replace(services.chat, spawn=spawn)
+    resumed = []
+
+    async def resume_cues(*args):
+        resumed.append(args)
+
+    monkeypatch.setattr(manager, "resume_cues", resume_cues)
+    telegram = Telegram()
+    async with Bot("999999:TEST_TOKEN", session=telegram) as bot:
+        updates = dispatcher(services)
+        await services.access.lock(owner_anchor(bot, 42))
+        for message_id, text in enumerate(inputs, 1):
+            text = "What is due today?" if text == "text" else text
+            await updates.feed_update(bot, Update(
+                update_id=message_id, message=message(bot, message_id, text),
+            ))
+        assert services.access.blocked and taken_up == [] and provider.calls == []
+        assert all(item.text == manager.ENTER_SECRET_WORD for item in telegram.sent)
+        for message_id, text in ((10, "q" * SECRET_LIKE_LENGTH), (11, word)):
+            await updates.feed_update(bot, Update(
+                update_id=message_id, message=message(bot, message_id, text),
+            ))
+        await asyncio.wait_for(asyncio.gather(*taken_up), 5)
+    assert not services.access.blocked and resumed == []
+    assert sum(expected in item.text for item in telegram.sent) == 1
+    assert {10, 11} <= telegram.deleted()
+    dialogue = await services.history.dialogue(42)
+    if inputs[-1] == "text":
+        assert len(provider.calls) == 1 and len(dialogue) == 2
+        assert "What is due today?" in dialogue[0].content
+    else:
+        assert provider.calls == [] and dialogue == []
+    assert not any("🏠" in item.text for item in telegram.sent)
+
+
+@pytest.mark.parametrize("command, blocked", [("/lock", True), ("/clear", False)])
+async def test_deferred_lock_and_clear_commands_run_once_after_unlock(sessions, command, blocked):
+    """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
+    await set_word(sessions)
+    services = protected_services(sessions)
+    taken_up = []
+
+    def spawn(work, name):
+        taken_up.append(asyncio.create_task(work, name=name))
+        return taken_up[-1]
+
+    services.chat = replace(services.chat, spawn=spawn)
+    telegram = Telegram()
+    async with Bot("999999:TEST_TOKEN", session=telegram) as bot:
+        updates = dispatcher(services)
+        await services.access.lock(owner_anchor(bot, 42))
+        await updates.feed_update(bot, Update(update_id=1, message=message(bot, 1, command)))
+        assert services.access.blocked and taken_up == []
+        await updates.feed_update(bot, Update(update_id=2, message=message(bot, 2, "x")))
+        await asyncio.wait_for(asyncio.gather(*taken_up), 5)
+    assert services.access.blocked is blocked
+    assert sum(
+        isinstance(method, DeleteMessage) and method.message_id == 1 for method in telegram.calls
+    ) == 1
+    assert {1, 2} <= telegram.deleted() and await services.history.dialogue(42) == []

@@ -57,7 +57,7 @@ class AccessManager:
         self.home = home
         self._state: AccessState = Open()
         self._transition = asyncio.Lock()
-        # Words for the Advisor sent while locked, and how to take each up once open. Which
+        # Messages sent while locked, and how to take each up once open. Which
         # one is kept is known only at unlock, against the word just entered.
         self._attempts: list[tuple[Message, Again]] = []
 
@@ -202,7 +202,11 @@ class AccessManager:
         if correct:
             await self._unlock(event)
         else:
-            if again is not None and event.edit_date is None and is_dialogue(event):
+            if (
+                again is not None
+                and event.edit_date is None
+                and (bool(event.text) or is_dialogue(event))
+            ):
                 self._attempts.append((event, again))
             await self.services.chat.send(
                 event,
@@ -214,16 +218,20 @@ class AccessManager:
 
     async def _unlock(self, anchor: Message) -> None:
         self._state = Unlocking()
-        # Only the last words that are not a try at the word stay, to be answered.
+        # Commands are never guesses at the word, even when short or similar to it.
         self._attempts = [
             (attempt, again)
             for attempt, again in self._attempts
-            if attempt.text is None or not resembles_secret_word(attempt.text, anchor.text)
+            if (
+                attempt.text is None
+                or attempt.text.lstrip().startswith("/")
+                or not resembles_secret_word(attempt.text, anchor.text)
+            )
         ][-1:]
         try:
             await self.services.turn.wait_idle()
             await self._clear(anchor, anchor.message_id, keep_unanswered=True)
-            # The owner's words are answered first; waiting hooks speak once the chat is free.
+            # The owner's message runs first; waiting hooks speak once the chat is free.
             if not self._attempts:
                 await resume_cues(self.services, anchor)
             self.services.owner_acted_at = utcnow()
@@ -241,8 +249,8 @@ class AccessManager:
                 self._state = Locked()
 
     async def _take_up(self, again: Again) -> None:
-        """Pass the words sent while locked through the gate again, as if sent now."""
+        """Pass the message sent while locked through the gate again, as if sent now."""
         try:
             await again()
         except Exception:
-            logger.exception("Could not take up the words sent while the chat was locked")
+            logger.exception("Could not take up the message sent while the chat was locked")

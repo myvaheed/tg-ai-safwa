@@ -233,9 +233,10 @@
     And a Reminder proposal made while locked is resolved as Discard, and its continuation reaches the chat
     When the owner unlocks access
     Then running background work finishes first, attempts and prompts are cleared, and what was said unasked since the owner last wrote stays
-    But the last text, recording or photo attempted before the word that is not a try at the word stays, and once access opens it is answered as if sent then
-    And a try at the word is a text of at most 5 characters (SECRET_LIKE_LENGTH = 5) or at most 3 character edits from it (SECRET_LIKE_DISTANCE = 3)
-    And pending hooks run at unlock when no such attempt stays, and otherwise once the chat is free after its answer
+    But the last text, command, recording or photo attempted before the word that is not a try at the word stays, and once access opens it is processed exactly once as if sent then
+    And a try at the word is an ordinary text of at most 5 characters (SECRET_LIKE_LENGTH = 5) or at most 3 character edits from it (SECRET_LIKE_DISTANCE = 3)
+    And commands are never treated as tries at the word, even when short or similar to it
+    And pending hooks run at unlock when no such attempt stays, and otherwise once the chat is free after processing it
     And Home is shown only if the application supplies an unlock renderer
     And commands and item links received after verification wait until access opens and then reach their handlers
     And commands and item links received before verification remain attempted inputs
