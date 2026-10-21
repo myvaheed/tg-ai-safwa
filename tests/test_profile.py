@@ -90,7 +90,7 @@ async def test_profile_rejects_an_undeclared_field_without_changes(sessions) -> 
 def test_the_declared_fields_are_exactly_the_editable_settings() -> None:
     """PS-FIELD-002 — tests/brd/profile.feature"""
     # The two feature switches are pressed rather than typed.
-    assert len(ProfileField) == 8
+    assert len(ProfileField) == 9
     assert {field.value for field in ProfileField} == set(PROFILE_FIELDS) | {
         ProfileField.TIME_TRACKING.value, ProfileField.EFFORT_TRACKING.value
     }
@@ -242,6 +242,7 @@ async def test_ag_hook_038_switching_a_hook_off_drops_its_pending_request_for_go
         ("advisor_instructions", "Be brief", "Be brief"),
         ("evening_time", "21:30", time(21, 30)),
         ("diary_instructions", "Note how I slept", "Note how I slept"),
+        ("motivator_instructions", "Remind me what I have achieved", "Remind me what I have achieved"),
         ("morning_time", "08:00", time(8, 0)),
         ("time_tracking", True, True),
         ("home_after_minutes", 45, 45),

@@ -115,7 +115,7 @@ MANUAL = f"""# Safwa
 - After a Check is created, Safwa silently checks that it observes a state or a result rather than work done, is answered yes or no, and is about its Card's result. "Did I exercise?" every morning is a repeating Action; "No sweets?" is a Check. If something clearly does not fit, the Advisor says the Check could be improved, suggests the change with its reason, and asks. Check review in Profile → Hooks switches this off or on.
 
 # Values and Tags
-- A Value is what the user lives by: "📖 Endless learning". It has a name and a description: why it matters and what the user does for it on an ordinary day. A vivid name and description make it clearer what the user wants; the Advisor helps word them from the user's own words. A Card carries a Value when it serves it; a Check carries one when it shows how well it is held. A Value is in focus while a Card in Today carries it: an Action in Today, or a Goal or Subgoal above one. The Advisor reads every Value. A Value's or a Tag's description holds at most {DESCRIPTION_MAX_CHARS} characters.
+- A Value is what the user lives by: "📖 Endless learning". It has a name and a description: why it matters and what the user does for it on an ordinary day. A vivid name and description make it clearer what the user wants; the Advisor helps word them from the user's own words. A Card carries a Value when it serves it; a Check carries one when it shows how well it is held. A Value is in focus while a Card in Today carries it, including Goals above its Actions, or a Check linked to it is scheduled for today and still needs an answer. The Advisor reads every Value. A Value's or a Tag's description holds at most {DESCRIPTION_MAX_CHARS} characters.
 - {_LINK} Explain unclear links in Note.
 - After a Value is created, Safwa silently checks that it is a direction the user lives by, not a result, a practice, a feeling, a means or a rule, and that its description says what the user does for it. If not, the Advisor says the Value could be improved and asks with advice. It may offer a short exercise. Value clarification in Profile → Hooks switches this off or on.
 - After linking a Value, Safwa silently checks this direction. If unclear or reversed, it asks the user to clarify Note. It may suggest a possible explanation for the user to confirm. Value link clarification in Profile → Hooks switches this off or on.
@@ -182,7 +182,8 @@ MANUAL = f"""# Safwa
 - "Today overload" and "Effort Points reminder" are in Hooks only while Effort Points are on, and ask nothing while they are off.
 
 # Profile
-- "⚙️ Profile": About me and Advisor instructions (what the Advisor must know and follow), Morning time, Evening time, Diary instruction, Home after, Secret word, Time tracking, Effort Points, and "🔔 Hooks".
+- "⚙️ Profile": About me and Advisor instructions (what the Advisor must know and follow), Morning time, Evening time, Diary instruction, Motivator instructions, Home after, Secret word, Time tracking, Effort Points, and "🔔 Hooks".
+- "Motivator instructions" sets the Home motivation's style and emphasis. Send off to clear it.
 - "Usage time" shows roughly how long the user has used Safwa in all, such as "~2d 5h 25m". It is not Time tracking.
 - "⌛ Time tracking" is off until pressed. On, it offers "⌛ Time spent" on an Action, keeps a Sprint's time for its retro and turns on "Time tracking reminder". The active day it measures runs from the Morning time to the Evening time.
 - In words too: its ordinary fields, shown to save, marked from what it was to what it becomes. Secret word is set only on its own Profile screen, and the word is never shown.
@@ -200,7 +201,6 @@ MANUAL = f"""# Safwa
 - With Secret word set, the chat locks when it is cleared after a quiet time: Safwa answers nothing until the user sends the word. Reminders still arrive. After the word, Safwa answers the last message, voice message or photo sent while locked; texts of 5 characters or fewer, or within 3 characters of the word, are deleted unanswered. /clear empties the chat without locking it. /lock empties and locks the chat immediately; it requires Secret word to be set.
 - When the user does nothing in the chat for the Profile's "🏠 Home after" minutes, 30 at first, or sends /clear, Safwa empties the chat: screens, receipts, the user's messages and replies. No Home appears. Automatic clearing leaves what Safwa said on its own after the user last wrote to it; /clear removes that too.
 - /start opens the Home dashboard with ☰ Menu: the day and the time, the last 5 changes, the Values in focus, every Action in Today under its Goals and Subgoals, a Card under several standing once with ↖ naming the others, and today's tracked time when enabled. Each item is a link. Only one screen stays at the bottom. ☰ Menu unfolds navigation; another screen or a message to the Advisor replaces or removes Home. The words under Values are kept for 10 minutes; without them, they appear on Home a moment later.
-- Those words use the Today Cards that carry each Value, About me, the running Sprint's Success criteria, finished Actions and the Diary. Each new request reads the last words to avoid repeating them.
 - After a clear the conversation starts over. The Diary still reads the whole day."""
 
 ONBOARDING_PROMPT = f"""You explain Safwa to the user from the manual below. You read no data.

@@ -134,7 +134,7 @@
     And Safwa's value tool refuses a new Value without a description, with no screen shown
     And a description cannot be emptied later: the Value keeps the one it had
 
-  Scenario: VL-FOCUS-001 — A Value is in focus while a Card in Today carries it
+  Scenario: VL-FOCUS-001 — A Value is in focus while today's work or scheduled observations carry it
     Given "Health" is on an Action in Today
     And "Family" is on a Goal whose Subgoal holds an Action in Today
     And "Craft" is on an Action in Sprint, on a Goal with nothing in Today, and on a Check
@@ -142,6 +142,9 @@
     When the Action carrying Health leaves Today, by moving or by being finished
     Then Health is out of focus
     And neither the Value's screen nor /values offers a way to set it by hand
+    Given a Pending Check carries a Value and has an appointment or daily quota with answers left today
+    Then that Value is in focus even without a Card in Today
+    But a Check without a Schedule, one answered or archived, one scheduled for another day, and a weekly or monthly quota alone do not put a Value in focus
 
   Scenario: VL-FOCUS-002 — Safwa is handed every Value
     Given "Fitness" and "Tidiness", only Fitness in focus

@@ -32,9 +32,10 @@ from ..cards.api import (
     planned_actions,
 )
 from ..cards.model import CardKind
+from ..checks.api import Check
 from ..profile.api import effort_tracking_on
-from ..schedules.api import planned_executions, remaining_occurrences
-from ..values.api import CardValue, Value
+from ..schedules.api import checks_today, planned_executions, remaining_occurrences
+from ..values.api import CardValue, CheckValue, Value
 from .model import Sprint, SprintCommitment
 
 # What the next Sprint's length may be set to, in days.
@@ -384,8 +385,8 @@ async def today_actions(session: AsyncSession) -> list[Card]:
     return await actions_on_stages(session, CardStage.TODAY)
 
 
-async def values_in_focus(session: AsyncSession) -> list[tuple[Value, list[Card]]]:
-    """Every Value a Card in Today carries, by priority, with those Cards.
+async def values_in_focus(session: AsyncSession) -> list[tuple[Value, list[Card | Check]]]:
+    """Every Value carried by a Today Card or a scheduled Check still due today.
 
     A Goal or a Subgoal is in Today while an Action under it is, so its Values count too.
     """
@@ -396,7 +397,16 @@ async def values_in_focus(session: AsyncSession) -> list[tuple[Value, list[Card]
         .where(Card.effective_stage == CardStage.TODAY.value, Card.archived_at.is_(None))
         .order_by(Value.order, Card.id)
     )
-    found: dict[int, tuple[Value, list[Card]]] = {}
+    found: dict[int, tuple[Value, list[Card | Check]]] = {}
     for value, card in rows:
         found.setdefault(value.id, (value, []))[1].append(card)
-    return list(found.values())
+    checks = {check.id: check for check, _ in await checks_today(session)}
+    if checks:
+        for value, check_id in await session.execute(
+            select(Value, CheckValue.check_id)
+            .join(CheckValue, CheckValue.value_id == Value.id)
+            .where(CheckValue.check_id.in_(checks))
+            .order_by(Value.order, CheckValue.check_id)
+        ):
+            found.setdefault(value.id, (value, []))[1].append(checks[check_id])
+    return sorted(found.values(), key=lambda item: item[0].order)

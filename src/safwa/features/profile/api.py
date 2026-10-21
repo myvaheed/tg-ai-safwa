@@ -55,6 +55,11 @@ async def diary_instructions(session: AsyncSession) -> str:
     return profile.diary_instructions if profile is not None else ""
 
 
+async def motivator_instructions(session: AsyncSession) -> str:
+    profile = await session.get(UserProfile, 1)
+    return profile.motivator_instructions if profile is not None else ""
+
+
 async def time_tracking_on(session: AsyncSession) -> bool:
     """Whether the owner records the time an Action took."""
     profile = await session.get(UserProfile, 1)

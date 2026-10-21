@@ -373,6 +373,7 @@ async def test_start_opens_home_at_once_and_puts_the_words_in_when_they_come(
     [(edited, markup)] = owner.bot.edited
     assert edited == home.message_id and _labels(markup) == ["☰ Menu"]
     assert WORDS in owner.bot.edits[-1]
+    assert len(owner.sent) == 1 and owner.bot.deleted == []
     note = await TelegramNotes(e2e_harness.sessions).note(CHAT_ID, home.message_id)
     assert note.kind == MessageKind.DASHBOARD.value and WORDS in note.text
 

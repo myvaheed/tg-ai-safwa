@@ -1,9 +1,9 @@
 """The few words the Home dashboard puts under each Value in focus.
 
-One mini-session writes them for every Value at once, with reasoning off: a few sentences
+Mini-sessions write them for small groups of Values, with reasoning off: a few sentences
 need none, and a model left to reason can spend its whole output on it and write nothing.
 The words are kept in memory for a while, so a Home drawn again soon reads them instead
-of asking again, and one session runs at a time: whoever asks while it runs waits for it.
+of asking again, and one generation runs at a time: whoever asks while it runs waits for it.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from pydantic import Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from llm_gateway import LlmProvider, OpenAICompatibleError
@@ -23,29 +24,35 @@ from tg_agent_shell.ai.mini import TerminalTool, run_mini_session
 from tg_agent_shell.foundation.clock import utcnow
 
 from ...foundation.workspace import require_workspace
-from ..cards.api import finished_actions, goal_tree, order_cards
+from ..cards.api import finished_actions, goal_tree, order_cards, served_values
+from ..checks.api import Check
 from ..diary.api import last_entries
 from ..planning.api import today_actions, values_in_focus
 from ..planning.model import Sprint
-from ..profile.api import about_me
+from ..profile.api import about_me, motivator_instructions
+from ..schedules.api import checks_today
+from ..values.api import CheckValue, Value
 
 logger = logging.getLogger(__name__)
 
 # What the session reads besides the Values: the Actions finished last and the Diary days
 # written last, however old.
-MOTIVATION_DONE_ACTIONS = 10
-MOTIVATION_DIARY_ENTRIES = 2
+MOTIVATION_DONE_ACTIONS = 5
+MOTIVATION_DIARY_ENTRIES = 1
 # How long the words under one Value may be.
 MOTIVATION_MAX_CHARS = 200
 # How long written words are shown again before they are asked for anew.
 MOTIVATION_FRESH_MINUTES = 10
+MOTIVATION_BATCH_SIZE = 3
+MOTIVATION_CONCURRENCY = 2
 
 MOTIVATION_PROMPT = (
     "Write a few words for each Value that move the user to live by it today.\n"
-    "Tie each Value to the Today Cards that carry it.\n"
+    "Mention a Card or Check only when its listed Values include that Value.\n"
+    "Tie each Value to a relevant Today Card or scheduled Check.\n"
     "Also use About me, the Sprint's Success criteria, the finished Actions or the Diary "
     "when they fit.\n"
-    "Connect a relevant Today Action to the Sprint's Success criteria.\n"
+    "Connect a Today Action to the Sprint's Success criteria when relevant.\n"
     "Do not invent an Action or a connection to a Value.\n"
     "Read Previous motivation for each Value; use a different angle and wording.\n"
     "Do not repeat its message or merely rephrase it.\n"
@@ -76,7 +83,7 @@ MOTIVATE_TOOL = TerminalTool(
 )
 
 
-async def owner_context(session: AsyncSession) -> str:
+async def owner_context(session: AsyncSession) -> tuple[str, dict[int, list[str]]]:
     """What the session reads before the Values."""
     workspace = await require_workspace(session)
     local_now = utcnow().astimezone(ZoneInfo(workspace.timezone))
@@ -88,9 +95,21 @@ async def owner_context(session: AsyncSession) -> str:
     today = await goal_tree(session, actions, now=local_now)
     done = await finished_actions(session, MOTIVATION_DONE_ACTIONS)
     days = await last_entries(session, MOTIVATION_DIARY_ENTRIES)
+    cards = {row.card.id: row.card for row in today}
+    cards.update((parent.id, parent) for row in today for parent in row.also_under)
+    serves = await served_values(session, [*cards, *(card.id for card in done)])
+    names = dict((await session.execute(select(Value.id, Value.name))).all())
+    by_value: dict[int, list[str]] = {}
+    for card in cards.values():
+        for value_id in serves[card.id]:
+            by_value.setdefault(value_id, []).append(f"{card.kind.capitalize()}: {card.title}")
+
+    def values(card_id: int) -> str:
+        return ", ".join(names[value_id] for value_id in serves[card_id]) or "none"
+
     lines = [
         "About me:", (await about_me(session)).strip() or "Nothing written.", "",
-        f"Today: {local_now:%Y-%m-%d}",
+        f"Today: {local_now:%Y-%m-%d %H:%M} ({workspace.timezone})",
     ]
     lines += [
         "", "Current Sprint's Success criteria:",
@@ -98,7 +117,8 @@ async def owner_context(session: AsyncSession) -> str:
     ]
     lines += ["", "Today Actions, in Today's order, each under its Goals and Subgoals:"]
     lines += [
-        f"{'  ' * row.depth}- {row.card.title} (priority={row.card.priority})"
+        f"{'  ' * row.depth}- {row.card.title} "
+        f"(kind={row.card.kind}, priority={row.card.priority}, values={values(row.card.id)})"
         + (
             f" (also under: {', '.join(parent.title for parent in row.also_under)})"
             if row.also_under
@@ -106,11 +126,35 @@ async def owner_context(session: AsyncSession) -> str:
         )
         for row in today
     ] or ["None."]
+    checks = await checks_today(session, now=local_now)
+    check_values: dict[int, list[int]] = {}
+    if checks:
+        for check_id, value_id in await session.execute(
+            select(CheckValue.check_id, CheckValue.value_id)
+            .join(Value, Value.id == CheckValue.value_id)
+            .where(CheckValue.check_id.in_([check.id for check, _ in checks]))
+            .order_by(Value.order)
+        ):
+            check_values.setdefault(check_id, []).append(value_id)
+    lines += ["", "Scheduled Checks remaining today:"]
+    check_lines = []
+    for check, count in checks:
+        linked = check_values.get(check.id, [])
+        for value_id in linked:
+            by_value.setdefault(value_id, []).append(f"Check: {check.title}")
+        check_lines.append(
+            f"- {check.title} (schedule={check.schedule}, remaining_today={count}, "
+            f"values={', '.join(names[value_id] for value_id in linked) or 'none'})"
+        )
+    lines += check_lines or ["None."]
     lines += ["", "Actions finished last, newest first:"]
-    lines += [f"- {card.completed_at:%Y-%m-%d} {card.title}" for card in done] or ["None."]
+    lines += [
+        f"- {card.completed_at.astimezone(local_now.tzinfo):%Y-%m-%d} {card.title} "
+        f"(values={values(card.id)})" for card in done
+    ] or ["None."]
     lines += ["", "Diary, newest first:"]
     lines += [f"{day.entry_date:%Y-%m-%d}: {day.body}" for day in days] or ["Nothing written."]
-    return "\n".join(lines)
+    return "\n".join(lines), by_value
 
 
 class Motivator:
@@ -123,6 +167,7 @@ class Motivator:
         self.provider = provider
         self.spawn = spawn
         self._kept: tuple[datetime, dict[int, str]] | None = None
+        self._previous: dict[int, str] = {}
         self._writing: asyncio.Task[None] | None = None
 
     def fresh(self) -> dict[int, str] | None:
@@ -157,32 +202,54 @@ class Motivator:
         # that were written.
         if words:
             self._kept = (utcnow(), words)
+            self._previous.update(words)
 
     async def _ask(self, sessions: async_sessionmaker[AsyncSession]) -> dict[int, str]:
         async with sessions() as session:
-            values = [
-                (value.id, value.name, value.description, [card.title for card in cards])
-                for value, cards in await values_in_focus(session)
-            ]
+            focus = await values_in_focus(session)
+            values = [value for value, _ in focus]
             if not values:
                 return {}
-            shared = await owner_context(session)
+            shared, items = await owner_context(session)
+            for value, holders in focus:
+                linked = items.setdefault(value.id, [])
+                for holder in holders:
+                    kind = "Check" if isinstance(holder, Check) else holder.kind.capitalize()
+                    label = f"{kind}: {holder.title}"
+                    if label not in linked:
+                        linked.append(label)
+            custom = (await motivator_instructions(session)).strip()
+        prompt = MOTIVATION_PROMPT + (f"\n\nMotivator instructions:\n{custom}" if custom else "")
+        gate = asyncio.Semaphore(MOTIVATION_CONCURRENCY)
+        batches = [values[i:i + MOTIVATION_BATCH_SIZE] for i in range(0, len(values), MOTIVATION_BATCH_SIZE)]
+
+        async def write_batch(batch: list[Value]) -> dict[int, str]:
+            async with gate:
+                return await self._ask_batch(prompt, shared, batch, items)
+
+        results = await asyncio.gather(*(write_batch(batch) for batch in batches))
+        words = {value_id: said for result in results for value_id, said in result.items()}
+        return {value.id: words[value.id] for value in values if value.id in words}
+
+    async def _ask_batch(
+        self, prompt: str, shared: str, values: list[Value], items: dict[int, list[str]],
+    ) -> dict[int, str]:
         listed = [
-            f"{number}. {name}"
-            + (f" — {about}" if about else "")
-            + f" (carried today by: {'; '.join(titles)})"
-            for number, (_, name, about, titles) in enumerate(values, start=1)
+            f"{number}. {value.name}"
+            + (f" — {value.description}" if value.description else "")
+            + f" (carried today by: {'; '.join(items.get(value.id, []))})"
+            for number, value in enumerate(values, start=1)
         ]
-        last = self._kept[1] if self._kept else {}
+        last = self._previous
         previous = [
-            f"- Value {number}: {last[value_id]}"
-            for number, (value_id, _, _, _) in enumerate(values, start=1)
-            if value_id in last
+            f"- Value {number}: {last[value.id]}"
+            for number, value in enumerate(values, start=1)
+            if value.id in last
         ]
         try:
             result = await run_mini_session(
                 self.provider,
-                system_prompt=MOTIVATION_PROMPT,
+                system_prompt=prompt,
                 context="\n".join(
                     [
                         shared, "", "Previous motivation:",
@@ -201,5 +268,5 @@ class Motivator:
         for said in result.payload.words:
             # A number that names no Value is dropped; the first words for a Value count.
             if 1 <= said.value <= len(values):
-                words.setdefault(values[said.value - 1][0], said.text.strip())
+                words.setdefault(values[said.value - 1].id, said.text.strip())
         return words

@@ -123,6 +123,16 @@ PROFILE_FIELDS: dict[str, EditableField] = {
         parse=lambda raw: "" if raw.lower() == "off" else raw,
         show=lambda value: value or "off",
     ),
+    "motivator_instructions": EditableField(
+        title="Motivator instructions",
+        label="💎 Motivator instructions",
+        instruction=(
+            "Send instructions for the Home motivator, such as your preferred style or "
+            "what to emphasize. Send off to clear them."
+        ),
+        parse=lambda raw: "" if raw.lower() == "off" else raw,
+        show=lambda value: value or "off",
+    ),
     "home_after_minutes": EditableField(
         title="Home after",
         label="🏠 Home after",
@@ -172,7 +182,7 @@ def usage_label(seconds: int) -> str:
 
 def profile_text(profile: UserProfile, timezone: str, *, usage: int = 0) -> str:
     """Render the Profile values; timezone is deliberately display-only."""
-    text_fields = {"about_me", "advisor_instructions", "diary_instructions"}
+    text_fields = {"about_me", "advisor_instructions", "diary_instructions", "motivator_instructions"}
     lines = ["<b>Profile</b>", ""]
     for name, field in PROFILE_FIELDS.items():
         if name in text_fields:
@@ -270,7 +280,9 @@ async def render_profile_field_prompt(
             title=field.title,
             current_value=current,
             instruction=field.instruction,
-            markdown=field_name in {"about_me", "advisor_instructions", "diary_instructions"},
+            markdown=field_name in {
+                "about_me", "advisor_instructions", "diary_instructions", "motivator_instructions",
+            },
             back=Place("profile_back"),
         ),
         state={"flow": "profile", "field": field_name},
