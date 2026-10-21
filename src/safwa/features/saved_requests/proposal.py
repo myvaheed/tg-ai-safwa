@@ -23,7 +23,7 @@ from tg_agent_shell.proposals.api import (
 )
 
 from ...enums import ActorType
-from ..cards.api import CardQueryError, normalize_card_query
+from .api import RequestQueryError, normalize_request_query
 from .model import SavedRequest
 from .use_cases import (
     create_saved_request,
@@ -41,14 +41,14 @@ class RequestProposalHandler:
         values = dict(change.values)
         if "sql" in values:
             try:
-                values["query_sql"] = await normalize_card_query(
+                values["query_sql"] = await normalize_request_query(
                     context.session, values.pop("sql"), context.views
                 )
-            except CardQueryError as error:
+            except RequestQueryError as error:
                 raise ToolPreparationError(
                     "unsafe_query",
                     f"Invalid Request SQL: {error}",
-                    "Use one read-only SELECT over ai_cards that returns an id column.",
+                    "Return item_type ('card' or 'check') and id from ai_cards or ai_checks.",
                 ) from error
         return PreparedChange(values=values, expected_version=expected_version)
 

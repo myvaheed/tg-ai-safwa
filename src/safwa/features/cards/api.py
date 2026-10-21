@@ -1,23 +1,21 @@
 """What another feature may ask of Cards.
 
 A stage is a Card's own word, so the enum comes through this door with the two questions
-Planning asks of it, and the rule that a query has to come back with Card ids. Nothing here
+Planning asks of it. Nothing here
 imports the Card use cases: Planning reads through this door and Cards writes through
 Planning's, which is what keeps the two acyclic.
 """
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import func, select
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from tg_agent_shell.ai.sql import UnsafeQueryError, validated_read
 from tg_agent_shell.foundation.errors import DomainError
 
 from ...foundation.marks import title_marks
@@ -32,56 +30,10 @@ from .model import minutes_label as minutes_label
 from .ordering import SCHEDULE_NOTICE_DAYS as SCHEDULE_NOTICE_DAYS
 from .ordering import order_cards as order_cards
 from .ordering import served_values as served_values
-from .views import AI_CARDS
 
 PLANNED_STAGES = (CardStage.SPRINT, CardStage.TODAY)
 # A Done list reads newest first; a Goal Done through its children may have no completion time.
 FINISHED_LAST = (Card.completed_at.desc().nulls_last(), Card.updated_at.desc(), Card.id.desc())
-
-
-class CardQueryError(ValueError):
-    """A read that has to come back with Card ids, and does not."""
-
-
-async def normalize_card_query(
-    session: AsyncSession, raw: str, views: Collection[str]
-) -> str:
-    """Validate a read query that has to come back with Card ids.
-
-    A saved Request's SQL needs the shared read validator plus the two rules that make the
-    result usable as Card ids.
-
-    Both rules are asked of the statement itself rather than of its text: the validator says
-    which views it reads, and SQLite says what its outermost SELECT comes back with. A
-    query whose `ai_cards` sits in a string literal, and one whose `id` belongs to an inner
-    SELECT nobody selects from, both read as correct in the text and neither is.
-    """
-    if not isinstance(raw, str) or not raw.strip():
-        raise CardQueryError("A Card query is required")
-    try:
-        statement, sources = validated_read(raw, views)
-    except UnsafeQueryError as error:
-        raise CardQueryError(str(error)) from error
-    if AI_CARDS.name not in sources:
-        raise CardQueryError("The query must read ai_cards and return Card ids")
-    if "id" not in await _result_columns(session, statement):
-        raise CardQueryError("The query must return a column named id")
-    return statement
-
-
-async def _result_columns(session: AsyncSession, statement: str) -> tuple[str, ...]:
-    """What a read comes back with, compiled but never run.
-
-    `LIMIT 0` is what makes this a compilation: a query that matches nothing has the same
-    columns as one that matches everything, so an empty workspace refuses nothing.
-    """
-    try:
-        result = await (await session.connection()).exec_driver_sql(
-            f"SELECT * FROM ({statement}) LIMIT 0"
-        )
-    except SQLAlchemyError as error:
-        raise CardQueryError(f"The query does not run: {getattr(error, 'orig', error)}") from error
-    return tuple(result.keys())
 
 
 async def actions_on_stages(session: AsyncSession, *stages: CardStage) -> list[Card]:

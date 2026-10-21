@@ -11,7 +11,7 @@ from safwa.features.cards.model import Card, CardCategory, CardEnergyType
 from safwa.features.cards.use_cases import create_card, edit_card_text, toggle_card_tag
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
-from safwa.features.saved_requests.api import request_cards
+from safwa.features.saved_requests.api import request_items
 from safwa.features.saved_requests.model import SavedRequest
 from safwa.features.saved_requests.use_cases import seed_inbox_request
 from safwa.features.tags.model import CardTag, Tag
@@ -68,7 +68,7 @@ async def test_a_capture_request_reaches_save_with_only_the_thought_and_inbox_ta
         assert list(await session.scalars(select(CardCategory))) == []
         assert list(await session.scalars(select(CardEnergyType))) == []
         request = await session.scalar(select(SavedRequest).where(SavedRequest.name == "Inbox"))
-        assert [item.id for item in await request_cards(session, request.query_sql, ALLOWED_VIEWS)] == [card.id]
+        assert [item.id for item in await request_items(session, request.query_sql, ALLOWED_VIEWS)] == [card.id]
 
 
 async def test_an_ordinary_edit_keeps_capture_and_explicit_unlink_resolves_it(e2e_harness):
@@ -105,4 +105,4 @@ async def test_an_ordinary_edit_keeps_capture_and_explicit_unlink_resolves_it(e2
         card = await session.get(Card, card_id)
         assert card.note == "Уточнённая мысль" and card.effort_points is None
         request = await session.scalar(select(SavedRequest).where(SavedRequest.name == "Inbox"))
-        assert await request_cards(session, request.query_sql, ALLOWED_VIEWS) == []
+        assert await request_items(session, request.query_sql, ALLOWED_VIEWS) == []

@@ -51,7 +51,7 @@ async def test_free_text_on_item_screens_renders_markdown(sessions, item_type):
             item = await create_tag(session, "Literal **title**", WORDS)
         elif item_type == "request":
             item = await create_saved_request(
-                session, "Literal **title**", "SELECT id FROM ai_cards", WORDS, views=ALLOWED_VIEWS
+                session, "Literal **title**", "SELECT 'card' AS item_type, id FROM ai_cards", WORDS, views=ALLOWED_VIEWS
             )
         elif item_type == "reminder":
             item = await create_reminder(

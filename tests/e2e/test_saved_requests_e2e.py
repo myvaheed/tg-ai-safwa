@@ -13,7 +13,7 @@ from safwa.bootstrap.modules import (
     PROPOSALS,
 )
 from safwa.features.cards.model import CardStage
-from safwa.features.saved_requests.api import request_cards
+from safwa.features.saved_requests.api import request_items
 from safwa.features.saved_requests.model import SavedRequest
 from safwa.features.saved_requests.use_cases import create_saved_request
 from safwa.features.tags.model import CardTag, Tag
@@ -42,7 +42,7 @@ async def test_ai_creates_an_approved_saved_tag_request(e2e_harness):
                 "mode": "create",
                 "name": "Family actions",
                 "description": "All active Actions tagged Family.",
-                "sql": "SELECT id FROM ai_cards WHERE kind = 'action' "
+                "sql": "SELECT 'card' AS item_type, id FROM ai_cards WHERE kind = 'action' "
                 "AND direct_tags LIKE '%Family%'",
             },
         )
@@ -56,7 +56,7 @@ async def test_ai_creates_an_approved_saved_tag_request(e2e_harness):
         await session.commit()
         request = await session.get(SavedRequest, affected[0])
         assert request is not None
-        matches = await request_cards(session, request.query_sql, ALLOWED_VIEWS)
+        matches = await request_items(session, request.query_sql, ALLOWED_VIEWS)
         assert [card.id for card in matches] == [action.id]
 
 
@@ -66,7 +66,7 @@ async def test_ai_request_update_is_rejected_when_the_request_becomes_stale(e2e_
         request = await create_saved_request(
             session,
             "All goals",
-            "SELECT id FROM ai_cards WHERE kind = 'goal'",
+            "SELECT 'card' AS item_type, id FROM ai_cards WHERE kind = 'goal'",
             views=ALLOWED_VIEWS,
         )
         await session.commit()
@@ -99,14 +99,21 @@ async def test_ai_request_update_is_rejected_when_the_request_becomes_stale(e2e_
     "sql",
     [
         "SELECT id FROM cards",
+        "SELECT 'value' AS item_type, id FROM ai_checks",
+        "SELECT 'check' AS item_type, 'wrong' AS id FROM ai_checks",
         # The id is real and belongs to a CTE nobody selects it from, so the Request would
         # answer with amounts; the Cards here are named inside a string and read nowhere.
-        "WITH c AS (SELECT id FROM ai_cards) SELECT 1 AS amount FROM c",
+        "WITH c AS (SELECT 'card' AS item_type, id FROM ai_cards) SELECT 1 AS amount FROM c",
         "SELECT id FROM ai_values WHERE name <> 'ai_cards'",
     ],
 )
 async def test_ai_request_with_unsafe_sql_never_becomes_a_proposal(e2e_harness, sql):
     """SR-AI-007 — tests/brd/saved_requests.feature"""
+    from safwa.features.checks.use_cases import create_check
+
+    async with e2e_harness.sessions() as session:
+        await create_check(session, title="Observed?")
+        await session.commit()
     response = mutation_turn(
         (
             "request",
@@ -131,7 +138,7 @@ async def test_ai_request_with_unsafe_sql_never_becomes_a_proposal(e2e_harness, 
     assert outcome.kind is AIOutcomeKind.ANSWER
     tool_result = json.loads(str(provider.calls[2][-1]["content"]))
     assert tool_result["code"] == "unsafe_query"
-    assert "read-only SELECT over ai_cards" in tool_result["hint"]
+    assert "Return item_type" in tool_result["hint"]
     async with e2e_harness.sessions() as session:
         assert list(await session.scalars(select(SavedRequest))) == []
         assert list(advisor.reviews.open_proposals) == []
@@ -143,7 +150,7 @@ async def test_ai_can_query_saved_requests_through_the_safe_view(e2e_harness):
         await create_saved_request(
             session,
             "All goals",
-            "SELECT id FROM ai_cards WHERE kind = 'goal'",
+            "SELECT 'card' AS item_type, id FROM ai_cards WHERE kind = 'goal'",
             views=ALLOWED_VIEWS,
         )
         await session.commit()
@@ -193,7 +200,7 @@ async def test_ai_request_query_values_and_marks_archived_cards(e2e_harness):
             {
                 "mode": "create",
                 "name": "Family value actions",
-                "sql": "SELECT id FROM ai_cards WHERE kind = 'action' "
+                "sql": "SELECT 'card' AS item_type, id FROM ai_cards WHERE kind = 'action' "
                 "AND direct_values LIKE '%Family%'",
             },
         )
@@ -206,7 +213,7 @@ async def test_ai_request_query_values_and_marks_archived_cards(e2e_harness):
         await session.commit()
         request = await session.get(SavedRequest, affected[0])
         assert request is not None
-        matches = await request_cards(session, request.query_sql, ALLOWED_VIEWS)
+        matches = await request_items(session, request.query_sql, ALLOWED_VIEWS)
         # An archived Card is in the answer, and the marker on its title is what says so.
         assert [card.id for card in matches] == [live.id, archived.id]
         assert await title_marks(session, matches[1]) == " [📦]"
@@ -236,7 +243,7 @@ async def test_ai_request_query_supports_complex_boolean_logic(e2e_harness):
             {
                 "mode": "create",
                 "name": "Urgent actions",
-                "sql": "SELECT id FROM ai_cards WHERE kind = 'action' "
+                "sql": "SELECT 'card' AS item_type, id FROM ai_cards WHERE kind = 'action' "
                 "AND (stage = 'today' OR priority = 'critical') ORDER BY title",
             },
         )
@@ -249,6 +256,50 @@ async def test_ai_request_query_supports_complex_boolean_logic(e2e_harness):
         await session.commit()
         request = await session.get(SavedRequest, affected[0])
         assert request is not None
-        matches = await request_cards(session, request.query_sql, ALLOWED_VIEWS)
+        matches = await request_items(session, request.query_sql, ALLOWED_VIEWS)
         assert {card.id for card in matches} == {today.id, critical.id}
         assert ordinary.id not in {card.id for card in matches}
+
+
+@pytest.mark.parametrize("mixed", [False, True])
+async def test_ai_saves_check_requests_and_opens_them_without_another_model_call(e2e_harness, mixed):
+    """SR-AI-007 — tests/brd/saved_requests.feature"""
+    from ui_harness import FakeMessage, button_texts, services_for
+
+    from safwa.features.checks.use_cases import create_check
+    from safwa.features.saved_requests.telegram import command_requests
+    from tg_agent_shell.telegram import open_item_screen
+
+    async with e2e_harness.sessions() as session:
+        check = await create_check(session, title="Enough sleep?")
+        await create_manual_card(session, title="Walk", effort_points=1)
+        await session.commit()
+    sql = "SELECT 'check' AS item_type, id FROM ai_checks WHERE status = 'pending'"
+    if mixed:
+        sql += " UNION ALL SELECT 'card', id FROM ai_cards"
+    advisor, provider = e2e_harness.advisor([
+        route_turn("workspace_mutator"),
+        mutation_turn(("request", {"mode": "create", "name": "Selection", "sql": sql})),
+    ])
+    outcome = await advisor.handle("Save a Request for pending Checks and the selected Cards")
+    assert outcome.proposal_id is not None
+    assert len(provider.calls) == 2
+    async with e2e_harness.sessions() as session:
+        [request_id] = await approve_proposal(
+            session, advisor.reviews, PROPOSALS, outcome.proposal_id
+        )
+        await session.commit()
+        stored = await session.get(SavedRequest, request_id)
+        assert stored.query_sql == sql
+        results = await request_items(session, stored.query_sql, ALLOWED_VIEWS)
+        assert results[0].id == check.id
+        assert len(results) == (2 if mixed else 1)
+
+    services = services_for(e2e_harness.sessions)
+    message = FakeMessage(975, bot_message=True)
+    await command_requests(message, services)
+    expected = "Selection · " + ("⭐️1 · " if mixed else "") + "☑️1"
+    assert expected in button_texts(message.edits[-1][1])
+    await open_item_screen(message, services, "request", request_id)
+    assert any(label.startswith("☑️ Enough sleep?") for label in button_texts(message.edits[-1][1]))
+    assert len(provider.calls) == 2

@@ -6,10 +6,11 @@ from sqlalchemy import select, text
 
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, PROPOSALS
 from safwa.constants import INBOX_TAG_NAME
-from safwa.features.cards.api import CardQueryError
 from safwa.features.cards.model import Card
 from safwa.features.cards.use_cases import create_card, toggle_card_tag
-from safwa.features.saved_requests.api import request_cards
+from safwa.features.checks.model import Check
+from safwa.features.checks.use_cases import create_check, delete_check
+from safwa.features.saved_requests.api import RequestQueryError, request_items
 from safwa.features.saved_requests.model import SavedRequest
 from safwa.features.saved_requests.use_cases import (
     create_saved_request,
@@ -20,6 +21,7 @@ from safwa.features.saved_requests.use_cases import (
 from safwa.features.tags.model import CardTag, Tag
 from safwa.features.tags.use_cases import create_tag, seed_inbox_tag
 from safwa.features.workspace_mutator.remove import RemoveToolInput
+from safwa.foundation.marks import title_marks
 from tg_agent_shell.ai.sql import create_ai_views
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.proposals.model import ChangeAction, ProposalChange
@@ -66,7 +68,7 @@ async def test_saved_request_runs_a_safe_card_query(sessions):
         request = await create_saved_request(
             session,
             "Family actions to work on",
-            "SELECT id FROM ai_cards WHERE kind = 'action' "
+            "SELECT 'card' AS item_type, id FROM ai_cards WHERE kind = 'action' "
             "AND direct_tags LIKE '%Family%' AND stage IN ('today', 'backlog') ORDER BY title",
             "Family tasks that are live.",
             views=ALLOWED_VIEWS,
@@ -76,7 +78,7 @@ async def test_saved_request_runs_a_safe_card_query(sessions):
     async with sessions() as session:
         stored = await session.get(SavedRequest, request.id)
         assert stored is not None
-        cards = await request_cards(session, stored.query_sql, ALLOWED_VIEWS)
+        cards = await request_items(session, stored.query_sql, ALLOWED_VIEWS)
         assert [card.title for card in cards] == ["Call family", "Plan family trip"]
 
 
@@ -100,8 +102,8 @@ async def test_a_request_returns_each_card_once(sessions):
         request = await create_saved_request(
             session,
             "Either way",
-            "SELECT id FROM ai_cards WHERE kind = 'action' "
-            "UNION ALL SELECT id FROM ai_cards WHERE stage = 'today'",
+            "SELECT 'card' AS item_type, id FROM ai_cards WHERE kind = 'action' "
+            "UNION ALL SELECT 'card' AS item_type, id FROM ai_cards WHERE stage = 'today'",
             views=ALLOWED_VIEWS,
         )
         await session.commit()
@@ -109,7 +111,7 @@ async def test_a_request_returns_each_card_once(sessions):
     async with sessions() as session:
         stored = await session.get(SavedRequest, request.id)
         assert stored is not None
-        assert [item.id for item in await request_cards(session, stored.query_sql, ALLOWED_VIEWS)] == [
+        assert [item.id for item in await request_items(session, stored.query_sql, ALLOWED_VIEWS)] == [
             card.id
         ]
 
@@ -117,6 +119,8 @@ async def test_a_request_returns_each_card_once(sessions):
 @pytest.mark.parametrize(
     "query_sql",
     [
+        "SELECT id FROM ai_cards",
+        "SELECT id FROM ai_checks",
         "DELETE FROM ai_cards",
         "SELECT id FROM cards",
         "SELECT id FROM ai_tags",
@@ -126,7 +130,7 @@ async def test_a_request_returns_each_card_once(sessions):
         "SELECT id FROM cards WHERE 'WITH cards AS (' <> ''",
         # Both rules are asked of the statement, not of its text: the id here belongs to a
         # CTE nobody selects it from, and the Cards here are named inside a string.
-        "WITH c AS (SELECT id FROM ai_cards) SELECT 1 AS amount FROM c",
+        "WITH c AS (SELECT 'card' AS item_type, id FROM ai_cards) SELECT 1 AS amount FROM c",
         "SELECT id FROM ai_values WHERE name <> 'ai_cards'",
         "SELECT id, missing FROM ai_cards",
     ],
@@ -148,7 +152,7 @@ async def test_a_query_is_checked_by_its_columns_and_not_by_what_it_matches(sess
             await create_saved_request(
                 session,
                 "Amounts",
-                "WITH c AS (SELECT id FROM ai_cards) SELECT 1 AS amount FROM c",
+                "WITH c AS (SELECT 'card' AS item_type, id FROM ai_cards) SELECT 1 AS amount FROM c",
                 views=ALLOWED_VIEWS,
             )
         assert list(await session.scalars(select(SavedRequest))) == []
@@ -156,11 +160,11 @@ async def test_a_query_is_checked_by_its_columns_and_not_by_what_it_matches(sess
         request = await create_saved_request(
             session,
             "Nothing yet",
-            "SELECT c.id FROM ai_cards c WHERE c.kind = 'goal'",
+            "SELECT 'card' AS item_type, c.id FROM ai_cards c WHERE c.kind = 'goal'",
             views=ALLOWED_VIEWS,
         )
         await session.commit()
-        assert await request_cards(session, request.query_sql, ALLOWED_VIEWS) == []
+        assert await request_items(session, request.query_sql, ALLOWED_VIEWS) == []
 
 
 async def test_a_stored_statement_is_checked_again_before_it_runs(sessions):
@@ -170,7 +174,7 @@ async def test_a_stored_statement_is_checked_again_before_it_runs(sessions):
             lambda connection: create_ai_views(connection, AI_VIEWS)
         )
         request = await create_saved_request(
-            session, "All goals", "SELECT id FROM ai_cards WHERE kind = 'goal'", views=ALLOWED_VIEWS
+            session, "All goals", "SELECT 'card' AS item_type, id FROM ai_cards WHERE kind = 'goal'", views=ALLOWED_VIEWS
         )
         # Straight to the column: the write paths refuse this, and that is the point — what
         # runs is checked when it runs, not only when it was stored.
@@ -183,18 +187,18 @@ async def test_a_stored_statement_is_checked_again_before_it_runs(sessions):
     async with sessions() as session:
         stored = await session.get(SavedRequest, request.id)
         assert stored is not None
-        with pytest.raises(CardQueryError):
-            await request_cards(session, stored.query_sql, ALLOWED_VIEWS)
+        with pytest.raises(RequestQueryError):
+            await request_items(session, stored.query_sql, ALLOWED_VIEWS)
 
 
 async def test_a_request_name_is_taken_whatever_its_case(sessions):
     """SR-WRITE-002 — tests/brd/saved_requests.feature"""
     async with sessions() as session:
         await create_saved_request(
-            session, "All goals", "SELECT id FROM ai_cards WHERE kind = 'goal'", views=ALLOWED_VIEWS
+            session, "All goals", "SELECT 'card' AS item_type, id FROM ai_cards WHERE kind = 'goal'", views=ALLOWED_VIEWS
         )
         other = await create_saved_request(
-            session, "Open actions", "SELECT id FROM ai_cards WHERE kind = 'action'",
+            session, "Open actions", "SELECT 'card' AS item_type, id FROM ai_cards WHERE kind = 'action'",
             views=ALLOWED_VIEWS,
         )
         await session.commit()
@@ -205,7 +209,7 @@ async def test_a_request_name_is_taken_whatever_its_case(sessions):
             await update_saved_request(session, other.id, name="   ", views=ALLOWED_VIEWS)
         with pytest.raises(DomainError, match="cannot be empty"):
             await create_saved_request(
-                session, "  ", "SELECT id FROM ai_cards", views=ALLOWED_VIEWS
+                session, "  ", "SELECT 'card' AS item_type, id FROM ai_cards", views=ALLOWED_VIEWS
             )
 
 
@@ -220,7 +224,7 @@ def test_a_request_query_is_never_allowlisted_for_autoapproval():
     assert PROPOSALS.criterion(change("update", {"name": "Every goal"})) is not None
     # `prepare` stores the normalized statement as `query_sql`, so re-aiming a Request never
     # matches the allowlisted field set and never reaches the reviewer at all.
-    assert PROPOSALS.criterion(change("update", {"query_sql": "SELECT id FROM ai_cards"})) is None
+    assert PROPOSALS.criterion(change("update", {"query_sql": "SELECT 'card' AS item_type, id FROM ai_cards"})) is None
     assert PROPOSALS.criterion(change("update", {"name": "X", "query_sql": "SELECT id"})) is None
     assert PROPOSALS.criterion(change("create", {"name": "X"})) is None
 
@@ -231,7 +235,7 @@ async def test_a_request_is_deleted_not_archived(sessions):
         request = await create_saved_request(
             session,
             "All goals",
-            "SELECT id FROM ai_cards WHERE kind = 'goal'",
+            "SELECT 'card' AS item_type, id FROM ai_cards WHERE kind = 'goal'",
             "Original description",
             views=ALLOWED_VIEWS,
         )
@@ -246,7 +250,7 @@ async def test_a_request_is_deleted_not_archived(sessions):
 
         # The name is free from that moment, and what takes it is a new Request.
         again = await create_saved_request(
-            session, "all GOALS", "SELECT id FROM ai_cards", views=ALLOWED_VIEWS
+            session, "all GOALS", "SELECT 'card' AS item_type, id FROM ai_cards", views=ALLOWED_VIEWS
         )
         await session.commit()
         assert again.description == ""
@@ -278,11 +282,86 @@ async def test_the_inbox_selection_matches_the_exact_tag_in_creation_order(sessi
 
         request = await session.scalar(select(SavedRequest))
         assert len(list(await session.scalars(select(SavedRequest)))) == 1
-        assert [card.id for card in await request_cards(session, request.query_sql, ALLOWED_VIEWS)] == [
+        assert [card.id for card in await request_items(session, request.query_sql, ALLOWED_VIEWS)] == [
             cards[0].id, cards[1].id
         ]
         await toggle_card_tag(session, cards[0].id, inbox.id)
         await session.commit()
-        assert [card.id for card in await request_cards(session, request.query_sql, ALLOWED_VIEWS)] == [
+        assert [card.id for card in await request_items(session, request.query_sql, ALLOWED_VIEWS)] == [
             cards[1].id
         ]
+
+
+async def test_a_mixed_request_keeps_types_order_and_unique_references(sessions):
+    """SR-RUN-006 — tests/brd/saved_requests.feature"""
+    async with sessions() as session:
+        card = await create_card(session, kind="action", title="Walk")
+        check = await create_check(session, title="Slept enough?")
+        assert card.id == check.id
+        check.archived_at = check.created_at
+        request = await create_saved_request(
+            session, "Mixed",
+            "SELECT 'check' AS item_type, id, 0 AS position FROM ai_checks "
+            "UNION ALL SELECT 'card', id, 1 FROM ai_cards "
+            "UNION ALL SELECT 'check', id, 2 FROM ai_checks "
+            "UNION ALL SELECT 'check', id + 1000, 3 FROM ai_checks "
+            "ORDER BY position",
+            views=ALLOWED_VIEWS,
+        )
+        await session.commit()
+        matches = await request_items(session, request.query_sql, ALLOWED_VIEWS)
+        assert [(type(item), item.id) for item in matches] == [
+            (Check, check.id), (Card, card.id)
+        ]
+        assert await title_marks(session, matches[0]) == " [📦]"
+        await delete_check(session, check.id)
+        await session.commit()
+        assert await request_items(session, request.query_sql, ALLOWED_VIEWS) == [card]
+
+
+async def test_a_check_only_request_is_valid_on_an_empty_workspace(sessions):
+    """SR-SQL-004 — tests/brd/saved_requests.feature"""
+    async with sessions() as session:
+        request = await create_saved_request(
+            session, "Pending",
+            "SELECT 'check' AS item_type, id FROM ai_checks WHERE status = 'pending'",
+            views=ALLOWED_VIEWS,
+        )
+        assert await request_items(session, request.query_sql, ALLOWED_VIEWS) == []
+        check = await create_check(session, title="Enough water?")
+        assert await request_items(session, request.query_sql, ALLOWED_VIEWS) == [check]
+
+
+@pytest.mark.parametrize("projection", [
+    "'value' AS item_type, id",
+    "NULL AS item_type, id",
+    "'check' AS item_type, NULL AS id",
+    "'check' AS item_type, 1.5 AS id",
+    "'check' AS item_type, '1' AS id",
+])
+async def test_invalid_stored_references_cannot_open_another_item(sessions, projection):
+    """SR-SQL-005 — tests/brd/saved_requests.feature"""
+    async with sessions() as session:
+        await create_check(session, title="Observed?")
+        request = SavedRequest(
+            name="Invalid", query_sql=f"SELECT {projection} FROM ai_checks", description=""
+        )
+        session.add(request)
+        await session.flush()
+        with pytest.raises(RequestQueryError):
+            await request_items(session, request.query_sql, ALLOWED_VIEWS)
+
+
+@pytest.mark.parametrize("projection", [
+    "'value' AS item_type, id",
+    "'check' AS item_type, 'wrong' AS id",
+])
+async def test_invalid_references_are_refused_before_a_request_is_saved(sessions, projection):
+    """SR-SQL-004 — tests/brd/saved_requests.feature"""
+    async with sessions() as session:
+        await create_check(session, title="Observed?")
+        with pytest.raises(RequestQueryError):
+            await create_saved_request(
+                session, "Invalid", f"SELECT {projection} FROM ai_checks", views=ALLOWED_VIEWS
+            )
+        assert list(await session.scalars(select(SavedRequest))) == []

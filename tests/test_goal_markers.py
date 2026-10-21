@@ -54,7 +54,7 @@ async def test_cd_button_048_goal_markers_show_subgoal_depth_on_every_surface(se
         request = await create_saved_request(
             session,
             "Marker goals",
-            "SELECT id FROM ai_cards WHERE kind = 'goal'",
+            "SELECT 'card' AS item_type, id FROM ai_cards WHERE kind = 'goal'",
             views=services.views,
         )
         await session.commit()

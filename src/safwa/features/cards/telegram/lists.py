@@ -1,5 +1,5 @@
-"""Every list of Cards a question returns — a Request, a Goal's children, the Cards carrying a
-Value or a Tag — drawn as buttons, one shape for all of them.
+"""Lists of Cards — a Goal's children or the Cards carrying a Value or a Tag — drawn as
+buttons, one shape for all of them.
 
 The stages are drawn side by side on the Dashboard, and the Backlog as a list of links, in
 `board.py`.
