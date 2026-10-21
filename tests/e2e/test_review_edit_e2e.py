@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import html
 import json
-from datetime import timedelta
+from datetime import date, timedelta
 
 import pytest
 from advisor_e2e_helpers import create_manual_card, mutation_turn, route_turn, schedule_turn
 from review_e2e_helpers import QueueTestCallback, QueueTestMessage, review_services
+from schedule_helpers import create_card, create_check
 from sqlalchemy import select
+from test_diary_e2e import TODAY as DIARY_TODAY
+from test_diary_e2e import turn as diary_turn
+from test_reminder_e2e import reminder_script
+from test_reminder_e2e import turn as reminder_turn
+from test_subagent_e2e import diary_subagent
 from ui_harness import kind_of
 
 from safwa.bootstrap.modules import PROPOSALS
@@ -14,9 +21,16 @@ from safwa.constants import DESCRIPTION_MAX_CHARS
 from safwa.features.cards.model import EFFORT_RUNGS, Card, effort_label
 from safwa.features.cards.telegram import render_card_choices
 from safwa.features.cards.telegram.selectors import CHOICE_TITLES
-from safwa.features.cards.use_cases import delete_card, toggle_card_value
+from safwa.features.cards.use_cases import delete_card, finish_action, toggle_card_value
+from safwa.features.checks.telegram.handlers import NOTE_INSTRUCTION as CHECK_NOTE_INSTRUCTION
+from safwa.features.checks.use_cases import toggle_check_value
+from safwa.features.diary.telegram import FEELING_SCORE_EMOJI as FEELING
+from safwa.features.diary.use_cases import create_diary_entry
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
+from safwa.features.reminders.telegram.screens import TEXT_INSTRUCTION as REMINDER_TEXT_INSTRUCTION
+from safwa.features.schedules.api import remind_label
+from safwa.features.schedules.telegram import REMIND_INSTRUCTION, REMIND_LEADS
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.use_cases import create_value
 from tg_agent_shell.ai.contracts import AgentChange
@@ -381,6 +395,7 @@ def test_a_card_proposal_offers_the_cards_own_fields_in_its_order():
         "stage": "sprint",
         "priority": "low",
         "schedule": "every Monday",
+        "remind": 60,
         "blocked_description": "Rain",
         "effort_points": 3,
         "tracked_mins": 30,
@@ -396,7 +411,8 @@ def test_a_card_proposal_offers_the_cards_own_fields_in_its_order():
         call = AgentChange(
             entity="card", action="update", id=1, values={**every, "kind": kind}
         )
-        change = ProposalChange("card", ChangeAction.UPDATE, 1, source=call)
+        # Each value survived preparation, so each is what Save writes.
+        change = ProposalChange("card", ChangeAction.UPDATE, 1, values=call.values, source=call)
         fields = PROPOSALS.edit_fields([change])
         return [field.label for _i, _k, field in fields if field.markdown or not markdown]
 
@@ -406,6 +422,7 @@ def test_a_card_proposal_offers_the_cards_own_fields_in_its_order():
         "📍 Stage",
         "⚠️ Priority",
         "⏱ Schedule",
+        "🔔 Remind",
         "📝 Blocked reason",
         "🔢 Effort",
         "⌛ Time spent",
@@ -419,6 +436,7 @@ def test_a_card_proposal_offers_the_cards_own_fields_in_its_order():
         "📝 Note",
         "⚠️ Priority",
         "⏰ Deadline",
+        "🔔 Remind",
         "💎 Values",
         "🏷 Tags",
     ]
@@ -538,3 +556,347 @@ async def test_a_value_proposal_is_edited_with_the_values_own_controls(e2e_harne
     assert advisor.reviews.proposal(proposal_id).changes[0].values["description"] == (
         "It keeps me well."
     )
+
+
+async def test_remind_offers_the_choices_and_other_its_schedule_offers(e2e_harness):
+    """CD-EDIT-067 — tests/brd/cards.feature"""
+    card_id = await run_action(e2e_harness, schedule="daily 09:00")
+    advisor, _provider, services, message, proposal_id = await review(
+        e2e_harness, [("action", {"mode": "update", "id": card_id, "remind": 60})]
+    )
+    await press(services, message, "✏️ Edit")
+    assert message.buttons() == ["🔔 Remind", "↩️ Back"]
+
+    await press(services, message, "🔔 Remind")
+    assert message.buttons() == [
+        *[("✓ " if lead == 60 else "") + remind_label(lead) for lead in (None, *REMIND_LEADS)],
+        "✏️ Other",
+        "↩️ Back",
+    ]
+    await press(services, message, "✏️ Other")
+    assert REMIND_INSTRUCTION in drawn(message)
+    await type_words(services, message, "30")
+
+    assert advisor.reviews.proposal(proposal_id).changes[0].values["remind"] == 30
+    assert redrawn_buttons(message) == DECISION
+
+
+async def test_a_schedule_set_to_off_takes_the_proposals_remind_with_it(e2e_harness):
+    """CD-EDIT-067 — tests/brd/cards.feature"""
+    card_id = await run_action(e2e_harness, schedule="daily 09:00")
+    every_day = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    advisor, _provider, services, message, proposal_id = await review(
+        e2e_harness,
+        [("action", {"mode": "update", "id": card_id, "schedule": "at 21:00", "remind": 60})],
+        schedule_turn(days=every_day, time="21:00"),
+    )
+    await press(services, message, "✏️ Edit")
+    assert message.buttons() == ["⏱ Schedule", "🔔 Remind", "↩️ Back"]
+    await press(services, message, "⏱ Schedule")
+
+    await type_words(services, message, "off")
+
+    values = advisor.reviews.proposal(proposal_id).changes[0].values
+    assert values["schedule"] is None and "remind" not in values
+    assert redrawn_buttons(message) == DECISION
+    await render_proposal(message, services, proposal_id, editing=True)
+    assert message.buttons() == ["⏱ Schedule", "↩️ Back"]
+
+
+async def test_a_value_the_check_leaves_out_has_no_button(e2e_harness):
+    """PR-EDIT-033 — tests/brd/tg_agent_shell/proposals.feature"""
+    card_id = await run_action(e2e_harness)
+    async with e2e_harness.sessions() as session:
+        await set_profile_field(session, ProfileField.EFFORT_TRACKING, False)
+        await session.commit()
+    _advisor, _provider, services, message, _id = await review(
+        e2e_harness,
+        [("action", {"mode": "update", "id": card_id, "title": "Jog", "effort_points": 5})],
+    )
+    await press(services, message, "✏️ Edit")
+    assert message.buttons() == ["✏️ Title", "↩️ Back"]
+
+
+async def test_a_value_left_alone_is_not_read_again_while_safwa_types(e2e_harness):
+    """PR-EDIT-034 — tests/brd/tg_agent_shell/proposals.feature"""
+    card_id = await run_action(e2e_harness)
+    advisor, provider = e2e_harness.advisor(
+        [
+            route_turn("workspace_mutator"),
+            mutation_turn(
+                (
+                    "action",
+                    {"mode": "update", "id": card_id, "title": "Jog", "schedule": "after it"},
+                )
+            ),
+            schedule_turn(after_completion=True),
+        ]
+    )
+    outcome = await advisor.handle("Rename Run and repeat it")
+    services = review_services(e2e_harness, advisor)
+    message = QueueTestMessage()
+    await render_proposal(message, services, outcome.proposal_id)
+    await press(services, message, "✏️ Edit")
+    await press(services, message, "✏️ Title")
+    asked, typing = len(provider.calls), message.bot.typing_calls
+
+    await type_words(services, message, "Sprint")
+
+    values = advisor.reviews.proposal(outcome.proposal_id).changes[0].values
+    assert values["title"] == "Sprint"
+    assert values["schedule_rule"] == {"kind": "after_completion"}
+    assert len(provider.calls) == asked
+    assert message.bot.typing_calls > typing
+
+
+async def test_stage_turns_a_finish_into_a_move_and_back(e2e_harness):
+    """CD-EDIT-068 — tests/brd/cards.feature"""
+    card_id = await run_action(e2e_harness, stage="sprint")
+    advisor, _provider, services, message, proposal_id = await review(
+        e2e_harness,
+        [("action", {"mode": "complete", "id": card_id, "tracked_mins": 15})],
+        "Saved.",
+        "Saved.",
+    )
+    change = advisor.reviews.proposal(proposal_id).changes[0]
+    await press(services, message, "✏️ Edit")
+    assert message.buttons() == ["📍 Stage", "⌛ Time spent", "↩️ Back"]
+    await press(services, message, "📍 Stage")
+    assert message.buttons() == ["Backlog", "Today", "✓ Done", "↩️ Back"]
+
+    await press(services, message, "Backlog")
+    assert change.action is ChangeAction.MOVE
+    assert change.values["stage"] == "backlog" and "tracked_mins" not in change.values
+    assert "<i>✍️ Edited by you:</i> 📍 Stage" in message.rendered[-1]
+    await press(services, message, "✏️ Edit")
+    assert message.buttons() == ["📍 Stage", "↩️ Back"]
+
+    await press(services, message, "📍 Stage")
+    await press(services, message, "Done")
+    assert change.action is ChangeAction.COMPLETE and change.values["tracked_mins"] == 15
+    assert "Edited by you" not in message.rendered[-1]
+    await press(services, message, "✅ Update")
+    async with e2e_harness.sessions() as session:
+        card = await session.get(Card, card_id)
+        assert (card.effective_stage, card.tracked_mins) == ("done", 15)
+
+
+async def test_a_time_set_by_hand_goes_once_the_action_is_not_done(e2e_harness):
+    """CD-EDIT-068 — tests/brd/cards.feature"""
+    card_id = await run_action(e2e_harness, stage="sprint")
+    advisor, _provider, services, message, proposal_id = await review(
+        e2e_harness, [("action", {"mode": "complete", "id": card_id, "tracked_mins": 15})]
+    )
+    change = advisor.reviews.proposal(proposal_id).changes[0]
+    await press(services, message, "✏️ Edit")
+    await press(services, message, "⌛ Time spent")
+    await type_words(services, message, "30")
+    assert change.values["tracked_mins"] == 30
+    # The typed words redrew the review through the Bot API; Edit is drawn on it again.
+    await render_proposal(message, services, proposal_id, editing=True)
+    await press(services, message, "📍 Stage")
+    await press(services, message, "Today")
+    edited = [line for line in message.rendered[-1].splitlines() if "Edited by you" in line]
+    assert edited == ["<i>✍️ Edited by you:</i> 📍 Stage"]
+    await press(services, message, "✏️ Edit")
+    assert message.buttons() == ["📍 Stage", "↩️ Back"]
+    await press(services, message, "📍 Stage")
+    await press(services, message, "Done")
+    # The time set by hand went with Done; picking Done again brings Safwa's back.
+    assert change.values["tracked_mins"] == 15
+
+
+async def test_a_reopen_offers_no_done_and_a_goal_offers_no_stage(e2e_harness):
+    """CD-EDIT-068 — tests/brd/cards.feature"""
+    card_id = await run_action(e2e_harness, stage="sprint")
+    async with e2e_harness.sessions() as session:
+        await finish_action(session, card_id)
+        goal = await create_card(session, kind="goal", title="Be fit")
+        await session.commit()
+    advisor, _provider, services, message, proposal_id = await review(
+        e2e_harness, [("action", {"mode": "reopen", "id": card_id})]
+    )
+    await press(services, message, "✏️ Edit")
+    await press(services, message, "📍 Stage")
+    assert message.buttons() == ["✓ Backlog", "Sprint", "Today", "↩️ Back"]
+    await press(services, message, "Today")
+    change = advisor.reviews.proposal(proposal_id).changes[0]
+    assert (change.action, change.values["stage"]) == (ChangeAction.REOPEN, "today")
+
+    _advisor, _provider, _services, message, _id = await review(
+        e2e_harness, [("goal", {"mode": "complete", "id": goal.id})]
+    )
+    assert "✏️ Edit" not in message.buttons()
+
+
+async def test_a_check_proposal_is_edited_with_the_checks_own_controls(e2e_harness):
+    """CH-EDIT-022 — tests/brd/checks.feature"""
+    every_day = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    ids = await values(e2e_harness, "Calm", "Health", "Focus")
+    async with e2e_harness.sessions() as session:
+        check = await create_check(session, title="Slept enough?", schedule="daily 09:00")
+        await session.commit()
+    advisor, provider, services, message, proposal_id = await review(
+        e2e_harness,
+        [
+            (
+                "check",
+                {
+                    "mode": "update",
+                    "id": check.id,
+                    "note": "Seven hours.",
+                    "schedule": "every evening at 21:00",
+                    "remind": 60,
+                },
+            )
+        ],
+        schedule_turn(days=every_day, time="21:00"),
+    )
+    await press(services, message, "✏️ Edit")
+    assert message.buttons() == ["⏱ Schedule", "🔔 Remind", "📝 Note", "↩️ Back"]
+    await press(services, message, "📝 Note")
+    assert CHECK_NOTE_INSTRUCTION in drawn(message)
+    assert "Markdown is supported" in drawn(message)
+    asked = len(provider.calls)
+    rule = advisor.reviews.proposal(proposal_id).changes[0].values["schedule_rule"]
+
+    await type_words(services, message, "Eight hours.")
+
+    saved = advisor.reviews.proposal(proposal_id).changes[0].values
+    assert saved["note"] == "Eight hours."
+    assert saved["schedule_rule"] == rule and len(provider.calls) == asked
+
+    await render_proposal(message, services, proposal_id, editing=True)
+    await press(services, message, "⏱ Schedule")
+    await type_words(services, message, "off")
+    saved = advisor.reviews.proposal(proposal_id).changes[0].values
+    assert saved["schedule"] is None and "remind" not in saved
+    await render_proposal(message, services, proposal_id, editing=True)
+    assert message.buttons() == ["⏱ Schedule", "📝 Note", "↩️ Back"]
+
+    async with e2e_harness.sessions() as session:
+        await toggle_check_value(session, check.id, ids["Calm"])
+        await session.commit()
+    _advisor, _provider, services, message, _id = await review(
+        e2e_harness, [("check", {"mode": "link", "id": check.id, "values": ["Health"]})]
+    )
+    await press(services, message, "✏️ Edit")
+    assert message.buttons() == ["💎 Values", "↩️ Back"]
+    await press(services, message, "💎 Values")
+    assert message.rendered[-1] == "<b>Link Values</b>"
+    assert message.buttons() == ["✓ Health", "Focus", "↩️ Back"]
+    _advisor, _provider, services, message, _id = await review(
+        e2e_harness,
+        [("check", {"mode": "update", "id": check.id, "title": "Slept well?", "remind": 15})],
+    )
+    await press(services, message, "✏️ Edit")
+    assert message.buttons() == ["🔔 Remind", "↩️ Back"]
+    _advisor, _provider, _services, message, _id = await review(
+        e2e_harness, [("check", {"mode": "passed", "id": check.id})]
+    )
+    assert "✏️ Edit" not in message.buttons()
+
+
+async def diary_review(e2e_harness, *calls: dict):
+    advisor, _provider = e2e_harness.advisor(
+        [
+            diary_turn(("route", {"name": "diary"})),
+            diary_turn(("read_day", {})),
+            *[diary_turn(("diary", call)) for call in calls],
+        ],
+        subagents=(diary_subagent(e2e_harness),),
+    )
+    outcome = await advisor.handle("Write the day down")
+    services = review_services(e2e_harness, advisor)
+    message = QueueTestMessage()
+    await render_proposal(message, services, outcome.proposal_id)
+    return advisor, services, message, outcome.proposal_id
+
+
+async def test_a_day_put_up_for_approval_is_edited_before_it_is_saved(e2e_harness):
+    """DI-EDIT-029 — tests/brd/diary.feature"""
+    advisor, services, message, proposal_id = await diary_review(
+        e2e_harness,
+        {
+            "mode": "update",
+            "date": DIARY_TODAY,
+            "body": "Market closed.",
+            "remark": "One thing held.",
+            "feeling_score": 7,
+        },
+    )
+    await press(services, message, "✏️ Edit")
+    assert message.buttons() == ["🙂 Feeling", "📝 Entry", "💬 Remark", "↩️ Back"]
+
+    await press(services, message, "🙂 Feeling")
+    assert message.buttons() == [
+        *[("✓ " if score == 7 else "") + f"{score} {face}" for score, face in FEELING.items()],
+        "↩️ Back",
+    ]
+    await press(services, message, f"3 {FEELING[3]}")
+    assert advisor.reviews.proposal(proposal_id).changes[0].values["feeling_score"] == 3
+
+    await press(services, message, "✏️ Edit")
+    await press(services, message, "📝 Entry")
+    assert "Markdown is supported" in drawn(message)
+    await type_words(services, message, "   ")
+    assert "Entry cannot be empty." in drawn(message)
+    await type_words(services, message, "Market opened.")
+    values = advisor.reviews.proposal(proposal_id).changes[0].values
+    assert (values["body"], values["feeling_score"]) == ("Market opened.", 3)
+
+    await render_proposal(message, services, proposal_id, editing=True)
+    await press(services, message, "💬 Remark")
+    assert "Edit Remark" in drawn(message)
+    await type_words(services, message, "The day held.")
+    assert advisor.reviews.proposal(proposal_id).changes[0].values["remark"] == "The day held."
+    [record] = [
+        tool
+        for tool in advisor.reviews.batch_for_proposal(proposal_id).tool_calls
+        if tool.get("proposal_id") == proposal_id
+    ]
+    assert record["change"]["values"]["entry_date"] == DIARY_TODAY
+
+    async with e2e_harness.sessions() as session:
+        await create_diary_entry(session, entry_date=date.today(), body="To go.")
+        await session.commit()
+    _advisor, _services, message, _id = await diary_review(
+        e2e_harness, {"mode": "delete", "date": DIARY_TODAY}
+    )
+    assert "✏️ Edit" not in message.buttons()
+
+
+async def test_a_reminder_proposals_words_are_read_again_with_its_time(e2e_harness):
+    """RM-EDIT-038 — tests/brd/reminders.feature"""
+    config = {"days": ["Mon", "Tue", "Wed", "Thu", "Fri"], "time": "08:30"}
+    advisor, provider = e2e_harness.advisor(
+        [
+            *reminder_script(config, instruction="Ask what to start.", when="weekdays at 8:30"),
+            reminder_turn(("set_reminder_config", config), prefix="again"),
+            reminder_turn(("not_clear_enough", {"reason": "No hour.", "about": "time"}), prefix="no"),
+        ]
+    )
+    outcome = await advisor.handle("remind me each weekday morning")
+    services = review_services(e2e_harness, advisor)
+    message = QueueTestMessage()
+    await render_proposal(message, services, outcome.proposal_id)
+    await press(services, message, "✏️ Edit")
+    assert message.buttons() == ["✏️ Text", "↩️ Back"]
+    await press(services, message, "✏️ Text")
+    assert html.escape(REMINDER_TEXT_INSTRUCTION) in drawn(message)
+    asked = len(provider.calls)
+
+    await type_words(services, message, "Ask what to finish.")
+
+    assert len(provider.calls) == asked + 1
+    assert "Reminder text: Ask what to finish." in json.dumps(provider.calls[-1])
+    values = advisor.reviews.proposal(outcome.proposal_id).changes[0].values
+    assert values["instruction"] == "Ask what to finish."
+
+    # The typed words redrew the review through the Bot API; Edit is drawn on it again.
+    await render_proposal(message, services, outcome.proposal_id, editing=True)
+    await press(services, message, "✏️ Text")
+    await type_words(services, message, "Ask about tomorrow.")
+    assert "No hour." in drawn(message)
+    values = advisor.reviews.proposal(outcome.proposal_id).changes[0].values
+    assert values["instruction"] == "Ask what to finish."

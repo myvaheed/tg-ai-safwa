@@ -172,3 +172,15 @@ Feature: Checks
     And nothing changes before the owner answers; the answer updates the Check or proposes an Action instead
     And the request waits like any hook request while access is locked
     And switching Check review off in Profile → Hooks stops the check and drops what is pending
+
+  Scenario: CH-EDIT-022 — A Check proposal is edited with the Check's own controls
+    Given Safwa proposes to create or change a Check
+    When the owner presses "✏️ Edit" on its review screen
+    Then each field the proposal sets has the button the Check's own screen gives it: "⏱ Schedule",
+      "🔔 Remind", "📝 Note" and "💎 Values"
+    And each asks for the same words or offers the same choices, and Remind its choices and
+      "✏️ Other" by SCH-REMIND-019
+    And a Schedule typed there is read before the review comes back, and one left as it was is not
+      read again when another field is set
+    And a Schedule set to off takes the proposal's Remind with it
+    And a Check's title and its answer have no button

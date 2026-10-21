@@ -239,30 +239,37 @@ class RootSession:
     async def edit_proposal(
         self, session: AsyncSession, proposal_id: int, index: int, key: str, value: Any
     ) -> None:
-        """Set one value of an open proposal as the owner chose it, and have the call's
+        """Set one field of an open proposal as the owner chose it, and have the call's
         record say what will be saved and what the owner changed (PR-EDIT-036)."""
-        change = await edit_proposal(
-            session, self.reviews, self.preparer, proposal_id, index, key, value
+        edited = await edit_proposal(
+            session, self.reviews, self.proposals, self.preparer, proposal_id, index, key, value
         )
         batch = self.reviews.batch_for_proposal(proposal_id)
         item = batch.state.item_for(proposal_id) if batch is not None else None
-        if change is None or batch is None or item is None:
+        if edited is None or batch is None or item is None:
             return
-        call = change.source
-        details = await self.review_view.details(session, change, call)
+        change, settled = edited
+        if change.source is None:
+            return
+        call, _edits = self.proposals.edited(change.source, change.edits)
+        fields = self.proposals.fields_for(change.source)
+        details = await self.review_view.details(session, change, settled)
         record = {
             "details": details,
             "display": await self.review_view.line(session, change, details),
             "change": {
-                "entity": call.entity,
-                "action": call.action,
-                "id": call.id,
-                "values": json_safe(call.values),
+                "entity": change.entity,
+                "action": change.action,
+                "id": change.entity_id,
+                "values": json_safe(settled.values),
             },
             USER_EDITED: json_safe(
                 {
-                    field: {"proposed": proposed, "saved": call.values.get(field)}
-                    for field, proposed in change.edited.items()
+                    key: {
+                        "proposed": fields[key].said(key, change.source),
+                        "saved": fields[key].said(key, call),
+                    }
+                    for key in change.edits
                 }
             ),
         }

@@ -19,6 +19,7 @@ from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.media.telegram import send_photo_screen
 from tg_agent_shell.proposals.api import (
     ChangeAction,
+    EditableField,
     ProposalChange,
     ProposalScreen,
     ShownField,
@@ -39,6 +40,7 @@ from tg_agent_shell.telegram import (
     paging_row,
     place_button,
     render_citations,
+    required_text,
     send_registered,
 )
 
@@ -284,6 +286,27 @@ def _day_lines(change: ProposalChange) -> list[str]:
 def _feeling(state: dict[str, Any]) -> str | None:
     score = state.get("feeling_score")
     return None if score is None else f"{int(score)} {FEELING_SCORE_EMOJI[int(score)]}"
+
+
+async def _feelings(session: AsyncSession, entry_id: int | None) -> list[tuple[str, Any]]:
+    del session, entry_id
+    return [(f"{score} {face}", score) for score, face in FEELING_SCORE_EMOJI.items()]
+
+
+# A day has no screen to edit it on, so Edit offers the parts its review shows (DI-EDIT-029).
+DIARY_REVIEW_FIELDS = {
+    "feeling_score": EditableField("🙂 Feeling", "Feeling", options=_feelings),
+    "body": EditableField(
+        "📝 Entry",
+        "Edit Diary Entry",
+        parse=required_text("Entry"),
+        instruction="Send the whole day in your own words. It replaces the words saved.",
+        markdown=True,
+    ),
+    "remark": EditableField(
+        "💬 Remark", "Edit Remark", instruction="Send one sentence about the day."
+    ),
+}
 
 
 class DiaryProposalPresenter:

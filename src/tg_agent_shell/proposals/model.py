@@ -30,10 +30,10 @@ class ProposalChange:
     entity_id: int | None = None
     expected_version: int | None = None
     values: dict[str, Any] = field(default_factory=dict)
-    # The call `values` were prepared from: what the owner edits, and prepares again.
+    # Safwa's call as it made it. Edit prepares it again with `edits` in place.
     source: AgentChange | None = None
-    # What the call first said for each value the owner set by hand.
-    edited: dict[str, Any] = field(default_factory=dict)
+    # What the owner set by hand under Edit, by field (PR-EDIT-034).
+    edits: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

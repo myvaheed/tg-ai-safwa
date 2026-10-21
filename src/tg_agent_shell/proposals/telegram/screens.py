@@ -65,7 +65,7 @@ async def render_proposal(
             f"{html.escape(screen.item)}</b>"
         )
         text_parts = [f"{heading} · {proposal.place}" if proposal.place else heading]
-        edited = [field.label for index, key, field in fields if key in changes[index].edited]
+        edited = [field.label for index, key, field in fields if key in changes[index].edits]
         if edited:
             text_parts.append(f"<i>{EDITED_BY_YOU}:</i> {html.escape(', '.join(edited))}")
         if notice:

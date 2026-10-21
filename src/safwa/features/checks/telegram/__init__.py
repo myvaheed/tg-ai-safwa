@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .handlers import CHECK_CALLBACK_ACTIONS, CHECK_TEXT_INPUTS
 from .review import CheckProposalPresenter, check_citation_label
+from .review_fields import CHECK_REVIEW_FIELDS
 from .screens import (
     LINKED_CHECKS_LIMIT,
     answer_button_label,
@@ -17,6 +18,7 @@ from .screens import (
 
 __all__ = [
     "CHECK_CALLBACK_ACTIONS",
+    "CHECK_REVIEW_FIELDS",
     "CHECK_TEXT_INPUTS",
     "LINKED_CHECKS_LIMIT",
     "CheckProposalPresenter",

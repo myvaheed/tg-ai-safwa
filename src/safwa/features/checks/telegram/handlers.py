@@ -32,6 +32,10 @@ from ..model import Check, CheckOutcome
 from ..use_cases import delete_check, resolve_check, toggle_check_value, update_check_fields
 from .screens import render_answered_checks, render_check, render_check_values, render_checks
 
+SCHEDULE_TITLE = "Edit Check Schedule"
+NOTE_TITLE = "Edit Check Note"
+NOTE_INSTRUCTION = "Explain what this Check observes and how it supports its Values."
+
 
 def _check(context: CallbackContext) -> Place:
     """The Check a press on its screen was made on."""
@@ -110,7 +114,7 @@ async def _on_edit_schedule(context: CallbackContext) -> None:
         context.message,
         context.services,
         screen=TextInputScreen(
-            title="Edit Check Schedule",
+            title=SCHEDULE_TITLE,
             current_value=current,
             instruction=SCHEDULE_INSTRUCTION,
             back=_check(context),
@@ -129,9 +133,9 @@ async def _on_edit_note(context: CallbackContext) -> None:
         context.message,
         context.services,
         screen=TextInputScreen(
-            title="Edit Check Note",
+            title=NOTE_TITLE,
             current_value=current,
-            instruction="Explain what this Check observes and how it supports its Values.",
+            instruction=NOTE_INSTRUCTION,
             markdown=True,
             back=_check(context),
         ),

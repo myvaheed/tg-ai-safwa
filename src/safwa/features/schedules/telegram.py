@@ -4,16 +4,18 @@ clock offers Remind beside Edit."""
 from __future__ import annotations
 
 import html
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from aiogram.enums import ChatAction
 from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tg_agent_shell.ai.contracts import AgentChange
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
+from tg_agent_shell.proposals.api import EditableField
 from tg_agent_shell.telegram import (
     CallbackContext,
     Place,
@@ -32,6 +34,7 @@ from tg_agent_shell.telegram.contributions import TextInputFlow
 from ...constants import REMIND_LEAD_MAX_MINUTES
 from ..cards.model import Card
 from ..checks.model import Check
+from .agent import schedule_cleared
 from .api import (
     REMIND_LEAD_RANGE,
     ScheduleTarget,
@@ -227,6 +230,36 @@ def _lead(raw: str) -> int:
     if not raw.isdigit() or int(raw) > REMIND_LEAD_MAX_MINUTES:
         raise ValueError(REMIND_LEAD_RANGE)
     return int(raw)
+
+
+async def _remind_options(session: AsyncSession, item_id: int | None) -> list[tuple[str, Any]]:
+    del session, item_id
+    return [(remind_label(lead), lead) for lead in (None, *REMIND_LEADS)]
+
+
+# Remind on a proposal that sets it, with the choices and Other its Schedule offers.
+REMIND_REVIEW_FIELD = EditableField(
+    "🔔 Remind",
+    "Remind",
+    options=_remind_options,
+    parse=_lead,
+    instruction=REMIND_INSTRUCTION,
+)
+
+
+def _set_schedule(call: AgentChange, text: Any) -> AgentChange:
+    """Remind needs a time, so a Schedule cleared by hand takes the proposal's Remind with it."""
+    values = {**call.values, "schedule": text}
+    if schedule_cleared(text):
+        values.pop("remind", None)
+    return call.model_copy(update={"values": values})
+
+
+def schedule_review_field(
+    label: str, title: str, instruction: str, parse: Callable[[str], Any] | None = None
+) -> EditableField:
+    """A Schedule or Deadline typed under Edit, with the words its own editor asks for."""
+    return EditableField(label, title, parse=parse, instruction=instruction, write=_set_schedule)
 
 
 async def _apply_lead(

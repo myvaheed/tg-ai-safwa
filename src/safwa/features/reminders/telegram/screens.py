@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from telegram_llm import markdown_to_telegram_html
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
+from tg_agent_shell.proposals.api import EditableField
 from tg_agent_shell.telegram import (
     CallbackContext,
     CallbackHandler,
@@ -35,6 +36,7 @@ from tg_agent_shell.telegram import (
     place_button,
     render_citations,
     render_text_input,
+    required_text,
     send_registered,
 )
 
@@ -43,6 +45,22 @@ from ..api import describe, schedule_of
 from ..conditions import finds_now
 from ..model import Reminder
 from ..use_cases import delete_reminder
+
+TEXT_TITLE = "Edit Reminder text"
+TEXT_INSTRUCTION = (
+    "Send the new text. It must stand on its own when it fires, so name any Card or "
+    "Check by #id. The schedule will not change."
+)
+# A Reminder proposal's words, asked for as its own Text asks for them (RM-EDIT-038).
+REMINDER_REVIEW_FIELDS = {
+    "instruction": EditableField(
+        "✏️ Text",
+        TEXT_TITLE,
+        parse=required_text("Reminder text"),
+        instruction=TEXT_INSTRUCTION,
+        markdown=True,
+    ),
+}
 
 _TEXT_PREVIEW = 40
 _PROMPT_TTL = timedelta(minutes=30)
@@ -181,12 +199,9 @@ async def render_reminder_text_prompt(
         message,
         services,
         screen=TextInputScreen(
-            title="Edit Reminder text",
+            title=TEXT_TITLE,
             current_value=current,
-            instruction=(
-                "Send the new text. It must stand on its own when it fires, so name any Card or "
-                "Check by #id. The schedule will not change."
-            ),
+            instruction=TEXT_INSTRUCTION,
             back=Place("reminder_view", {"id": reminder_id}, back),
             related_id=reminder_id,
             markdown=True,

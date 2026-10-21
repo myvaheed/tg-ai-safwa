@@ -204,3 +204,13 @@ Feature: Diary
     And no saved entry for that day does not mean that no conversation took place
     And a day with no conversation is reported as empty
     And searching saved Diary entries does not search messages
+
+  Scenario: DI-EDIT-029 — A day put up for approval can be edited before it is saved
+    Given Safwa proposes to write a day
+    When the owner presses "✏️ Edit" on its review screen
+    Then each part the proposal sets has a button: "🙂 Feeling", "📝 Entry" and "💬 Remark"
+    And Feeling offers 0 to 10, each with the face the Diary gives that score
+    And Entry takes the whole day's words, says that Markdown is supported, and refuses an empty Entry
+    And Remark takes Safwa's sentence about the day
+    And the day's date and its photos have no button
+    And a proposal to delete a day has no "✏️ Edit"

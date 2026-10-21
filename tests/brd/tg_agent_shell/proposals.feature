@@ -296,13 +296,17 @@ Feature: Proposals
     When the owner presses "🔢 Effort"
     Then the same choices the Action's own screen offers for Effort take the review's place, 5 ticked
     And a field offers words to type, one choice to pick or several to tick, the way the item's
-      own screen offers it
+      own screen offers it, and offers choices beside "✏️ Other" for words where that screen does
     And a field the proposal does not set has no button, and neither has a field its feature does
       not let the owner set by hand
+    And a value the check of the proposal leaves out of what Save writes has no button, as Effort
+      Points while they are off
     When Safwa proposes instead to link the Value "Health" to an Action that already carries "Calm"
     Then Edit offers "💎 Values", listing every Value but "Calm", with "Health" ticked
     And a proposal to unlink lists only the Values the Action carries
     And whatever the proposal, an item is ticked when the proposal names it
+    And a field can stand for what the proposal does to the item, not only for a value it sets:
+      picking another choice changes what Save will do
     When nothing the proposal sets is a field its feature offers — an archive, a delete, or an
       item whose feature offers none
     Then its screen has no "✏️ Edit"
@@ -313,10 +317,14 @@ Feature: Proposals
     When they pick a value, or type one
     Then the proposal is checked again as if Safwa had sent it with that value, against the
       workspace as it is now
+    And while it is checked, the chat shows Safwa typing
+    And what was read from values the owner left as they were is not read again
     And the review comes back in place of the field, marked by PR-SCREEN-003 from the item as it is
       to the item as Save would leave it
     And under its heading it names each field the owner set, as "✍️ Edited by you: 🔢 Effort"
     And nothing is written before the owner presses Save
+    When the owner's value means the proposal no longer sets another field
+    Then that field's button goes, and what the owner set there goes with it
     When the check refuses the value
     Then the proposal stays as it was, and the reason is on the screen
     When the field takes several items

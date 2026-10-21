@@ -25,6 +25,7 @@ MODULE = FeatureModule(
             handler=proposal.ReminderProposalHandler(),
             tool=agent.REMINDER_TOOL,
             presenter=telegram.ReminderProposalPresenter(),
+            editable=lambda _call: telegram.REMINDER_REVIEW_FIELDS,
             similar=SimilarItems(field="instruction", open_items=proposal.owner_reminders),
         ),
     ),

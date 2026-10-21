@@ -97,6 +97,9 @@ class PreparationContext:
     query_runner: ReadOnlyQueryRunner
     # The read surface a Request's SQL may reference.
     views: frozenset[str]
+    # What the call's last preparation produced, when the owner set one of its values by
+    # hand: what it read from a value left as it was need not be read again (PR-EDIT-034).
+    earlier: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,7 +284,8 @@ class SimilarItems:
     open_items: Callable[[AsyncSession], Awaitable[Sequence[tuple[int, str]]]]
 
 
-Options = Callable[[AsyncSession], Awaitable[Sequence[tuple[str, Any]]]]
+# A field's choices, given the id of the item the proposal changes, None for a new one.
+Options = Callable[[AsyncSession, int | None], Awaitable[Sequence[tuple[str, Any]]]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -289,8 +293,9 @@ class EditableField:
     """One value a call names that the owner may set by hand under Edit (PR-EDIT-033).
 
     With no `options` the owner types it; with them they pick one, or tick several when
-    `many`. Labels, titles and options are the item's own screen's, so the field reads the
-    same in both places.
+    `many`, and a single choice with `parse` also takes typed words under "✏️ Other". Labels,
+    titles and options are the item's own screen's, so the field reads the same in both
+    places.
     """
 
     label: str
@@ -306,6 +311,25 @@ class EditableField:
     page_size: int | None = None
     # Typed words that may carry Markdown, as the item's own editor says.
     markdown: bool = False
+    # A field that is what the call does rather than one of its values, as a Stage that may
+    # finish the item: what a call says for it, None when it says nothing, and the call with
+    # the owner's choice in its place.
+    read: Callable[[AgentChange], Any] | None = None
+    write: Callable[[AgentChange, Any], AgentChange] | None = None
+
+    def said(self, key: str, call: AgentChange) -> Any:
+        """What `call` gives this field."""
+        return self.read(call) if self.read is not None else call.values.get(key)
+
+    def sets(self, key: str, call: AgentChange) -> bool:
+        """Whether `call` gives this field anything for the owner to change."""
+        return self.read(call) is not None if self.read is not None else key in call.values
+
+    def put(self, key: str, call: AgentChange, value: Any) -> AgentChange:
+        """`call` with `value` in this field."""
+        if self.write is not None:
+            return self.write(call, value)
+        return call.model_copy(update={"values": {**call.values, key: value}})
 
 
 # Which of one call's values the owner may set by hand, in the order its item's screen lists
@@ -332,26 +356,53 @@ class ProposalRegistry:
     # By entity; one absent here offers nothing under Edit.
     editable: Mapping[str, EditableFields] = field(default_factory=dict)
 
+    def fields_for(self, call: AgentChange) -> Mapping[str, EditableField]:
+        fields = self.editable.get(call.entity)
+        return fields(call) if fields is not None else {}
+
+    def edited(
+        self, call: AgentChange, edits: Mapping[str, Any]
+    ) -> tuple[AgentChange, dict[str, Any]]:
+        """Safwa's `call` with the owner's values in place, and the values that still stand.
+
+        They go in in the order the item's screen lists its fields, so a field that changes
+        what the call does comes before a value that change may take away. A value equal to
+        what the call already says is no edit, and one in a field the call no longer sets
+        goes with it (PR-EDIT-034).
+        """
+        kept: dict[str, Any] = {}
+        for key, editable in self.fields_for(call).items():
+            if key in edits and editable.sets(key, call) and edits[key] != editable.said(key, call):
+                call = editable.put(key, call, edits[key])
+                kept[key] = edits[key]
+        return call, kept
+
+    def current(self, change: ProposalChange) -> AgentChange | None:
+        """The call a change is prepared from now: Safwa's, with the owner's values."""
+        if change.source is None:
+            return None
+        return self.edited(change.source, change.edits)[0]
+
     def edit_fields(
         self, changes: Sequence[ProposalChange]
     ) -> list[tuple[int, str, EditableField]]:
-        """What Edit offers on a proposal: each value one of its calls names that its feature
-        lets the owner set, as (change index, value, field). A value two calls name is left
-        out, since one button could not say which of them it sets."""
-        named = Counter(
-            key for change in changes if change.source is not None for key in change.source.values
-        )
+        """What Edit offers on a proposal: each field one of its calls sets that its feature
+        lets the owner set, as (change index, key, field). A value preparation left out, such
+        as one the workspace has switched off, is not saved, so it is not offered either. A
+        field two calls set is left out, since one button could not say which of them it
+        sets."""
         offered: list[tuple[int, str, EditableField]] = []
         for index, change in enumerate(changes):
-            fields = self.editable.get(change.entity)
-            if change.source is None or fields is None:
+            call = self.current(change)
+            if call is None or change.source is None:
                 continue
             offered.extend(
                 (index, key, field)
-                for key, field in fields(change.source).items()
-                if key in change.source.values and named[key] == 1
+                for key, field in self.fields_for(change.source).items()
+                if field.sets(key, call) and (field.read is not None or key in change.values)
             )
-        return offered
+        named = Counter(key for _index, key, _field in offered)
+        return [item for item in offered if named[item[1]] == 1]
 
     def handler(self, entity: str) -> ProposalHandler:
         found = self.handlers.get(entity)
