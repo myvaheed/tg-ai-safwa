@@ -185,8 +185,7 @@ list of Actions at once, the executions left from today — or a later window st
 the window's last day. An Action without a Schedule is 1; after-completion repetition is
 `None`; every other Action on the plan is at least 1, including when its
 appointment falls outside the window. A running Sprint's window is today to its planned last
-day, so an Action joining mid-Sprint counts only the days left. Planning uses the next
-Sprint's length from today.
+day. Planning uses the next Sprint's length from today.
 
 Each quota period the window covers in part gets its share by local days covered:
 `round(count × days covered / days in period)`, a month with the days of that month. A period's facts reduce it only beyond the
@@ -217,14 +216,15 @@ actual Done and time once per copy.
 `cards.schedule_plan` ("Schedule outside the plan", PL-HARDTIME-021) runs at 00:00 in the
 workspace's timezone. It automatically moves open Actions from Sprint or Backlog into Today
 when their appointment falls on the new local day or their daily quota has work left for
-that day. It saves the moves before queuing one notification naming the Actions and their
-Schedules; the Advisor reports the completed moves when the chat is free, without asking
-for confirmation. It also runs in Planning. Morning time and Sprint starts do not trigger it.
+that day. It also moves Backlog Actions into Sprint when their next appointment is after
+today and on or before the current Sprint's planned last day. Without a running Sprint only
+today's work is moved.
+It saves the moves before queuing one notification naming the Actions, their Schedules,
+dates and destination stages; the Advisor reports the completed moves when the chat is
+free, without asking for confirmation. Morning time and Sprint starts do not trigger it.
 Its Profile switch disables both the moves and the notification. With nothing moved it is
 silent, and a repeated check does not notify again. On startup the same hook checks the
-current local day, so a start at 06:00 still moves today's Actions, including appointments
-earlier that day. Past days are not replayed. Actions already in Today are left alone, so
-another restart does not duplicate moves or notifications.
+current local day and remaining Sprint window. Past days are not replayed.
 Sprint expiry runs before these moves, both at midnight and on startup, so today's work
 does not enter a Sprint whose planned last day has already passed.
 

@@ -3,7 +3,7 @@ finished, a Goal closed over open Cards, an open Card whose Goals are all closed
 deletion left without a parent, a blocker just set, an Action finished without its time or effort estimate, a day loaded
 past what it is meant to hold, a Sprint started without a kind of energy the Backlog has
 or with Actions the balance cannot read,
-an Action found in Today morning after morning, scheduled Actions moved into Today at
+an Action found in Today morning after morning, scheduled Actions moved into Today or Sprint at
 midnight, and — each morning, and when a Sprint starts — the Goals and Subgoals that still
 have no Action under them, the appointments and Deadlines already passed, and a day planned
 without the rest the Sprint holds.
@@ -37,7 +37,7 @@ from tg_agent_shell.hooks.contracts import (
 
 from ...constants import INBOX_TAG_NAME
 from ...enums import ActorType
-from ..planning.api import SPRINT_STARTED, plan_load, sprint_is_active
+from ..planning.api import SPRINT_STARTED, active_sprint_end_date, plan_load, sprint_is_active
 from ..profile.api import (
     EFFORT_TRACKING_REMINDER,
     TIME_TRACKING_REMINDER,
@@ -95,9 +95,9 @@ ENERGY_KINDS = {
 TODAY_STALE_DAYS = 3
 
 SCHEDULE_PLAN_REQUEST = (
-    "Scheduled Actions automatically moved into Today:\n{cards}\n"
-    "Tell the user in one message that these Actions are due on the listed local day "
-    "and you have already moved them into Today. Name each with its Schedule. "
+    "Scheduled Actions automatically moved into Today or Sprint:\n{cards}\n"
+    "Tell the user in one message which Actions you have already moved into Today "
+    "and which into the current Sprint. Name each with its Schedule and listed local date. "
     "Notify only; do not ask for confirmation or propose moving them."
 )
 
@@ -638,11 +638,12 @@ async def schedule_midnight(session: AsyncSession) -> time:
     return time(0, 0)
 
 
-async def move_scheduled_today(marker: str, context: RunContext) -> tuple[str, ...]:
-    """Move today's scheduled work before queuing the notification, even in a busy chat."""
+async def move_scheduled_actions(marker: str, context: RunContext) -> tuple[str, ...]:
+    """Move scheduled work into Today or the running Sprint before queuing a notification."""
     async with context.sessions() as session:
         tz = await workspace_zone(session)
         today = utcnow().astimezone(tz).date()
+        end = await active_sprint_end_date(session)
         cards = await session.scalars(
             select(Card)
             .where(
@@ -657,10 +658,15 @@ async def move_scheduled_today(marker: str, context: RunContext) -> tuple[str, .
         for card in cards:
             stage = CardStage(card.effective_stage)
             rule = card.schedule_record.rule
-            due = False
+            target = None
+            day = today
             if card.scheduled_at is not None:
                 when = card.scheduled_at.astimezone(tz)
-                due = when.date() == today
+                day = when.date()
+                if day == today:
+                    target = CardStage.TODAY
+                elif end is not None and today < day <= end and stage is CardStage.BACKLOG:
+                    target = CardStage.SPRINT
                 schedule = appointment_label(rule, when, tz, '%Y-%m-%d')
             elif (
                 rule["kind"] == "quota"
@@ -668,13 +674,13 @@ async def move_scheduled_today(marker: str, context: RunContext) -> tuple[str, .
                 and card.period_start.astimezone(tz).date() <= today
                 and (not rule.get("until") or today.isoformat() <= rule["until"])
             ):
-                due = True
+                target = CardStage.TODAY
                 schedule = f"{rule['count']} times a day"
-            if due:
-                await move_card(session, card.id, CardStage.TODAY, actor=ActorType.AI)
+            if target is not None:
+                await move_card(session, card.id, target, actor=ActorType.AI)
                 lines.append(
-                    f"- {_named(card)}: {schedule}; {today.isoformat()}, "
-                    f"moved from {stage.value.capitalize()} to Today"
+                    f"- {_named(card)}: {schedule}; {day.isoformat()}, "
+                    f"moved from {stage.value.capitalize()} to {target.value.capitalize()}"
                 )
         await session.commit()
         return tuple(lines)
@@ -689,9 +695,9 @@ SCHEDULE_PLAN_HOOK = HookSpec(
     owner="cards",
     on=(OnTick(at=schedule_midnight), OnStarted()),
     evaluate=plan_check_due,
-    effect=RunAndAdvise(run=move_scheduled_today, prepare=schedule_plan_request),
+    effect=RunAndAdvise(run=move_scheduled_actions, prepare=schedule_plan_request),
     title="Schedule outside the plan",
-    description="At local midnight and on startup, moves Actions due today by Schedule from Sprint or Backlog into Today and notifies you.",
+    description="At local midnight and on startup, moves scheduled Actions due today into Today and later appointments within the current Sprint from Backlog into Sprint, and notifies you.",
 )
 
 

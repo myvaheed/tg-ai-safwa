@@ -33,7 +33,7 @@ from tg_agent_shell.hooks.ticks import TickSchedule
 
 @pytest.mark.parametrize("running", [False, True])
 @pytest.mark.parametrize("after_restart", [False, True])
-async def test_pl_hardtime_021_midnight_moves_today_and_queues_a_notification(
+async def test_pl_hardtime_021_moves_today_and_remaining_sprint_work_and_notifies(
     sessions, monkeypatch, running, after_restart
 ):
     """PL-HARDTIME-021 — tests/brd/planning.feature"""
@@ -49,7 +49,8 @@ async def test_pl_hardtime_021_midnight_moves_today_and_queues_a_notification(
         assert await schedule_midnight(session) == time(0, 0)
         if running:
             await create_card(session, kind="action", title="Planned", stage="sprint")
-            await start_sprint(session, success_criteria="Ship v2", length_days=7)
+            sprint = await start_sprint(session, success_criteria="Ship v2", length_days=7)
+        end = sprint.planned_end_date if running else today + timedelta(days=4)
 
         async def fixed(title, day, stage="backlog"):
             return await create_card(
@@ -71,6 +72,10 @@ async def test_pl_hardtime_021_midnight_moves_today_and_queues_a_notification(
             await daily("Stretch", "backlog"),
         ]
         later = await fixed("Tomorrow", today + timedelta(days=1))
+        last = await fixed("Sprint's last day", end)
+        outside = await fixed("After Sprint", end + timedelta(days=1))
+        already_sprint = await fixed("Already in Sprint", end, "sprint")
+        future_today = await fixed("Future but in Today", end, "today")
         past = await fixed("Yesterday", today)
         past.period_start = midnight_now - timedelta(days=1)
         already = await fixed("Already in Today", today, "today")
@@ -83,8 +88,11 @@ async def test_pl_hardtime_021_midnight_moves_today_and_queues_a_notification(
         expired = await daily("Expired quota", "backlog", until=(today - timedelta(days=1)).isoformat())
         undated = await create_card(session, kind="action", title="No Schedule", stage="sprint")
         ids = [card.id for card in due]
+        upcoming = [later, last]
+        initial_stages = {card.id: card.effective_stage for card in [*due, *upcoming]}
         excluded = {card.id: card.effective_stage for card in (
-            later, past, already, paid, shelved, future, expired, undated,
+            outside, already_sprint, future_today, past, already, paid, shelved,
+            future, expired, undated,
         )}
         await session.commit()
 
@@ -108,16 +116,16 @@ async def test_pl_hardtime_021_midnight_moves_today_and_queues_a_notification(
     await queue_advice(hooks, sessions, Committed(SPRINT_STARTED, 1), work=work)
     async with sessions() as session:
         assert not list(await session.scalars(select(Cue)))
-        for card_id in ids:
-            assert (await session.get(Card, card_id)).effective_stage != "today"
+        for card_id, stage in initial_stages.items():
+            assert (await session.get(Card, card_id)).effective_stage == stage
 
         await set_hook_switch(session, SCHEDULE_PLAN_HOOK.name, on=False)
         await session.commit()
     await fire()
     async with sessions() as session:
         assert not list(await session.scalars(select(Cue)))
-        for card_id in ids:
-            assert (await session.get(Card, card_id)).effective_stage != "today"
+        for card_id, stage in initial_stages.items():
+            assert (await session.get(Card, card_id)).effective_stage == stage
         await set_hook_switch(session, SCHEDULE_PLAN_HOOK.name, on=True)
         await session.commit()
 
@@ -128,6 +136,10 @@ async def test_pl_hardtime_021_midnight_moves_today_and_queues_a_notification(
     async with sessions() as session:
         for card_id in ids:
             assert (await session.get(Card, card_id)).effective_stage == "today"
+        for card in upcoming:
+            assert (await session.get(Card, card.id)).effective_stage == (
+                "sprint" if running else "backlog"
+            )
         for card_id, stage in excluded.items():
             assert (await session.get(Card, card_id)).effective_stage == stage
         cues = list(await session.scalars(select(Cue)))
@@ -136,10 +148,18 @@ async def test_pl_hardtime_021_midnight_moves_today_and_queues_a_notification(
         request = await schedule_plan_request(session, cues[0].payload)
         for title in ("Dentist", "Call mom", "Water", "Stretch"):
             assert title in request
-        for title in ("Tomorrow", "Yesterday", "Already in Today", "Paid", "Shelved", "Future quota", "Expired quota", "No Schedule"):
+        for card in upcoming:
+            assert (f"#{card.id} «{card.title}»" in request) == running
+        if running:
+            assert end.isoformat() in request
+            assert "moved from Backlog to Sprint" in request
+            assert {row.card_id for row in await session.scalars(
+                select(SprintCommitment).where(SprintCommitment.sprint_id == sprint.id)
+            )} >= {card.id for card in upcoming}
+        for title in ("After Sprint", "Already in Sprint", "Future but in Today", "Yesterday", "Already in Today", "Paid", "Shelved", "Future quota", "Expired quota", "No Schedule"):
             assert title not in request
         assert today.isoformat() in request
-        assert "already moved them into Today" in request
+        assert "moved from Backlog to Today" in request
         assert "do not ask for confirmation" in request
         assert await schedule_plan_request(session, []) is None
 
