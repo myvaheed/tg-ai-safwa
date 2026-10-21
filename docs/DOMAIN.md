@@ -204,7 +204,7 @@ Which order each list uses:
 |---|---|
 | Common Card order (`order_cards`) | the Dashboard's Sprint and Today columns, the Backlog, the Plan and Sprint screens, a Card's parents, Today on Home before it is drawn as a tree, the energy balance hook |
 | Focus order (CD-ORDER-066) | the Advisor's context, the return list after a break (OB-RETURN-007) |
-| Flat result tree (`result_order`, CD-ORDER-054) | a Request with no ORDER BY over its whole result, a Goal's children, the Cards carrying a Value or a Tag |
+| Flat result tree (`result_order`, CD-ORDER-054) | the Cards in a Request with no ORDER BY over its whole result, a Goal's children, the Cards carrying a Value or a Tag |
 | Goal tree (`goal_tree`, PL-KEY-025) | Today on Home and in its motivation, the return list |
 | Newest Done first (`FINISHED_LAST`) | the Dashboard's Done column, the Sprint screen's Done list |
 | The query's own order (`explicit_order`, SR-RUN-006) | a Request whose ORDER BY sorts its whole result |
@@ -281,6 +281,9 @@ deleted; its links and description remain editable. Ordinary field edits leave t
 attached; taking it off requires no particular set of filled fields.
 Request **Inbox**, supplied when the Tag is first installed, lists tagged Cards oldest
 first. It is an ordinary Request and stays deleted or renamed across restarts.
+Requests select Cards, Checks or both; their list counts Goals, Actions and Checks.
+When used as a Sprint plan filter, only their returned Actions participate.
+Existing saved SQL can be converted with the [one-off upgrade script](REQUESTS_UPGRADE.md).
 
 A Card owns four link sets of one shape — its parents, Values, Tags and Checks — and a Check owns
 one, its Values. All five are `ReferenceSpec`s: adding another means adding a spec, not a special

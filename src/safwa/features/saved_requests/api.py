@@ -1,38 +1,73 @@
-"""What another feature may ask of Saved Requests.
-
-One question: which Cards a stored query names right now. Planning asks it to draw the
-plan a Request stands for; nothing outside reaches the Request itself.
-"""
+"""Running a saved Request over Cards and Checks."""
 
 from __future__ import annotations
 
 from collections.abc import Collection
 
 from sqlalchemy import select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tg_agent_shell.ai.sql import SQL_TOKEN
+from tg_agent_shell.ai.sql import SQL_TOKEN, UnsafeQueryError, validated_read
+from tg_agent_shell.foundation.errors import DomainError
 
-from ..cards.api import CardQueryError, normalize_card_query
 from ..cards.model import Card
+from ..checks.model import Check
 
 
-async def request_cards(
-    session: AsyncSession, query_sql: str, views: Collection[str]
-) -> list[Card]:
-    """Run a saved safe query and load its live Cards in query result order."""
-    statement = await normalize_card_query(session, query_sql, views)
-    result = await session.execute(text(statement))
-    rows = result.mappings().all()
+class RequestQueryError(DomainError):
+    """A saved query that cannot return Card and Check references."""
+
+
+async def _request_references(
+    session: AsyncSession, raw: str, views: Collection[str]
+) -> tuple[str, list[tuple[str, int]]]:
+    """Validate the read and its actual typed references, including an empty result's columns."""
+    if not isinstance(raw, str) or not raw.strip():
+        raise RequestQueryError("A Request query is required")
     try:
-        ids = list(dict.fromkeys(int(row["id"]) for row in rows))
-    except (TypeError, ValueError) as error:
-        raise CardQueryError("Request SQL id results must be integers") from error
-    if not ids:
-        return []
-    cards = list(await session.scalars(select(Card).where(Card.id.in_(ids))))
-    by_id = {card.id: card for card in cards}
-    return [by_id[card_id] for card_id in ids if card_id in by_id]
+        statement, sources = validated_read(raw, views)
+    except UnsafeQueryError as error:
+        raise RequestQueryError(str(error)) from error
+    if not sources.intersection({"ai_cards", "ai_checks"}):
+        raise RequestQueryError("The query must read ai_cards or ai_checks")
+    try:
+        result = await session.execute(text(statement))
+    except SQLAlchemyError as error:
+        raise RequestQueryError(f"The query does not run: {getattr(error, 'orig', error)}") from error
+    for column in ("id", "item_type"):
+        if column not in result.keys():
+            raise RequestQueryError(f"The query must return a column named {column}")
+    keys: dict[tuple[str, int], None] = {}
+    for row in result.mappings():
+        if row["item_type"] not in {"card", "check"}:
+            raise RequestQueryError("Request SQL item_type must be card or check")
+        if not isinstance(row["id"], int):
+            raise RequestQueryError("Request SQL id results must be integers")
+        keys[(row["item_type"], row["id"])] = None
+    return statement, list(keys)
+
+
+async def normalize_request_query(
+    session: AsyncSession, raw: str, views: Collection[str]
+) -> str:
+    """Reject an invalid Request before its proposal or saved row is written."""
+    statement, _keys = await _request_references(session, raw, views)
+    return statement
+
+
+async def request_items(
+    session: AsyncSession, query_sql: str, views: Collection[str]
+) -> list[Card | Check]:
+    """Load each typed reference once, preserving SQL order and skipping deleted items."""
+    _statement, keys = await _request_references(session, query_sql, views)
+    found: dict[tuple[str, int], Card | Check] = {}
+    for item_type, model in (("card", Card), ("check", Check)):
+        ids = [item_id for kind, item_id in keys if kind == item_type]
+        if ids:
+            items = await session.scalars(select(model).where(model.id.in_(ids)))
+            found.update(((item_type, item.id), item) for item in items)
+    return [found[key] for key in keys if key in found]
 
 
 def explicit_order(query_sql: str) -> bool:

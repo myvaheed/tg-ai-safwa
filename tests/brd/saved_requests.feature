@@ -1,5 +1,5 @@
 Feature: Saved Requests
-  A Request is a saved question about the owner's Cards: a name, a description, and a query Safwa
+  A Request is a saved question about the owner's Cards and Checks: a name, a description, and a query Safwa
   wrote. The owner never writes one — Safwa proposes it, the owner saves it, and from then on it is
   a button that answers the same question again. What comes back is always a list on a screen and
   never something Safwa reads back, so the query has to be valid and nothing else.
@@ -25,12 +25,12 @@ Feature: Saved Requests
     And renaming another Request onto that name is refused the same way
     And a name that is empty, or only spaces, is refused
 
-  Scenario: SR-SQL-004 — A Request's query only reads, and it has to come back with Cards
+  Scenario: SR-SQL-004 — A Request's query only reads, and it has to come back with Cards or Checks
     Given a Request is being saved
     When its query is checked
     Then it is checked the way every read Safwa makes is checked, by AG-READ-027
-    And it must ask about Cards
-    And it must come back with a column named id, so the answer is Cards and not numbers
+    And it must ask about Cards or Checks
+    And each result names its type, Card or Check, and its id
     And anything else is refused, and no Request is written
 
   Scenario: SR-SQL-005 — The saved query is checked again every time it is run
@@ -39,13 +39,14 @@ Feature: Saved Requests
     Then the query stored on it is checked again before it is run
     And a stored query that no longer passes is refused rather than run
 
-  Scenario: SR-RUN-006 — A Request answers with the Cards it names, in its own order, each one once
+  Scenario: SR-RUN-006 — A Request answers with the Cards and Checks it names, each one once
     Given a Request whose query says what order it wants
     When it is run
-    Then the Cards come back in that order
-    And a Card the query named twice appears once
-    And an archived Card comes back marked "[📦]"
-    And a Card that no longer exists is skipped, rather than breaking the run
+    Then the Cards and Checks come back in that order
+    And each item appears once, even if the query named it twice
+    And a Card and a Check with the same id remain two different items
+    And an archived Card or Check comes back marked "[📦]"
+    And an item that no longer exists is skipped, rather than breaking the run
 
   Scenario: SR-AI-007 — The screen shows the query that will be saved, and a bad one never gets there
     Given Safwa proposes a Request with a query
@@ -75,19 +76,23 @@ Feature: Saved Requests
     When Safwa answers
     Then it sees every Request the owner has saved
     And it can point at one in its answer
-    And what the owner reads on it is the Request's name and how many Cards it returns right now
+    And what the owner reads on it is the Request's name and how many Cards and Checks it returns right now
     And so does pointing at a number that is no Request at all
 
   Scenario: SR-UI-012 — /requests is a list, a run, and a way back
     Given the owner opens /requests
     Then they see every Request the owner has saved, by name
+    And each name shows how many Goals, Actions and Checks it returns now as 🎯, ⭐️ and ☑️
+    And zero categories are omitted; an empty Request shows 0
+    And a Request that cannot run shows ⚠️ while the other Requests still show their counts
     When they open one
-    Then it runs, and shows its description and how many Cards it matched
+    Then it runs, and shows its description and how many Goals, Actions and Checks it matched
     And those Cards use the common order of CD-ORDER-054 unless the query explicitly supplies
-      its own ORDER BY, which the screen preserves
+      its own ORDER BY, which the screen preserves across Cards and Checks
+    And without an explicit order the Checks follow the Cards in query order
     And the first 25 of them are there to tap (RESULT_LIMIT = 25)
     And it says so when there were more than that
-    And a Card opened from that list comes back to the Request it was opened from
+    And a Card or Check opened from that list comes back to the Request it was opened from
     And Refresh runs the Request again
 
   Scenario: SR-DELETE-013 — A Request is deleted, not archived

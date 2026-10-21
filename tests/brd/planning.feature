@@ -164,6 +164,7 @@
     When nothing matches
     Then the keyboard says how many of the Backlog matched instead of going blank
     And a Request that was deleted since it was picked is dropped, and the rest still filter
+    And a mixed Request filters by the Actions it returns; its Checks do not select any Action
 
   Scenario: PL-PLAN-018 — The plan's cost is shown against the capacity
     Given Effort Points are on in the Profile

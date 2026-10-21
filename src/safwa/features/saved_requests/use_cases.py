@@ -2,7 +2,7 @@
 
 A Request is validated when it is written *and* again every time it is run, because the
 row is the only thing standing between a stored statement and the database. What it
-returns is a list on a screen and never enters the model's history, so the query is bound
+returns is a list of Cards and Checks on a screen and never enters the model's history, so the query is bound
 by nothing but being valid — the caps in `ReadOnlyQueryRunner` exist for what a model reads.
 """
 
@@ -21,7 +21,7 @@ from ...constants import INBOX_TAG_NAME
 from ...enums import ActorType
 from ...foundation.log_events import CREATE, DELETE, UPDATE, record_log_event, snapshot
 from ...foundation.workspace import bump_workspace
-from ..cards.api import CardQueryError, normalize_card_query
+from .api import normalize_request_query
 from .model import SavedRequest
 
 # The change a hook may follow up on: a Request was created, however it was saved.
@@ -33,7 +33,7 @@ REQUEST_CREATED = "request.created"
 INBOX_REQUEST = (
     INBOX_TAG_NAME,
     f"Записи с Тегом «{INBOX_TAG_NAME}», которые ждут разбора.",
-    "SELECT id FROM ai_cards "
+    "SELECT 'card' AS item_type, id FROM ai_cards "
     f"WHERE instr(',' || COALESCE(direct_tags, '') || ',', ',{INBOX_TAG_NAME},') > 0 "
     "ORDER BY created_at, id",
 )
@@ -42,7 +42,7 @@ DEFAULT_REQUESTS: tuple[tuple[str, str, str], ...] = (
     (
         "Все цели",
         "Каждая Цель, включая архивные.",
-        "SELECT id FROM ai_cards WHERE kind = 'goal'",
+        "SELECT 'card' AS item_type, id FROM ai_cards WHERE kind = 'goal'",
     ),
     INBOX_REQUEST,
 )
@@ -60,10 +60,7 @@ async def create_saved_request(
     normalized_name = name.strip()
     if not normalized_name:
         raise DomainError("Request name cannot be empty")
-    try:
-        normalized_query = await normalize_card_query(session, query_sql, views)
-    except CardQueryError as error:
-        raise DomainError(str(error)) from error
+    normalized_query = await normalize_request_query(session, query_sql, views)
     existing = await session.scalar(
         select(SavedRequest).where(SavedRequest.name.collate("NOCASE") == normalized_name)
     )
@@ -112,10 +109,7 @@ async def update_saved_request(
     if description is not None:
         request.description = description.strip()
     if query_sql is not None:
-        try:
-            request.query_sql = await normalize_card_query(session, query_sql, views)
-        except CardQueryError as error:
-            raise DomainError(str(error)) from error
+        request.query_sql = await normalize_request_query(session, query_sql, views)
     request.version += 1
     await _record(session, request, UPDATE, actor, before)
     await bump_workspace(session)

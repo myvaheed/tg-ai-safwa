@@ -20,7 +20,7 @@ from safwa.features.cards.use_cases import (
 )
 from safwa.features.home.dashboard import dashboard_text
 from safwa.features.planning.model import Sprint, SprintCommitment
-from safwa.features.saved_requests.api import request_cards
+from safwa.features.saved_requests.api import request_items
 from safwa.features.values.use_cases import create_value, update_value_fields
 from safwa.features.workspace_mutator import state
 from safwa.foundation.workspace import require_workspace
@@ -375,13 +375,13 @@ async def test_sql_reads_keep_their_own_limit_offset_and_order(read_views):
         critical = await _action(session, "New critical", priority="critical")
         await session.commit()
         for query, expected in (
-            ("SELECT id FROM ai_cards LIMIT 1", old),
-            ("SELECT id FROM ai_cards LIMIT 1 OFFSET 1", critical),
-            ("SELECT id, 'ORDER BY id' AS note FROM ai_cards LIMIT 1", old),
-            ("WITH chosen AS (SELECT id FROM ai_cards) SELECT id FROM chosen LIMIT 1", old),
-            ("SELECT id FROM ai_cards ORDER BY id DESC LIMIT 1", critical),
+            ("SELECT 'card' AS item_type, id FROM ai_cards LIMIT 1", old),
+            ("SELECT 'card' AS item_type, id FROM ai_cards LIMIT 1 OFFSET 1", critical),
+            ("SELECT 'card' AS item_type, id, 'ORDER BY id' AS note FROM ai_cards LIMIT 1", old),
+            ("WITH chosen AS (SELECT 'card' AS item_type, id FROM ai_cards) SELECT item_type, id FROM chosen LIMIT 1", old),
+            ("SELECT 'card' AS item_type, id FROM ai_cards ORDER BY id DESC LIMIT 1", critical),
         ):
-            assert await request_cards(session, query, ALLOWED_VIEWS) == [expected]
+            assert await request_items(session, query, ALLOWED_VIEWS) == [expected]
             assert (await runner.run(query)).rows[0]["id"] == expected.id
         aggregate = "SELECT kind, count(*) AS id FROM ai_cards GROUP BY kind"
         assert (await runner.run(aggregate)).rows == [{"kind": "action", "id": 2}]

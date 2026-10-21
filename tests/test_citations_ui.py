@@ -51,7 +51,7 @@ async def test_open_item_screen_renders_the_manual_screen_of_every_item(sessions
         tag = await create_tag(session, "Training")
         check = await create_check(session, title="Form is safe")
         request = await create_saved_request(
-            session, "Open actions", "SELECT id FROM ai_cards WHERE kind = 'action'",
+            session, "Open actions", "SELECT 'card' AS item_type, id FROM ai_cards WHERE kind = 'action'",
             views=ALLOWED_VIEWS,
         )
         await session.commit()
@@ -169,7 +169,7 @@ async def test_citations_use_compact_labels_from_saved_items(sessions, effort_on
         tag = await create_tag(session, "Здоровье")
         long_tag = await create_tag(session, "x" * 26)
         request = await create_saved_request(
-            session, "План на неделю", "SELECT id FROM ai_cards WHERE kind = 'action'",
+            session, "План на неделю", "SELECT 'card' AS item_type, id FROM ai_cards WHERE kind = 'action'",
             views=ALLOWED_VIEWS,
         )
         diary = await create_diary_entry(

@@ -400,7 +400,7 @@ async def test_tapping_a_backlog_item_plans_it_and_preserves_filters(sessions, e
     ids = await seed_plan(sessions)
     async with sessions() as session:
         request = await create_saved_request(
-            session, "Only Pick me", "SELECT id FROM ai_cards WHERE title = 'Pick me'",
+            session, "Only Pick me", "SELECT 'card' AS item_type, id FROM ai_cards WHERE title = 'Pick me'",
             views=ALLOWED_VIEWS,
         )
         await session.commit()
@@ -445,7 +445,7 @@ async def test_opening_a_card_from_the_plan_comes_back_to_the_same_page_and_filt
     await seed_plan(sessions)
     async with sessions() as session:
         request = await create_saved_request(
-            session, "Only Pick me", "SELECT id FROM ai_cards WHERE title = 'Pick me'",
+            session, "Only Pick me", "SELECT 'card' AS item_type, id FROM ai_cards WHERE title = 'Pick me'",
             views=ALLOWED_VIEWS,
         )
         await session.commit()
@@ -481,7 +481,7 @@ async def test_pl_plan_017_a_filter_that_matches_nothing_says_so_instead_of_goin
     await seed_plan(sessions)
     async with sessions() as session:
         request = await create_saved_request(
-            session, "Nothing", "SELECT id FROM ai_cards WHERE title = 'No such Card'",
+            session, "Nothing", "SELECT 'card' AS item_type, id FROM ai_cards WHERE title = 'No such Card'",
             views=ALLOWED_VIEWS,
         )
         await session.commit()
@@ -501,7 +501,7 @@ async def test_pl_plan_017_the_filter_screen_toggles_a_request_on_and_off(sessio
     await seed_plan(sessions)
     async with sessions() as session:
         request = await create_saved_request(
-            session, "Only Pick me", "SELECT id FROM ai_cards WHERE title = 'Pick me'",
+            session, "Only Pick me", "SELECT 'card' AS item_type, id FROM ai_cards WHERE title = 'Pick me'",
             views=ALLOWED_VIEWS,
         )
         await session.commit()
@@ -685,3 +685,32 @@ async def test_pl_capacity_036_the_next_sprints_capacity_is_set_on_the_planning_
     assert "⚖️ Capacity: 12.5 EP" in button_texts(planning_markup)
     async with sessions() as session:
         assert (await session.get(Workspace, 1)).sprint_capacity_effort_points == 12.5
+
+
+async def test_mixed_request_filters_only_returned_actions(sessions):
+    """PL-PLAN-017 — tests/brd/planning.feature"""
+    from safwa.bootstrap.modules import ALLOWED_VIEWS
+    from safwa.features.checks.use_cases import create_check
+    from safwa.features.planning.telegram.state import resolve_filters
+
+    async with sessions() as session:
+        excluded = await create_card(session, kind="action", title="Not selected")
+        included = await create_card(session, kind="action", title="Selected")
+        check = await create_check(session, title="Observed?")
+        assert check.id == excluded.id
+        request = await create_saved_request(
+            session, "Mixed",
+            f"SELECT 'card' AS item_type, id FROM ai_cards WHERE id = {included.id} "
+            "UNION ALL SELECT 'check', id FROM ai_checks",
+            views=ALLOWED_VIEWS,
+        )
+        only_checks = await create_saved_request(
+            session, "Only Checks", "SELECT 'check' AS item_type, id FROM ai_checks",
+            views=ALLOWED_VIEWS,
+        )
+        assert await resolve_filters(session, [request.id], ALLOWED_VIEWS) == (
+            [request.id], {included.id}
+        )
+        assert await resolve_filters(session, [only_checks.id], ALLOWED_VIEWS) == (
+            [only_checks.id], set()
+        )

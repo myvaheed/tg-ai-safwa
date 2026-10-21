@@ -31,7 +31,7 @@ Write in the user's language.
 # them: two copies of a definition drift apart. Filled into `{items}`.
 ITEMS = f"""# Safwa items
 {items(VALUE, GOAL, ACTION, CHECK, LINK)}- Tag: a free label for finding things.
-- Request: a saved Card query the user reruns.
+- Request: a saved query over Cards and Checks the user reruns.
 - Reminder: a message at a set time, not work.
 - A title ending in ` [✅2, 🔄#7]` is a finished repeat; #7 is the open one. ❌ in place of ✅: a Check answered Missed.
 - ` [✅2]` with no id: the series has ended. ` [📦]`: archived."""

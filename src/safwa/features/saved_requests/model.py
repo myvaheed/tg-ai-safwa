@@ -9,7 +9,7 @@ from ...foundation.models import Base, TimestampMixin
 
 
 class SavedRequest(Base, TimestampMixin):
-    """A user-visible, AI-authored read-only Card query."""
+    """A user-visible, AI-authored read-only Card and Check query."""
 
     __tablename__ = "saved_requests"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

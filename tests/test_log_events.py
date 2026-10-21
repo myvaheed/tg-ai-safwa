@@ -43,7 +43,7 @@ from tg_agent_shell.proposals.api import ApplyContext
 from tg_agent_shell.proposals.model import ChangeAction, ProposalChange
 
 TZ = ZoneInfo("Europe/Istanbul")
-QUERY = "SELECT id FROM ai_cards"
+QUERY = "SELECT 'card' AS item_type, id FROM ai_cards"
 
 # What a new item is made with, and the one field its rename changes, per type.
 CREATED = {

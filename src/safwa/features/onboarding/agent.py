@@ -128,10 +128,10 @@ MANUAL = f"""# Safwa
 - Set a Value's place by asking the Advisor or pressing "↕️ Prioritize" on Values. Tap a Value to select it; tap it again to clear. ↑/↓ saves a move; ←/→ turns pages; Back exits. Places are 1..N, 1 highest; other Values shift automatically. Values and Advisor context follow this order.
 
 # Requests
-- A Request is a saved query over Cards, such as "All Goals". It lists the Cards it finds, and it filters the Backlog when a Sprint is planned.
-- A list of Cards, such as a Request's or a Goal's children, shows live Cards, then Done, then archived. Each part is in Card order, each Card under the last of its parents there. A Request whose query sorts its whole result with ORDER BY keeps that order.
+- A Request is a saved query over Cards and Checks. In Sprint planning, only the Actions it returns filter the Backlog.
+- A list of Cards, such as a Request's or a Goal's children, shows live Cards, then Done, then archived. Each part is in Card order, each Card under the last of its parents there. A Request lists Checks after its ordered Cards. A query with ORDER BY over its whole result keeps that order.
 - In words: ask the Advisor to make one or rename one. Its screen shows the query.
-- With buttons: "🔎 Requests" or /requests: open one to see its Cards, or delete it.
+- With buttons: "🔎 Requests" or /requests: each name counts 🎯 Goals, ⭐️ Actions and ☑️ Checks, omitting zeros. Open one to see its results, or delete it.
 - Not with buttons: making or changing a Request.
 
 # Sprint

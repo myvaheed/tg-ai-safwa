@@ -16,14 +16,16 @@ from ui_harness import (
 from safwa.bootstrap.main import bootstrap_workspace
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
 from safwa.features.cards.telegram import RESULT_LIMIT
+from safwa.features.cards.telegram.presentation import ITEM_BUTTON_LIMIT
 from safwa.features.cards.use_cases import (
     archive_subtree,
     create_card,
     finish_action,
     finish_card,
 )
+from safwa.features.checks.use_cases import create_check, delete_check
 from safwa.features.planning.telegram import render_plan
-from safwa.features.saved_requests.api import request_cards
+from safwa.features.saved_requests.api import request_items
 from safwa.features.saved_requests.model import SavedRequest
 from safwa.features.saved_requests.telegram import command_requests
 from safwa.features.saved_requests.use_cases import (
@@ -47,7 +49,7 @@ async def _one_request_over_actions(sessions, *, cards: int, name: str = "Open a
         request = await create_saved_request(
             session,
             name,
-            "SELECT id FROM ai_cards WHERE kind = 'action' ORDER BY title",
+            "SELECT 'card' AS item_type, id FROM ai_cards WHERE kind = 'action' ORDER BY title",
             "Everything still open.",
             views=ALLOWED_VIEWS,
         )
@@ -83,13 +85,13 @@ async def test_the_requests_screen_lists_runs_and_comes_back(sessions) -> None:
 
     listing = FakeMessage(941, bot_message=True)
     await command_requests(listing, services)
-    assert "Open actions" in button_texts(listing.edits[-1][1])
+    assert f"Open actions · ⭐️{RESULT_LIMIT + 5}" in button_texts(listing.edits[-1][1])
 
     detail = FakeMessage(942, bot_message=True)
     await open_item_screen(detail, services, "request", request_id)
     body, markup = detail.edits[-1]
     assert "Everything still open." in body
-    assert f"{RESULT_LIMIT + 5} matching cards" in body
+    assert f"⭐️{RESULT_LIMIT + 5}" in body
     assert f"showing first {RESULT_LIMIT}" in body
     labels = button_texts(markup)
     assert sum(label.startswith("⭐️") for label in labels) == RESULT_LIMIT
@@ -122,7 +124,7 @@ async def test_deleting_a_request_takes_it_off_every_surface(sessions) -> None:
             lambda connection: create_ai_views(connection, AI_VIEWS)
         )
         request = await create_saved_request(
-            session, "Only Pick me", "SELECT id FROM ai_cards WHERE title = 'Pick me'",
+            session, "Only Pick me", "SELECT 'card' AS item_type, id FROM ai_cards WHERE title = 'Pick me'",
             views=ALLOWED_VIEWS,
         )
         await session.commit()
@@ -131,7 +133,7 @@ async def test_deleting_a_request_takes_it_off_every_surface(sessions) -> None:
     services = services_for(sessions)
     listing = FakeMessage(943, bot_message=True)
     await command_requests(listing, services)
-    assert "Only Pick me" in button_texts(listing.edits[-1][1])
+    assert "Only Pick me · ⭐️1" in button_texts(listing.edits[-1][1])
 
     async with sessions() as session:
         await delete_saved_request(session, request_id)
@@ -143,7 +145,7 @@ async def test_deleting_a_request_takes_it_off_every_surface(sessions) -> None:
 
     after = FakeMessage(944, bot_message=True)
     await command_requests(after, services)
-    assert "Only Pick me" not in button_texts(after.edits[-1][1])
+    assert not any(label.startswith("Only Pick me · ") for label in button_texts(after.edits[-1][1]))
 
     # A filter picking it is simply not picking anything: the whole Backlog comes back.
     screen = FakeMessage(945, bot_message=True)
@@ -166,7 +168,7 @@ async def test_sr_ui_013_a_new_workspace_starts_with_requests_and_a_screen_about
     async with sessions() as session:
         # An ordinary Request: it runs down the same path every other Request runs.
         request = await session.get(SavedRequest, goals_id)
-        found = await request_cards(session, request.query_sql, ALLOWED_VIEWS)
+        found = await request_items(session, request.query_sql, ALLOWED_VIEWS)
         assert [card.id for card in found] == [goal_id]
         await delete_saved_request(session, goals_id)
         await session.commit()
@@ -179,7 +181,7 @@ async def test_sr_ui_013_a_new_workspace_starts_with_requests_and_a_screen_about
     message = FakeMessage(950, bot_message=True)
     await command_requests(message, services)
     labels = button_texts(message.edits[-1][1])
-    assert "Все цели" not in labels
+    assert not any(label.startswith("Все цели · ") for label in labels)
     about = next(
         button
         for row in message.edits[-1][1].inline_keyboard
@@ -208,7 +210,7 @@ async def test_a_request_opened_from_the_list_goes_back_to_it(sessions) -> None:
     await seed_plan(sessions)
     async with sessions() as session:
         await create_saved_request(
-            session, "Only Pick me", "SELECT id FROM ai_cards WHERE title = 'Pick me'",
+            session, "Only Pick me", "SELECT 'card' AS item_type, id FROM ai_cards WHERE title = 'Pick me'",
             views=ALLOWED_VIEWS,
         )
         await session.commit()
@@ -263,7 +265,7 @@ async def test_cd_order_054_a_result_reads_as_one_flat_tree(sessions) -> None:
         await finish_card(session, old.id)
         await archive_subtree(session, old.id)
         request = await create_saved_request(
-            session, "Everything", "SELECT id FROM ai_cards", views=ALLOWED_VIEWS
+            session, "Everything", "SELECT 'card' AS item_type, id FROM ai_cards", views=ALLOWED_VIEWS
         )
         await session.commit()
         request_id = request.id
@@ -303,7 +305,7 @@ async def test_explicit_request_order_takes_precedence_over_result_hierarchy(ses
         action = await create_card(session, kind="action", title="Action", parent_ids={goal.id})
         await finish_action(session, action.id)
         request = await create_saved_request(
-            session, "Latest", "SELECT id FROM ai_cards ORDER BY id DESC", views=ALLOWED_VIEWS
+            session, "Latest", "SELECT 'card' AS item_type, id FROM ai_cards ORDER BY id DESC", views=ALLOWED_VIEWS
         )
         await session.commit()
 
@@ -315,16 +317,16 @@ async def test_explicit_request_order_takes_precedence_over_result_hierarchy(ses
 
 
 @pytest.mark.parametrize("query, expected", [
-    ("SELECT id FROM ai_cards", ["Critical", "Medium", "Low"]),
-    ("SELECT id FROM ai_cards LIMIT 2", ["Medium", "Low"]),
-    ("SELECT id FROM ai_cards LIMIT 1 OFFSET 1", ["Medium"]),
-    ("SELECT id, 'ORDER BY id' AS note FROM ai_cards", ["Critical", "Medium", "Low"]),
-    ("SELECT id FROM ai_cards ORDER BY id", ["Low", "Medium", "Critical"]),
-    ("SELECT id FROM ai_cards WHERE id IN (SELECT id FROM ai_cards ORDER BY id LIMIT 3)",
+    ("SELECT 'card' AS item_type, id FROM ai_cards", ["Critical", "Medium", "Low"]),
+    ("SELECT 'card' AS item_type, id FROM ai_cards LIMIT 2", ["Medium", "Low"]),
+    ("SELECT 'card' AS item_type, id FROM ai_cards LIMIT 1 OFFSET 1", ["Medium"]),
+    ("SELECT 'card' AS item_type, id, 'ORDER BY id' AS note FROM ai_cards", ["Critical", "Medium", "Low"]),
+    ("SELECT 'card' AS item_type, id FROM ai_cards ORDER BY id", ["Low", "Medium", "Critical"]),
+    ("SELECT 'card' AS item_type, id FROM ai_cards WHERE id IN (SELECT id FROM ai_cards ORDER BY id LIMIT 3)",
      ["Critical", "Medium", "Low"]),
-    ("WITH chosen AS (SELECT id FROM ai_cards ORDER BY id) SELECT id FROM chosen",
+    ("WITH chosen AS (SELECT 'card' AS item_type, id FROM ai_cards ORDER BY id) SELECT item_type, id FROM chosen",
      ["Critical", "Medium", "Low"]),
-    ("SELECT id, row_number() OVER (ORDER BY id) AS n FROM ai_cards",
+    ("SELECT 'card' AS item_type, id, row_number() OVER (ORDER BY id) AS n FROM ai_cards",
      ["Critical", "Medium", "Low"]),
 ])
 async def test_request_screen_sorts_only_the_selected_cards(sessions, query, expected):
@@ -348,7 +350,7 @@ async def test_request_screen_sorts_before_its_display_cap(sessions):
             await create_card(session, kind="action", title=f"Ordinary {i}")
         await create_card(session, kind="action", title="Critical", priority="critical")
         request = await create_saved_request(
-            session, "Selection", "SELECT id FROM ai_cards", views=ALLOWED_VIEWS
+            session, "Selection", "SELECT 'card' AS item_type, id FROM ai_cards", views=ALLOWED_VIEWS
         )
         await session.commit()
 
@@ -358,3 +360,102 @@ async def test_request_screen_sorts_before_its_display_cap(sessions):
     assert "Critical" in labels[0]
     assert len(labels[:-2]) == RESULT_LIMIT
     assert not any(f"Ordinary {RESULT_LIMIT - 1}" in label for label in labels)
+
+
+async def test_request_counts_cover_the_full_selection_and_survive_a_bad_request(sessions):
+    """SR-UI-012 — tests/brd/saved_requests.feature"""
+    name = "Selection " * 20
+    async with sessions() as session:
+        await create_card(session, kind="goal", title="Goal")
+        await create_card(session, kind="action", title="Action")
+        checks = [
+            await create_check(session, title=f"Check {index:02d}?")
+            for index in range(RESULT_LIMIT + 1)
+        ]
+        mixed = await create_saved_request(
+            session, name,
+            "SELECT 'card' AS item_type, id FROM ai_cards "
+            "UNION ALL SELECT 'check', id FROM ai_checks "
+            "UNION ALL SELECT 'check', id FROM ai_checks",
+            views=ALLOWED_VIEWS,
+        )
+        await create_saved_request(
+            session, "Empty",
+            "SELECT 'check' AS item_type, id FROM ai_checks WHERE id < 0",
+            views=ALLOWED_VIEWS,
+        )
+        session.add(SavedRequest(name="Broken", query_sql="SELECT id FROM cards"))
+        await session.commit()
+
+    services = services_for(sessions)
+    listing = FakeMessage(970, bot_message=True)
+    await command_requests(listing, services)
+    labels = button_texts(listing.edits[-1][1])
+    assert "Broken · ⚠️" in labels
+    assert "Empty · 0" in labels
+    label = next(label for label in labels if label.startswith("Selection"))
+    assert label.endswith(f" · 🎯1 · ⭐️1 · ☑️{len(checks)}")
+    assert len(label) == ITEM_BUTTON_LIMIT
+
+    detail = FakeMessage(971, bot_message=True)
+    await open_item_screen(detail, services, "request", mixed.id)
+    body, markup = detail.edits[-1]
+    assert f"🎯1 · ⭐️1 · ☑️{len(checks)} (showing first {RESULT_LIMIT})" in body
+    assert len(markup.inline_keyboard) == RESULT_LIMIT + 2
+
+    async with sessions() as session:
+        await delete_check(session, checks[-1].id)
+        await session.commit()
+    refresh = next(
+        button for row in markup.inline_keyboard for button in row if button.text == "↻ Refresh"
+    )
+    await callback_token_handler(FakeCallback(refresh.callback_data.split(":", 1)[1], detail), services)
+    assert f"☑️{len(checks) - 1}" in detail.edits[-1][0]
+    await command_requests(listing, services)
+    assert any(
+        label.endswith(f" · 🎯1 · ⭐️1 · ☑️{len(checks) - 1}")
+        for label in button_texts(listing.edits[-1][1])
+    )
+
+
+@pytest.mark.parametrize("ordered", [False, True])
+async def test_mixed_request_order_and_check_navigation(sessions, ordered):
+    """SR-UI-012 — tests/brd/saved_requests.feature"""
+    async with sessions() as session:
+        await create_card(session, kind="action", title="Walk")
+        check = await create_check(session, title="Enough sleep?")
+        check.archived_at = check.created_at
+        await create_saved_request(
+            session, "Mixed",
+            "SELECT 'check' AS item_type, id, 0 AS position FROM ai_checks "
+            "UNION ALL SELECT 'card', id, 1 FROM ai_cards"
+            + (" ORDER BY position" if ordered else ""),
+            views=ALLOWED_VIEWS,
+        )
+        await session.commit()
+    services = services_for(sessions)
+    message = FakeMessage(972, bot_message=True)
+    await command_requests(message, services)
+    entry = next(
+        button for row in message.edits[-1][1].inline_keyboard for button in row
+        if button.text == "Mixed · ⭐️1 · ☑️1"
+    )
+    await callback_token_handler(FakeCallback(entry.callback_data.split(":", 1)[1], message), services)
+    markup = message.edits[-1][1]
+    labels = button_texts(markup)
+    assert labels[0].startswith("☑️" if ordered else "⭐️")
+    check_button = next(
+        button for row in markup.inline_keyboard for button in row if button.text.startswith("☑️")
+    )
+    assert "[📦]" in check_button.text
+    await callback_token_handler(
+        FakeCallback(check_button.callback_data.split(":", 1)[1], message), services
+    )
+    assert "Enough sleep?" in message.edits[-1][0]
+    for expected in ("<b>Mixed</b>", "<b>Requests</b>"):
+        back = next(
+            button for row in message.edits[-1][1].inline_keyboard for button in row
+            if button.text == "↩️ Back"
+        )
+        await callback_token_handler(FakeCallback(back.callback_data.split(":", 1)[1], message), services)
+        assert expected in message.edits[-1][0]

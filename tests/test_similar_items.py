@@ -189,7 +189,7 @@ async def test_pr_similar_030_only_open_items_of_each_type_are_compared(sessions
         value = await create_value(session, "Health", "What matters to me")
         tag = await create_tag(session, "Training")
         request = await create_saved_request(
-            session, "Open actions", "SELECT id FROM ai_cards WHERE kind = 'action'",
+            session, "Open actions", "SELECT 'card' AS item_type, id FROM ai_cards WHERE kind = 'action'",
             views=ALLOWED_VIEWS,
         )
         mine = await create_reminder(
