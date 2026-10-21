@@ -9,6 +9,7 @@ each caller has to be trusted to fill correctly.
 from __future__ import annotations
 
 import asyncio
+import math
 from datetime import time
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +18,7 @@ from tg_agent_shell.access.credentials import hash_secret_word
 from tg_agent_shell.foundation.errors import DomainError
 
 from ...foundation.workspace import bump_workspace
+from .api import TODAY_OVERLOAD, hook_switched_on
 from .model import (
     HOME_AFTER_MINUTES_MAX,
     HOME_AFTER_MINUTES_MIN,
@@ -36,6 +38,14 @@ def profile_field(name: str) -> ProfileField:
 def validated_profile_value(field: ProfileField, value: ProfileValue) -> ProfileValue:
     """The value as the field stores it, or the DomainError that refuses it."""
     match field:
+        case ProfileField.TODAY_CAPACITY_EP:
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value <= 0
+            ):
+                raise DomainError("Today capacity must be a positive number of Effort Points.")
         case ProfileField.HOME_AFTER_MINUTES:
             if (
                 isinstance(value, bool)
@@ -69,11 +79,17 @@ async def require_profile(session: AsyncSession) -> UserProfile:
     return profile
 
 
+async def require_profile_field(session: AsyncSession, field: ProfileField) -> None:
+    if field == ProfileField.TODAY_CAPACITY_EP and not await hook_switched_on(session, TODAY_OVERLOAD):
+        raise DomainError("Today capacity is available only while Today overload is on.")
+
+
 async def set_profile_field(
     session: AsyncSession, field: ProfileField, value: ProfileValue
 ) -> UserProfile:
     """Store one validated profile value. Whatever reads it reads it live."""
     validated = validated_profile_value(field, value)
+    await require_profile_field(session, field)
     profile = await require_profile(session)
     setattr(profile, field.value, validated)
     await bump_workspace(session)

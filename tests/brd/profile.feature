@@ -14,7 +14,7 @@ Feature: Profile
     And About me and Advisor instructions come after it, so they are what it goes by
 
   Scenario: PS-FIELD-002 — Profile writes only the fields it has
-    Given the nine fields
+    Given the ten fields
     When anything tries to write a name that is not one of them
     Then it is refused, no field changes, and nothing is recorded as having changed
 
@@ -157,3 +157,13 @@ Feature: Profile
     And the Profile and its prompt show only set or off, never the word
     And only its salted verifier is stored, outside the Profile subagent's readable fields
     And setting or changing it keeps the current access open until automatic clearing
+
+  Scenario: PS-CAPACITY-024 — Today capacity is set while Today overload is on
+    Given Effort Points and Today overload are on
+    Then Profile shows Today capacity, initially 20 EP (TODAY_CAPACITY_EP_DEFAULT = 20)
+    When the owner sets it on the screen or in words to a positive number of Effort Points, a fraction included
+    Then it is saved and the next overload question uses it, without a restart (CD-TODAY-036)
+    But zero, negative numbers and anything other than a finite number are refused
+    When Today overload or Effort Points is switched off
+    Then Today capacity is hidden from Profile and AI context, and cannot be changed
+    And switching back on restores the saved value

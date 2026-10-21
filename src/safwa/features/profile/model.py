@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import time
 from enum import StrEnum
 
-from sqlalchemy import JSON, Boolean, Integer, Text, Time, null
+from sqlalchemy import JSON, Boolean, Float, Integer, Text, Time, null
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...foundation.models import Base, TimestampMixin
@@ -18,6 +18,7 @@ EVENING_TIME_DEFAULT = "21:00"
 HOME_AFTER_MINUTES_DEFAULT = 30
 HOME_AFTER_MINUTES_MIN = 5
 HOME_AFTER_MINUTES_MAX = 1440
+TODAY_CAPACITY_EP_DEFAULT = 20
 
 
 class UserProfile(Base, TimestampMixin):
@@ -37,6 +38,7 @@ class UserProfile(Base, TimestampMixin):
     # Sprint's time in its retro, and the question after Done follow it.
     time_tracking: Mapped[bool] = mapped_column(Boolean, default=False)
     effort_tracking: Mapped[bool] = mapped_column(Boolean, default=False)
+    today_capacity_ep: Mapped[float] = mapped_column(Float, default=TODAY_CAPACITY_EP_DEFAULT)
     home_after_minutes: Mapped[int] = mapped_column(Integer, default=HOME_AFTER_MINUTES_DEFAULT)
     secret_word_hash: Mapped[str | None] = mapped_column(Text, server_default=null())
     # The automatic reactions the owner turned off, by hook name. A hook that is not
@@ -58,4 +60,5 @@ class ProfileField(StrEnum):
     MOTIVATOR_INSTRUCTIONS = "motivator_instructions"
     TIME_TRACKING = "time_tracking"
     EFFORT_TRACKING = "effort_tracking"
+    TODAY_CAPACITY_EP = "today_capacity_ep"
     HOME_AFTER_MINUTES = "home_after_minutes"

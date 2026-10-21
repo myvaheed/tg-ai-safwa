@@ -246,6 +246,7 @@ async def test_unknown_schedule_is_persisted_and_excludes_exact_ratios(sessions,
 async def test_a_schedule_set_refreshes_open_reservation_and_today_hook(sessions, effort_on):
     """PL-REPEAT-034 — tests/brd/planning.feature"""
     async with sessions() as session:
+        await set_profile_field(session, ProfileField.TODAY_CAPACITY_EP, 15)
         card = await create_card(
             session, kind="action", title="Train", stage="today", effort_points=5
         )

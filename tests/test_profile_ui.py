@@ -12,7 +12,7 @@ from ui_harness import FakeCallback, FakeMessage, button_texts, services_for
 from safwa import featuretoggles
 from safwa.bootstrap.modules import HOOKS, REGISTRY
 from safwa.features.heavy_analyzer.module import HEAVY_ANALYZER_HOOK
-from safwa.features.profile.api import hook_switched_on
+from safwa.features.profile.api import TODAY_OVERLOAD, hook_switched_on, set_hook_switch
 from safwa.features.profile.model import EVENING_TIME_DEFAULT, ProfileField, UserProfile
 from safwa.features.profile.telegram import command_profile
 from safwa.features.profile.use_cases import set_profile_field
@@ -135,6 +135,57 @@ async def test_invalid_settings_input_keeps_data_and_the_same_prompt(sessions) -
         )
         ui = await session.scalar(select(UiSession))
         assert (ui.kind, ui.state["field"]) == ("text_input", "evening_time")
+
+
+async def test_today_capacity_is_edited_only_while_today_overload_is_on(sessions):
+    """PS-CAPACITY-024 — tests/brd/profile.feature"""
+    services = services_for(sessions)
+    message = FakeMessage(932, bot_message=True, answer_as_new=True)
+    await command_profile(message, services)
+    text, markup = message.edits[-1]
+    assert "Today capacity" not in text
+    assert "⚖️ Today capacity" not in button_texts(markup)
+
+    async with sessions() as session:
+        await set_profile_field(session, ProfileField.EFFORT_TRACKING, True)
+        await session.commit()
+    await command_profile(message, services)
+    text, markup = message.edits[-1]
+    assert "<i>Today capacity:</i> 20 EP" in text
+    await _press(message, services, markup, "⚖️ Today capacity")
+
+    for raw in ("0", "-1", "nan", "inf", "off"):
+        answer = FakeMessage(933, text=raw, bot_message=False, bot=message.bot)
+        await ordinary_text(answer, services)
+        assert "positive number" in message.bot.edits[-1][1]
+        async with sessions() as session:
+            assert (await session.get(UserProfile, 1)).today_capacity_ep == 20
+    await ordinary_text(
+        FakeMessage(934, text="12.5", bot_message=False, bot=message.bot), services
+    )
+    assert "<i>Today capacity:</i> 12.5 EP" in message.bot.edits[-1][1]
+    await _press(message, services, message.bot.edits[-1][2], "⚖️ Today capacity")
+
+    # An editor left open before the hook was disabled cannot write the hidden field.
+    async with sessions() as session:
+        await set_hook_switch(session, TODAY_OVERLOAD, on=False)
+        await session.commit()
+    await ordinary_text(
+        FakeMessage(935, text="30", bot_message=False, bot=message.bot), services
+    )
+    assert "only while Today overload is on" in message.bot.edits[-1][1]
+    async with sessions() as session:
+        assert (await session.get(UserProfile, 1)).today_capacity_ep == 12.5
+    await command_profile(message, services)
+    text, markup = message.edits[-1]
+    assert "Today capacity" not in text
+    assert "⚖️ Today capacity" not in button_texts(markup)
+
+    async with sessions() as session:
+        await set_hook_switch(session, TODAY_OVERLOAD, on=True)
+        await session.commit()
+    await command_profile(message, services)
+    assert "<i>Today capacity:</i> 12.5 EP" in message.edits[-1][0]
 
 
 async def test_ps_hooks_015_a_reaction_with_a_switch_is_turned_off_and_on_in_the_profile(

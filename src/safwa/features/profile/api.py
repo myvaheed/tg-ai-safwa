@@ -20,6 +20,7 @@ from .model import (
     EVENING_TIME_DEFAULT,
     HOME_AFTER_MINUTES_DEFAULT,
     MORNING_TIME_DEFAULT,
+    TODAY_CAPACITY_EP_DEFAULT,
     UserProfile,
 )
 
@@ -35,6 +36,11 @@ async def effort_tracking_on(session: AsyncSession) -> bool:
     """Whether the owner uses Effort Points to estimate load."""
     profile = await session.get(UserProfile, 1)
     return profile is not None and profile.effort_tracking
+
+
+async def today_capacity_ep(session: AsyncSession) -> float:
+    profile = await session.get(UserProfile, 1)
+    return profile.today_capacity_ep if profile is not None else TODAY_CAPACITY_EP_DEFAULT
 
 
 async def morning_time(session: AsyncSession) -> time:

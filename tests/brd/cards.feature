@@ -365,10 +365,10 @@
   Scenario: CD-TODAY-036 — A day holding more than it is meant to is asked about
     Given Effort Points are on in the Profile
     Given an Action enters Today — created there, moved there, or opened there as the next instance of a finished repeating one — by a proposal the owner saved or by hand
-    When the effort in Today, the open Actions there and the Actions finished that local day together, is over 15 EP (TODAY_CAPACITY_EP = 15) and the chat is free
+    When the effort in Today, the open Actions there and the Actions finished that local day together, is over the Profile's Today capacity (PS-CAPACITY-024) and the chat is free
     Then the Advisor is asked once to say what the day holds against what it is meant to, naming each open Action still in Today with its effort, and to ask which to move back to Sprint
     And nothing is moved before the owner's answer
-    And the effort is summed when the question is about to be said: a day at 15 EP or under by then asks nothing, and exactly 15 EP is not over
+    And the effort and capacity are read when the question is about to be said: a day at or under the capacity by then asks nothing
     And two Actions entering Today before it is said make one question
     And an Action that stays in Today, renamed or re-estimated there, is not what is checked: only one entering Today is
 

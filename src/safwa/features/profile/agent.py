@@ -17,7 +17,7 @@ from tg_agent_shell.proposals.api import MutationToolSpec
 from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec
 
 from ...foundation.workspace import require_workspace
-from .api import hook_switched_on
+from .api import TODAY_OVERLOAD, hook_switched_on
 from .model import ProfileField, UserProfile
 
 PROFILE_PROMPT = """You keep the user's Profile. You change its fields and answer what they hold.
@@ -60,7 +60,12 @@ async def profile_now(context: AgentContext) -> str:
         workspace = await require_workspace(session)
         lines = ["The Profile now:"]
         if profile is not None:
-            lines += [f"- {field.value}: {_shown(profile, field)}" for field in ProfileField]
+            capacity_visible = await hook_switched_on(session, TODAY_OVERLOAD)
+            lines += [
+                f"- {field.value}: {_shown(profile, field)}"
+                for field in ProfileField
+                if field != ProfileField.TODAY_CAPACITY_EP or capacity_visible
+            ]
         lines.append(f"Timezone: {workspace.timezone}. It is not changed here.")
         if context.switches:
             lines.append("Automatic reactions (only onboarding can be turned off here):")
@@ -77,7 +82,7 @@ PROFILE_AGENT = AgentSpec(
     purpose=(
         "change a Profile field or answer what it holds: About me, Advisor instructions, "
         "the Morning and Evening times, Diary and Motivator instructions, Home after, "
-        "Time tracking, Effort Points; or asks to switch an automatic reaction or stop onboarding."
+        "Time tracking, Effort Points, Today capacity; or asks to switch an automatic reaction or stop onboarding."
     ),
     instructions=PROFILE_PROMPT,
     mutation_tools=("profile", "stop_onboarding"),
@@ -119,6 +124,9 @@ class ProfileToolInput(ToolInput):
     )
     effort_tracking: bool | None = Field(
         default=None, description="Whether the user uses Effort Points to estimate load."
+    )
+    today_capacity_ep: float | None = Field(
+        default=None, description="Positive EP limit for Today; only while Today overload is on."
     )
 
     @model_validator(mode="after")

@@ -123,7 +123,7 @@ async def test_ps_ep_021_dependent_hooks_stop_before_evaluation_and_delivery(ses
     hooks = REGISTRY.hooks
     async with sessions() as session:
         card = await create_card(session, kind="action", title="Heavy", stage="today", effort_points=13)
-        await create_card(session, kind="action", title="More", stage="today", effort_points=5)
+        await create_card(session, kind="action", title="More", stage="today", effort_points=8)
         await set_profile_field(session, ProfileField.TIME_TRACKING, True)
         await session.commit()
     event = Committed(CARD_TODAY, card.id)
@@ -142,7 +142,7 @@ async def test_ps_ep_021_dependent_hooks_stop_before_evaluation_and_delivery(ses
         await session.commit()
     assert [item.spec.name async for item in hooks.evaluate(event, sessions)
             if item.spec.name == TODAY_OVERLOAD_HOOK.name] == [TODAY_OVERLOAD_HOOK.name]
-    assert "18 EP" in await hooks.prepare(sessions, TODAY_OVERLOAD_HOOK.name, [card.id])
+    assert "21 EP" in await hooks.prepare(sessions, TODAY_OVERLOAD_HOOK.name, [card.id])
     await command_profile(message, services)
     _, markup = await _press(message, services, message.edits[-1][1], "🔔 Hooks")
     assert "🔔 Today overload: on" in button_texts(markup)

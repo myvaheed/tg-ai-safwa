@@ -23,7 +23,6 @@ from safwa.features.cards.hooks import (
     EMPTY_PARENTS_HOOK,
     OVERDUE_HOOK,
     REST_TODAY_HOOK,
-    TODAY_CAPACITY_EP,
     TODAY_MORNINGS_HOOK,
     TODAY_OVERLOAD_HOOK,
     TODAY_STALE_DAYS,
@@ -1633,6 +1632,7 @@ async def test_cd_today_036_the_request_sums_the_day_as_it_is_about_to_be_said(s
     assert TODAY_OVERLOAD_HOOK.agent_related
     assert TODAY_OVERLOAD_HOOK.on == (OnCommitted(kind=CARD_TODAY),)
     async with sessions() as session:
+        await set_profile_field(session, ProfileField.TODAY_CAPACITY_EP, 15)
         done = await create_card(
             session, kind="action", title="Done already", stage="today", effort_points=5
         )
@@ -1651,7 +1651,7 @@ async def test_cd_today_036_the_request_sums_the_day_as_it_is_about_to_be_said(s
         await session.commit()
         request = await today_overload_request(session, [extra.id])
         assert request is not None
-        assert f"Today holds 16 EP, over the {TODAY_CAPACITY_EP} EP" in request
+        assert "Today holds 16 EP, over the 15 EP" in request
         assert "5 EP of it is finished already" in request
         for line in (
             f"#{big.id} «Big one» (8 EP)", f"#{small.id} «Small one» (2 EP)",
@@ -1660,6 +1660,11 @@ async def test_cd_today_036_the_request_sums_the_day_as_it_is_about_to_be_said(s
             assert line in request
         assert "Done already" not in request
         assert "Change nothing until they answer" in request
+
+        await set_profile_field(session, ProfileField.TODAY_CAPACITY_EP, 16)
+        assert await today_overload_request(session, [extra.id]) is None
+        await set_profile_field(session, ProfileField.TODAY_CAPACITY_EP, 15.5)
+        assert "over the 15.5 EP" in await today_overload_request(session, [extra.id])
 
         # Finished on another day, it is not this day's; moved back, the day is under.
         done.completed_at = utcnow() - timedelta(days=2)

@@ -44,7 +44,13 @@ from ..model import (
     ProfileField,
     UserProfile,
 )
-from ..use_cases import profile_field, set_profile_field, set_secret_word
+from ..use_cases import (
+    profile_field,
+    require_profile_field,
+    set_profile_field,
+    set_secret_word,
+    validated_profile_value,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +78,15 @@ def _parse_clock(raw: str) -> time:
         return parse_clock(raw)
     except ValueError:
         raise ValueError("Send a time as HH:MM, for example 09:00.") from None
+
+
+def _parse_today_capacity(raw: str) -> float:
+    try:
+        value = float(raw)
+    except ValueError:
+        raise ValueError("Send a positive number of Effort Points.") from None
+    validated_profile_value(ProfileField.TODAY_CAPACITY_EP, value)
+    return value
 
 
 def _clock(value: time | None) -> str:
@@ -143,7 +158,20 @@ PROFILE_FIELDS: dict[str, EditableField] = {
         parse=_parse_home_after,
         show=lambda value: f"{value} min",
     ),
+    "today_capacity_ep": EditableField(
+        title="Today capacity",
+        label="⚖️ Today capacity",
+        instruction="Send the maximum Effort Points for Today.",
+        parse=_parse_today_capacity,
+        show=lambda value: f"{value:g} EP",
+    ),
 }
+
+
+def _field_visible(profile: UserProfile, name: str) -> bool:
+    return name != "today_capacity_ep" or (
+        profile.effort_tracking and TODAY_OVERLOAD not in profile.disabled_hooks
+    )
 
 
 def _visible_switches(profile: UserProfile, services: Services) -> tuple[HookSpec, ...]:
@@ -188,7 +216,7 @@ def profile_text(profile: UserProfile, timezone: str, *, usage: int = 0) -> str:
         if name in text_fields:
             lines.extend((markdown_field(field.title, getattr(profile, name)), ""))
     for name, field in PROFILE_FIELDS.items():
-        if name not in text_fields:
+        if name not in text_fields and _field_visible(profile, name):
             lines.append(f"<i>{field.title}:</i> {html.escape(field.show(getattr(profile, name)))}")
     lines.append(f"<i>Timezone:</i> {html.escape(timezone)}")
     lines.append(f"<i>Usage time:</i> {usage_label(usage)}")
@@ -220,6 +248,8 @@ async def command_profile(
             raise DomainError("Workspace is not initialized")
         buttons = []
         for name, field in PROFILE_FIELDS.items():
+            if not _field_visible(profile, name):
+                continue
             buttons.append(
                 await token_button(
                     session, services.owner_id, field.label, "profile_edit", {"field": name}
@@ -272,6 +302,7 @@ async def render_profile_field_prompt(
         profile = await session.get(UserProfile, 1)
         if profile is None:
             raise DomainError("Workspace is not initialized")
+        await require_profile_field(session, profile_field(field_name))
         current = field.show(getattr(profile, field_name))
     await render_text_input(
         message,
