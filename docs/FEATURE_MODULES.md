@@ -325,17 +325,17 @@ readers may query, what it declares, and who imports it today. Those are declare
 citation is a test's claim on a scenario rather than proof the scenario is checked through, and
 the import list is who opens the feature now rather than everything that would break without it.
 
-Two features are worth reading, because they are the two shapes a feature comes in.
+Two features are worth reading as examples of manual editing and model proposals.
 
 **Tags** is where both mutation paths meet: `tags/proposal.py` and `tags/telegram/screens.py` call
 the same `create_tag`, `update_tag_fields` and `delete_tag`, so a rule about a Tag is kept once
 whichever hand made the change. Copy it whenever the owner may edit the entity themselves.
 
-**Diary** is the complete package with only one of those paths. It declares a model, use cases, an
-agent contract, a proposal handler, a view and a subagent of its own — but `diary/telegram.py`
-calls no write at all: it renders the day read-only and presents the review, because the Diary is
-written through proposals alone. Reads are asymmetric on purpose too: the Advisor reads and opens
-`ai_diary` directly, while writes route to the Diary subagent and stay proposals until Save.
+**Diary** also declares its own subagent. The Advisor reads and opens `ai_diary` directly, while
+model writes route to the Diary subagent and stay proposals until Save. On a saved day,
+`diary/telegram.py` offers Feeling and Entry under Edit; each accepted manual value writes
+immediately through the same `update_diary_entry` operation as an approved proposal. Creating
+and deleting a day still go through proposals.
 
 ## Why the feature's `__init__.py` is empty
 
