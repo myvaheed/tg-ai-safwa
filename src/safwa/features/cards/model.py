@@ -33,7 +33,7 @@ class CardKind(StrEnum):
     ACTION = "action"
 
 
-CARD_TREE_DEPTH_MAX = 7
+CARD_TREE_DEPTH_MAX = 8
 
 
 def card_kind_name(kind: CardKind | str, has_parent: bool = False) -> str:

@@ -102,7 +102,7 @@ carrying the Inbox Tag is not checked, and only creation starts the check.
 - The two Card kinds are Goal and Action. A Card may stand under one Goal or several, its
   parents, kept in `card_parents`. A Goal with no parent is root-level; one with a parent is
   displayed as a Subgoal, without changing its kind. An Action may be root-level or under any
-  Goals and has no children. Cards stand at most 7 levels deep (`CARD_TREE_DEPTH_MAX`),
+  Goals and has no children. Cards stand at most 8 levels deep (`CARD_TREE_DEPTH_MAX`),
   counting the root as 1, a Card's level by its longest path up, and including Actions.
   Creating a Card or giving it a parent checks that limit for everything under it along every
   path, and refuses self-parenting or a parent anywhere inside its branch. **Live stage**, effort, time spent, categories, energy and **Blocked** belong to an

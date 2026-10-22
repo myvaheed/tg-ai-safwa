@@ -510,12 +510,12 @@
     And the same Goal marker is shown in its screen, lists, citations and proposal preview, following moves and deletions in its subtree
     And a list of one stage, such as the Backlog, does not name that stage at all
 
-  Scenario: CD-TREE-049 — Cards stand at most seven levels deep, including Actions
+  Scenario: CD-TREE-049 — Cards stand at most eight levels deep, including Actions
     Given Cards under Goals, counting a root Card as level 1 and a Card's level by its longest
       path up
-    When a Goal or Action is created at level 7 (CARD_TREE_DEPTH_MAX = 7)
+    When a Goal or Action is created at level 8 (CARD_TREE_DEPTH_MAX = 8)
     Then it is accepted
-    When a Card would be created below level 7, or a new parent would put anything under the Card
+    When a Card would be created below level 8, or a new parent would put anything under the Card
       below it along any path
     Then it is refused before review and again on Save, without changing the branch
     And a Card given or losing a parent within the limit keeps its children, and every Goal above
@@ -531,7 +531,8 @@
     When Safwa reads them from ai_cards
     Then the Goal's tree_level is 4, the index of its 🎯⁴ marker (CD-BUTTON-048)
     And the Subgoals down the chain read 3, 2 and 1, and the Action reads 0
-    And a chain of seven Goals reads 7 at its root (CARD_TREE_DEPTH_MAX = 7)
+    And a chain of seven Goals with an Action under the last reads 7 at its root and 0 on the Action
+    And a chain of eight Goals reads 8 at its root (CARD_TREE_DEPTH_MAX = 8)
     And a move or a deletion in the subtree changes tree_level as it changes the marker
 
   Scenario: CD-ORDER-054 — A list of Cards a question returned reads as one flat tree

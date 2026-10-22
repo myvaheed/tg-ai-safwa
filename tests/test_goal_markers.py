@@ -151,6 +151,33 @@ async def test_cd_tree_053_ai_cards_reads_the_goal_marker_as_tree_level(read_vie
     assert (await read_levels())[ids[2]] == 1
 
 
+@pytest.mark.parametrize("link", [False, True])
+async def test_cd_tree_053_seven_goals_with_an_action_keep_the_root_marker_seven(read_views, link):
+    """CD-TREE-053 — tests/brd/cards.feature"""
+    sessions, runner = read_views
+    async with sessions() as session:
+        chain = [await create_card(session, kind="goal", title="Goal")]
+        for level in range(6):
+            chain.append(
+                await create_card(
+                    session, kind="goal", title=f"Subgoal {level}", parent_ids={chain[-1].id}
+                )
+            )
+        action = await create_card(
+            session, kind="action", title="Action", parent_ids=set() if link else {chain[-1].id}
+        )
+        if link:
+            await toggle_card_parent(session, action.id, chain[-1].id)
+        assert await card_emoji(session, chain[0]) == "🎯⁷"
+        await session.commit()
+        root_id, action_id = chain[0].id, action.id
+
+    rows = (await runner.run("SELECT id, tree_level FROM ai_cards")).rows
+    levels = {row["id"]: row["tree_level"] for row in rows}
+    assert levels[root_id] == 7
+    assert levels[action_id] == 0
+
+
 async def test_cd_tree_053_a_chain_at_the_depth_limit_reads_the_same_as_its_markers(read_views):
     """CD-TREE-053 — tests/brd/cards.feature"""
     sessions, runner = read_views
