@@ -826,7 +826,7 @@ async def test_a_day_put_up_for_approval_is_edited_before_it_is_saved(e2e_harnes
         },
     )
     await press(services, message, "✏️ Edit")
-    assert message.buttons() == ["🙂 Feeling", "📝 Entry", "💬 Remark", "↩️ Back"]
+    assert message.buttons() == ["🙂 Feeling", "📝 Entry", "↩️ Back"]
 
     await press(services, message, "🙂 Feeling")
     assert message.buttons() == [
@@ -846,10 +846,9 @@ async def test_a_day_put_up_for_approval_is_edited_before_it_is_saved(e2e_harnes
     assert (values["body"], values["feeling_score"]) == ("Market opened.", 3)
 
     await render_proposal(message, services, proposal_id, editing=True)
-    await press(services, message, "💬 Remark")
-    assert "Edit Remark" in drawn(message)
-    await type_words(services, message, "The day held.")
-    assert advisor.reviews.proposal(proposal_id).changes[0].values["remark"] == "The day held."
+    assert message.buttons() == ["🙂 Feeling", "📝 Entry", "↩️ Back"]
+    assert "<i>One thing held.</i>" in drawn(message)
+    assert advisor.reviews.proposal(proposal_id).changes[0].values["remark"] == "One thing held."
     [record] = [
         tool
         for tool in advisor.reviews.batch_for_proposal(proposal_id).tool_calls

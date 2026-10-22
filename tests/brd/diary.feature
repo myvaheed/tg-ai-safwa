@@ -50,7 +50,7 @@ Feature: Diary
     And reading a saved entry stays with Safwa; questions about that day's conversation are
       handed to the Diary instead (DI-RECALL-028)
 
-  Scenario: DI-LINK-007 — What Safwa points at is the whole day, read-only
+  Scenario: DI-LINK-007 — What Safwa points at is the whole saved day
     Given 15.08.2026 reads "День с рынком.", rated 6
     When Safwa points at that day
     Then it is aimed at that day itself and no other
@@ -185,7 +185,7 @@ Feature: Diary
     And a year opens its months, and a month opens its saved days newest first, 10 per page
     And each screen says which year and month it shows
     And a month stands alone as Сентябрь on its button and screen, and inside a date as 1 сентября
-    And each day opens its full read-only entry, including its photos
+    And each day opens its full saved entry, including its photos
     And Back returns to the same list and page the day came from
     And paging offers only pages that exist
 
@@ -208,9 +208,27 @@ Feature: Diary
   Scenario: DI-EDIT-029 — A day put up for approval can be edited before it is saved
     Given Safwa proposes to write a day
     When the owner presses "✏️ Edit" on its review screen
-    Then each part the proposal sets has a button: "🙂 Feeling", "📝 Entry" and "💬 Remark"
+    Then "🙂 Feeling" and "📝 Entry" have buttons when the proposal sets them
     And Feeling offers 0 to 10, each with the face the Diary gives that score
     And Entry takes the whole day's words, says that Markdown is supported, and refuses an empty Entry
-    And Remark takes Safwa's sentence about the day
-    And the day's date and its photos have no button
+    And Remark, the day's date and its photos have no button
     And a proposal to delete a day has no "✏️ Edit"
+
+  Scenario: DI-EDIT-030 — A saved day can be edited by hand
+    Given a saved day with words, photos, or both, and an optional Feeling
+    When the owner opens that day from the Diary menu or a link
+    Then "✏️ Edit" and the way back share one row
+    And "🙂 Feeling" and "📝 Entry" appear only after pressing "✏️ Edit"
+    And there is no Remark button on a saved day
+    When the owner chooses Feeling
+    Then the choices are 0 to 10 with their faces, and the current score is ticked
+    And choosing a score saves it immediately, keeping the words and photos
+    When the owner chooses Entry
+    Then the editor shows the copyable source and says that Markdown is supported
+    And sending nonempty words replaces the whole Entry immediately, keeping the Feeling and photos
+    And empty words are refused without changing the day, leaving the editor open
+    And a day with photos alone can be given words and a Feeling
+    And a date with no entry has no Edit button
+    And a successful edit returns to the saved day with Edit and the way back
+    And Back from either field cancels the input and returns to Edit's buttons
+    And Back under Edit returns to the saved day, then to the same list and page it came from

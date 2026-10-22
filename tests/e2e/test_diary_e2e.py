@@ -7,18 +7,22 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from agent_turns import PLAN, forward_turn
+from review_e2e_helpers import QueueTestMessage, review_services
 from sqlalchemy import select
 from test_subagent_e2e import diary_subagent
+from ui_harness import button_texts, press
 
 from llm_gateway import CompletionTurn as ProviderTurn
 from llm_gateway import ToolCall as ProviderToolCall
 from safwa.bootstrap.modules import PROPOSALS, SYSTEM_PROMPT
 from safwa.features.diary.model import DiaryEntry
+from safwa.features.diary.telegram import render_diary
 from safwa.features.diary.use_cases import create_diary_entry
 from tg_agent_shell.ai.outcome import AIOutcomeKind
 from tg_agent_shell.ai.runs import AgentRun, AgentStep
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.proposals.use_cases import approve_proposal
+from tg_agent_shell.telegram.dialogue import ordinary_text
 
 pytestmark = pytest.mark.e2e
 
@@ -78,6 +82,34 @@ async def test_di_write_008_routed_write_is_saved_through_proposal(e2e_harness):
     assert "Feeling: 7" in description.fields
     assert not any("Рынок закрыл" in field for field in description.fields)
     assert description.summary == f"New Diary entry for {TODAY} with feeling score 7"
+
+
+async def test_saved_day_is_edited_through_buttons_without_calling_the_model(e2e_harness):
+    """DI-EDIT-030 — tests/brd/diary.feature"""
+    async with e2e_harness.sessions() as session:
+        entry = await create_diary_entry(
+            session, entry_date=date.today(), body="Original.", feeling_score=7,
+        )
+        await session.commit()
+        entry_id = entry.id
+    advisor, provider = e2e_harness.advisor([])
+    services = review_services(e2e_harness, advisor)
+    message = QueueTestMessage()
+    await render_diary(message, services, entry_id)
+    await press(services, message, message.markups[-1], "✏️ Edit")
+    await press(services, message, message.markups[-1], "📝 Entry")
+    typed = QueueTestMessage(message_id=950, text="New day.", is_bot=False, parent=message)
+    await ordinary_text(typed, services)
+    markup = message.bot.edited[-1][1]
+    assert button_texts(markup) == ["✏️ Edit", "↩️ Menu"]
+    await press(services, message, markup, "✏️ Edit")
+    await press(services, message, message.markups[-1], "🙂 Feeling")
+    await press(services, message, message.markups[-1], "3 🙁")
+    async with e2e_harness.sessions() as session:
+        saved = await session.get(DiaryEntry, entry_id)
+        assert (saved.body, saved.feeling_score, saved.version) == ("New day.", 3, 3)
+        assert list(await session.scalars(select(AgentRun))) == []
+    assert provider.calls == []
 
 
 async def test_di_day_002_second_write_replaces_the_day(e2e_harness):

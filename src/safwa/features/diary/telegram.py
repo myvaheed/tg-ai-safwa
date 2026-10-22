@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import html
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date, timedelta
 from typing import Any
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from telegram_llm import markdown_to_telegram_html
@@ -34,20 +34,29 @@ from tg_agent_shell.telegram import (
     CallbackHandler,
     Place,
     Services,
+    TextInputScreen,
     back_button,
+    choice_rows,
+    choice_screen,
     dismiss_prior_ui,
+    edit_registered_message,
+    edited_screen,
+    go,
     paginate,
     paging_row,
     place_button,
     render_citations,
+    render_text_input,
     required_text,
     send_registered,
 )
+from tg_agent_shell.telegram.contributions import TextInputFlow
+from tg_agent_shell.telegram.model import UiSession
 
 from ..schedules.api import workspace_zone
 from .api import day_media
 from .model import DiaryEntry
-from .use_cases import diary_entry_for
+from .use_cases import diary_entry_for, update_diary_entry
 
 DIARY_PAGE_SIZE = 10
 DIARY_RECENT_DAYS = 7
@@ -205,7 +214,10 @@ async def _on_day(context: CallbackContext) -> None:
             ]])
             await session.commit()
     if entry is not None:
-        await render_diary(context.message, context.services, entry.id, back=context.back)
+        await render_diary(
+            context.message, context.services, entry.id, back=context.back,
+            editing=bool(context.payload.get("editing", False)),
+        )
     else:
         await send_registered(
             context.message,
@@ -216,12 +228,6 @@ async def _on_day(context: CallbackContext) -> None:
         )
 
 
-DIARY_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
-    "diary_browser": _on_browser,
-    "diary_day": _on_day,
-}
-
-
 async def render_diary(
     message: Message,
     services: Services,
@@ -229,33 +235,147 @@ async def render_diary(
     *,
     back: Place | None = None,
     replace: bool | None = None,
+    editing: bool = False,
+    replace_message_id: int | None = None,
 ) -> None:
-    """One Diary day, in full and read-only: its photos as one album, its words below.
-
-    The Diary is written through proposals alone.
-    """
+    """One saved day, with its photos, words and an optional choice of fields to edit."""
+    if replace_message_id is None:
+        await dismiss_prior_ui(message, services)
     async with services.sessions() as session:
         entry = await session.get(DiaryEntry, entry_id)
         if entry is None:
             raise DomainError("Diary entry does not exist")
         label = diary_label(entry.entry_date, entry.feeling_score)
         here = Place("diary_day", {"date": entry.entry_date.isoformat()}, back)
+        if editing:
+            here = here.but(editing=True)
         body = await render_citations(session, services, markdown_to_telegram_html(entry.body or ""), here=here)
         media_ids = [media_id for media_id, _label in await day_media(session, entry_id)]
-        rows = [[await back_button(session, services.owner_id, back)]]
+        await session.execute(delete(UiSession).where(UiSession.owner_id == services.owner_id))
+        if editing:
+            rows = [[
+                await place_button(
+                    session, services.owner_id, "🙂 Feeling",
+                    here.child("diary_feeling", id=entry.id),
+                ),
+                await place_button(
+                    session, services.owner_id, "📝 Entry",
+                    here.child("diary_entry", id=entry.id),
+                ),
+            ], [await back_button(session, services.owner_id, back)]]
+        else:
+            rows = [[
+                await place_button(
+                    session, services.owner_id, "✏️ Edit",
+                    here.child("diary_day", date=entry.entry_date.isoformat(), editing=True),
+                ),
+                await back_button(session, services.owner_id, back),
+            ]]
         await session.commit()
+    text = "\n\n".join(filter(None, (f"<b>📔 {html.escape(label)}</b>", body)))
+    markup = InlineKeyboardMarkup(inline_keyboard=rows)
+    if replace_message_id is not None:
+        if not media_ids:
+            await edit_registered_message(
+                message, services, replace_message_id, text,
+                kind=MessageKind.DASHBOARD, markup=markup, related_id=entry_id,
+            )
+            return
+        await dismiss_prior_ui(message, services)
+        replace = False
     await send_photo_screen(
         message,
         services,
         media_ids,
-        "\n\n".join(
-            filter(None, (f"<b>📔 {html.escape(label)}</b>", body))
-        ),
+        text,
         kind=MessageKind.DASHBOARD,
-        markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        markup=markup,
         related_id=entry_id,
         replace=replace,
     )
+
+
+async def _on_feeling(context: CallbackContext) -> None:
+    await dismiss_prior_ui(context.message, context.services)
+    async with context.sessions() as session:
+        entry = await session.get(DiaryEntry, context.payload["id"])
+        if entry is None:
+            raise DomainError("Diary entry does not exist")
+        choices = choice_rows(
+            await _feelings(session, entry.id),
+            {entry.feeling_score},
+            lambda score: Place(
+                "diary_feeling_set", {"id": entry.id, "score": score}, context.back.back,
+            ),
+        )
+    await choice_screen(
+        context.message, context.services, "Feeling", choices,
+        back=context.back, related_id=entry.id,
+    )
+
+
+async def _on_feeling_set(context: CallbackContext) -> None:
+    async with context.sessions() as session:
+        await update_diary_entry(session, context.payload["id"], None, context.payload["score"])
+        await session.commit()
+    await go(context, context.back)
+
+
+async def _on_entry(context: CallbackContext) -> None:
+    await dismiss_prior_ui(context.message, context.services)
+    async with context.sessions() as session:
+        entry = await session.get(DiaryEntry, context.payload["id"])
+        if entry is None:
+            raise DomainError("Diary entry does not exist")
+    field = DIARY_REVIEW_FIELDS["body"]
+    await render_text_input(
+        context.message,
+        context.services,
+        screen=TextInputScreen(
+            title=field.title,
+            current_value=entry.body or "",
+            instruction=field.instruction,
+            markdown=True,
+            back=context.back,
+            related_id=entry.id,
+        ),
+        state={"flow": "diary_entry", "id": entry.id},
+    )
+
+
+async def _apply_entry(
+    session: AsyncSession, services: Services, state: Mapping[str, Any], value: str,
+) -> None:
+    entry = await session.get(DiaryEntry, state["id"])
+    if entry is None:
+        raise DomainError("Diary entry does not exist")
+    await update_diary_entry(session, entry.id, value, entry.feeling_score)
+
+
+async def _render_after_entry(
+    message: Message, services: Services, state: Mapping[str, Any], value: str,
+) -> None:
+    day = edited_screen(state).back
+    await render_diary(
+        message, services, state["id"], back=day.back,
+        replace_message_id=int(state["text_input"]["message_id"]),
+    )
+
+
+DIARY_TEXT_INPUT = TextInputFlow(
+    name="diary_entry",
+    validator=lambda state: required_text("Entry"),
+    apply=_apply_entry,
+    render=_render_after_entry,
+)
+
+DIARY_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
+    "diary_browser": _on_browser,
+    "diary_day": _on_day,
+    "diary_feeling": _on_feeling,
+    "diary_feeling_set": _on_feeling_set,
+    "diary_entry": _on_entry,
+}
 
 
 def _day_lines(change: ProposalChange) -> list[str]:
@@ -293,7 +413,7 @@ async def _feelings(session: AsyncSession, entry_id: int | None) -> list[tuple[s
     return [(f"{score} {face}", score) for score, face in FEELING_SCORE_EMOJI.items()]
 
 
-# A day has no screen to edit it on, so Edit offers the parts its review shows (DI-EDIT-029).
+# Edit on a proposal offers only the parts that proposal sets (DI-EDIT-029).
 DIARY_REVIEW_FIELDS = {
     "feeling_score": EditableField("🙂 Feeling", "Feeling", options=_feelings),
     "body": EditableField(
@@ -302,9 +422,6 @@ DIARY_REVIEW_FIELDS = {
         parse=required_text("Entry"),
         instruction="Send the whole day in your own words. It replaces the words saved.",
         markdown=True,
-    ),
-    "remark": EditableField(
-        "💬 Remark", "Edit Remark", instruction="Send one sentence about the day."
     ),
 }
 

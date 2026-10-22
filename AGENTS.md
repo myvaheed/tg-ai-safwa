@@ -11,7 +11,7 @@ scenario wording and identifiers.
 | Change domain behavior | the feature's `.feature`, `use_cases.py`, `model.py` | scenario tests and affected adapters |
 | Fix a screen | the feature's `.feature`, Telegram adapter, [screens.feature](tests/brd/tg_agent_shell/screens.feature) | UI tests; E2E when the flow crosses a turn |
 | Change execution or routing | [shell scenarios](tests/brd/tg_agent_shell), `agent_runtime/`, [AGENT_ARCH.md](docs/AGENT_ARCH.md) | budgets, cancellation, suspend/resume and claims |
-| Add a feature | [FEATURE_MODULES.md](docs/FEATURE_MODULES.md); [Tags](src/safwa/features/tags) for manual and AI editing, [Diary](src/safwa/features/diary) for proposal-only writes | registration, scenario tests, one whole path |
+| Add a feature | [FEATURE_MODULES.md](docs/FEATURE_MODULES.md); [Tags](src/safwa/features/tags) for manual and AI editing | registration, scenario tests, one whole path |
 | Remove a feature | its scenarios and feature map; callers, reader views, tools, menu and foreign keys | no dangling registrations, imports, schema or test references |
 | Build another bot | application contract in [AGENT_ARCH.md](docs/AGENT_ARCH.md), [wallet example](examples/wallet/app.py) | `tests/shell/`, including the example with Safwa unimportable |
 | Change hooks | [HOOK_ARCH.md](docs/HOOK_ARCH.md) and the owning feature's scenarios | registration, effect and affected event path |

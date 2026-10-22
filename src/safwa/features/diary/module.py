@@ -27,6 +27,7 @@ MODULE = FeatureModule(
         ScreenCommand(handler=telegram.command_diary, nav="diary", title="📔 Diary"),
     ),
     callback_actions=telegram.DIARY_CALLBACK_ACTIONS,
+    text_inputs=(telegram.DIARY_TEXT_INPUT,),
     screens=(
         ScreenSpec(
             item_type="diary",
