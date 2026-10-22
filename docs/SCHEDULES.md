@@ -175,7 +175,8 @@ in Today when due today and in Sprint otherwise. A copy left in Sprint while its
 is brought up by the morning hook below rather than moved.
 
 Plain linked Checks follow the Action cycle, gate Done and reset when that Action is reopened.
-A Check with its own Schedule cannot be linked to a Card; answering it never alters a Card.
+A Check with its own Schedule hangs on a Goal or on no Card, never on an Action. Answering it
+opens a successor on that Goal while it is open, or independently; it never closes the Goal.
 Passed and Missed both count as observations. An unanswered Check is not implicitly Missed.
 
 ## Planned load
