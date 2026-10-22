@@ -134,7 +134,7 @@
 
   Scenario: HM-ORDER-014 — The dashboard reads in one order
     Given changes, open Goals, Values in focus, Actions in Today, and Time tracking on
-    Then the dashboard reads, top to bottom: the day and the time it was drawn, the last changes, the Values in focus, Today, and the time tracked today
+    Then the dashboard reads, top to bottom: the day and the time it was drawn, the last changes, the Values in focus, Today, scheduled Checks with answers left today, and the time tracked today
     And it has no Priority Goals block: a Goal is on it only as Today shows it
 
   Scenario: HM-LOCK-015 — Automatic clearing protects access while Reminders remain visible
@@ -159,3 +159,14 @@
     And the correct Secret word opens access again
     When Secret word is not set
     Then /lock asks to set it in Profile without clearing or locking the chat
+
+  Scenario: HM-CHECKS-017 — Home shows scheduled Checks with answers left today
+    Given Pending Checks with appointments or daily quota left on the workspace's local day
+    Then Home lists them after the Today hierarchy, each once as a link that opens it
+    And the heading counts Checks, and a Check with several answers left shows their remaining count
+    And an unanswered appointment earlier today remains on the list
+    And Checks without a Schedule, for later days, already answered or archived, and weekly or monthly quotas are left out
+    When an answer opens the next instance
+    Then opening Home shows that instance and the remaining count
+    When no scheduled Check has answers left today
+    Then the block is absent

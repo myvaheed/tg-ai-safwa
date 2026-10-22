@@ -1,9 +1,9 @@
 """The Home dashboard: what a quiet chat is cleared down to, built from the workspace.
 
-Four blocks under the day and the time, each read through the door of the feature that owns
+Five blocks under the day and the time, each read through the door of the feature that owns
 it: the last changes, the Values in focus with the words written for them, all of Today under
-its Goals, and the time tracked today. It is Markdown, as an answer is, and every item is
-a citation, so it reads and links the way it does in an answer.
+its Goals, scheduled Checks remaining today, and the time tracked today. It is Markdown, as
+an answer is, and every item is a citation, so it reads and links the way it does in an answer.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from ...foundation.workspace import require_workspace
 from ..cards.api import effort_label, goal_tree, minutes_label, order_cards, tracked_between
 from ..planning.api import plan_load, today_actions, values_in_focus
 from ..profile.api import effort_tracking_on, time_tracking_on
+from ..schedules.api import checks_today
 
 # How many changes the dashboard opens with.
 HOME_LOG_SHOWN = 5
@@ -71,6 +72,7 @@ async def dashboard_text(
         await _changes(session, local),
         await _values(session, words),
         await _today(session, local),
+        await _checks(session, local),
         await _time(session, local),
     )
     return "\n\n".join(block for block in blocks if block)
@@ -100,6 +102,17 @@ async def _today(session: AsyncSession, local: datetime) -> str:
                 _cite("card", parent.id, parent.title) for parent in row.also_under
             )
         lines.append(f"{_INDENT * row.depth}{_cite('card', card.id, card.title)}{suffix}")
+    return "\n".join(lines)
+
+
+async def _checks(session: AsyncSession, local: datetime) -> str:
+    checks = await checks_today(session, now=local)
+    if not checks:
+        return ""
+    lines = [f"**☑️ Checks today · {len(checks)}**"]
+    for check, count in checks:
+        suffix = f" × {count}" if count > 1 else ""
+        lines.append(f"{_cite('check', check.id, check.title)}{suffix}")
     return "\n".join(lines)
 
 

@@ -283,7 +283,6 @@ Request **Inbox**, supplied when the Tag is first installed, lists tagged Cards 
 first. It is an ordinary Request and stays deleted or renamed across restarts.
 Requests select Cards, Checks or both; their list counts Goals, Actions and Checks.
 When used as a Sprint plan filter, only their returned Actions participate.
-Existing saved SQL can be converted with the [one-off upgrade script](REQUESTS_UPGRADE.md).
 
 A Card owns four link sets of one shape — its parents, Values, Tags and Checks — and a Check owns
 one, its Values. All five are `ReferenceSpec`s: adding another means adding a spec, not a special

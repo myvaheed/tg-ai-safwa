@@ -1,4 +1,4 @@
-"""The Home dashboard: its four blocks, the words under the Values, and where the
+"""The Home dashboard: its blocks, the words under the Values, and where the
 conversation starts after it."""
 
 from __future__ import annotations
@@ -7,8 +7,10 @@ import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
+from schedule_helpers import create_check as scheduled_check
 from telegram_fakes import spawn_timer
 from ui_harness import history_source, services_for
 
@@ -16,6 +18,7 @@ from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
 from safwa.features.cards.api import goal_tree
 from safwa.features.cards.model import Card
 from safwa.features.cards.use_cases import create_card, delete_card, finish_action
+from safwa.features.checks.use_cases import create_check, resolve_check
 from safwa.features.diary.model import DiaryEntry
 from safwa.features.diary.use_cases import create_diary_entry
 from safwa.features.home import motivation
@@ -37,6 +40,7 @@ from safwa.features.profile.model import (
 )
 from safwa.features.profile.telegram.screens import PROFILE_FIELDS
 from safwa.features.profile.use_cases import set_profile_field
+from safwa.features.schedules import api as schedules
 from safwa.features.summary.window import SUMMARY_HEADER
 from safwa.features.values.use_cases import create_value, update_value_fields
 from safwa.features.workspace_mutator.state import workspace_context
@@ -249,26 +253,97 @@ async def test_without_today_the_dashboard_says_so_and_shows_no_other_list(sessi
     assert "Sprint" not in text and "Backlog" not in text
 
 
-async def test_the_dashboard_reads_in_one_order(sessions) -> None:
+@pytest.mark.parametrize("clock", ["10:00", "19:30", "21:30"])
+async def test_home_shows_only_scheduled_checks_with_answers_left_today(
+    sessions, monkeypatch, clock,
+) -> None:
+    """HM-CHECKS-017 — tests/brd/home.feature"""
+    now = datetime.fromisoformat(f"2026-10-21T{clock}:00+00:00")
+    morning = now.astimezone(ZoneInfo("Europe/Istanbul")).replace(hour=0, minute=0)
+    monkeypatch.setattr(schedules, "utcnow", lambda: morning)
+    monkeypatch.setattr("schedule_helpers.utcnow", lambda: morning)
+    today = morning.date()
+    async with sessions() as session:
+        due = await scheduled_check(
+            session, title="Slept <well>?", schedule=f"{today:%d.%m.%Y} 21:00",
+        )
+        daily = await create_check(session, title="Posture?", schedule="three a day", schedule_rule={
+            "kind": "quota", "period": "day", "count": 3,
+        })
+        await create_check(session, title="Plain?")
+        await scheduled_check(
+            session, title="Tomorrow?", schedule=f"{today + timedelta(days=1):%d.%m.%Y} 00:00",
+        )
+        await create_check(session, title="Weekly?", schedule="three a week", schedule_rule={
+            "kind": "quota", "period": "week", "count": 3,
+        })
+        archived = await scheduled_check(
+            session, title="Archived?", schedule=f"{today:%d.%m.%Y} 22:00",
+        )
+        archived.archived_at = now
+        answered = await scheduled_check(
+            session, title="Answered?", schedule=f"{today:%d.%m.%Y} 22:00",
+        )
+        await resolve_check(session, answered.id, "passed")
+        await session.commit()
+
+    monkeypatch.setattr(schedules, "utcnow", lambda: now)
+    lines = _block(await _text(sessions, now=now), "Checks today")
+    assert lines == [
+        "<b>☑️ Checks today · 2</b>",
+        f'<a href="{_link("check", daily.id)}">Posture?</a> × 3',
+        f'<a href="{_link("check", due.id)}">Slept &lt;well&gt;?</a>',
+    ]
+
+
+async def test_home_updates_remaining_check_counts_and_hides_the_empty_block(
+    sessions, monkeypatch,
+) -> None:
+    """HM-CHECKS-017 — tests/brd/home.feature"""
+    now = datetime(2026, 10, 21, 10, tzinfo=UTC)
+    monkeypatch.setattr(schedules, "utcnow", lambda: now)
+    monkeypatch.setattr("safwa.features.checks.use_cases.utcnow", lambda: now)
+    assert not _block(await _text(sessions, now=now), "Checks today")
+    async with sessions() as session:
+        check = await create_check(session, title="Posture?", schedule="three a day", schedule_rule={
+            "kind": "quota", "period": "day", "count": 3,
+        })
+        await session.commit()
+        for remaining in (3, 2, 1):
+            lines = _block(await _text(sessions, now=now), "Checks today")
+            assert lines[0] == "<b>☑️ Checks today · 1</b>"
+            suffix = f" × {remaining}" if remaining > 1 else ""
+            assert lines[1] == f'<a href="{_link("check", check.id)}">Posture?</a>{suffix}'
+            _, check = await resolve_check(session, check.id, "passed")
+            await session.commit()
+    assert not _block(await _text(sessions, now=now), "Checks today")
+
+
+async def test_the_dashboard_reads_in_one_order(sessions, monkeypatch) -> None:
     """HM-ORDER-014 — tests/brd/home.feature"""
+    now = datetime(2026, 10, 7, 11, 5, tzinfo=UTC)
+    monkeypatch.setattr(schedules, "utcnow", lambda: now)
     async with sessions() as session:
         await set_profile_field(session, ProfileField.TIME_TRACKING, True)
         health = await create_value(session, "Health", "What matters to me")
         await create_card(session, kind="goal", title="Get fit", priority="critical")
         await _action(session, "Run", stage="today", value_ids={health.id})
+        await create_check(session, title="Posture?", schedule="daily", schedule_rule={
+            "kind": "quota", "period": "day", "count": 1,
+        })
         await session.commit()
-    now = datetime(2026, 10, 7, 11, 5, tzinfo=UTC)
 
     text = await _text(sessions, now=now)
     headings = [block.splitlines()[0] for block in text.split("\n\n")]
 
     assert headings[0].startswith("<b>🏠 Wed, 07 Oct · ")
-    assert [heading.split("</b>")[0] for heading in headings[1:4]] == [
+    assert [heading.split("</b>")[0] for heading in headings[1:5]] == [
         "<b>🗒 Latest changes",
         "<b>💎 Values in focus",
         "<b>☀️ Today · 1",
+        "<b>☑️ Checks today · 1",
     ]
-    assert headings[4].startswith("⌛ Tracked today")
+    assert headings[5].startswith("⌛ Tracked today")
     assert "Priority Goals" not in text
 
 

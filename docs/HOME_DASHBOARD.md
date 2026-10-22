@@ -14,6 +14,9 @@ Home shows the local date and time, followed by:
 - **Today:** every Action under its Goals and Subgoals, with planned execution counts and,
   when enabled, Effort Points. A Card under several Goals appears once; `↖` links to the
   others. Empty Today is shown as empty, without substituting Sprint or Backlog.
+- **Checks today:** scheduled Checks with answers left on the local day, including unanswered
+  appointments earlier today. Each appears once, linked to its current instance, with the
+  remaining count when greater than one. The block is absent when none remain.
 - **Time tracked today:** time recorded on Actions finished on the local day, only while
   Time tracking is on.
 

@@ -36,6 +36,7 @@ async def test_scheduled_checks_put_only_todays_remaining_values_in_focus(sessio
     """VL-FOCUS-001 — tests/brd/values.feature"""
     now = datetime.fromisoformat(f"2026-10-21T{clock}:00+00:00")
     monkeypatch.setattr(schedules, "utcnow", lambda: now)
+    monkeypatch.setattr("schedule_helpers.utcnow", lambda: now)
     today = now.astimezone(ZoneInfo("Europe/Istanbul")).date()
     tomorrow = today + timedelta(days=1)
     async with sessions() as session:
@@ -107,6 +108,7 @@ async def test_motivator_reads_values_from_every_parent_and_custom_instructions_
     now = datetime(2026, 10, 21, 10, tzinfo=UTC)
     monkeypatch.setattr(schedules, "utcnow", lambda: now)
     monkeypatch.setattr(motivation, "utcnow", lambda: now)
+    monkeypatch.setattr("schedule_helpers.utcnow", lambda: now)
     async with sessions() as session:
         health = await create_value(session, "Health", "Body first")
         family = await create_value(session, "Family", "Time together")
