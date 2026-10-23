@@ -15,6 +15,7 @@ flowchart LR
     CLEAR[a clear] -->|mark_cleared| B[(chat_clear_boundaries)]
     T -->|newest first, in Telegram's own order| W[the window]
     B -->|nothing at or before it| W
+    S[(subsessions)] -->|no stretch one holds| W
     W --> L[laid out as the provider's messages]
     L --> C[ContextBuilder.root]
     C --> P[provider]
@@ -50,6 +51,14 @@ read, a Summary neither — [HOME_DASHBOARD.md](HOME_DASHBOARD.md)), or `SCAN_LI
 messages. A period read — the Diary's day — goes past both. The budget counts everything a message puts in front of
 the model, an answer's calls and their results included, and an answer is taken whole or not at
 all, so a tool result is never cut away from its call.
+
+A subsession holds a stretch of the same sequence: every message after its `after_message_id`,
+through its `through_message_id` once it is closed. No reader of the conversation sees a message in
+any stretch — the window, a period read and the Summary alike — because `TelegramNotes` leaves them
+out inside the query, before the scan's limit and the budget. The stretch is read only by
+`TelegramHistorySource.subsession`, the window over the open one, which starts where it opened and
+so keeps all of it through a clear. A message belongs to a stretch by its id, so nothing is written
+on it to say so, and an edit leaves it where it was said.
 
 What each kind is to the conversation is said once, in the window's vocabulary: the owner's words,
 Safwa's answers and Cues, and `MessageKind.EVENT` — a line the interface wrote about what happened:

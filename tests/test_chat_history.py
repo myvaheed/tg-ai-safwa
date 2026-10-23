@@ -5,7 +5,9 @@ import json
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
+import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from telegram_fakes import QueueTestMessage, spawn_timer
 from ui_harness import FakeMessage, history_source
 
@@ -16,7 +18,14 @@ from telegram_llm.host import QUOTE_CHARS
 from tg_agent_shell.access.manager import AccessManager
 from tg_agent_shell.ai.conversation import CLEARED_READ, conversation_block, kept_turn
 from tg_agent_shell.foundation.kinds import MessageKind
-from tg_agent_shell.history import TelegramNotes
+from tg_agent_shell.history import (
+    Subsession,
+    TelegramNotes,
+    close_subsession,
+    current_subsession,
+    mark_cleared,
+    start_subsession,
+)
 from tg_agent_shell.telegram import SHELL_COMMANDS
 from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.model import UiSession
@@ -781,3 +790,104 @@ async def test_a_clear_the_owner_asked_for_takes_out_unasked_words_too(sessions)
     assert {1100, 1102} <= set(anchor.bot.deleted)
     # Taken out of the chat, still kept as what was said.
     assert None not in [await notes.note(chat_id, 1100), await notes.note(chat_id, 1102)]
+
+
+async def subsession(sessions, chat_id: int, kind: str = "mentor") -> int:
+    async with sessions() as session:
+        opened = await start_subsession(session, chat_id, kind)
+        await session.commit()
+        return opened.id
+
+
+async def close(sessions, subsession_id: int, result: str) -> bool:
+    async with sessions() as session:
+        closed = await close_subsession(session, subsession_id, result)
+        await session.commit()
+        return closed
+
+
+async def test_a_subsession_s_stretch_is_never_the_conversation(sessions) -> None:
+    chat_id, now = 800, datetime.now(UTC)
+    source = history_source(sessions)
+    await keep(sessions, chat_id, 10, "Let us work on the Goal.", MessageKind.DIALOGUE_USER, now)
+    talk = await subsession(sessions, chat_id)
+    await keep(sessions, chat_id, 11, "What should it change?", MessageKind.DIALOGUE_ASSISTANT, now)
+    await keep(sessions, chat_id, 12, "My mornings.", MessageKind.DIALOGUE_USER, now)
+
+    assert [entry.text for entry in await source.recent(chat_id)] == ["Let us work on the Goal."]
+    assert [entry.text for entry in await source.subsession.recent(chat_id)] == [
+        "What should it change?", "My mornings."
+    ]
+
+    assert await close(sessions, talk, "The Goal is about mornings.")
+    await keep(sessions, chat_id, 13, "Mentor: the Goal is about mornings.", MessageKind.EVENT, now)
+    # An edit keeps a message's id, so it stays where it was said.
+    await keep(sessions, chat_id, 12, "My evenings.", MessageKind.DIALOGUE_USER, now)
+    await keep(sessions, chat_id, 14, "Thanks.", MessageKind.DIALOGUE_USER, now)
+
+    assert [entry.text for entry in await source.recent(chat_id)] == [
+        "Let us work on the Goal.", "Mentor: the Goal is about mornings.", "Thanks."
+    ]
+    assert await source.subsession.recent(chat_id) == []
+    day = await source.day_transcript(
+        chat_id, start=now - timedelta(hours=1), end=now + timedelta(hours=1), token_budget=10_000
+    )
+    assert "about mornings" in day and "What should it change?" not in day
+    assert "My evenings." not in day
+
+
+async def test_a_long_subsession_crowds_nothing_out_of_the_conversation(
+    sessions, monkeypatch
+) -> None:
+    # The scan reads this many messages at most, so a stretch longer than it would leave the
+    # conversation empty if it were dropped after the read rather than inside the query.
+    monkeypatch.setattr("telegram_llm.window.SCAN_LIMIT", 4)
+    chat_id, now = 801, datetime.now(UTC)
+    source = history_source(sessions)
+    await keep(sessions, chat_id, 20, "Plan my week.", MessageKind.DIALOGUE_USER, now)
+    await keep(sessions, chat_id, 21, "Here is the week.", MessageKind.DIALOGUE_ASSISTANT, now)
+    await subsession(sessions, chat_id)
+    for message_id in range(22, 32):
+        await keep(sessions, chat_id, message_id, f"Talk {message_id}", MessageKind.DIALOGUE_USER, now)
+
+    assert [entry.text for entry in await source.recent(chat_id)] == [
+        "Plan my week.", "Here is the week."
+    ]
+
+
+async def test_an_open_subsession_keeps_its_stretch_through_a_clear(sessions) -> None:
+    chat_id, now = 802, datetime.now(UTC)
+    source = history_source(sessions)
+    await keep(sessions, chat_id, 30, "Let us talk.", MessageKind.DIALOGUE_USER, now)
+    await subsession(sessions, chat_id)
+    await keep(sessions, chat_id, 31, "About what?", MessageKind.DIALOGUE_ASSISTANT, now)
+    await keep(sessions, chat_id, 32, "My Values.", MessageKind.DIALOGUE_USER, now)
+    async with sessions() as session:
+        await mark_cleared(session, chat_id, 32)
+        await session.commit()
+
+    assert await source.recent(chat_id) == []
+    assert [entry.text for entry in await source.subsession.recent(chat_id)] == [
+        "About what?", "My Values."
+    ]
+
+
+async def test_a_chat_has_one_open_subsession_and_its_first_closing_decides(sessions) -> None:
+    chat_id, now = 803, datetime.now(UTC)
+    await keep(sessions, chat_id, 40, "Let us talk.", MessageKind.DIALOGUE_USER, now)
+    talk = await subsession(sessions, chat_id)
+    with pytest.raises(IntegrityError):
+        await subsession(sessions, chat_id, "coach")
+    await keep(sessions, chat_id, 41, "About what?", MessageKind.DIALOGUE_ASSISTANT, now)
+
+    assert await close(sessions, talk, "We talked.")
+    assert not await close(sessions, talk, "We talked again.")
+
+    async with sessions() as session:
+        assert await current_subsession(session, chat_id) is None
+        closed = await session.get(Subsession, talk)
+        assert (closed.after_message_id, closed.through_message_id, closed.result) == (
+            40, 41, "We talked."
+        )
+    # A closed one leaves the chat free for the next.
+    assert await subsession(sessions, chat_id, "coach")

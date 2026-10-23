@@ -20,6 +20,7 @@ SHELL_TABLES = {
     "chat_clear_boundaries",
     "chat_media",
     "owner_usage",
+    "subsessions",
     "telegram_messages",
     "ui_sessions",
 }
