@@ -319,3 +319,20 @@ Feature: Reminders
     And a time that cannot be read with them leaves the proposal as it was, with what is unclear
       on the screen
     And when it fires has no button
+
+  Scenario: RM-TRACK-039 — A new Reminder at a time of day can also be tracked as a Check
+    Given Safwa proposes a Reminder "Remind the user to drink water" every day at 07:00, and the owner has the Values "Health" and "Family"
+    When its review screen is drawn
+    Then "📊 Also track" stands above Save and Discard, by PR-SWITCH-037
+    And a Reminder that happens once, repeats by an interval or counts answers has no such button, and neither has a change to a Reminder
+    When the owner presses it
+    Then a short session writes a yes/no question in the language of the words, "Drank water?", and picks the Values the habit plainly serves, "Health"
+    And a Value name not in the list is sent back to the session to fix, and none at all is fine
+    And the review now proposes a new Check "Drank water?" with the Schedule "every day at 07:00", Remind at the time and the Value "Health"
+    And the Schedule is the Reminder's own timing, carried over in code and not read again: its last day and its total are the Schedule's, and the screen says the total
+    And Edit offers the Check's own fields, "💎 Values" among them, by CH-EDIT-022
+    When the owner saves it
+    Then the Check, its Schedule, the Reminder Remind makes and the link to "Health" are written together, and no other Reminder is
+    And the link gets the small check of VL-LINK-019, as any saved link of a Value to a Check does
+    When the owner discards it
+    Then nothing is written

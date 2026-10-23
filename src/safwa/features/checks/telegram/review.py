@@ -73,6 +73,9 @@ class CheckProposalPresenter:
             else None
         )
         if change.action is ChangeAction.CREATE or check is None:
+            if values.get(CHECK_VALUE_REFERENCE.field):
+                resolved = await resolve_references(session, CHECK_VALUE_REFERENCE, values)
+                proposed["values"] = ", ".join(await _value_names(session, sorted(resolved.ids)))
             return detail_lines(proposed, CHECK_LABELS)
         if change.action is ChangeAction.ARCHIVE:
             return [f"Check: #{check.id} “{result_value(check.title)}”"]
@@ -136,12 +139,14 @@ class CheckProposalPresenter:
                 proposed["remind"] = None if lead is None else remind_label(lead)
             if "schedule" in change.values:
                 rule = change.values.get("schedule_rule")
-            if change.action in {ChangeAction.LINK, ChangeAction.UNLINK}:
+            if change.action in {ChangeAction.LINK, ChangeAction.UNLINK} or (
+                change.action is ChangeAction.CREATE and CHECK_VALUE_REFERENCE.field in change.values
+            ):
                 resolved = await resolve_references(
                     session, CHECK_VALUE_REFERENCE, change.values
                 )
                 target = resolved.ids | set(resolved.unknown_ids)
-                linked = linked | target if change.action is ChangeAction.LINK else linked - target
+                linked = linked - target if change.action is ChangeAction.UNLINK else linked | target
                 proposed["values"] = await _value_names(session, list(linked))
             if change.action in CHECK_ANSWER_ACTIONS:
                 proposed["status"] = CHECK_OUTCOME_LABELS[CHECK_ANSWER_ACTIONS[change.action]]

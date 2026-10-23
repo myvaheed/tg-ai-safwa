@@ -238,7 +238,18 @@
 - **Документы:** таблица полей в `docs/FEATURE_MODULES.md` и абзац о review в
   `docs/AGENT_ARCH.md` рядом с `ProposalContribution.editable`.
 
-## Батч 4 — «📊 Also track»
+## Батч 4 — «📊 Also track» (сделан)
+
+Сделан 23.10.2026, как описано ниже. Отличия от описанного:
+- Кнопку предлагает только Reminder на время суток: каждый день, по дням недели или по числам
+  месяца. У интервала её нет: моменты Check не знают Don't disturb, и «каждые 2 часа» дали бы
+  Check и звонки ночью.
+- Переход пишет `values` всегда, пусть и пустым списком: тогда Edit всегда предлагает
+  «💎 Values».
+- Мини-сессия и *TRACK_SWITCH* лежат в `src/safwa/features/reminders/tracker.py`; Values
+  сверяются без учёта регистра и пишутся так, как сохранены.
+- Онбординг: «A new Reminder that repeats at a time of day offers "📊 Also track" on its
+  screen» вместо «A new repeating Reminder's screen offers…» — из-за интервала.
 
 **Критерий успеха:**
 - Предложение Reminder «Пора выпить воду», «every day at 07:00», есть Value «Здоровье». После
