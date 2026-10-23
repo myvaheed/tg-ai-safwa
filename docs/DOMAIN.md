@@ -67,7 +67,7 @@ Advisor and workspace mutator formulate Goals and Subgoals as specific, verifiab
 attainable with the owner's resources and meaningful to them (SMAR; a Deadline is optional).
 The title names the result; the Note states its observable completion criterion. A Subgoal's
 result contributes to its parent's result. Directions belong to Values and ongoing practices
-to repeating Actions. Unclear results or completion criteria need clarification before a new
+to repeating Actions or Checks. Unclear results or completion criteria need clarification before a new
 or reframed Goal is proposed; targets, resources and deadlines are never invented. Advice
 works backward from results to Actions and assesses progress toward results, not Action counts.
 These are agent instructions, not restrictions on manual Card editing or ordinary updates.
@@ -237,13 +237,12 @@ and the Goals it stands under. A count of zero is left out. Screens keep the com
   on it, so finishing a Goal takes one last answer and ends its series, and reopening the Goal
   asks that last instance again. Passed and Missed both count as observations; absence of an
   answer is not Missed.
-- A Check observes a state or a result; it is never work done. When the honest answer is "I did
-  it", the item is an Action, a repeating one if it recurs; not doing something, such as no
-  sweets today, has nothing to do and stays a Check. After a Check is created, by hand or by a
-  saved proposal, the hook "Check review" (`checks.check_review`) reads its title, Note,
-  Schedule and the Card it is on, and asks only when it is work done, takes time, is not
-  answered yes or no, has no fact to show its answer, or is not about its Card's result. The
-  next instance of a repeating Check is not a creation and is not checked.
+- A Check marks a fact yes or no: a state, a result, or a habit done, such as drank water
+  or no sweets today. A repeating Check of a habit is its tracker; work to plan in Today is an
+  Action. After a Check is created, by hand or by a saved proposal, the hook "Check review"
+  (`checks.check_review`) reads its title, Note, Schedule and the Card it is on, and asks only
+  when it is not answered yes or no, has no fact to show its answer, or is not about its Card's
+  result. The next instance of a repeating Check is not a creation and is not checked.
 
 ## Deleted, and archived
 
@@ -307,7 +306,7 @@ Moving one shifts the intervening Values; a new Value goes last by default, and 
 closes the gap. All live Value lists use this order.
 
 A Value is a direction the owner lives by, never Done: not a result, which is a Goal, nor
-one practice, which is a repeating Action, nor a feeling, a means or a rule. It has a name and
+one practice, which is a repeating Action or Check, nor a feeling, a means or a rule. It has a name and
 a description, and is not created without one. The name is short and may be vivid; the
 description says, in two or three vivid sentences built from the owner's words, why it
 matters, then what the owner does for it on an ordinary day. How vividly a Value is worded
@@ -323,7 +322,7 @@ rechecked before keeping,
 and one request asks about every Value still there: the Advisor says it looked at the new
 Values again and they could be improved, and follows each advice. Only creation
 starts the check: the description written from the owner's answer is an update. A Value
-that is a result may be proposed as a Goal, and one that is a practice as a repeating Action.
+that is a result may be proposed as a Goal, and one that is a practice as a repeating Action or Check.
 Nothing changes before the owner answers.
 
 A Value link runs from the Goal, Action or Check to the Value it serves: achieving the Goal,

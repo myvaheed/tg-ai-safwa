@@ -43,8 +43,7 @@ CHECK_REVIEW_REQUEST = (
     "For each Check, say briefly what to change and why, following its advice.\n"
     "Offer each change as a possibility, not as the user's choice.\n"
     "Ask whether to make the changes.\n"
-    "When they answer, route to workspace_mutator to update the Check, "
-    "or to propose an Action instead.\n"
+    "When they answer, route to workspace_mutator to update the Check.\n"
     "Change nothing until they answer."
 )
 
@@ -147,8 +146,8 @@ CHECK_REVIEW_HOOK = HookSpec(
     effect=RunAndAdvise(run=review_check, prepare=check_review_request),
     title="Check review",
     description=(
-        "After a Check is created, checks that it observes a state or a result rather than "
-        "work done, that it is answered yes or no, and that it is about its Card's result. "
+        "After a Check is created, checks that it marks a fact answered yes or no — a "
+        "state, a result or a habit done — and that it is about its Card's result. "
         "Suggests changes, with reasons, only when something clearly does not fit."
     ),
 )

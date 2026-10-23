@@ -64,7 +64,7 @@ VALUE = Method(
     definition="Value: a direction the user lives by, with no deadline. It is never Done.",
     criteria=(
         "a direction, not a result that can be Done;",
-        "not one practice such as running; a practice is a repeating Action;",
+        "not one practice such as running; a practice is a repeating Action or Check;",
         "no feeling to have in its name, such as happy or calm;",
         "toward something, not away from something;",
         "an end, not a means: a name such as money or a skill needs a description of what it "
@@ -160,7 +160,7 @@ VALUE = Method(
         Example(
             '"Running", "I love it"',
             clear=False,
-            verdict="One practice, a repeating Action.",
+            verdict="One practice.",
             ask="Ask what it serves, such as Health or Freedom.",
         ),
     ),

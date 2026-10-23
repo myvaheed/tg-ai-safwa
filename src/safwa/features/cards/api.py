@@ -353,7 +353,7 @@ GOAL = Method(
     writing=(
         "A Goal may be root-level or under one or more Goals. With a parent it is displayed as a "
         "Subgoal. An Action may stand under any Goals or alone and has no children.",
-        "An ongoing practice is a repeating Action, not a Goal.",
+        "An ongoing practice is a repeating Action or Check, not a Goal.",
         "For a new or reframed Goal or Subgoal, put the result in `title` and an observable "
         "completion criterion in `note`.",
         "Deadline optional. Never invent targets, resources or deadlines.",
@@ -378,8 +378,8 @@ GOAL = Method(
             '"Meditate daily"',
             clear=False,
             verdict="An ongoing practice.",
-            ask="Suggest a repeating Action; ask whether a result is behind it, "
-            "such as 30 days in a row.",
+            ask="Suggest a repeating Action, or a Check to track it; ask whether a result is "
+            "behind it, such as 30 days in a row.",
         ),
         Example(
             '"Never be late"',
