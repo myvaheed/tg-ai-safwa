@@ -217,8 +217,8 @@ Feature: Reminders
       series from code, by the series id that stays when any copy is deleted, and no second session
     And a second short session writes any other items as one SELECT of their ids, over ai_checks for
       a Check's answer and over ai_cards for Done
-    And that session is told to find the items whatever their answer, never filtering on status or
-      stage, so the answers are counted in code
+    And that session is shown no answer of the items, neither the status of ai_checks nor the stage
+      of ai_cards, so the answers are counted in code
     And that session is given every Tag and Value by the name stored, so "tagged sport" finds a Tag
       named Sport
     And the answer is Passed, Missed, any answer of a Check, or Done of an Action, and only Passed and

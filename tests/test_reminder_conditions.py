@@ -264,9 +264,10 @@ def test_a_select_that_cannot_find_the_items_is_refused_as_text(sql, answer, err
         checked_select(sql, answer)
 
 
-def test_the_select_session_finds_the_items_whatever_their_answer():
+def test_the_select_session_is_shown_no_answer_of_the_items():
     """RM-COND-030 — tests/brd/reminders.feature"""
-    assert "never filter on status or stage" in REMINDER_ITEMS_PROMPT
+    assert "status" not in REMINDER_ITEMS_PROMPT
+    assert "stage" not in REMINDER_ITEMS_PROMPT
 
 
 async def test_the_select_session_spells_tags_and_values_as_stored(sessions):

@@ -162,7 +162,6 @@ Answers, set_condition:
 'every 30 answers of Check #12': items='Check #12', answer=answered, count=30.
 'every 10 Done of Actions tagged sport': items='Actions tagged sport', answer=done, count=10.
 'each time any Check is Missed': items='any Check', answer=missed, count=1.
-items: the phrase's own words for the Checks or Actions, with every #id.
 Not clear, not_clear_enough:
 No clock time, like 'every morning', 'soon', 'twice a week', 'once a month': about=time.
 No items, no answer or no count: about=answers.
@@ -188,17 +187,13 @@ UNREADABLE_ITEMS = "Could not tell which Checks or Actions the Reminder counts."
 
 REMINDER_ITEMS_PROMPT = """Write the SELECT that finds the items a Reminder counts. End with set_items.
 One SELECT of the items' ids, in a column named id.
-Read ai_checks for answers of Checks, ai_cards for Done of Actions.
-Find the items whatever their answer: never filter on status or stage.
 Spell a Tag or a Value exactly as the context lists it.
 'any Check': SELECT id FROM ai_checks
 'Checks of Action #7': SELECT id FROM ai_checks WHERE card_series_id = (SELECT series_id FROM ai_cards WHERE id = 7)
 'Actions tagged sport', Tags: Sport: SELECT id FROM ai_cards WHERE kind = 'action' AND instr(',' || COALESCE(direct_tags, '') || ',', ',Sport,') > 0
-ai_checks(id, title, status, series_id, card_id, card_series_id, direct_values)
-ai_cards(id, title, kind, stage, series_id, parent_ids, categories, energy_types, direct_values, direct_tags)
-status: pending, passed or missed.
+ai_checks(id, title, series_id, card_id, card_series_id, direct_values)
+ai_cards(id, title, kind, series_id, parent_ids, categories, energy_types, direct_values, direct_tags)
 kind: goal or action.
-stage: backlog, sprint, today or done.
 series_id: every copy of one Check or Action.
 card_series_id: the series of the Action a Check hangs on.
 parent_ids: the ids of the Goals a card stands under.

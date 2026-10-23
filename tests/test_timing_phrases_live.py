@@ -8,8 +8,13 @@ made of the model's answer, never the answer itself.
 
 Each case names the batch that makes its form readable: `now` for forms the code holds today,
 `1a` for a last day, a total on a Reminder and the start of a quota, `1b` for days of the
-month. The passes are the measure: `-k now` before and after a change says whether the new
-fields cost the old forms anything, and `-k 1a` says whether the new ones are read.
+month, `goal` for a Reminder on answers that fires once, after N. The passes are the measure:
+`-k now` before and after a change says whether the new fields cost the old forms anything,
+and `-k 1a` says whether the new ones are read. The `goal` cases other than the first two were
+written by someone who never read the prompts, so a pass is a reading, not a copy.
+
+A condition's `one_item` says whether the code wrote the SELECT of one series, as it does
+when the items are exactly 'Check #N' or 'Action #N'; otherwise the second session wrote it.
 """
 
 from __future__ import annotations
@@ -25,6 +30,7 @@ from llm_gateway import OpenAICompatibleProvider
 from safwa.constants import WEEKDAY_NAMES
 from safwa.features.reminders.agent import resolve_schedule
 from safwa.features.reminders.api import Schedule, ScheduleError, schedule_from_payload
+from safwa.features.reminders.conditions import one_series_select
 from safwa.features.schedules.agent import ScheduleCompiler
 from safwa.qa import qa_provider_settings
 
@@ -47,6 +53,19 @@ class Case:
     expected: dict[str, Any]
 
 
+def answers(answer: str, count: int, *, in_row: bool = False, once: bool, one_item: bool) -> dict[str, Any]:
+    """The reading of a condition, whose SELECT finds the items whatever their answers."""
+    return {
+        "kind": "condition",
+        "answer": answer,
+        "count": count,
+        "in_row": in_row,
+        "once": once,
+        "filters": False,
+        "one_item": one_item,
+    }
+
+
 CASES = (
     Case("now", "reminder", "каждый день в 8", {"kind": "daily", "days": EVERY_DAY, "time": "08:00"}),
     Case("now", "reminder", "every weekday at 8am", {"kind": "weekly", "days": WORKWEEK, "time": "08:00"}),
@@ -65,19 +84,19 @@ CASES = (
             "in_row": True,
             "once": False,
             "filters": False,
+            "one_item": True,
         },
     ),
     Case(
-        "now", "reminder", "after 30 Passed in a row of Check #7",
-        {"kind": "condition", "answer": "passed", "count": 30, "in_row": True, "once": True},
-    ),
-    Case(
-        "now", "reminder", "после 30 Passed подряд у Check #7",
-        {"kind": "condition", "answer": "passed", "count": 30, "in_row": True, "once": True},
-    ),
-    Case(
         "now", "reminder", "каждые 10 Done у Actions с тегом sport",
-        {"kind": "condition", "answer": "done", "count": 10, "in_row": False, "filters": False},
+        {
+            "kind": "condition",
+            "answer": "done",
+            "count": 10,
+            "in_row": False,
+            "filters": False,
+            "one_item": False,
+        },
     ),
     Case("now", "reminder", "каждое утро", {"unclear": "time"}),
     Case("now", "schedule", "5 раз в день", {"form": "quota", "period": "day", "count": 5}),
@@ -177,6 +196,39 @@ CASES = (
     ),
     # The trap: a monthly count beside as many days of the month is those days.
     Case("1b", "schedule", "дважды в месяц, 1 и 15 числа", {"form": "fixed", "month_days": [1, 15], "time": None}),
+    # The first two copy the setup session's example; the rest were written blind.
+    Case("goal", "reminder", "after 30 Passed in a row of Check #7", answers("passed", 30, in_row=True, once=True, one_item=True)),
+    Case("goal", "reminder", "после 30 Passed подряд у Check #7", answers("passed", 30, in_row=True, once=True, one_item=True)),
+    Case("goal", "reminder", "#14 «Помедитировал?» — когда дойду до 30 дней подряд", answers("passed", 30, in_row=True, once=True, one_item=True)),
+    Case("goal", "reminder", "если пропущу #21 три дня подряд", answers("missed", 3, in_row=True, once=False, one_item=True)),
+    Case("goal", "reminder", "каждые 10 выполненных Действий с тегом Sport", answers("done", 10, once=False, one_item=False)),
+    Case("goal", "reminder", "после 10 выполненных Действий с тегом Sport", answers("done", 10, once=True, one_item=False)),
+    Case("goal", "reminder", "как только по Проверкам ценности Health будет 100 «да»", answers("passed", 100, once=True, one_item=False)),
+    Case(
+        "goal", "reminder", "каждый раз, когда отвечаю на любую Проверку из Действия #8 «Подготовка к марафону»",
+        answers("answered", 1, once=False, one_item=False),
+    ),
+    Case("goal", "reminder", "на каждый пятый пропуск любой Проверки", answers("missed", 5, once=False, one_item=False)),
+    Case("goal", "reminder", "после 20 выполнений #5 и #9 в сумме", answers("done", 20, once=True, one_item=False)),
+    Case("goal", "reminder", "всякий раз как сделаю #33", answers("done", 1, once=False, one_item=True)),
+    Case("goal", "reminder", "после 50 ответов на #11 без разницы да или нет", answers("answered", 50, once=True, one_item=True)),
+    Case("goal", "reminder", "когда пройдёт 20 минут", {"kind": "once", "date": "17.10.2026", "time": "12:20"}),
+    Case("goal", "reminder", "когда по #21 накопится много пропусков", {"unclear": "answers"}),
+    Case("goal", "reminder", "as soon as I hit a 21-day streak on #14", answers("passed", 21, in_row=True, once=True, one_item=True)),
+    Case(
+        "goal", "reminder", "if I skip “Morning stretch?” #17 five mornings in a row",
+        answers("missed", 5, in_row=True, once=False, one_item=True),
+    ),
+    Case("goal", "reminder", "for every 10 yeses on Checks tagged Reading", answers("passed", 10, once=False, one_item=False)),
+    Case("goal", "reminder", "when my Health checks have racked up 15 misses", answers("missed", 15, once=True, one_item=False)),
+    Case("goal", "reminder", "whenever any check gets answered, yes or no", answers("answered", 1, once=False, one_item=False)),
+    Case("goal", "reminder", "once the Checks under #8 have been passed 40 times", answers("passed", 40, once=True, one_item=False)),
+    Case("goal", "reminder", "every 4 misses — #14, #17, #21 all counted together", answers("missed", 4, once=False, one_item=False)),
+    Case("goal", "reminder", "on the 100th time I finish #33", answers("done", 100, once=True, one_item=True)),
+    Case("goal", "reminder", "after I've finished a dozen Reading actions", answers("done", 12, once=True, one_item=False)),
+    Case("goal", "reminder", "after 45 minutes", {"kind": "once", "date": "17.10.2026", "time": "12:45"}),
+    Case("goal", "reminder", "on the 20th at 8am", {"kind": "once", "date": "20.10.2026", "time": "08:00"}),
+    Case("goal", "reminder", "sometime next week", {"unclear": "time"}),
 )
 
 
@@ -205,16 +257,38 @@ def _timing(schedule: Schedule, *, all_day: bool = False) -> dict[str, Any]:
     return reading
 
 
+class _OwnSeries:
+    """The one read `one_series_select` makes, without a database: every id is its own series."""
+
+    async def scalar(self, statement):
+        return statement.whereclause.right.value
+
+
+async def _one_series(items: str, answer: str) -> str | None:
+    return await one_series_select(_OwnSeries(), items, answer)  # type: ignore[arg-type]
+
+
 async def _reminder(provider, phrase: str) -> dict[str, Any]:
     try:
         schedule = await resolve_schedule(
-            provider, when=phrase, instruction="Remind me.", now=NOW, tz=TZ, names=NAMES
+            provider,
+            when=phrase,
+            instruction="Remind me.",
+            now=NOW,
+            tz=TZ,
+            names=NAMES,
+            series_select=_one_series,
         )
     except ScheduleError as error:
         words = str(error)
         about = "time" if "On answers:" not in words else "answers" if "By time:" not in words else "either"
         return {"unclear": about, "reason": words.splitlines()[0]}
-    return _timing(schedule)
+    reading = _timing(schedule)
+    if schedule.condition is not None:
+        condition = schedule.condition
+        reading["one_item"] = await _one_series(condition.items, condition.answer) is not None
+        reading["items"] = condition.items
+    return reading
 
 
 async def _schedule(provider, phrase: str) -> dict[str, Any]:
