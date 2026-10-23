@@ -27,6 +27,7 @@ from agent_runtime import (
 from llm_gateway import LlmProvider
 from telegram_llm import DialogueMessage
 
+from .ai.contracts import AgentChange
 from .ai.messages import ContextBuilder, Memory, StateBlocks
 from .ai.mini import ReadToolSpec
 from .ai.outcome import AIOutcome, AIOutcomeKind
@@ -44,7 +45,7 @@ from .proposals.materialize import (
     OWNER_REQUEST,
     ProposalMaterializer,
 )
-from .proposals.model import BatchDecision
+from .proposals.model import BatchDecision, ProposalChange
 from .proposals.prepare import ChangePreparer
 from .proposals.reducer import EXPIRED, INTERRUPTED
 from .proposals.render import (
@@ -55,7 +56,12 @@ from .proposals.render import (
     results_summary,
 )
 from .proposals.store import ProposalStore
-from .proposals.use_cases import decide_batch_item, edit_proposal, interrupt_batch
+from .proposals.use_cases import (
+    decide_batch_item,
+    edit_proposal,
+    interrupt_batch,
+    switch_proposal,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -244,15 +250,43 @@ class RootSession:
         edited = await edit_proposal(
             session, self.reviews, self.proposals, self.preparer, proposal_id, index, key, value
         )
-        batch = self.reviews.batch_for_proposal(proposal_id)
-        item = batch.state.item_for(proposal_id) if batch is not None else None
-        if edited is None or batch is None or item is None:
+        if edited is None or edited[0].source is None:
             return
         change, settled = edited
-        if change.source is None:
-            return
         call, _edits = self.proposals.edited(change.source, change.edits)
         fields = self.proposals.fields_for(change.source)
+        user_edited = {
+            key: {
+                "proposed": fields[key].said(key, change.source),
+                "saved": fields[key].said(key, call),
+            }
+            for key in change.edits
+        }
+        await self._record(session, proposal_id, index, change, settled, user_edited)
+
+    async def switch_proposal(self, session: AsyncSession, proposal_id: int, place: int) -> None:
+        """Turn an open proposal into the call its feature offers instead, and have the
+        call's record say what will be saved (PR-SWITCH-037)."""
+        change, settled = await switch_proposal(
+            session, self.reviews, self.proposals, self.preparer, proposal_id, place
+        )
+        await self._record(session, proposal_id, 0, change, settled, {})
+
+    async def _record(
+        self,
+        session: AsyncSession,
+        proposal_id: int,
+        index: int,
+        change: ProposalChange,
+        settled: AgentChange,
+        user_edited: Mapping[str, Any],
+    ) -> None:
+        """Have the record of the call behind one change of a waiting proposal say what Save
+        will write now; a proposal nobody waits on has no record."""
+        batch = self.reviews.batch_for_proposal(proposal_id)
+        item = batch.state.item_for(proposal_id) if batch is not None else None
+        if batch is None or item is None:
+            return
         details = await self.review_view.details(session, change, settled)
         record = {
             "details": details,
@@ -263,15 +297,7 @@ class RootSession:
                 "id": change.entity_id,
                 "values": json_safe(settled.values),
             },
-            USER_EDITED: json_safe(
-                {
-                    key: {
-                        "proposed": fields[key].said(key, change.source),
-                        "saved": fields[key].said(key, call),
-                    }
-                    for key in change.edits
-                }
-            ),
+            USER_EDITED: json_safe(dict(user_edited)),
         }
         batch.tool_calls = [
             {**tool, **record} if str(tool.get("id")) == item.call_ids[index] else tool

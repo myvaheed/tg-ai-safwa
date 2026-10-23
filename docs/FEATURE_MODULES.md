@@ -33,7 +33,7 @@ and SQLAlchemy; nothing that expresses a business rule imports it.
 |---|---|
 | `agents` | an `AgentSpec` — the subagent `route(name)` reaches, and the line the Advisor's prompt carries |
 | `helpers` | a `HelperSpec` — the mini session `call_helper(name)` runs, its instructions, builder and allowed views; its automatic offer is a separate hook |
-| `proposals` | a `ProposalContribution` per entity: handler, mutation tool, presenter, which of its actions save without a screen, and which values of a call the owner may set by hand under Edit |
+| `proposals` | a `ProposalContribution` per entity: handler, mutation tool, presenter, which of its actions save without a screen, which values of a call the owner may set by hand under Edit, and what a proposed change may turn into instead |
 | `mutation_tools` | a mutation tool whose change lands on an entity another feature owns (`remove`) |
 | `views` | the `ai_*` views this feature publishes |
 | `screens` | a `ScreenSpec` per item type the owner can be taken to, and how it reads when cited |

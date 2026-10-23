@@ -1,5 +1,5 @@
-"""The review screen: what the model proposed, behind Save and Discard, and Edit
-when the owner may set some of it by hand."""
+"""The review screen: what the model proposed, behind Save and Discard, Edit when the
+owner may set some of it by hand, and what it may turn into instead."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from ...telegram import (
     token_button,
 )
 from ...telegram.model import UiSession
-from ..api import EditableField, Effect, ProposalScreen, ShownField, effect_of
+from ..api import EditableField, Effect, ProposalScreen, ProposalSwitch, ShownField, effect_of
 from ..marks import field_line, shown
 from ..model import ChangeAction, ProposalChange
 from ..render import detail_label, result_value
@@ -81,7 +81,14 @@ async def render_proposal(
         rows = (
             await _edit_rows(session, services, proposal.id, fields)
             if editing
-            else await _decision_rows(session, services, proposal.id, effect, fields)
+            else await _decision_rows(
+                session,
+                services,
+                proposal.id,
+                effect,
+                fields,
+                services.root.proposals.offered_switches(changes),
+            )
         )
         # An item a review names is not a link: tapping it would leave the review unanswered.
         text = await render_citations(
@@ -120,16 +127,31 @@ async def _decision_rows(
     proposal_id: int,
     effect: Effect,
     fields: list[tuple[int, str, EditableField]],
+    switches: list[tuple[int, ProposalSwitch]],
 ) -> list[list[InlineKeyboardButton]]:
     """Save, named for what it does to the item, and Discard; Edit above them when there is
-    something to edit (PR-EDIT-033)."""
+    something to edit (PR-EDIT-033), and above Edit what the proposal may turn into
+    (PR-SWITCH-037)."""
     payload = {"id": proposal_id}
+    turns = [
+        [
+            await token_button(
+                session,
+                services.owner_id,
+                switch.label,
+                "proposal_switch",
+                {"id": proposal_id, "switch": place},
+            )
+        ]
+        for place, switch in switches
+    ]
     edit = (
         [[await token_button(session, services.owner_id, "✏️ Edit", "proposal_edit", payload)]]
         if fields
         else []
     )
     return [
+        *turns,
         *edit,
         [
             await token_button(

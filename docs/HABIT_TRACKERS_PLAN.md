@@ -190,7 +190,19 @@
 - **Онбординг:** «- Don't disturb in Profile: Reminders that repeat every few minutes or hours
   wait until it ends.»
 
-## Батч 3 — shell: кнопка, которая превращает предложение в другое
+## Батч 3 — shell: кнопка, которая превращает предложение в другое (сделан)
+
+Сделан 23.10.2026, как описано ниже. Отличия от описанного:
+- `switch_proposal` не переписывает поля change по одному, а ставит на её место новую
+  `ProposalChange` из `prepare_change`: у неё уже пустые edits и свой source.
+- Кнопку предлагает только предложение из одной change: у нескольких одна кнопка не скажет,
+  какую из них она превращает.
+- Обработчик `proposal_switch` лежит в `src/tg_agent_shell/proposals/telegram/edit.py`, рядом с
+  правкой, и пользуется её «typing».
+- Запись вызова обновляет общий с правкой `RootSession._record`; после перехода `user_edited`
+  пуст.
+- Тест — `tests/shell/test_proposal_switch.py` на примере wallet: запись ledger превращается в
+  выдуманную сущность «memo».
 
 Общая точка в `src/tg_agent_shell`, без Safwa. По образцу `editable`, `similar` и
 `autoapprovals`: фича объявляет, shell исполняет.

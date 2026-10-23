@@ -551,6 +551,15 @@ flowchart LR
   whose words the owner left alone, such as a Schedule's, is not made again. Nothing is written
   before Save. The call's record keeps `user_edited`, what the call proposed and what is saved,
   and the model reads it in the call's result (`PR-EDIT-036`).
+- **A feature may offer to turn a proposal into another call** (`PR-SWITCH-037`). Its
+  `ProposalContribution.switches` are `ProposalSwitch`es: a label, whether a prepared change
+  offers it, and a `rewrite` that reads through a `PreparationContext`, may ask a model and
+  returns the other `AgentChange`. The shell draws each offered one above Edit, and
+  `RootSession.switch_proposal` prepares the other call as the model's own, with its own values
+  as `earlier`, so what it carries already read is not read again. It takes the change's place
+  in the same proposal rather than opening a new one: the model's call waits on its own id, and
+  is answered with what Save wrote. A refusal leaves the proposal as it was. Once switched, the
+  call's record names the other change, and nothing the owner set under Edit before it.
 - **A screen that creates an item lists what is already there** (`PR-SIMILAR-030`). A feature's
   `ProposalContribution.similar` names the create value holding the new item's words and
   reads its open items; `SearchIndex.alike` compares that name with theirs by meaning, in the

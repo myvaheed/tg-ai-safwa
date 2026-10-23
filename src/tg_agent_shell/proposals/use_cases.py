@@ -102,6 +102,34 @@ async def edit_proposal(
     return change, settled
 
 
+async def switch_proposal(
+    session: AsyncSession,
+    store: ProposalStore,
+    proposals: ProposalRegistry,
+    preparer: ChangePreparer,
+    proposal_id: int,
+    place: int,
+) -> tuple[ProposalChange, AgentChange]:
+    """Turn a proposal into the call its feature offers instead (PR-SWITCH-037), and return
+    the change with the call as preparation left it, as a call's record holds it.
+
+    The change takes the proposal's place, so the call that proposed it is answered with
+    what is saved. The call is prepared as Safwa's own is, and a refusal leaves the proposal
+    as it was. Nothing is written: Save is still the owner's.
+    """
+    proposal = store.proposal(proposal_id)
+    if proposal is None:
+        raise DomainError("Proposal is no longer pending")
+    switch = dict(proposals.offered_switches(proposal.changes)).get(place)
+    if switch is None:
+        raise DomainError("This proposal no longer turns into that")
+    call = await switch.rewrite(await preparer.context(session), proposal.changes[0])
+    settled = call.model_copy(deep=True)
+    fresh = await prepare_change(session, preparer, settled, earlier=dict(call.values))
+    proposal.changes[0] = fresh
+    return fresh, settled
+
+
 def queue_proposals(
     store: ProposalStore,
     changes: Sequence[tuple[str, ProposalChange]],
