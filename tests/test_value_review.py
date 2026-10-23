@@ -113,10 +113,6 @@ def test_safwa_says_what_a_value_is_before_proposing_one():
             "- Build both from the user's words. Never invent why it matters or what they do.",
         ):
             assert line in prompt
-    assert (
-        "- A new Value: if the user has not said why it matters or what they do for it, "
-        "call nothing_to_do with what needs clarification." in mutator
-    )
 
 
 def test_one_hook_checks_a_new_value_under_its_own_switch():

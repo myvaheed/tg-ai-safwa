@@ -49,9 +49,11 @@ from .proposals.model import BatchDecision, ProposalChange
 from .proposals.prepare import ChangePreparer
 from .proposals.reducer import EXPIRED, INTERRUPTED
 from .proposals.render import (
+    USER_CHOSE_ON_SCREEN,
     USER_EDITED,
     ProposalRenderer,
     compose_display_outcome,
+    display_label,
     resolved_tool_result,
     results_summary,
 )
@@ -270,7 +272,7 @@ class RootSession:
         change, settled = await switch_proposal(
             session, self.reviews, self.proposals, self.preparer, proposal_id, place
         )
-        await self._record(session, proposal_id, 0, change, settled, {})
+        await self._record(session, proposal_id, 0, change, settled, {}, switched=True)
 
     async def _record(
         self,
@@ -280,9 +282,12 @@ class RootSession:
         change: ProposalChange,
         settled: AgentChange,
         user_edited: Mapping[str, Any],
+        *,
+        switched: bool = False,
     ) -> None:
         """Have the record of the call behind one change of a waiting proposal say what Save
-        will write now; a proposal nobody waits on has no record."""
+        will write now; a proposal nobody waits on has no record. A switch keeps what was
+        proposed through the edits made after it."""
         batch = self.reviews.batch_for_proposal(proposal_id)
         item = batch.state.item_for(proposal_id) if batch is not None else None
         if batch is None or item is None:
@@ -299,8 +304,12 @@ class RootSession:
             },
             USER_EDITED: json_safe(dict(user_edited)),
         }
+        call_id = item.call_ids[index]
+        if switched:
+            proposed = next(tool for tool in batch.tool_calls if str(tool.get("id")) == call_id)
+            record[USER_CHOSE_ON_SCREEN] = {"proposed": display_label(proposed)}
         batch.tool_calls = [
-            {**tool, **record} if str(tool.get("id")) == item.call_ids[index] else tool
+            {**tool, **record} if str(tool.get("id")) == call_id else tool
             for tool in batch.tool_calls
         ]
 

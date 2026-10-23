@@ -376,5 +376,9 @@ Feature: Proposals
     When the owner saves it
     Then the other call is written, and the call Safwa made is told it was saved with what was
       written: that item, its result ids and its fields
+    And it is told the owner changed its call on its screen before saving, with what it proposed
+      and what was saved, to say the owner chose it, to report what was saved and to answer, and
+      never to make its own call again
+    And it is not told to carry on with what of the request is unfinished
     When the owner discards it
     Then nothing is written, and Safwa is told it was discarded, by PR-RESULT-011

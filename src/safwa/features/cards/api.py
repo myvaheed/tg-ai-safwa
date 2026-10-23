@@ -362,6 +362,10 @@ GOAL = Method(
         Example('"Run a half marathon"', clear=True),
         Example('"Improve my English", Note "Pass IELTS with 7.0"', clear=True),
         Example(
+            '"Meditate 30 mornings in a row", Note "Done when 30 scheduled mornings are marked"',
+            clear=True,
+        ),
+        Example(
             '"Learn Spanish"',
             clear=False,
             verdict="Done is not observable.",

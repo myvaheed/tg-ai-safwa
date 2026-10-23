@@ -34,6 +34,7 @@ from tg_agent_shell.proposals.api import (
     ToolPreparationError,
     entity_change,
 )
+from tg_agent_shell.proposals.render import USER_CHOSE_NEXT
 from tg_agent_shell.registry import Registry
 from tg_agent_shell.telegram.manifest import FeatureModule, ProposalContribution
 
@@ -179,6 +180,11 @@ async def test_saving_the_switched_proposal_writes_the_other_call_and_answers_th
         "memo",
         [MEMO_ID],
     )
+    # Told only what the memo is, the entry call would still read as unfinished.
+    assert result["next"] == USER_CHOSE_NEXT
+    switched = result["user_chose_on_screen"]
+    assert "ledger entry" in switched["proposed"]
+    assert switched["saved"] == "Keep the memo “Lunch”"
     assert "Kept a memo." in running.chat[-1]
     assert len(running.provider.requests) == 5
 
@@ -207,7 +213,9 @@ async def test_discard_drops_the_switched_proposal(wallet_bot, monkeypatch):
     async with running.sessions() as session:
         assert list(await session.scalars(select(Entry))) == []
     assert memos.written == []
-    assert _entry_result(running)["status"] == "discarded"
+    result = _entry_result(running)
+    assert result["status"] == "discarded"
+    assert USER_CHOSE_NEXT not in result["next"]
 
 
 async def test_a_switch_its_feature_does_not_offer_draws_no_button(wallet_bot, monkeypatch):

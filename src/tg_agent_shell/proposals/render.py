@@ -57,6 +57,15 @@ USER_EDITED_NEXT = (
     "The user changed this before saving. user_edited has what you proposed and what was "
     "saved. Report the saved values. Never propose your own value again. "
 )
+# What a call's record holds once the owner turned it into the call its feature offers
+# instead: the call as it was proposed, and as it is saved (PR-SWITCH-037). Its next step
+# replaces the one a Save gives, which would send the call's own request back as unfinished.
+USER_CHOSE_ON_SCREEN = "user_chose_on_screen"
+USER_CHOSE_NEXT = (
+    "The user changed your call on its screen before saving. user_chose_on_screen has what "
+    "you proposed and what they saved. Say the user chose it, then report what was saved. "
+    "Never make your call again. Then answer."
+)
 
 # What the owner reads under a resolved call. A decision has its own line; a call that
 # never reached a screen failed before one, and reads the same as one that failed on Save.
@@ -305,6 +314,11 @@ def _json_safe(value: Any) -> Any:
     return json.loads(json.dumps(value, ensure_ascii=False, default=str))
 
 
+def display_label(tool: dict[str, Any]) -> str:
+    """The call as the owner reads it."""
+    return str(tool.get("display") or "") or change_label(tool)
+
+
 def change_label(tool: dict[str, Any]) -> str:
     change = dict(tool.get("change") or {})
     entity = str(change.get("entity", tool.get("name", "item"))).title()
@@ -356,7 +370,7 @@ def _results_summary(
         if status == BatchDecision.APPROVED and result.get("approval_source") == AUTOAPPROVED:
             prefix = AUTO_SAVED_RECEIPT
         if for_display:
-            line = f"{prefix} — " + (str(tool.get("display") or "") or change_label(tool))
+            line = f"{prefix} — {display_label(tool)}"
         else:
             line = f"{prefix} — {change_label(tool)}"
             affected_ids = result.get("affected_ids") or []
@@ -479,6 +493,12 @@ def resolved_tool_result(
     payload["next"] = _DECISION_NEXT_STEPS.get(
         decision, "Continue with the rest of the user's request."
     )
+    if decision is BatchDecision.APPROVED and tool.get(USER_CHOSE_ON_SCREEN):
+        payload[USER_CHOSE_ON_SCREEN] = {
+            **tool[USER_CHOSE_ON_SCREEN],
+            "saved": display_label(tool),
+        }
+        payload["next"] = USER_CHOSE_NEXT
     if decision is BatchDecision.APPROVED and result.get("approval_source") == AUTOAPPROVED:
         # The user pressed nothing, so "you saved it" would be wrong in the reply.
         payload["next"] = (
