@@ -96,10 +96,12 @@ class ToolRunner(Protocol):
     def is_immediate(self, agent: AgentSession, name: str) -> bool:
         """Whether this call runs inside the turn rather than waiting on a person.
 
-        Never asked about `RUNTIME_TOOLS`: the runtime answers those itself.
+        Never asked about `RUNTIME_TOOLS`, which the runtime answers itself, nor about the
+        session's `ending_tools`, which end it instead.
         """
 
-    async def run(self, agent: AgentSession, call: ToolCall) -> ToolOutcome: ...
+    async def run(self, agent: AgentSession, call: ToolCall) -> ToolOutcome:
+        """Run one call. For an ending tool, `succeeded` is whether the session ends."""
 
     def route_target(self, call: ToolCall) -> tuple[str | None, dict[str, Any] | None]:
         """The session kind this `route` call names, or the error to hand back instead."""

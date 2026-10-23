@@ -1,8 +1,8 @@
 """What a session is, and what one turn of it produces.
 
 Nothing here knows what the application does. A session has a budget, a transcript and a
-place in a chain; a turn ends in words, in changes waiting for a person, or in a
-suspension. What a change *is* belongs to whoever implements the ports.
+place in a chain; a turn ends in words, in changes waiting for a person, in a suspension,
+or in a call that ends it. What a change *is* belongs to whoever implements the ports.
 """
 
 from __future__ import annotations
@@ -68,7 +68,9 @@ class AgentDefinition:
     `read_specs` are the runner's own; the runtime uses only their names. `helper_tool` is
     a schema the session may earn part-way through a turn, and it has to be kept so a
     resumed session does not lose a tool it was already shown. `first_call_required` is for
-    a session handed a turn for the work: its first move is a tool call.
+    a session handed a turn for the work: its first move is a tool call. `ending_tools` are
+    the runner's tools that end the session: each is sent alone, and once it runs the
+    session asks the model nothing more.
     """
 
     kind: str
@@ -76,6 +78,7 @@ class AgentDefinition:
     read_specs: dict[str, Any] = field(default_factory=dict)
     helper_tool: dict[str, Any] | None = None
     first_call_required: bool = False
+    ending_tools: frozenset[str] = frozenset()
 
 
 @dataclass
@@ -136,6 +139,7 @@ class AgentSession:
     offered_helpers: tuple[str, ...] = ()
     helper_tool: dict[str, Any] | None = None
     first_call_required: bool = False
+    ending_tools: frozenset[str] = frozenset()
 
     def offer_helper(self, name: str) -> None:
         """Grant one helper to this session, and put the helper tool on its tools once."""
@@ -201,6 +205,7 @@ class AgentSession:
             read_specs=dict(definition.read_specs),
             helper_tool=definition.helper_tool,
             first_call_required=definition.first_call_required,
+            ending_tools=definition.ending_tools,
             parent_run_id=parent_run_id,
             dialogue=list(dialogue or []),
         )
@@ -236,6 +241,7 @@ class AgentSession:
             interaction_token=state.get("interaction_token") or None,
             helper_tool=definition.helper_tool,
             first_call_required=definition.first_call_required,
+            ending_tools=definition.ending_tools,
         )
         for name in state.get("offered_helpers") or ():
             session.offer_helper(name)
@@ -269,7 +275,8 @@ class ToolOutcome:
 
 @dataclass
 class AgentLoopResult:
-    """What one turn of a session produced: its words, its changes, or a suspension."""
+    """What one turn of a session produced: its words, its changes, a suspension, or the
+    call that ended it."""
 
     message: str
     pending_tools: list[PendingTool] = field(default_factory=list)
@@ -279,6 +286,9 @@ class AgentLoopResult:
     # Set when the session ended by sending a routed subagent's words as they are: `message`
     # is those words, and this is whose they are.
     forwarded: str | None = None
+    # Set when one of the session's `ending_tools` ran: the call and what the runner gave
+    # back for it. What that ending means is the host's.
+    ended: PendingTool | None = None
 
 
 def json_safe(value: Any) -> Any:

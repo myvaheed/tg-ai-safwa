@@ -345,6 +345,7 @@ def _runtime(
     provider: _Provider,
     *,
     tools: _Tools | None = None,
+    review: _Review | None = None,
     max_tool_calls: int = 8,
     child_deadline_seconds: float = 30.0,
 ) -> tuple[AgentManager, _Tools, InMemorySessionStore]:
@@ -356,7 +357,7 @@ def _runtime(
             provider,
             adapters,
             _Prompt(),
-            _Review(),
+            review or _Review(),
             max_tool_calls=max_tool_calls,
             max_repair_rounds=2,
             child_deadline_seconds=child_deadline_seconds,
@@ -569,6 +570,105 @@ async def test_ag_turn_010_cancellation_ends_the_request_and_releases_every_clai
     assert not store._claimed
     if reference is not None:
         assert await runtime.resume(reference, Resumption()) is None
+
+
+FINISH = {"type": "function", "function": {"name": "finish", "parameters": {}}}
+
+
+class _Finishing(_Tools):
+    """A root that reads, and ends its session with `finish` once it has words to end it on."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.asked: list[str] = []
+
+    def definition(self, kind: str) -> AgentDefinition:
+        return AgentDefinition(kind=kind, tools=(READ, FINISH), ending_tools=frozenset({"finish"}))
+
+    def is_immediate(self, agent: AgentSession, name: str) -> bool:
+        self.asked.append(name)
+        return super().is_immediate(agent, name)
+
+    async def run(self, agent: AgentSession, call: ToolCall) -> ToolOutcome:
+        if call.name != "finish":
+            return await super().run(agent, call)
+        self.ran.append(call.name)
+        text = json.loads(call.arguments_json or "{}").get("text")
+        if not text:
+            return ToolOutcome(result={"status": "error", "code": "text_missing"}, succeeded=False)
+        return ToolOutcome(result={"status": "ok", "text": text})
+
+
+class _Ended(_Review):
+    """The host answers with what ended the session, and keeps each ending it was handed."""
+
+    def __init__(self) -> None:
+        self.ended: list[Any] = []
+
+    async def materialize(self, agent: AgentSession, result) -> TurnOutcome:
+        self.ended.append(result.ended)
+        if result.ended is not None:
+            return TurnOutcome(message=result.ended.result["text"])
+        return await super().materialize(agent, result)
+
+
+def _finish(text: str | None = None, call_id: str = "call-0") -> CompletionTurn:
+    arguments = json.dumps({"text": text} if text else {})
+    return CompletionTurn(
+        content="", tool_calls=(ToolCall(id=call_id, name="finish", arguments_json=arguments),)
+    )
+
+
+async def test_an_ending_tool_ends_the_session_and_hands_its_call_to_the_host() -> None:
+    provider = _Provider([_turn("read"), _finish("We named the Goal.")])
+    review = _Ended()
+    runtime, tools, store = _runtime(provider, tools=_Finishing(), review=review)
+
+    answered = await runtime.handle([{"role": "user", "content": "That is all."}])
+
+    assert answered.message == "We named the Goal."
+    assert tools.ran == ["read", "finish"]
+    # Nothing is asked after the ending call: the provider had no third turn to give.
+    assert len(provider.requests) == 2
+    [ended] = review.ended
+    assert (ended.call.name, ended.result) == ("finish", {"status": "ok", "text": "We named the Goal."})
+    assert store.status(1) is RunStatus.COMPLETED
+    assert "finish" not in tools.asked
+
+
+async def test_an_ending_tool_shares_a_response_with_nothing() -> None:
+    provider = _Provider([_turn("finish", "read"), _turn(content="Still talking.")])
+    runtime, tools, _ = _runtime(provider, tools=_Finishing(), review=_Ended())
+
+    answered = await runtime.handle([{"role": "user", "content": "That is all."}])
+
+    assert answered.message == "Still talking."
+    # Refused before anything ran, in the words `forward` is refused in.
+    assert tools.ran == []
+    assert _results(list(provider.requests[-1].messages)) == [
+        {
+            "status": "error",
+            "code": "finish_is_not_shared",
+            "error": "finish must be the only tool call in a response.",
+            "next": "Send finish alone: it ends your turn.",
+            "retryable": True,
+        }
+    ] * 2
+
+
+async def test_an_ending_call_the_runner_refuses_is_answered_and_the_session_runs_on() -> None:
+    provider = _Provider([_finish(), _finish("We named the Goal.", call_id="call-1")])
+    review = _Ended()
+    runtime, tools, _ = _runtime(provider, tools=_Finishing(), review=review, max_tool_calls=2)
+
+    answered = await runtime.handle([{"role": "user", "content": "That is all."}])
+
+    assert answered.message == "We named the Goal."
+    assert tools.ran == ["finish", "finish"]
+    assert _results(list(provider.requests[-1].messages)) == [
+        {"status": "error", "code": "text_missing"}
+    ]
+    assert [ended.call.id for ended in review.ended] == ["call-1"]
 
 
 async def test_ag_budget_012_a_subagent_resumed_after_a_screen_is_still_bound_by_the_clock() -> None:

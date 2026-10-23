@@ -1,9 +1,10 @@
 """One session, run until it answers in words.
 
-The loop knows four endings and no others: the model wrote something or said it had
+The loop knows five endings and no others: the model wrote something or said it had
 nothing to do, it forwarded the words a session it routed to handed back, its calls became
-changes that a person has to see, or a session it routed to opened a screen and the whole
-chain now waits. Everything else — what a tool does, what a change is — is a port.
+changes that a person has to see, a session it routed to opened a screen and the whole
+chain now waits, or it called one of the application's tools that end a session.
+Everything else — what a tool does, what a change is, what an ending means — is a port.
 """
 
 from __future__ import annotations
@@ -61,6 +62,20 @@ _NOT_SHARED = {
     },
 }
 RUNTIME_TOOLS = frozenset(_NOT_SHARED)
+
+
+def _not_shared(name: str) -> dict[str, Any]:
+    """What every call of a response is told when it shares the response with `name`.
+
+    An ending tool of the application's is refused in the words `forward` is.
+    """
+    return _NOT_SHARED.get(name) or {
+        "status": "error",
+        "code": f"{name}_is_not_shared",
+        "error": f"{name} must be the only tool call in a response.",
+        "next": f"Send {name} alone: it ends your turn.",
+        "retryable": True,
+    }
 
 # A read that gives back what the same read gave earlier in this session. Asked again, a
 # small model reads the same rows and sends the same call: nothing it reads ever changes.
@@ -177,16 +192,17 @@ async def run_loop(
             messages.append(turn.as_message())
             # A route can suspend the whole chain, and a suspended response cannot carry
             # results for its siblings: the transcript would resume malformed. A forward
-            # ends the turn, which its siblings would not survive either.
+            # or an ending tool ends the turn, which its siblings would not survive either.
+            alone = RUNTIME_TOOLS | agent.ending_tools
             not_shared = (
-                next((call.name for call in turn.tool_calls if call.name in _NOT_SHARED), None)
+                next((call.name for call in turn.tool_calls if call.name in alone), None)
                 if len(turn.tool_calls) > 1
                 else None
             )
             pending_tools: list[PendingTool] = []
             available = agent.tool_names
             immediate = {
-                call.name: call.name in RUNTIME_TOOLS or tools.is_immediate(agent, call.name)
+                call.name: call.name in alone or tools.is_immediate(agent, call.name)
                 for call in turn.tool_calls
                 if call.name in available
             }
@@ -203,7 +219,7 @@ async def run_loop(
                 with tool_span(call) as span:
                     change = None
                     if not_shared is not None:
-                        result = _NOT_SHARED[not_shared]
+                        result = _not_shared(not_shared)
                     elif call.name not in available:
                         result = _tool_not_available(agent, call.name)
                     elif call.name == "route":
@@ -232,6 +248,18 @@ async def run_loop(
                             messages.append(tool_message(call.id, call.name, result))
                             logger.info("NOTHING TO DO: %s", log_preview(reason))
                             return AgentLoopResult(reason)
+                    elif call.name in agent.ending_tools:
+                        # A call the runner refuses is answered like any other, and the
+                        # session runs on to correct it.
+                        outcome = await tools.run(agent, call)
+                        result = outcome.result
+                        if outcome.succeeded:
+                            record_output(span, result)
+                            messages.append(tool_message(call.id, call.name, result))
+                            logger.info("ENDED BY %s", call.name)
+                            return AgentLoopResult(
+                                "", ended=PendingTool(call=call, result=result)
+                            )
                     elif immediate[call.name]:
                         result = (await tools.run(agent, call)).result
                         answered = (
