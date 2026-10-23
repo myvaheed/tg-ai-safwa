@@ -49,6 +49,7 @@ from ..features.memory.absorb import PatternReviewer
 from ..features.memory.use_cases import BackgroundRunner, MemoryReader
 from ..features.planning.key_actions import KeyActions
 from ..features.profile.api import secret_word_verifier
+from ..features.profile.dont_disturb import DontDisturbReader
 from ..features.profile.model import UserProfile
 from ..features.retro.analysis import SprintAnalyst
 from ..features.saved_requests.use_cases import seed_default_requests, seed_inbox_request
@@ -91,6 +92,7 @@ class SafwaFeatures:
     """
 
     schedule_compiler: ScheduleCompiler
+    dont_disturb: DontDisturbReader
     summary: DialogueSummary
     memory_reviewer: PatternReviewer
     key_actions: KeyActions
@@ -317,6 +319,7 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
         start_links=FEATURE_START_LINKS,
         features=SafwaFeatures(
             schedule_compiler=ScheduleCompiler(provider),
+            dont_disturb=DontDisturbReader(provider),
             summary=summary,
             memory_reviewer=PatternReviewer(provider),
             key_actions=KeyActions(provider),

@@ -81,6 +81,7 @@ class Schedule:
     at_time: time | None = None
     anchor_at: datetime | None = None
     interval_minutes: int | None = None
+    # Don't disturb, which an interval of the owner's waits out; never stored with it.
     quiet_windows: tuple[tuple[time, time], ...] = ()
     condition: Condition | None = None
     # The last local day it fires on, and how many times it fires in all; None runs on.
@@ -118,11 +119,28 @@ def parse_day(raw: str) -> date_type:
 def parse_window(raw: str) -> tuple[time, time]:
     start, _, end = raw.partition("-")
     if not end:
-        raise ScheduleError(f"A quiet window must look like HH:MM-HH:MM, got {raw!r}")
+        raise ScheduleError(f"Don't disturb hours must look like HH:MM-HH:MM, got {raw!r}")
     parsed = (parse_clock(start), parse_clock(end))
     if parsed[0] == parsed[1]:
-        raise ScheduleError("A quiet window cannot start and end at the same time")
+        raise ScheduleError("Don't disturb hours cannot start and end at the same time")
     return parsed
+
+
+def parse_windows(raw: Sequence[str]) -> tuple[tuple[time, time], ...]:
+    """Don't disturb's windows, which must leave some time of day to ring in."""
+    windows = tuple(parse_window(item) for item in raw)
+    covered = bytearray(MINUTES_PER_DAY)
+    for start, end in windows:
+        first = start.hour * 60 + start.minute
+        last = end.hour * 60 + end.minute
+        if first < last:
+            covered[first:last] = b"\x01" * (last - first)
+        else:  # wraps midnight
+            covered[first:] = b"\x01" * (MINUTES_PER_DAY - first)
+            covered[:last] = b"\x01" * last
+    if windows and all(covered):
+        raise ScheduleError("Don't disturb leaves no time of day for Reminders to ring")
+    return windows
 
 
 def _normalize_weekdays(days: Sequence[str] | None) -> tuple[str, ...]:
@@ -150,7 +168,6 @@ def resolve(
     day: str | None = None,
     interval_minutes: int | None = None,
     in_minutes: int | None = None,
-    quiet_windows: Sequence[str] | None = None,
     until: str | None = None,
     limit: int | None = None,
     now: datetime,
@@ -167,7 +184,6 @@ def resolve(
     at_time = parse_clock(clock) if clock else None
     repeats = bool(weekdays or month_days or interval_minutes)
     on_date = start_day(day, at_time, now, tz, repeats=repeats) if day else None
-    windows = tuple(parse_window(item) for item in (quiet_windows or ()))
     schedule = _timing(
         weekdays,
         tuple(sorted(set(month_days or ()))),
@@ -175,7 +191,6 @@ def resolve(
         on_date,
         interval_minutes,
         in_minutes,
-        windows,
         now,
         tz,
     )
@@ -197,12 +212,11 @@ def _timing(
     on_date: date_type | None,
     interval_minutes: int | None,
     in_minutes: int | None,
-    windows: tuple[tuple[time, time], ...],
     now: datetime,
     tz: ZoneInfo,
 ) -> Schedule:
     if in_minutes is not None:
-        if weekdays or month_days or at_time or on_date or interval_minutes is not None or windows:
+        if weekdays or month_days or at_time or on_date or interval_minutes is not None:
             raise ScheduleError(
                 "in_minutes is one moment from now: give no days, month_days, time, first_day or interval"
             )
@@ -230,18 +244,13 @@ def _timing(
             raise ScheduleError(
                 f"An interval must be at least {REMINDER_MIN_INTERVAL_MINUTES} minutes"
             )
-        _reject_all_day_windows(windows)
         if anchor is None and at_time is not None:
             anchor = _next_clock(at_time, now, tz)
         return Schedule(
             kind=ScheduleKind.INTERVAL,
             anchor_at=anchor or now,
             interval_minutes=interval_minutes,
-            quiet_windows=windows,
         )
-
-    if windows:
-        raise ScheduleError("Quiet windows only apply to an interval schedule")
 
     if weekdays:
         if at_time is None:
@@ -367,22 +376,6 @@ def _months_after(day: date_type, months: int) -> date_type:
     if day.day > length:
         return date_type(year, month, length) + timedelta(days=1)
     return day.replace(year=year, month=month)
-
-
-def _reject_all_day_windows(windows: tuple[tuple[time, time], ...]) -> None:
-    if not windows:
-        return
-    covered = bytearray(MINUTES_PER_DAY)
-    for start, end in windows:
-        first = start.hour * 60 + start.minute
-        last = end.hour * 60 + end.minute
-        if first < last:
-            covered[first:last] = b"\x01" * (last - first)
-        else:  # wraps midnight
-            covered[first:] = b"\x01" * (MINUTES_PER_DAY - first)
-            covered[:last] = b"\x01" * last
-    if all(covered):
-        raise ScheduleError("Quiet windows leave no time of day for the Reminder to fire")
 
 
 # --- advancing ------------------------------------------------------------
@@ -563,7 +556,6 @@ def schedule_columns(schedule: Schedule) -> dict[str, Any]:
         "at_time": schedule.at_time,
         "anchor_at": schedule.anchor_at,
         "interval_minutes": schedule.interval_minutes,
-        "quiet_windows": [f"{start:%H:%M}-{end:%H:%M}" for start, end in schedule.quiet_windows],
         "condition": _condition_payload(schedule.condition),
         "until": schedule.until,
         "total": schedule.total,
@@ -588,7 +580,6 @@ def schedule_of(reminder: Any) -> Schedule:
         at_time=reminder.at_time,
         anchor_at=reminder.anchor_at,
         interval_minutes=reminder.interval_minutes,
-        quiet_windows=tuple(parse_window(item) for item in (reminder.quiet_windows or ())),
         condition=_condition_of(reminder.condition),
         until=reminder.until,
         total=reminder.total,
@@ -609,7 +600,6 @@ def schedule_payload(schedule: Schedule) -> dict[str, Any]:
         "at_time": f"{schedule.at_time:%H:%M}" if schedule.at_time else None,
         "anchor_at": schedule.anchor_at.isoformat() if schedule.anchor_at else None,
         "interval_minutes": schedule.interval_minutes,
-        "quiet_windows": [f"{start:%H:%M}-{end:%H:%M}" for start, end in schedule.quiet_windows],
         "condition": _condition_payload(schedule.condition),
         "until": schedule.until.isoformat() if schedule.until else None,
         "total": schedule.total,
@@ -627,7 +617,6 @@ def schedule_from_payload(payload: dict[str, Any]) -> Schedule:
         at_time=parse_clock(at_time) if at_time else None,
         anchor_at=datetime.fromisoformat(anchor) if anchor else None,
         interval_minutes=payload.get("interval_minutes"),
-        quiet_windows=tuple(parse_window(item) for item in (payload.get("quiet_windows") or ())),
         condition=_condition_of(payload.get("condition")),
         until=date_type.fromisoformat(until) if until else None,
         total=payload.get("total"),
@@ -653,11 +642,6 @@ def describe(schedule: Schedule, *, tz: ZoneInfo, now: datetime | None = None) -
 
     if schedule.kind is ScheduleKind.INTERVAL:
         text = f"every {_humanize_interval(schedule.interval_minutes or 0)}"
-        if schedule.quiet_windows:
-            windows = ", ".join(
-                f"{start:%H:%M}–{end:%H:%M}" for start, end in schedule.quiet_windows
-            )
-            text += f" except {windows}"
     else:
         clock = f"{schedule.at_time:%H:%M}" if schedule.at_time else "?"
         text = f"{repeat_days(schedule)} at {clock}"

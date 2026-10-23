@@ -55,8 +55,7 @@ Feature: Reminders
     When the schedule is worked out
     Then the reason is said plainly and no schedule is made
     And each of these is such a reason: an interval under 5 minutes
-      (REMINDER_MIN_INTERVAL_MINUTES = 5), weekdays other than every day given together with an interval, quiet hours on
-      something that is not an interval, quiet hours that leave no time of day at all, a date with
+      (REMINDER_MIN_INTERVAL_MINUTES = 5), weekdays other than every day given together with an interval, a date with
       no hour on it, minutes from now given with anything else, a last day or a total on something
       that happens once, a last day before the first firing, days of the month given together with
       weekdays or an interval, days of the month with no hour, and nothing given at all
@@ -67,10 +66,10 @@ Feature: Reminders
     Given a daily Reminder at 08:30
     When the clocks go forward or back
     Then it still fires at 08:30
-    And the edge of a quiet window lands at the same clock time on both sides of the change
+    And the edge of a Don't disturb window lands at the same clock time on both sides of the change
 
   Scenario: RM-QUIET-007 — Quiet hours push a firing to the end of them, and the end is not quiet
-    Given a repeating Reminder with quiet hours
+    Given Don't disturb in the Profile (PS-QUIET-025) and a Reminder of the owner's that repeats by an interval
     When a firing would land inside them
     Then it moves to the moment they end
     And one range written across midnight behaves the same as two ranges meeting at 00:00

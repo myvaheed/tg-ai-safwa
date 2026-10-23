@@ -63,7 +63,6 @@ class Reminder(Base, TimestampMixin):
     # UTC.  The one-shot moment, or the moment a recurrence starts; a floor, never a rhythm.
     anchor_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     interval_minutes: Mapped[int | None] = mapped_column(Integer)
-    quiet_windows: Mapped[list[str]] = mapped_column(JSON, default=list)
 
     condition: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     until: Mapped[date | None] = mapped_column(Date)

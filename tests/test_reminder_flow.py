@@ -94,7 +94,7 @@ async def test_rescheduling_replaces_every_schedule_column(sessions):
         reminder = await create_reminder(
             session,
             instruction="Ping.",
-            schedule=resolve(interval_minutes=120, quiet_windows=["22:00-09:00"], now=NOW, tz=TZ),
+            schedule=resolve(interval_minutes=120, now=NOW, tz=TZ),
             tz=TZ,
         )
         await session.commit()
@@ -106,7 +106,6 @@ async def test_rescheduling_replaces_every_schedule_column(sessions):
         stored = schedule_of(await session.get(Reminder, reminder.id))
         assert stored.kind is ScheduleKind.WEEKLY
         assert stored.interval_minutes is None
-        assert stored.quiet_windows == ()
 
 
 async def test_deleting_a_reminder_removes_the_row(sessions):
@@ -143,7 +142,7 @@ async def test_reminder_mutations_bump_the_workspace_revision(sessions):
 @pytest.mark.parametrize(
     "kwargs",
     [
-        {"interval_minutes": 120, "quiet_windows": ["22:00-09:00"]},
+        {"interval_minutes": 120},
         {"days": ["Mon", "Wed"], "clock": "08:30"},
         {"clock": "09:00", "day": "20.08.2026"},
     ],

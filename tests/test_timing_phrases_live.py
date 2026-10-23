@@ -53,10 +53,7 @@ CASES = (
     Case("now", "reminder", "по понедельникам в 9:30", {"days": ["Mon"], "time": "09:30"}),
     Case("now", "reminder", "завтра в 15:00", {"kind": "once", "date": "18.10.2026", "time": "15:00"}),
     Case("now", "reminder", "in 90 minutes", {"kind": "once", "date": "17.10.2026", "time": "13:30"}),
-    Case(
-        "now", "reminder", "каждые 2 часа, кроме 22:00–09:00",
-        {"interval": 120, "quiet": ["22:00-09:00"]},
-    ),
+    Case("now", "reminder", "каждые 2 часа", {"kind": "interval", "interval": 120}),
     Case("now", "reminder", "в четверг в 10", {"kind": "once", "date": "22.10.2026", "time": "10:00"}),
     Case("now", "reminder", "по четвергам в 10", {"kind": "weekly", "days": ["Thu"], "time": "10:00"}),
     Case(
@@ -176,7 +173,6 @@ def _timing(schedule: Schedule, *, all_day: bool = False) -> dict[str, Any]:
         "time": None if all_day or schedule.at_time is None else f"{schedule.at_time:%H:%M}",
         "date": f"{schedule.anchor_at.astimezone(TZ):%d.%m.%Y}" if schedule.anchor_at else None,
         "interval": schedule.interval_minutes,
-        "quiet": [f"{start:%H:%M}-{end:%H:%M}" for start, end in schedule.quiet_windows] or None,
         "until": f"{schedule.until:%d.%m.%Y}" if schedule.until else None,
         "limit": schedule.total,
     }

@@ -48,6 +48,8 @@ def _shown(profile: UserProfile, field: ProfileField) -> str:
     value = getattr(profile, field.value)
     if field in {ProfileField.TIME_TRACKING, ProfileField.EFFORT_TRACKING}:
         return "on" if value else "off"
+    if field is ProfileField.DONT_DISTURB:
+        return ", ".join(value) or "off"
     if hasattr(value, "strftime"):
         return value.strftime("%H:%M")
     return str(value) if value not in (None, "") else "empty"
@@ -82,7 +84,7 @@ PROFILE_AGENT = AgentSpec(
     purpose=(
         "change a Profile field or answer what it holds: About me, Advisor instructions, "
         "the Morning and Evening times, Diary and Motivator instructions, Home after, "
-        "Time tracking, Effort Points, Today capacity; or asks to switch an automatic reaction or stop onboarding."
+        "Don't disturb, Time tracking, Effort Points, Today capacity; or asks to switch an automatic reaction or stop onboarding."
     ),
     instructions=PROFILE_PROMPT,
     mutation_tools=("profile", "stop_onboarding"),
@@ -118,6 +120,13 @@ class ProfileToolInput(ToolInput):
     home_after_minutes: int | None = Field(
         default=None,
         description="Minutes of quiet before the chat is emptied.",
+    )
+    dont_disturb: str | None = Field(
+        default=None,
+        description=(
+            "When Reminders that repeat every few minutes or hours must not ring, in the "
+            "user's words: '22:00-08:00 and 13-14'; off removes them all."
+        ),
     )
     time_tracking: bool | None = Field(
         default=None, description="Whether the user records the time an Action took."

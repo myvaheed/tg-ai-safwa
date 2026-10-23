@@ -115,9 +115,9 @@ async def test_the_proposal_carries_the_resolved_schedule_not_the_words(e2e_harn
     """RM-SCHEDULE-001 — tests/brd/reminders.feature"""
     advisor, _provider = e2e_harness.advisor(
         reminder_script(
-            {"interval_minutes": 120, "quiet_windows": ["22:00-09:00"]},
+            {"interval_minutes": 120},
             instruction="Check my posture — Check #5.",
-            when="every couple of hours during the day",
+            when="every couple of hours",
         )
     )
 
@@ -127,7 +127,7 @@ async def test_the_proposal_carries_the_resolved_schedule_not_the_words(e2e_harn
     values = dict(change.values)
     assert "when" not in values  # the free text does not survive into the proposal
     assert values["schedule"]["interval_minutes"] == 120
-    assert values["schedule_text"] == "every 2 hours except 22:00–09:00"
+    assert values["schedule_text"] == "every 2 hours"
 
 
 async def test_an_unresolvable_phrase_becomes_a_retryable_tool_error(e2e_harness):

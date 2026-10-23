@@ -119,7 +119,18 @@
 Что это стоит промптам: Advisor и Mutator получают одну строку writing, а criteria Check
 становятся на строку короче.
 
-## Батч 2 — Don't disturb
+## Батч 2 — Don't disturb (сделан)
+
+Сделан 23.10.2026, как описано ниже. Отличия от описанного:
+- Кнопка — «💤 Don't disturb»: 🌙 на экране Profile уже у Evening time.
+- Reminder, который сделал Remind, Don't disturb не ждёт: он звонит в моменты своего Check или
+  Action, иначе разошёлся бы с ними.
+- Смену поля пересчитывает не `reconcile_reminders`, а `follow_dont_disturb`: Reminder с
+  интервалом считается заново от своего начала, первый звонок — строго после «сейчас».
+  `reconcile_reminders` пересчитал бы его только после простоя.
+- Окна читает `firing_schedule`; *quiet_hours(session)* стала `quiet_hours`.
+- Строка «💤 Don't disturb» на экране предложения — только когда предложение задаёт время.
+- `describe` больше не пишет «except …»: окна принадлежат Profile, а не Reminder.
 
 **Критерий успеха** (Don't disturb = 22:00–08:00 и 13:00–14:00):
 - Reminder «every 2 hours» от 20:00 звонит в 20:00, а следующий звонок вместо 22:00 приходит

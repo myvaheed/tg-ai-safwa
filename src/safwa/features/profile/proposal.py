@@ -20,6 +20,7 @@ from tg_agent_shell.proposals.api import (
 )
 
 from ..reminders.api import parse_clock
+from .dont_disturb import DontDisturbReader
 from .model import ProfileField, ProfileValue
 from .use_cases import (
     profile_field,
@@ -46,9 +47,14 @@ class ProfileProposalHandler:
     version_model: type[Any] | None = None
 
     async def prepare(self, context: PreparationContext, change: Any) -> PreparedChange:
+        values = dict(change.values)
         for name, value in change.values.items():
             try:
                 field = profile_field(name)
+                if field is ProfileField.DONT_DISTURB:
+                    value = values[name] = await DontDisturbReader(context.provider).windows(
+                        str(value)
+                    )
                 validated_profile_value(field, stored_value(field, value))
                 await require_profile_field(context.session, field)
             except DomainError as error:
@@ -58,7 +64,7 @@ class ProfileProposalHandler:
                     "Tell the user why, in one line, and ask for a value that fits. "
                     "Propose nothing.",
                 ) from None
-        return PreparedChange(values=dict(change.values), expected_version=None)
+        return PreparedChange(values=values, expected_version=None)
 
     async def apply(self, context: ApplyContext, change: ProposalChange) -> list[int]:
         for name, value in change.values.items():

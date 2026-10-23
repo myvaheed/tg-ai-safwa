@@ -495,7 +495,7 @@ def test_the_forms_follow_what_the_words_meant():
         "tomorrow at 15:00",
         "on Thursday at 10:00",
         "every weekday at 8:00",
-        "every 2 hours except 22:00–09:00",
+        "every 2 hours",
     )
     assert REMINDER_ANSWER_FORMS == (
         "every 3 Missed in a row of Check #12",

@@ -40,6 +40,7 @@ from .api import (
 )
 from .conditions import ConditionError, count_now, found_ids
 from .model import Reminder, ScheduleKind
+from .use_cases import firing_schedule
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +101,7 @@ async def prepare(
     that rolls past its last day is deleted."""
     firings: list[Firing] = []
     for reminder in reminders:
-        schedule = schedule_of(reminder)
+        schedule = await firing_schedule(session, schedule_of(reminder), reminder.item_type)
         if is_stale(reminder, now=now):
             following = roll_forward(schedule, previous=reminder.next_fire_at, now=now, tz=tz)
             if following is None:
@@ -135,7 +136,7 @@ async def settle(
         reminder = await session.get(Reminder, firing.reminder_id)
         if reminder is None:
             continue
-        schedule = schedule_of(reminder)
+        schedule = await firing_schedule(session, schedule_of(reminder), reminder.item_type)
         if firing.last or not schedule.repeating:
             await session.delete(reminder)
             continue

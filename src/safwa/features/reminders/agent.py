@@ -89,13 +89,6 @@ class ReminderConfigInput(ToolInput):
         default=None, description="Repeat every N minutes."
     )
     in_minutes: PositiveInt | None = Field(default=None, description="Fire once, N minutes from now.")
-    quiet_windows: list[str] | None = Field(
-        default=None,
-        description=(
-            "Local HH:MM-HH:MM ranges when it must not fire, e.g. ['22:00-09:00']. "
-            "Interval schedules only. The end is exclusive."
-        ),
-    )
     limit: PositiveInt | None = Field(
         default=None, description="How many times it fires in total. Only when the text says."
     )
@@ -178,7 +171,7 @@ REMINDER_TIME_FORMS = (
     "tomorrow at 15:00",
     "on Thursday at 10:00",
     "every weekday at 8:00",
-    "every 2 hours except 22:00–09:00",
+    "every 2 hours",
 )
 REMINDER_ANSWER_FORMS = (
     "every 3 Missed in a row of Check #12",
@@ -263,7 +256,6 @@ async def resolve_schedule(
                     day=self.first_day,
                     interval_minutes=self.interval_minutes,
                     in_minutes=self.in_minutes,
-                    quiet_windows=self.quiet_windows,
                     until=self.last_day,
                     limit=self.limit,
                     now=now,

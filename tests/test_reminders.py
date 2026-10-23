@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, time
 from zoneinfo import ZoneInfo
 
@@ -10,6 +11,7 @@ from safwa.features.reminders.api import (
     ScheduleError,
     describe,
     next_fire,
+    parse_windows,
     resolve,
     roll_forward,
     schedule_columns,
@@ -24,6 +26,11 @@ NOW = datetime(2026, 8, 13, 9, 0, tzinfo=UTC)  # a Thursday
 
 def utc(*args: int) -> datetime:
     return datetime(*args, tzinfo=UTC)
+
+
+def quiet(schedule: Schedule, *windows: str) -> Schedule:
+    """The schedule as it fires with these Don't disturb windows."""
+    return replace(schedule, quiet_windows=parse_windows(windows))
 
 
 class FakeRow:
@@ -148,16 +155,11 @@ def test_minutes_from_now_fire_once_at_that_minute():
         ({"days": ["Mon"]}, "need a time"),
         ({"days": ["Mon"], "clock": "08:30", "interval_minutes": 60}, "not both"),
         ({"interval_minutes": 1}, "at least"),
-        ({"clock": "08:30", "quiet_windows": ["22:00-09:00"]}, "only apply to an interval"),
         ({"days": ["Funday"], "clock": "08:30"}, "Unknown weekday"),
         ({"clock": "25:00"}, "look like HH:MM"),
         ({"day": "2026-08-20", "clock": "09:00"}, "look like dd.mm.yyyy"),
         ({"in_minutes": 30, "clock": "08:00"}, "one moment from now"),
         ({"in_minutes": 30, "interval_minutes": 60}, "one moment from now"),
-        (
-            {"interval_minutes": 60, "quiet_windows": ["09:00-22:00", "22:00-09:00"]},
-            "no time of day",
-        ),
     ],
 )
 def test_unresolvable_configurations(kwargs, message):
@@ -218,20 +220,20 @@ def test_a_one_shot_fires_once_and_then_never_again():
     assert next_fire(schedule, previous=first, now=NOW, tz=TZ) is None
 
 
-# --- quiet windows --------------------------------------------------------
+# --- Don't disturb --------------------------------------------------------
 
 
 def test_a_candidate_inside_a_quiet_window_moves_to_its_end():
     """RM-QUIET-007 — tests/brd/reminders.feature"""
     # The worked example from the spec: 21:00 + 2 h lands at 23:00, inside 22:00-09:00.
-    schedule = resolve(interval_minutes=120, quiet_windows=["22:00-09:00"], now=NOW, tz=TZ)
+    schedule = quiet(resolve(interval_minutes=120, now=NOW, tz=TZ), "22:00-09:00")
     previous = utc(2026, 8, 13, 18, 0)  # 21:00 local
     assert next_fire(schedule, previous=previous, now=NOW, tz=TZ) == utc(2026, 8, 14, 6, 0)
 
 
 def test_a_candidate_outside_every_window_is_untouched():
     """RM-QUIET-007 — tests/brd/reminders.feature"""
-    schedule = resolve(interval_minutes=120, quiet_windows=["22:00-09:00"], now=NOW, tz=TZ)
+    schedule = quiet(resolve(interval_minutes=120, now=NOW, tz=TZ), "22:00-09:00")
     previous = utc(2026, 8, 13, 10, 0)  # 13:00 local
     assert next_fire(schedule, previous=previous, now=NOW, tz=TZ) == utc(2026, 8, 13, 12, 0)
 
@@ -241,10 +243,8 @@ def test_a_wrapping_window_and_its_split_form_are_the_same_window():
     # Split at midnight the window must be 22:00-00:00, not 22:00-23:59: an end is
     # exclusive, so 23:59 leaves the last minute of the day open and the candidate stops
     # inside it instead of carrying on to 09:00.
-    wrapping = resolve(interval_minutes=120, quiet_windows=["22:00-09:00"], now=NOW, tz=TZ)
-    split = resolve(
-        interval_minutes=120, quiet_windows=["22:00-00:00", "00:00-09:00"], now=NOW, tz=TZ
-    )
+    wrapping = quiet(resolve(interval_minutes=120, now=NOW, tz=TZ), "22:00-09:00")
+    split = quiet(resolve(interval_minutes=120, now=NOW, tz=TZ), "22:00-00:00", "00:00-09:00")
     previous = utc(2026, 8, 13, 18, 0)
     assert next_fire(wrapping, previous=previous, now=NOW, tz=TZ) == next_fire(
         split, previous=previous, now=NOW, tz=TZ
@@ -253,9 +253,7 @@ def test_a_wrapping_window_and_its_split_form_are_the_same_window():
 
 def test_chained_windows_push_a_candidate_through_all_of_them():
     """RM-QUIET-007 — tests/brd/reminders.feature"""
-    schedule = resolve(
-        interval_minutes=60, quiet_windows=["13:00-14:00", "14:00-16:00"], now=NOW, tz=TZ
-    )
+    schedule = quiet(resolve(interval_minutes=60, now=NOW, tz=TZ), "13:00-14:00", "14:00-16:00")
     previous = utc(2026, 8, 13, 9, 30)  # 12:30 local -> 13:30, inside the first window
     landed = next_fire(schedule, previous=previous, now=NOW, tz=TZ)
     assert landed.astimezone(TZ).strftime("%H:%M") == "16:00"
@@ -263,7 +261,7 @@ def test_chained_windows_push_a_candidate_through_all_of_them():
 
 def test_a_candidate_before_midnight_inside_a_wrapping_window_moves_to_the_next_morning():
     """RM-QUIET-007 — tests/brd/reminders.feature"""
-    schedule = resolve(interval_minutes=60, quiet_windows=["22:00-09:00"], now=NOW, tz=TZ)
+    schedule = quiet(resolve(interval_minutes=60, now=NOW, tz=TZ), "22:00-09:00")
     previous = utc(2026, 8, 13, 21, 30)  # 00:30 local on the 14th, inside the window
     assert next_fire(schedule, previous=previous, now=NOW, tz=TZ) == utc(2026, 8, 14, 6, 0)
 
@@ -286,7 +284,7 @@ def test_a_wall_clock_survives_a_daylight_saving_shift():
 
 def test_a_quiet_window_edge_survives_a_daylight_saving_shift():
     """RM-CLOCK-006 — tests/brd/reminders.feature"""
-    schedule = resolve(interval_minutes=180, quiet_windows=["22:00-09:00"], now=NOW, tz=BERLIN)
+    schedule = quiet(resolve(interval_minutes=180, now=NOW, tz=BERLIN), "22:00-09:00")
     previous = utc(2026, 10, 24, 19, 0)  # 21:00 local, the evening before the shift
     landed = next_fire(schedule, previous=previous, now=NOW, tz=BERLIN)
     assert landed.astimezone(BERLIN).strftime("%H:%M") == "09:00"
@@ -316,7 +314,7 @@ def test_roll_forward_leaves_a_one_shot_where_it_is():
 
 
 def test_roll_forward_respects_quiet_windows():
-    schedule = resolve(interval_minutes=120, quiet_windows=["22:00-09:00"], now=NOW, tz=TZ)
+    schedule = quiet(resolve(interval_minutes=120, now=NOW, tz=TZ), "22:00-09:00")
     landed = roll_forward(schedule, previous=utc(2026, 8, 1, 3, 0), now=NOW, tz=TZ)
     local = landed.astimezone(TZ).time()
     assert time(9, 0) <= local < time(22, 0)
@@ -328,7 +326,7 @@ def test_roll_forward_respects_quiet_windows():
 @pytest.mark.parametrize(
     "kwargs",
     [
-        {"interval_minutes": 120, "quiet_windows": ["22:00-09:00"]},
+        {"interval_minutes": 120},
         {"days": ["Mon", "Wed"], "clock": "08:30"},
         {"clock": "09:00", "day": "20.08.2026"},
     ],
@@ -349,10 +347,6 @@ def test_a_schedule_survives_the_column_round_trip(kwargs):
         ({"interval_minutes": 60}, "every hour"),
         ({"interval_minutes": 90}, "every 1 h 30 min"),
         ({"interval_minutes": 30}, "every 30 minutes"),
-        (
-            {"interval_minutes": 120, "quiet_windows": ["22:00-09:00"]},
-            "every 2 hours except 22:00–09:00",
-        ),
         (
             {"days": ["Mon", "Tue", "Wed", "Thu", "Fri"], "clock": "08:30"},
             "every weekday at 08:30",

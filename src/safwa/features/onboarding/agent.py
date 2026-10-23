@@ -170,6 +170,7 @@ MANUAL = f"""# Safwa
 - In words only: create one, or change when it fires. Say the time in plain words, such as "every weekday at 8:00", or the answers, such as "every 3 Missed in a row of Check #12", "every 30 answers of Check #12" or "every 10 Done of Actions tagged sport". "🔔 Remind" on a Schedule also makes one.
 - A Reminder may fire on days of the month: "on the 1st and 15th of each month at 9", "on the last day of each month at 18:00".
 - A repeating Reminder may end: "every day at 9 until 30 November", "every 2 hours for a week", "every weekday at 8, 10 times". Its last firing says so, and then it deletes itself. Its screen counts the times fired.
+- Don't disturb in Profile: Reminders that repeat every few minutes or hours wait until it ends.
 - A Reminder on answers fires at every multiple of its count: 3, 6, 9. A corrected answer fires nothing. Its words select the items again at every answer, so items made later count too, and deleting them leaves the Reminder. Its screen shows what they find now.
 - With buttons: "⏰ Reminders" or /reminders: "✏️ Text" to change the words, "🗑 Delete".
 - Deleting is the only way to stop one.
@@ -183,7 +184,7 @@ MANUAL = f"""# Safwa
 - "Today overload" and "Effort Points reminder" are in Hooks only while Effort Points are on, and ask nothing while they are off.
 
 # Profile
-- "⚙️ Profile": About me and Advisor instructions (what the Advisor must know and follow), Morning time, Evening time, Diary instruction, Motivator instructions, Home after, Secret word, Time tracking, Effort Points, and "🔔 Hooks".
+- "⚙️ Profile": About me and Advisor instructions (what the Advisor must know and follow), Morning time, Evening time, Diary instruction, Motivator instructions, Home after, Don't disturb, Secret word, Time tracking, Effort Points, and "🔔 Hooks".
 - "Motivator instructions" sets the Home motivation's style and emphasis. Send off to clear it.
 - "Usage time" shows roughly how long the user has used Safwa in all, such as "~2d 5h 25m". It is not Time tracking.
 - "⌛ Time tracking" is off until pressed. On, it offers "⌛ Time spent" on an Action, keeps a Sprint's time for its retro and turns on "Time tracking reminder". The active day it measures runs from the Morning time to the Evening time.
