@@ -40,6 +40,13 @@ TZ = ZoneInfo("Europe/Istanbul")
 # A Saturday at noon: next Monday is 19.10, next Friday 23.10, next month starts 01.11.
 NOW = datetime(2026, 10, 17, 12, 0, tzinfo=TZ)
 NAMES = "Tags: Sport, Reading\nValues: Health"
+# The answer a condition keeps, by what its items are, in the words the cases were written in.
+DOMAIN_ANSWERS = {
+    ("check", "yes"): "passed",
+    ("check", "no"): "missed",
+    ("check", "any"): "answered",
+    ("action", "yes"): "done",
+}
 REASONING_EFFORT = "none"
 EVERY_DAY = list(WEEKDAY_NAMES)
 WORKWEEK = ["Mon", "Tue", "Wed", "Thu", "Fri"]
@@ -222,7 +229,7 @@ def _timing(schedule: Schedule, *, all_day: bool = False) -> dict[str, Any]:
         # The SELECT finds the items; the answers are counted in code, never filtered there.
         filters = any(word in condition.sql.lower() for word in ("status", "stage"))
         reading.update(
-            answer=condition.answer,
+            answer=DOMAIN_ANSWERS[condition.kind, condition.answer],
             count=condition.count,
             in_row=condition.in_row,
             once=condition.once,
@@ -238,8 +245,8 @@ class _OwnSeries:
         return statement.whereclause.right.value
 
 
-async def _one_series(items: str, answer: str) -> str | None:
-    return await one_series_select(_OwnSeries(), items, answer)  # type: ignore[arg-type]
+async def _one_series(items: str) -> tuple[str, str] | None:
+    return await one_series_select(_OwnSeries(), items)  # type: ignore[arg-type]
 
 
 async def _reminder(provider, phrase: str) -> dict[str, Any]:
@@ -260,7 +267,7 @@ async def _reminder(provider, phrase: str) -> dict[str, Any]:
     reading = _timing(schedule)
     if schedule.condition is not None:
         condition = schedule.condition
-        reading["one_item"] = await _one_series(condition.items, condition.answer) is not None
+        reading["one_item"] = await _one_series(condition.items) is not None
         reading["items"] = condition.items
     return reading
 

@@ -213,16 +213,21 @@ Feature: Reminders
     Given Safwa proposes a Reminder with the words "every 3 Missed in a row of Check #12"
     When those words are worked through
     Then the short session of RM-SCHEDULE-001 reads which items, which answer, how many, and whether in a row
-    And items that are one Check or one Action by #id, such as "Check #12", get the SELECT of its
-      series from code, by the series id that stays when any copy is deleted, and no second session
+    And items that are one Check or one Action by #id, such as "Check #12" or "Check #12 «Sat
+      straight?»", get the SELECT of its series from code, by the series id that stays when any copy
+      is deleted, and no second session
     And a second short session writes any other items as one SELECT of their ids, over ai_checks for
-      a Check's answer and over ai_cards for Done
+      Checks and over ai_cards for Actions, and says which it returns
     And that session is shown no answer of the items, neither the status of ai_checks nor the stage
       of ai_cards, so the answers are counted in code
     And that session is given every Tag and Value by the name stored, so "tagged sport" finds a Tag
       named Sport
     And the answer is Passed, Missed, any answer of a Check, or Done of an Action, and only Passed and
       Missed count in a row
+    And the short session names the answer only as yes, no or any; whether the items are Checks or
+      Actions comes from their words, or from the second session for any other items
+    And an #id with neither Check nor Action beside it goes back to the short session, and Missed of
+      Actions is refused with the answer forms of RM-UNCLEAR-028
     And the screen says "every 3 Missed in a row of Check #12", and what the SELECT finds now by up to
       3 titles and how many more (CONDITION_PREVIEW_TITLES = 3), then what it counts now, such as
       "0 Missed in a row now", and shows no first firing

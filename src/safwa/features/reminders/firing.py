@@ -187,7 +187,7 @@ async def fire_conditions(
     ):
         schedule = schedule_of(reminder)
         condition = schedule.condition
-        if (condition.answer == "done") != (item_type == "card"):
+        if (condition.kind == "action") != (item_type == "card"):
             continue
         try:
             ids = await found_ids(session, condition)

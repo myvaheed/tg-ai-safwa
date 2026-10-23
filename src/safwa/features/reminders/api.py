@@ -62,11 +62,14 @@ class Condition:
     and whether once, at that count, or at every multiple of it.
 
     `items` is how the screen names the items; `sql` is the SELECT of their ids that is run
-    at every answer. `answer` is passed, missed or answered for a Check, done for an Action.
+    at every answer. `kind` is what the items are, check or action: their words say it for one
+    item, and the SELECT's session for the rest, never the answer. `answer` is yes, no or any:
+    Passed, Missed or either of a Check; an Action's is yes, its Done, its only answer.
     """
 
     items: str
     sql: str
+    kind: str
     answer: str
     count: int
     in_row: bool = False
@@ -686,17 +689,18 @@ def describe(schedule: Schedule, *, tz: ZoneInfo, now: datetime | None = None) -
     return text + (f", {schedule.total} times" if schedule.total else "")
 
 
-# One answer and many, as a condition is worded: "each answer of", "every 30 answers of".
+# One answer and many, by what the items are, as a condition is worded: "each answer of",
+# "every 30 answers of". An Action's one answer is Done.
 ANSWER_WORDS = {
-    "passed": ("Passed", "Passed"),
-    "missed": ("Missed", "Missed"),
-    "answered": ("answer", "answers"),
-    "done": ("Done", "Done"),
+    ("check", "yes"): ("Passed", "Passed"),
+    ("check", "no"): ("Missed", "Missed"),
+    ("check", "any"): ("answer", "answers"),
+    ("action", "yes"): ("Done", "Done"),
 }
 
 
 def _describe_condition(condition: Condition) -> str:
-    one, many = ANSWER_WORDS[condition.answer]
+    one, many = ANSWER_WORDS[condition.kind, condition.answer]
     row = " in a row" if condition.in_row else ""
     if condition.once:
         return f"after {condition.count} {many if condition.count > 1 else one}{row} of {condition.items}"

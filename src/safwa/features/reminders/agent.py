@@ -16,6 +16,7 @@ unclear, then the forms that work, so the owner always hears both.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Annotated, Literal
@@ -50,8 +51,16 @@ from .api import (
     ScheduleError,
     resolve,
 )
-from .conditions import ConditionError, checked_select, items_view
+from .conditions import ITEM_WORD, ConditionError, checked_select, one_item
 from .model import ScheduleKind
+
+# What a condition's items are is their words' to say: an #id alone says neither, and an Action
+# is never Missed.
+UNNAMED_ID = re.compile(r"#\d")
+NAME_THE_ID = "Name each #id as 'Check #14' or 'Action #14' in items."
+NO_MISSED = "An Action has no Missed."
+# The kind the SELECT's session names, as a condition keeps it.
+ITEMS_KINDS = {"checks": "check", "actions": "action"}
 
 REMIND_DESCRIPTION = (
     "Remind the user at its time, 0, or this many minutes before it: "
@@ -113,26 +122,31 @@ class ReminderConfigInput(ToolInput):
 
 class ConditionInput(ToolInput):
     items: str = Field(description="Which Checks or Actions, in the phrase's words, with every #id.")
-    answer: Literal["passed", "missed", "answered", "done"] = Field(
-        description=(
-            "passed (yes) or missed (no) of a Check, answered for any answer of a Check, done "
-            "of an Action."
-        )
+    answer: Literal["yes", "no", "any"] = Field(
+        description="yes: Passed of a Check or Done of an Action. no: Missed of a Check. any: every answer."
     )
     count: PositiveInt = Field(description="How many of that answer; 1 for each time.")
-    in_row: bool = Field(default=False, description="Counted in a row. Only with passed or missed.")
+    in_row: bool = Field(default=False, description="Counted in a row. Only with yes or no.")
     once: bool = Field(
         default=False, description="true for 'after N': it fires once, at N. false for 'every N'."
     )
 
     @model_validator(mode="after")
-    def in_row_needs_one_answer(self) -> ConditionInput:
-        if self.in_row and self.answer not in {"passed", "missed"}:
-            raise ValueError("in_row needs answer passed or missed: set in_row=false")
+    def says_what_it_counts(self) -> ConditionInput:
+        if self.in_row and self.answer == "any":
+            raise ValueError("in_row needs answer yes or no: set in_row=false")
+        if UNNAMED_ID.search(self.items) and not ITEM_WORD.search(self.items):
+            raise ValueError(NAME_THE_ID)
+        item = one_item(self.items)
+        if item is not None and item[0] == "action" and self.answer == "no":
+            raise ValueError(NO_MISSED)
         return self
 
 
 class ItemsInput(ToolInput):
+    returns: Literal["checks", "actions"] = Field(
+        description="What the SELECT returns: checks from ai_checks, actions from ai_cards."
+    )
     sql: str = Field(description="One SELECT that returns the items' ids in a column named id.")
 
 
@@ -234,11 +248,11 @@ Clock time, set_reminder_config:
 {BOUNDS_LINES}
 Resolve relative dates against the current time. Never invent a time.
 Answers, set_condition:
-'every 3 Missed in a row of Check #12': items='Check #12', answer=missed, count=3, in_row=true.
-'after 40 Passed in a row of Check #7': items='Check #7', answer=passed, count=40, in_row=true, once=true.
-'every 30 answers of Check #12': items='Check #12', answer=answered, count=30.
-'every 10 Done of Actions tagged sport': items='Actions tagged sport', answer=done, count=10.
-'each time any Check is Missed': items='any Check', answer=missed, count=1.
+'every 3 Missed in a row of Check #12': items='Check #12', answer=no, count=3, in_row=true.
+'after 40 Passed in a row of Check #7': items='Check #7', answer=yes, count=40, in_row=true, once=true.
+'every 30 answers of Check #12': items='Check #12', answer=any, count=30.
+'every 10 Done of Actions tagged sport': items='Actions tagged sport', answer=yes, count=10.
+'each time any Check is Missed': items='any Check', answer=no, count=1.
 Not clear, not_clear_enough:
 No clock time, like 'every morning', 'soon', 'twice a week', 'once a month': about=time.
 No items, no answer or no count: about=answers.
@@ -264,6 +278,7 @@ UNREADABLE_ITEMS = "Could not tell which Checks or Actions the Reminder counts."
 
 REMINDER_ITEMS_PROMPT = """Write the SELECT that finds the items a Reminder counts. End with set_items.
 One SELECT of the items' ids, in a column named id.
+Read ai_checks for Checks, ai_cards for Actions.
 Spell a Tag or a Value exactly as the context lists it.
 'any Check': SELECT id FROM ai_checks
 'Checks of Action #7': SELECT id FROM ai_checks WHERE card_series_id = (SELECT series_id FROM ai_cards WHERE id = 7)
@@ -300,14 +315,14 @@ async def resolve_schedule(
     now: datetime,
     tz: ZoneInfo,
     names: str,
-    series_select: Callable[[str, str], Awaitable[str | None]] | None = None,
+    series_select: Callable[[str], Awaitable[tuple[str, str] | None]] | None = None,
 ) -> Schedule:
     """Resolve free-text timing into a Schedule, or raise with what is unclear and the forms.
 
     A condition's SELECT is checked here as text; whether it runs is the caller's to check.
-    `names` are the Tags and Values its SELECT may spell. `series_select` writes the SELECT of
-    one Check's or one Action's series from the items and the answer, and the second session
-    writes the rest.
+    `names` are the Tags and Values its SELECT may spell. `series_select` names what one Check
+    or one Action is and writes the SELECT of its series from the items; the second session
+    names and writes the rest.
     """
     local = now.astimezone(tz)
     context = (
@@ -375,29 +390,35 @@ async def resolve_schedule(
         raise unclear(result.payload.reason, result.payload.about)
     if result.name == "set_condition":
         wanted = result.payload
-        sql = await series_select(wanted.items, wanted.answer) if series_select else None
+        found = await series_select(wanted.items) if series_select else None
+        kind, sql = found or await write_items_select(provider, wanted.items, names)
+        if kind == "action" and wanted.answer == "no":
+            raise unclear(NO_MISSED, "answers")
         return Schedule(
             kind=ScheduleKind.CONDITION,
             condition=Condition(
                 items=wanted.items,
-                sql=sql or await write_items_select(provider, wanted.items, wanted.answer, names),
-                answer=wanted.answer,
+                sql=sql,
+                kind=kind,
+                # Done is an Action's only answer: no Missed to count, or to break a row.
+                answer="yes" if kind == "action" else wanted.answer,
                 count=wanted.count,
-                in_row=wanted.in_row,
+                in_row=wanted.in_row and kind == "check",
                 once=wanted.once,
             ),
         )
     return result.payload._schedule
 
 
-async def write_items_select(provider: LlmProvider, items: str, answer: str, names: str) -> str:
-    """The SELECT of the items' ids, written by its own session and checked as text."""
+async def write_items_select(provider: LlmProvider, items: str, names: str) -> tuple[str, str]:
+    """What the items are, check or action, and the SELECT of their ids, written by its own
+    session and checked as text."""
 
     class CheckedItems(ItemsInput):
         @model_validator(mode="after")
         def reads_the_items(self) -> CheckedItems:
             try:
-                self.sql = checked_select(self.sql, answer)
+                self.sql = checked_select(self.sql, ITEMS_KINDS[self.returns])
             except ConditionError as error:
                 raise ValueError(str(error)) from error
             return self
@@ -406,7 +427,7 @@ async def write_items_select(provider: LlmProvider, items: str, answer: str, nam
         result = await run_mini_session(
             provider,
             system_prompt=REMINDER_ITEMS_PROMPT,
-            context=f"Items: {items}\nAnswer: {answer}, so read {items_view(answer)}\n{names}",
+            context=f"Items: {items}\n{names}",
             terminals=(
                 TerminalTool(name="set_items", description="The SELECT of the items.", model=CheckedItems),
             ),
@@ -414,4 +435,4 @@ async def write_items_select(provider: LlmProvider, items: str, answer: str, nam
         )
     except MiniSessionError as error:
         raise unclear(UNREADABLE_ITEMS, "answers") from error
-    return result.payload.sql
+    return ITEMS_KINDS[result.payload.returns], result.payload.sql

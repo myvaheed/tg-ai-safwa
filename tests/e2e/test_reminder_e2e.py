@@ -22,6 +22,7 @@ from safwa.features.cards.model import Card
 from safwa.features.checks.model import CheckOutcome
 from safwa.features.checks.use_cases import resolve_check
 from safwa.features.reminders.agent import (
+    NO_MISSED,
     REMINDER_ANSWER_FORMS,
     REMINDER_ITEMS_PROMPT,
     REMINDER_TIME_FORMS,
@@ -192,7 +193,7 @@ def unclear_script(*setup, when: str):
     ]
 
 
-def condition_turn(items: str, answer: str = "missed", count: int = 3, **extra) -> ProviderTurn:
+def condition_turn(items: str, answer: str = "no", count: int = 3, **extra) -> ProviderTurn:
     """The `when` session's answer: the condition in words."""
     return turn(
         ("set_condition", {"items": items, "answer": answer, "count": count, **extra}),
@@ -200,12 +201,14 @@ def condition_turn(items: str, answer: str = "missed", count: int = 3, **extra) 
     )
 
 
-def condition_turns(items: str, sql: str, answer: str = "missed", count: int = 3, **extra):
+def condition_turns(
+    items: str, sql: str, answer: str = "no", count: int = 3, returns: str = "checks", **extra
+):
     """The two short sessions' answers for items other than one Check or one Action: the
-    condition in words, then its SELECT."""
+    condition in words, then what its SELECT returns and the SELECT."""
     return [
         condition_turn(items, answer, count, **extra),
-        turn(("set_items", {"sql": sql}), prefix="items"),
+        turn(("set_items", {"returns": returns, "sql": sql}), prefix="items"),
     ]
 
 
@@ -251,7 +254,8 @@ async def test_rm_cond_030_a_condition_is_proposed_with_its_select_and_what_it_f
         assert reminder.condition == {
             "items": f"Check #{named}",
             "sql": f"SELECT id FROM ai_checks WHERE series_id = {first}",
-            "answer": "missed",
+            "kind": "check",
+            "answer": "no",
             "count": 3,
             "in_row": True,
             "once": False,
@@ -268,7 +272,7 @@ async def test_rm_cond_040_after_n_is_proposed_and_saved_once(e2e_harness):
     advisor, _provider = e2e_harness.advisor(
         [
             *create_reminder_turns(f"after 3 Passed in a row of Check #{named}"),
-            condition_turn(f"Check #{named}", answer="passed", in_row=True, once=True),
+            condition_turn(f"Check #{named}", answer="yes", in_row=True, once=True),
         ]
     )
 
@@ -301,12 +305,11 @@ async def test_rm_cond_030_other_items_get_their_select_from_a_second_session(e2
     outcome = await advisor.handle("cheer me on after 3 misses", source_message_id=1)
 
     assert outcome.kind is AIOutcomeKind.PROPOSAL
-    # The second session reads only the items, the answer and the view to read.
+    # The second session reads only the items and the names it may spell; what they are is
+    # its own to say, from their words.
     system, context = provider.calls[-1][:2]
     assert system["content"] == REMINDER_ITEMS_PROMPT
-    assert context["content"] == (
-        "Items: any Check\nAnswer: missed, so read ai_checks\nTags: none\nValues: none"
-    )
+    assert context["content"] == "Items: any Check\nTags: none\nValues: none"
     values = dict(e2e_harness.reviews.proposal(outcome.proposal_id).changes[0].values)
     assert values["finds"] == "«Sat straight?». 0 Missed now."
 
@@ -320,7 +323,10 @@ async def test_rm_cond_031_a_select_over_the_wrong_view_goes_back_to_repair(e2e_
         [
             *create_reminder_turns("every 3 Missed of any Check"),
             *condition_turns("any Check", "SELECT id FROM ai_cards"),
-            turn(("set_items", {"sql": "SELECT id FROM ai_checks"}), prefix="repaired"),
+            turn(
+                ("set_items", {"returns": "checks", "sql": "SELECT id FROM ai_checks"}),
+                prefix="repaired",
+            ),
         ]
     )
 
@@ -358,7 +364,7 @@ async def test_rm_cond_031_a_select_the_session_cannot_write_gets_the_answer_for
     advisor, provider = e2e_harness.advisor(
         unclear_script(
             turn(
-                ("set_condition", {"items": "any Check", "answer": "missed", "count": 3}),
+                ("set_condition", {"items": "any Check", "answer": "no", "count": 3}),
                 prefix="setup",
             ),
             *(["I am not sure."] * (MINI_SESSION_REPAIR_ROUNDS + 1)),
@@ -402,6 +408,26 @@ async def test_rm_cond_034_a_count_one_series_never_reaches_is_refused(e2e_harne
     )
     outcome = await each_time.handle("cheer me on when I miss it", source_message_id=2)
     assert outcome.kind is AIOutcomeKind.PROPOSAL
+
+
+async def test_rm_cond_030_missed_of_actions_gets_the_answer_forms(e2e_harness):
+    """RM-COND-030 — tests/brd/reminders.feature"""
+    advisor, provider = e2e_harness.advisor(
+        unclear_script(
+            *condition_turns(
+                "Actions tagged sport",
+                "SELECT id FROM ai_cards WHERE kind = 'action'",
+                returns="actions",
+            ),
+            when="every 3 Missed of Actions tagged sport",
+        )
+    )
+
+    await advisor.handle("cheer me on when I skip sport 3 times", source_message_id=1)
+
+    (error,) = unclear_errors(provider)
+    assert error.splitlines()[0] == NO_MISSED
+    assert all(form in error for form in REMINDER_ANSWER_FORMS)
 
 
 async def test_rm_unclear_028_words_that_meant_a_time_get_the_time_forms(e2e_harness):

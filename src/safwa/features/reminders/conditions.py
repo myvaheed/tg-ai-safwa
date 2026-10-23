@@ -2,8 +2,11 @@
 
 The SELECT is checked when it is written and again every time it runs, as a saved Request's
 is: the stored text is all that stands between it and the database. It reads `ai_checks` for
-a Check's answer and `ai_cards` for Done, and comes back with the ids of the items it finds.
-It runs at every answer, so an item made later counts once the SELECT finds it.
+Checks and `ai_cards` for Actions, and comes back with the ids of the items it finds. It runs
+at every answer, so an item made later counts once the SELECT finds it.
+
+What the items are is the items' to say, never the answer's: yes is a Check's Passed and an
+Action's Done alike, so an answer worded for the other kind cannot send the count elsewhere.
 
 The SELECT picks series, not answers: each item it finds counts with every copy of its
 series, answered or open. One Check or one Action gets its SELECT from code, by the id its
@@ -35,8 +38,13 @@ from .api import ANSWER_WORDS, Condition
 CONDITION_VIEWS = frozenset({"ai_checks", "ai_cards"})
 # How many of the series found the review screen names before "and N more".
 CONDITION_PREVIEW_TITLES = 3
-# Items that are one Check or one Action, as the `when` session writes them: 'Check #12'.
-ONE_ITEM = re.compile(r"(check|action) ?#(\d+)", re.IGNORECASE)
+# Items that are one Check or one Action, as the `when` session writes them: 'Check #12',
+# or 'Check #12 «Meditated?»' with its title after the id.
+ONE_ITEM = re.compile(r"(check|action) ?#(\d+)(?: [«\"“][^»\"”]*[»\"”])?", re.IGNORECASE)
+# A word that says what items are, which an #id needs beside it.
+ITEM_WORD = re.compile(r"\b(check|action)s?\b", re.IGNORECASE)
+# A Check's yes and no, as its answers are stored.
+OUTCOMES = {"yes": CheckOutcome.PASSED.value, "no": CheckOutcome.MISSED.value}
 
 
 class ConditionError(ValueError):
@@ -51,46 +59,53 @@ async def item_names(session: AsyncSession) -> str:
     return f"Tags: {', '.join(tags) or 'none'}\nValues: {', '.join(values) or 'none'}"
 
 
-def items_view(answer: str) -> str:
-    """Done is an Action's answer; every other answer is a Check's."""
-    return "ai_cards" if answer == "done" else "ai_checks"
+def items_view(kind: str) -> str:
+    """The view an Action's items are read from, or a Check's."""
+    return "ai_cards" if kind == "action" else "ai_checks"
 
 
-def _series(answer: str) -> tuple[Any, Any]:
-    """The items' table, and the series of each of its rows: Cards for Done, else Checks."""
-    if answer == "done":
+def _series(kind: str) -> tuple[Any, Any]:
+    """The items' table, and the series of each of its rows."""
+    if kind == "action":
         return Card, func.coalesce(Card.repeat_series_id, Card.id)
     return Check, func.coalesce(Check.series_id, Check.id)
 
 
-def checked_select(sql: str, answer: str) -> str:
-    """The statement to run, or why it cannot find the items of this answer."""
+def checked_select(sql: str, kind: str) -> str:
+    """The statement to run, or why it cannot find items of this kind."""
     try:
         statement, read = validated_read(sql, CONDITION_VIEWS)
     except UnsafeQueryError as error:
         raise ConditionError(str(error)) from error
-    view = items_view(answer)
+    view = items_view(kind)
     if view not in read:
         raise ConditionError(f"The SELECT must read {view} and return its ids")
     return statement
 
 
-async def one_series_select(session: AsyncSession, items: str, answer: str) -> str | None:
-    """The SELECT of one Check's or one Action's whole series, or None when the items are not
-    one item of this answer, or it does not exist."""
+def one_item(items: str) -> tuple[str, int] | None:
+    """What one Check or one Action is, check or action, and its id; None for other items."""
     match = ONE_ITEM.fullmatch(items.strip())
-    if match is None or (match[1].lower() == "action") != (answer == "done"):
+    return (match[1].lower(), int(match[2])) if match else None
+
+
+async def one_series_select(session: AsyncSession, items: str) -> tuple[str, str] | None:
+    """What one Check or one Action is, and the SELECT of its whole series; None when the items
+    are not one item, or it does not exist."""
+    item = one_item(items)
+    if item is None:
         return None
-    model, series = _series(answer)
-    root = await session.scalar(select(series).where(model.id == int(match[2])))
+    kind, item_id = item
+    model, series = _series(kind)
+    root = await session.scalar(select(series).where(model.id == item_id))
     if root is None:
         return None
-    return f"SELECT id FROM {items_view(answer)} WHERE series_id = {root}"
+    return kind, f"SELECT id FROM {items_view(kind)} WHERE series_id = {root}"
 
 
 async def found_ids(session: AsyncSession, condition: Condition) -> list[int]:
     """Every copy of each series the condition's SELECT finds an item of now."""
-    statement = checked_select(condition.sql, condition.answer)
+    statement = checked_select(condition.sql, condition.kind)
     try:
         result = await session.execute(text(statement))
     except SQLAlchemyError as error:
@@ -101,14 +116,14 @@ async def found_ids(session: AsyncSession, condition: Condition) -> list[int]:
         found = {int(row["id"]) for row in result.mappings()}
     except (TypeError, ValueError) as error:
         raise ConditionError("The SELECT's ids must be whole numbers") from error
-    model, series = _series(condition.answer)
+    model, series = _series(condition.kind)
     roots = select(series).where(model.id.in_(found))
     return list(await session.scalars(select(model.id).where(series.in_(roots)).order_by(model.id)))
 
 
 async def _answers(session: AsyncSession, condition: Condition, ids: Sequence[int]) -> list[Any]:
     """The items' answers, newest first: Done of an Action, or a Check's Passed and Missed."""
-    if condition.answer != "done":
+    if condition.kind != "action":
         return await newest_answers(session, ids)
     return list(
         (
@@ -122,12 +137,13 @@ async def _answers(session: AsyncSession, condition: Condition, ids: Sequence[in
 
 
 def _counted(condition: Condition, answers: Sequence[Any]) -> list[Any]:
-    """The newest answers the condition counts: back to the first other one when in a row."""
-    if condition.answer == "done":
+    """The newest answers the condition counts: back to the first other one when in a row.
+    An Action has no Missed, so its every Done counts, in a row or not."""
+    if condition.kind == "action" or condition.answer == "any":
         return list(answers)
     if condition.in_row:
-        return answer_run(answers, condition.answer)
-    return [row for row in answers if condition.answer in {"answered", row.outcome}]
+        return answer_run(answers, OUTCOMES[condition.answer])
+    return [row for row in answers if row.outcome == OUTCOMES[condition.answer]]
 
 
 async def count_now(
@@ -150,7 +166,7 @@ async def count_now(
         return None
     if len(counted) != condition.count if condition.once else len(counted) % condition.count:
         return None
-    if condition.answer == "done":
+    if condition.kind == "action":
         return f"{len(counted)} Done now"
     passed = sum(row.outcome == CheckOutcome.PASSED.value for row in answers)
     row = " in a row" if condition.in_row else ""
@@ -174,7 +190,7 @@ async def never_reached(
             f"{condition.items} already has {count_words(condition, counted)}, "
             f"so 'after {condition.count}' is already past."
         )
-    model, series = _series(condition.answer)
+    model, series = _series(condition.kind)
     roots = set(await session.scalars(select(series).where(model.id.in_(ids))))
     if len(roots) != 1:
         return None
@@ -216,7 +232,7 @@ async def finds_now(session: AsyncSession, condition: Condition) -> str:
 async def finds_text(session: AsyncSession, condition: Condition, ids: Sequence[int]) -> str:
     """What the SELECT finds now: the newest title of each series, up to
     CONDITION_PREVIEW_TITLES of them, and how many more; then what it counts now."""
-    model, series = _series(condition.answer)
+    model, series = _series(condition.kind)
     named: dict[int, str] = {}
     for root, title in await session.execute(
         select(series, model.title).where(model.id.in_(ids)).order_by(model.id.desc())
@@ -237,6 +253,6 @@ async def finds_text(session: AsyncSession, condition: Condition, ids: Sequence[
 
 def count_words(condition: Condition, count: int) -> str:
     """A count of the condition's answers as the screens say it: 12 Passed in a row, 3 Done."""
-    one, many = ANSWER_WORDS[condition.answer]
+    one, many = ANSWER_WORDS[condition.kind, condition.answer]
     row = " in a row" if condition.in_row else ""
     return f"{count} {one if count == 1 else many}{row}"

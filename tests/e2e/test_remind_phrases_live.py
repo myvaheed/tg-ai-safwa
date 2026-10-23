@@ -20,7 +20,7 @@ from database_key import keyed
 from schedule_helpers import create_card, create_check
 
 from llm_gateway import OpenAICompatibleProvider
-from safwa.bootstrap.modules import AI_VIEWS, TEXT_MODEL, WORD_FORMS
+from safwa.bootstrap.modules import AI_VIEWS, PROPOSALS, TEXT_MODEL, WORD_FORMS
 from safwa.features.schedules.use_cases import set_remind
 from safwa.qa import qa_provider_settings
 from tg_agent_shell.search.index import SearchIndex
@@ -132,8 +132,13 @@ async def test_the_model_sets_remind(settings, encoder, e2e_harness, case) -> No
     print(f"{case.words!r} was read as {sent}")
     item, item_id = named[case.title]
     assert sent, f"{case.words!r} made no remind call"
-    assert (sent[-1]["item"], sent[-1]["id"], sent[-1].get("minutes_before")) == (
-        item,
-        item_id,
-        case.minutes,
+    # A Goal and an Action are both a Card: either word names the same change.
+    changed = PROPOSALS.change_from_tool("remind", sent[-1])
+    expected = PROPOSALS.change_from_tool(
+        "remind", {"item": item, "id": item_id, "minutes_before": case.minutes}
+    )
+    assert (changed.entity, changed.id, changed.values) == (
+        expected.entity,
+        expected.id,
+        expected.values,
     )

@@ -37,6 +37,13 @@ pytestmark = [pytest.mark.e2e, pytest.mark.live_provider]
 
 REASONING_EFFORT = "none"
 ASKS = {"asks": True}
+# The answer a condition keeps, by what its items are, in the words the cases were written in.
+DOMAIN_ANSWERS = {
+    ("check", "yes"): "passed",
+    ("check", "no"): "missed",
+    ("check", "any"): "answered",
+    ("action", "yes"): "done",
+}
 
 
 @dataclass(frozen=True)
@@ -173,14 +180,14 @@ async def test_the_model_sets_a_reminder_on_answers(settings, encoder, e2e_harne
     assert reminders, f"{case.words!r} proposed {[c.entity for c in changes]}"
     condition = schedule_from_payload(reminders[-1].values["schedule"]).condition
     assert condition is not None, f"{case.words!r} was read as {reminders[-1].values['schedule_text']!r}"
-    model = Card if condition.answer == "done" else Check
+    model = Card if condition.kind == "action" else Check
     async with e2e_harness.sessions() as session:
         ids = await found_ids(session, condition)
         titles = sorted(set(await session.scalars(select(model.title).where(model.id.in_(ids)))))
-        one_item = await one_series_select(session, condition.items, condition.answer) is not None
+        one_item = await one_series_select(session, condition.items) is not None
     reading = {
         "titles": titles,
-        "answer": condition.answer,
+        "answer": DOMAIN_ANSWERS[condition.kind, condition.answer],
         "count": condition.count,
         "in_row": condition.in_row,
         "once": condition.once,
