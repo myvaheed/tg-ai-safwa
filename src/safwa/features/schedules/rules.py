@@ -64,11 +64,6 @@ def repeats(rule: dict[str, Any]) -> bool:
     return rule["kind"] == "fixed" and schedule_from_payload(rule["timing"]).repeating
 
 
-def most_runs(rule: dict[str, Any]) -> int | None:
-    """How many times the rule runs in all: once, its total, or None without end."""
-    return rule.get("limit") if repeats(rule) else 1
-
-
 def next_slot(
     rule: dict[str, Any], previous: datetime | None, now: datetime, completed: int, tz: ZoneInfo
 ) -> tuple[bool, datetime | None]:

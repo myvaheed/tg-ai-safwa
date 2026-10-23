@@ -2,12 +2,17 @@
 
 The SELECT is checked when it is written and again every time it runs, as a saved Request's
 is: the stored text is all that stands between it and the database. It reads `ai_checks` for
-a Check's answer and `ai_cards` for Done, and comes back with the ids of the items it
-counts. It runs at every answer, so an item made later counts once the SELECT finds it.
+a Check's answer and `ai_cards` for Done, and comes back with the ids of the items it finds.
+It runs at every answer, so an item made later counts once the SELECT finds it.
+
+The SELECT picks series, not answers: each item it finds counts with every copy of its
+series, answered or open. One Check or one Action gets its SELECT from code, by the id its
+series keeps when any copy is deleted.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from typing import Any
 
@@ -20,7 +25,8 @@ from tg_agent_shell.ai.sql import UnsafeQueryError, validated_read
 from ..cards.model import Card, CardCheck
 from ..checks.api import answer_run, newest_answers
 from ..checks.model import Check, CheckOutcome
-from ..schedules.rules import most_runs
+from ..schedules.api import is_open, total_count
+from ..schedules.rules import repeats
 from ..tags.api import Tag
 from ..values.api import value_names
 from .api import Condition
@@ -29,6 +35,8 @@ from .api import Condition
 CONDITION_VIEWS = frozenset({"ai_checks", "ai_cards"})
 # How many of the series found the review screen names before "and N more".
 CONDITION_PREVIEW_TITLES = 3
+# Items that are one Check or one Action, as the `when` session writes them: 'Check #12'.
+ONE_ITEM = re.compile(r"(check|action) ?#(\d+)", re.IGNORECASE)
 
 
 class ConditionError(ValueError):
@@ -48,6 +56,13 @@ def items_view(answer: str) -> str:
     return "ai_cards" if answer == "done" else "ai_checks"
 
 
+def _series(answer: str) -> tuple[Any, Any]:
+    """The items' table, and the series of each of its rows: Cards for Done, else Checks."""
+    if answer == "done":
+        return Card, func.coalesce(Card.repeat_series_id, Card.id)
+    return Check, func.coalesce(Check.series_id, Check.id)
+
+
 def checked_select(sql: str, answer: str) -> str:
     """The statement to run, or why it cannot find the items of this answer."""
     try:
@@ -60,8 +75,21 @@ def checked_select(sql: str, answer: str) -> str:
     return statement
 
 
+async def one_series_select(session: AsyncSession, items: str, answer: str) -> str | None:
+    """The SELECT of one Check's or one Action's whole series, or None when the items are not
+    one item of this answer, or it does not exist."""
+    match = ONE_ITEM.fullmatch(items.strip())
+    if match is None or (match[1].lower() == "action") != (answer == "done"):
+        return None
+    model, series = _series(answer)
+    root = await session.scalar(select(series).where(model.id == int(match[2])))
+    if root is None:
+        return None
+    return f"SELECT id FROM {items_view(answer)} WHERE series_id = {root}"
+
+
 async def found_ids(session: AsyncSession, condition: Condition) -> list[int]:
-    """The ids the condition's SELECT finds now."""
+    """Every copy of each series the condition's SELECT finds an item of now."""
     statement = checked_select(condition.sql, condition.answer)
     try:
         result = await session.execute(text(statement))
@@ -70,62 +98,101 @@ async def found_ids(session: AsyncSession, condition: Condition) -> list[int]:
     if "id" not in result.keys():
         raise ConditionError("The SELECT must return a column named id")
     try:
-        return list(dict.fromkeys(int(row["id"]) for row in result.mappings()))
+        found = {int(row["id"]) for row in result.mappings()}
     except (TypeError, ValueError) as error:
         raise ConditionError("The SELECT's ids must be whole numbers") from error
+    model, series = _series(condition.answer)
+    roots = select(series).where(model.id.in_(found))
+    return list(await session.scalars(select(model.id).where(series.in_(roots)).order_by(model.id)))
+
+
+async def _answers(session: AsyncSession, condition: Condition, ids: Sequence[int]) -> list[Any]:
+    """The items' answers, newest first: Done of an Action, or a Check's Passed and Missed."""
+    if condition.answer != "done":
+        return await newest_answers(session, ids)
+    return list(
+        (
+            await session.execute(
+                select(Card.id)
+                .where(Card.id.in_(ids), Card.completed_at.is_not(None))
+                .order_by(Card.completed_at.desc(), Card.id.desc())
+            )
+        ).all()
+    )
+
+
+def _counted(condition: Condition, answers: Sequence[Any]) -> list[Any]:
+    """The newest answers the condition counts: back to the first other one when in a row."""
+    if condition.answer == "done":
+        return list(answers)
+    if condition.in_row:
+        return answer_run(answers, condition.answer)
+    return [row for row in answers if condition.answer in {"answered", row.outcome}]
 
 
 async def count_now(
     session: AsyncSession, condition: Condition, ids: Sequence[int], item_id: int
 ) -> str | None:
-    """How many answers the condition counts now, as the Cue says it, or None when this
-    item's answer is not one it counts or does not bring the count to a multiple."""
-    if condition.answer == "done":
-        done = list(
-            await session.scalars(
-                select(Card.id).where(Card.id.in_(ids), Card.completed_at.is_not(None))
-            )
-        )
-        if item_id not in done or len(done) % condition.count:
-            return None
-        return f"{len(done)} Done now"
-    answers = await newest_answers(session, ids)
-    if condition.in_row:
-        counted = answer_run(answers, condition.answer)
-    else:
-        counted = [row for row in answers if condition.answer in {"answered", row.outcome}]
-    if item_id not in {row.id for row in counted} or len(counted) % condition.count:
+    """How many answers the condition counted at this item's answer, as the Cue says it, or
+    None when that answer is not one it counts or does not bring the count to a multiple.
+
+    Each answer counts at its own place, in the order saved: the answers one commit saves
+    together each reach their own count, so a multiple is said once and never skipped.
+    """
+    answers = await _answers(session, condition, ids)
+    place = next((index for index, row in enumerate(answers) if row.id == item_id), None)
+    if place is None:
         return None
+    answers = answers[place:]
+    counted = _counted(condition, answers)
+    if not counted or counted[0].id != item_id or len(counted) % condition.count:
+        return None
+    if condition.answer == "done":
+        return f"{len(counted)} Done now"
     passed = sum(row.outcome == CheckOutcome.PASSED.value for row in answers)
     row = " in a row" if condition.in_row else ""
     return f"{len(counted)}{row} now; {passed} Passed and {len(answers) - passed} Missed in all"
 
 
-async def most_answers(
+async def never_reached(
     session: AsyncSession, condition: Condition, ids: Sequence[int]
-) -> int | None:
-    """The most answers the items can ever have when they are one series: 1 when it does not
-    repeat, or its Schedule's total. None for more than one series, or one without end.
+) -> str | None:
+    """Why the condition's items, one series, never bring it to its count, or None when they
+    can. It counts what it counts now, and every answer the series still has to come: one
+    while it does not repeat and is open, or what is left of its Schedule's total. More than
+    one series, or one without end, can reach any count.
 
     A Check runs as its own Schedule does, or else as the Action it hangs on.
     """
-    model: Any = Card if condition.answer == "done" else Check
-    series = func.coalesce(Card.repeat_series_id if model is Card else Check.series_id, model.id)
+    model, series = _series(condition.answer)
     roots = set(await session.scalars(select(series).where(model.id.in_(ids))))
     if len(roots) != 1:
         return None
     newest = await session.scalar(
         select(model).where(series.in_(roots)).order_by(model.id.desc()).limit(1)
     )
-    definition = newest.schedule_record
-    if model is Check and definition is None:
+    runs: Any = newest
+    if model is Check and newest.schedule_record is None:
         card = await session.scalar(
             select(Card)
             .join(CardCheck, CardCheck.card_id == Card.id)
             .where(CardCheck.check_id == newest.id)
         )
-        definition = card.schedule_record if card is not None else None
-    return most_runs(definition.rule) if definition is not None and definition.rule else 1
+        runs = card or newest
+    counted = len(_counted(condition, await _answers(session, condition, ids)))
+    rule = runs.schedule_record.rule if runs.schedule_record is not None else None
+    never = f"so a count of {condition.count} never comes."
+    if not rule or not repeats(rule):
+        if counted + int(is_open(newest)) >= condition.count:
+            return None
+        return f"{condition.items} does not repeat, {never}"
+    if rule.get("limit") is None:
+        return None
+    left = rule["limit"] - await total_count(session, runs)
+    if counted + left >= condition.count:
+        return None
+    answers = "1 answer" if left == 1 else f"{left} answers"
+    return f"{condition.items} counts {counted} now and has {answers} left, {never}"
 
 
 async def finds_now(session: AsyncSession, condition: Condition) -> str:
@@ -140,8 +207,7 @@ async def finds_now(session: AsyncSession, condition: Condition) -> str:
 async def finds_text(session: AsyncSession, condition: Condition, ids: Sequence[int]) -> str:
     """What the SELECT finds now: the newest title of each series, up to
     CONDITION_PREVIEW_TITLES of them, and how many more."""
-    model: Any = Card if condition.answer == "done" else Check
-    series = func.coalesce(Card.repeat_series_id if model is Card else Check.series_id, model.id)
+    model, series = _series(condition.answer)
     named: dict[int, str] = {}
     for root, title in await session.execute(
         select(series, model.title).where(model.id.in_(ids)).order_by(model.id.desc())

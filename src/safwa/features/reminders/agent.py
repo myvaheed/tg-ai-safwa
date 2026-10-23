@@ -4,7 +4,8 @@ Two things live here because they are one contract: the mutation tool the worksp
 calls, and the setup session that turns its free-text ``when`` into schedule parameters — a
 clock time, or a condition on answers of Checks or Actions. The model never names a schedule
 shape — it is derived from which parameters came back. A condition's items come back as
-words, and a second session writes them as the SELECT of their ids.
+words: one Check or one Action gets the SELECT of its series from code, and a second session
+writes any other items as the SELECT of their ids.
 
 Every way the words fail to become a schedule ends in one :class:`ScheduleError`: what is
 unclear, then the forms that work, so the owner always hears both.
@@ -12,6 +13,7 @@ unclear, then the forms that work, so the owner always hears both.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
@@ -184,13 +186,10 @@ UNREADABLE_ITEMS = "Could not tell which Checks or Actions the Reminder counts."
 REMINDER_ITEMS_PROMPT = """Write the SELECT that finds the items a Reminder counts. End with set_items.
 One SELECT of the items' ids, in a column named id.
 Read ai_checks for answers of Checks, ai_cards for Done of Actions.
-A Check or an Action named by #id means its whole series: every copy of it.
 Find the items whatever their answer: never filter on status or stage.
 Spell a Tag or a Value exactly as the context lists it.
-'Check #12': SELECT id FROM ai_checks WHERE series_id = (SELECT series_id FROM ai_checks WHERE id = 12)
 'any Check': SELECT id FROM ai_checks
 'Checks of Action #7': SELECT id FROM ai_checks WHERE card_series_id = (SELECT series_id FROM ai_cards WHERE id = 7)
-'Action #7': SELECT id FROM ai_cards WHERE series_id = (SELECT series_id FROM ai_cards WHERE id = 7)
 'Actions tagged sport', Tags: Sport: SELECT id FROM ai_cards WHERE kind = 'action' AND instr(',' || COALESCE(direct_tags, '') || ',', ',Sport,') > 0
 ai_checks(id, title, status, series_id, card_id, card_series_id, direct_values)
 ai_cards(id, title, kind, stage, series_id, parent_ids, categories, energy_types, direct_values, direct_tags)
@@ -226,11 +225,14 @@ async def resolve_schedule(
     now: datetime,
     tz: ZoneInfo,
     names: str,
+    series_select: Callable[[str, str], Awaitable[str | None]] | None = None,
 ) -> Schedule:
     """Resolve free-text timing into a Schedule, or raise with what is unclear and the forms.
 
     A condition's SELECT is checked here as text; whether it runs is the caller's to check.
-    `names` are the Tags and Values its SELECT may spell.
+    `names` are the Tags and Values its SELECT may spell. `series_select` writes the SELECT of
+    one Check's or one Action's series from the items and the answer, and the second session
+    writes the rest.
     """
     local = now.astimezone(tz)
     context = (
@@ -298,11 +300,12 @@ async def resolve_schedule(
         raise unclear(result.payload.reason, result.payload.about)
     if result.name == "set_condition":
         wanted = result.payload
+        sql = await series_select(wanted.items, wanted.answer) if series_select else None
         return Schedule(
             kind=ScheduleKind.CONDITION,
             condition=Condition(
                 items=wanted.items,
-                sql=await write_items_select(provider, wanted.items, wanted.answer, names),
+                sql=sql or await write_items_select(provider, wanted.items, wanted.answer, names),
                 answer=wanted.answer,
                 count=wanted.count,
                 in_row=wanted.in_row,

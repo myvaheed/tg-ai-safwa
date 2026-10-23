@@ -726,14 +726,17 @@ the Cue row, exactly as for anything else Safwa says first.
   move left on the wrong moment and rolls on a repeat overdue past the grace (`RM-START-020`).
 - A Reminder on answers has no `next_fire_at`, so neither the tick nor the start ever
   touches it. Its `condition` holds the items in words, the SELECT of their ids, the answer,
-  the count and whether in a row. The `when` session returns the items as words; a second mini
-  session writes the SELECT over `ai_checks` or `ai_cards`, checked as text by its terminal
-  (`RM-COND-031`). Preparation runs it for the review screen and refuses a count one series
+  the count and whether in a row. The `when` session returns the items as words. One Check or
+  one Action gets the SELECT of its series from code (`one_series_select`); a second mini
+  session writes any other items' SELECT over `ai_checks` or `ai_cards`, checked as text by its
+  terminal (`RM-COND-031`). The SELECT picks series: every copy of each series it finds counts
+  (`RM-COND-033`). Preparation runs it for the review screen and refuses a count one series
   can never reach (`RM-COND-034`). `reminders.condition`, a `Run` on
   `OnCommitted(check.answered)` and `OnCommitted(card.done)`, runs each SELECT again
   (`reminders/conditions.py`) and writes the Cue of each Reminder whose count the answer brings
-  to a multiple. It writes even while other words wait: that answer will not come again
-  (`RM-COND-032`).
+  to a multiple. Each answer counts at its own place in the order saved, so the answers one
+  commit saves together say a multiple once. It writes even while other words wait: that answer
+  will not come again (`RM-COND-032`).
 
 ### A committed change, or a time of day, writes a hook's Cue
 

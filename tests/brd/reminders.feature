@@ -213,8 +213,10 @@ Feature: Reminders
     Given Safwa proposes a Reminder with the words "every 3 Missed in a row of Check #12"
     When those words are worked through
     Then the short session of RM-SCHEDULE-001 reads which items, which answer, how many, and whether in a row
-    And a second short session writes those items as one SELECT of their ids, over ai_checks for a
-      Check's answer and over ai_cards for Done
+    And items that are one Check or one Action by #id, such as "Check #12", get the SELECT of its
+      series from code, by the series id that stays when any copy is deleted, and no second session
+    And a second short session writes any other items as one SELECT of their ids, over ai_checks for
+      a Check's answer and over ai_cards for Done
     And that session is told to find the items whatever their answer, never filtering on status or
       stage, so the answers are counted in code
     And that session is given every Tag and Value by the name stored, so "tagged sport" finds a Tag
@@ -242,6 +244,9 @@ Feature: Reminders
     And at 3, 6 and 9 its words go to Safwa as one request, as any Reminder's do when it comes due,
       saying how many there are now and how many Passed and Missed in all
     And a fourth and a fifth Missed say nothing, and neither does an answer it does not count
+    And answers saved together, such as the Checks one Done answers, count one by one in the order
+      saved, each with the count at its own place: 3 or 4 of them under every 3 answers say it once,
+      at the third
     And a corrected answer says nothing, even when the count it leaves is a multiple
     And Done of an Action counts the same way, in all, and says how many are Done now
     And it stays after it fires, and deleting it is the only off switch, by RM-WRITE-010; it is not in
@@ -251,13 +256,19 @@ Feature: Reminders
     Given a Reminder on "every 10 Done of Actions tagged sport"
     When an Action tagged sport after the Reminder was made is Done
     Then it counts
+    And every item the SELECT finds counts with its whole series, every copy answered or open
+    And so a Value that moved on to the open copy, a SELECT that filters on the answer, or a deleted
+      first copy still leaves every answer of that series counted
     And deleting every item the SELECT finds leaves the Reminder, which counts nothing until its SELECT
       finds something again
 
   Scenario: RM-COND-034 — A count one series can never reach is refused
     Given words whose SELECT finds one series of a Check or of an Action
-    When that series runs at most N times: once when it does not repeat, or its total by SCH-TOTAL-021
-    Then a count above N is refused with the answer forms of RM-UNCLEAR-028
+    When the most it can count is N: what it counts now, and every answer the series still has to
+      come, one while it does not repeat and is open, or what is left of its total by SCH-TOTAL-021
+    Then a count above N is refused with the answer forms of RM-UNCLEAR-028, saying that the series
+      does not repeat, or how many it counts now and how many answers it has left
+    And 2 Passed under an earlier revision, with a new revision of 2 times, reach 4 Passed in all
     And a Check runs as its own Schedule does, or else as the Action it hangs on
     And a SELECT that finds more than one series, or a series that repeats without end, takes any count
 

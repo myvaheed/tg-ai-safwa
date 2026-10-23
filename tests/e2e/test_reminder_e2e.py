@@ -190,21 +190,28 @@ def unclear_script(*setup, when: str):
     ]
 
 
-def series_select(check_id: int) -> str:
-    return (
-        "SELECT id FROM ai_checks WHERE series_id = "
-        f"(SELECT series_id FROM ai_checks WHERE id = {check_id})"
+def condition_turn(items: str, answer: str = "missed", count: int = 3, **extra) -> ProviderTurn:
+    """The `when` session's answer: the condition in words."""
+    return turn(
+        ("set_condition", {"items": items, "answer": answer, "count": count, **extra}),
+        prefix="setup",
     )
 
 
 def condition_turns(items: str, sql: str, answer: str = "missed", count: int = 3, **extra):
-    """The two short sessions' answers: the condition in words, then its SELECT."""
+    """The two short sessions' answers for items other than one Check or one Action: the
+    condition in words, then its SELECT."""
     return [
-        turn(
-            ("set_condition", {"items": items, "answer": answer, "count": count, **extra}),
-            prefix="setup",
-        ),
+        condition_turn(items, answer, count, **extra),
         turn(("set_items", {"sql": sql}), prefix="items"),
+    ]
+
+
+def create_reminder_turns(when: str) -> list[object]:
+    return [
+        route_turn("workspace_mutator"),
+        turn(("reminder", {"mode": "create", "instruction": "Cheer me on.", "when": when})),
+        "I set that up for you.",
     ]
 
 
@@ -214,36 +221,22 @@ async def test_rm_cond_030_a_condition_is_proposed_with_its_select_and_what_it_f
     """RM-COND-030 — tests/brd/reminders.feature"""
     async with e2e_harness.sessions() as session:
         live = await create_check(session, title="Sat straight?", schedule="after completion")
+        first = live.id
         _, live = await resolve_check(session, live.id, CheckOutcome.MISSED)
         await session.commit()
         named = live.id
     advisor, provider = e2e_harness.advisor(
         [
-            route_turn("workspace_mutator"),
-            turn(
-                (
-                    "reminder",
-                    {
-                        "mode": "create",
-                        "instruction": "Cheer me on.",
-                        "when": f"every 3 Missed in a row of Check #{named}",
-                    },
-                )
-            ),
-            "I set that up for you.",
-            *condition_turns(f"Check #{named}", series_select(named), in_row=True),
+            *create_reminder_turns(f"every 3 Missed in a row of Check #{named}"),
+            condition_turn(f"Check #{named}", in_row=True),
         ]
     )
 
     outcome = await advisor.handle("cheer me on when I miss posture", source_message_id=1)
 
     assert outcome.kind is AIOutcomeKind.PROPOSAL
-    # The second session reads only the items, the answer and the view to read.
-    system, context = provider.calls[-1][:2]
-    assert system["content"] == REMINDER_ITEMS_PROMPT
-    assert context["content"] == (
-        f"Items: Check #{named}\nAnswer: missed, so read ai_checks\nTags: none\nValues: none"
-    )
+    # One Check gets the SELECT of its series from code, so no second session runs.
+    assert all(call[0]["content"] != REMINDER_ITEMS_PROMPT for call in provider.calls)
     values = dict(e2e_harness.reviews.proposal(outcome.proposal_id).changes[0].values)
     assert values["schedule_text"] == f"every 3 Missed in a row of Check #{named}"
     assert values["finds"] == "«Sat straight?»."
@@ -255,7 +248,7 @@ async def test_rm_cond_030_a_condition_is_proposed_with_its_select_and_what_it_f
         reminder = await session.get(Reminder, reminder_id)
         assert reminder.condition == {
             "items": f"Check #{named}",
-            "sql": series_select(named),
+            "sql": f"SELECT id FROM ai_checks WHERE series_id = {first}",
             "answer": "missed",
             "count": 3,
             "in_row": True,
@@ -263,27 +256,41 @@ async def test_rm_cond_030_a_condition_is_proposed_with_its_select_and_what_it_f
         assert reminder.next_fire_at is None
 
 
-async def test_rm_cond_031_a_select_over_the_wrong_view_goes_back_to_repair(e2e_harness):
-    """RM-COND-031 — tests/brd/reminders.feature"""
+async def test_rm_cond_030_other_items_get_their_select_from_a_second_session(e2e_harness):
+    """RM-COND-030 — tests/brd/reminders.feature"""
     async with e2e_harness.sessions() as session:
-        check = await create_check(session, title="Sat straight?", schedule="after completion")
+        await create_check(session, title="Sat straight?", schedule="after completion")
         await session.commit()
     advisor, provider = e2e_harness.advisor(
         [
-            route_turn("workspace_mutator"),
-            turn(
-                (
-                    "reminder",
-                    {
-                        "mode": "create",
-                        "instruction": "Cheer me on.",
-                        "when": f"every 3 Missed in a row of Check #{check.id}",
-                    },
-                )
-            ),
-            "I set that up for you.",
-            *condition_turns(f"Check #{check.id}", "SELECT id FROM ai_cards", in_row=True),
-            turn(("set_items", {"sql": series_select(check.id)}), prefix="repaired"),
+            *create_reminder_turns("every 3 Missed of any Check"),
+            *condition_turns("any Check", "SELECT id FROM ai_checks"),
+        ]
+    )
+
+    outcome = await advisor.handle("cheer me on after 3 misses", source_message_id=1)
+
+    assert outcome.kind is AIOutcomeKind.PROPOSAL
+    # The second session reads only the items, the answer and the view to read.
+    system, context = provider.calls[-1][:2]
+    assert system["content"] == REMINDER_ITEMS_PROMPT
+    assert context["content"] == (
+        "Items: any Check\nAnswer: missed, so read ai_checks\nTags: none\nValues: none"
+    )
+    values = dict(e2e_harness.reviews.proposal(outcome.proposal_id).changes[0].values)
+    assert values["finds"] == "«Sat straight?»."
+
+
+async def test_rm_cond_031_a_select_over_the_wrong_view_goes_back_to_repair(e2e_harness):
+    """RM-COND-031 — tests/brd/reminders.feature"""
+    async with e2e_harness.sessions() as session:
+        await create_check(session, title="Sat straight?", schedule="after completion")
+        await session.commit()
+    advisor, provider = e2e_harness.advisor(
+        [
+            *create_reminder_turns("every 3 Missed of any Check"),
+            *condition_turns("any Check", "SELECT id FROM ai_cards"),
+            turn(("set_items", {"sql": "SELECT id FROM ai_checks"}), prefix="repaired"),
         ]
     )
 
@@ -344,7 +351,7 @@ async def test_rm_cond_034_a_count_one_series_never_reaches_is_refused(e2e_harne
         await session.commit()
     advisor, provider = e2e_harness.advisor(
         unclear_script(
-            *condition_turns(f"Check #{once.id}", series_select(once.id), in_row=True),
+            condition_turn(f"Check #{once.id}", in_row=True),
             when=f"every 3 Missed in a row of Check #{once.id}",
         )
     )
@@ -353,25 +360,14 @@ async def test_rm_cond_034_a_count_one_series_never_reaches_is_refused(e2e_harne
 
     (error,) = unclear_errors(provider)
     assert error.splitlines()[0] == (
-        f"Check #{once.id} runs once in all, so a count of 3 never comes."
+        f"Check #{once.id} does not repeat, so a count of 3 never comes."
     )
     assert all(form in error for form in REMINDER_ANSWER_FORMS)
     # A count it can reach is kept.
     each_time, _provider = e2e_harness.advisor(
         [
-            route_turn("workspace_mutator"),
-            turn(
-                (
-                    "reminder",
-                    {
-                        "mode": "create",
-                        "instruction": "Cheer me on.",
-                        "when": f"each Missed of Check #{once.id}",
-                    },
-                )
-            ),
-            "I set that up for you.",
-            *condition_turns(f"Check #{once.id}", series_select(once.id), count=1),
+            *create_reminder_turns(f"each Missed of Check #{once.id}"),
+            condition_turn(f"Check #{once.id}", count=1),
         ]
     )
     outcome = await each_time.handle("cheer me on when I miss it", source_message_id=2)

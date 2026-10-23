@@ -8,6 +8,7 @@ SELECT is run there too, so the screen shows what it finds now.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from functools import partial
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -29,7 +30,14 @@ from ...enums import ActorType
 from ...foundation.workspace import Workspace
 from .agent import UNREADABLE_ITEMS, resolve_schedule, unclear
 from .api import Condition, ScheduleError, describe, schedule_from_payload, schedule_payload
-from .conditions import ConditionError, finds_text, found_ids, item_names, most_answers
+from .conditions import (
+    ConditionError,
+    finds_text,
+    found_ids,
+    item_names,
+    never_reached,
+    one_series_select,
+)
 from .model import Reminder, ScheduleKind
 from .use_cases import (
     create_reminder,
@@ -68,6 +76,7 @@ class ReminderProposalHandler:
                 now=now,
                 tz=tz,
                 names=await item_names(context.session),
+                series_select=partial(one_series_select, context.session),
             )
             if schedule.kind is ScheduleKind.CONDITION:
                 prepared["finds"] = await _finds(context.session, schedule.condition)
@@ -137,13 +146,9 @@ async def _finds(session: AsyncSession, condition: Condition) -> str:
         ids = await found_ids(session, condition)
     except ConditionError as error:
         raise unclear(f"{UNREADABLE_ITEMS} {error}", "answers") from error
-    most = await most_answers(session, condition, ids)
-    if most is not None and condition.count > most:
-        times = "once" if most == 1 else f"{most} times"
-        raise unclear(
-            f"{condition.items} runs {times} in all, so a count of {condition.count} never comes.",
-            "answers",
-        )
+    never = await never_reached(session, condition, ids)
+    if never is not None:
+        raise unclear(never, "answers")
     return await finds_text(session, condition, ids)
 
 
