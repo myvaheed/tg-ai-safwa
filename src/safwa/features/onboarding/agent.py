@@ -173,7 +173,7 @@ MANUAL = f"""# Safwa
 - A repeating Reminder may end: "every day at 9 until 30 November", "every 2 hours for a week", "every weekday at 8, 10 times". Its last firing says so, and then it deletes itself. Its screen counts the times fired.
 - Don't disturb in Profile: Reminders that repeat every few minutes or hours wait until it ends.
 - A habit tracker is a repeating Check marked yes or no, with a Remind and Values if you like. A new Reminder that repeats at a time of day offers "📊 Also track" on its screen.
-- A Reminder on answers fires at every multiple of its count: 3, 6, 9. A corrected answer fires nothing. Its words select the items again at every answer, so items made later count too, and deleting them leaves the Reminder. Its screen shows what they find now.
+- A Reminder on answers fires at every multiple of its count: 3, 6, 9. "After 30" fires once, at 30, and then deletes itself. A corrected answer fires nothing. Its words select the items again at every answer, so items made later count too, and deleting them leaves the Reminder. Its screen shows what they find now and the count now.
 - With buttons: "⏰ Reminders" or /reminders: "✏️ Text" to change the words, "🗑 Delete".
 - Deleting is the only way to stop one.
 

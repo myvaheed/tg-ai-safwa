@@ -58,7 +58,22 @@ CASES = (
     Case("now", "reminder", "по четвергам в 10", {"kind": "weekly", "days": ["Thu"], "time": "10:00"}),
     Case(
         "now", "reminder", "every 3 Missed in a row of Check #12",
-        {"kind": "condition", "answer": "missed", "count": 3, "in_row": True, "filters": False},
+        {
+            "kind": "condition",
+            "answer": "missed",
+            "count": 3,
+            "in_row": True,
+            "once": False,
+            "filters": False,
+        },
+    ),
+    Case(
+        "now", "reminder", "after 30 Passed in a row of Check #7",
+        {"kind": "condition", "answer": "passed", "count": 30, "in_row": True, "once": True},
+    ),
+    Case(
+        "now", "reminder", "после 30 Passed подряд у Check #7",
+        {"kind": "condition", "answer": "passed", "count": 30, "in_row": True, "once": True},
     ),
     Case(
         "now", "reminder", "каждые 10 Done у Actions с тегом sport",
@@ -181,7 +196,11 @@ def _timing(schedule: Schedule, *, all_day: bool = False) -> dict[str, Any]:
         # The SELECT finds the items; the answers are counted in code, never filtered there.
         filters = any(word in condition.sql.lower() for word in ("status", "stage"))
         reading.update(
-            answer=condition.answer, count=condition.count, in_row=condition.in_row, filters=filters
+            answer=condition.answer,
+            count=condition.count,
+            in_row=condition.in_row,
+            once=condition.once,
+            filters=filters,
         )
     return reading
 

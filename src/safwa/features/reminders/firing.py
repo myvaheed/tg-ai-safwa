@@ -12,7 +12,8 @@ after that.  A hook's request waiting is no reason to hold them: the Cue poll sa
 waiting in one turn.
 
 A Reminder on answers has no clock: an answer to an item its SELECT finds writes its Cue,
-and only when that answer brings the count to a multiple. Its words go even while others
+and only when that answer brings the count to a multiple; one set once fires at the count
+itself and then deletes itself, as a one-shot does. Its words go even while others
 wait, because the answer that made the count will not come again.
 
 Do not confuse the two intervals.  The tick is ``SCHEDULER_POLL_SECONDS`` and is the
@@ -175,8 +176,10 @@ async def fire_conditions(
     session: AsyncSession, item_type: str, item_id: int, *, now: datetime, tz: ZoneInfo
 ) -> bool:
     """Write down every Reminder on answers that this answer of a Check, or Done of a Card,
-    brought to a multiple of its count. Returns whether a Cue was written."""
+    brought to a multiple of its count, or once to the count itself; a Reminder once is
+    deleted as its words are written. Returns whether a Cue was written."""
     firings: list[Firing] = []
+    done: list[Reminder] = []
     for reminder in await session.scalars(
         select(Reminder)
         .where(Reminder.schedule_kind == ScheduleKind.CONDITION.value)
@@ -202,11 +205,16 @@ async def fire_conditions(
                 instruction=reminder.instruction,
                 schedule=f"{describe(schedule, tz=tz)}; {count}",
                 due_at=now,
+                last=condition.once,
             )
         )
+        if condition.once:
+            done.append(reminder)
     if not firings:
         return False
     await add_cue(session, text=format_cue(firings, now=now))
+    for reminder in done:
+        await session.delete(reminder)
     return True
 
 

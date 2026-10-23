@@ -239,7 +239,7 @@ async def test_rm_cond_030_a_condition_is_proposed_with_its_select_and_what_it_f
     assert all(call[0]["content"] != REMINDER_ITEMS_PROMPT for call in provider.calls)
     values = dict(e2e_harness.reviews.proposal(outcome.proposal_id).changes[0].values)
     assert values["schedule_text"] == f"every 3 Missed in a row of Check #{named}"
-    assert values["finds"] == "«Sat straight?»."
+    assert values["finds"] == "«Sat straight?». 1 Missed in a row now."
     async with e2e_harness.sessions() as session:
         (reminder_id,) = await approve_proposal(
             session, e2e_harness.reviews, PROPOSALS, outcome.proposal_id
@@ -252,8 +252,36 @@ async def test_rm_cond_030_a_condition_is_proposed_with_its_select_and_what_it_f
             "answer": "missed",
             "count": 3,
             "in_row": True,
+            "once": False,
         }
         assert reminder.next_fire_at is None
+
+
+async def test_rm_cond_040_after_n_is_proposed_and_saved_once(e2e_harness):
+    """RM-COND-040 — tests/brd/reminders.feature"""
+    async with e2e_harness.sessions() as session:
+        check = await create_check(session, title="Meditated?", schedule="after completion")
+        await session.commit()
+        named = check.id
+    advisor, _provider = e2e_harness.advisor(
+        [
+            *create_reminder_turns(f"after 3 Passed in a row of Check #{named}"),
+            condition_turn(f"Check #{named}", answer="passed", in_row=True, once=True),
+        ]
+    )
+
+    outcome = await advisor.handle("tell me when I meditate 3 days in a row", source_message_id=1)
+
+    assert outcome.kind is AIOutcomeKind.PROPOSAL
+    values = dict(e2e_harness.reviews.proposal(outcome.proposal_id).changes[0].values)
+    assert values["schedule_text"] == f"after 3 Passed in a row of Check #{named}"
+    assert values["finds"] == "«Meditated?». 0 Passed in a row now."
+    async with e2e_harness.sessions() as session:
+        (reminder_id,) = await approve_proposal(
+            session, e2e_harness.reviews, PROPOSALS, outcome.proposal_id
+        )
+        await session.commit()
+        assert (await session.get(Reminder, reminder_id)).condition["once"] is True
 
 
 async def test_rm_cond_030_other_items_get_their_select_from_a_second_session(e2e_harness):
@@ -278,7 +306,7 @@ async def test_rm_cond_030_other_items_get_their_select_from_a_second_session(e2
         "Items: any Check\nAnswer: missed, so read ai_checks\nTags: none\nValues: none"
     )
     values = dict(e2e_harness.reviews.proposal(outcome.proposal_id).changes[0].values)
-    assert values["finds"] == "«Sat straight?»."
+    assert values["finds"] == "«Sat straight?». 0 Missed now."
 
 
 async def test_rm_cond_031_a_select_over_the_wrong_view_goes_back_to_repair(e2e_harness):

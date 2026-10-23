@@ -120,7 +120,7 @@ reminders-as-checks это уже сделано в v9.221 (SCH-PERIOD-031); б�
   пересчитало Reminder, и интервальный Remind прозвенел бы за прошедший момент ещё раз.
 - `answer_run`, Repeated Missed и счёт условий не меняются: ряд рвёт только явный Missed.
 
-## Батч 4 — «после N» один раз и счёт сейчас (D3, D4)
+## Батч 4 — «после N» один раз и счёт сейчас (D3, D4, сделан)
 
 Критерий успеха: тест на «after 3 Passed in a row of Check #N». На третьем Passed — одна Cue со
 строкой `LAST_FIRE`, Reminder удалён, на шестом — ничего. Подготовка отказывает, если порог уже
@@ -131,9 +131,10 @@ reminders-as-checks это уже сделано в v9.221 (SCH-PERIOD-031); б�
   транзакции, что пишет Cue, и Cue говорит `LAST_FIRE`, как у последнего срабатывания повтора.
 - `describe`: «after 30 Passed in a row of Check #7» вместо «every 30 …».
 - Экран Reminder и /reminders: к строке «🔎 Finds now» добавляется счёт сейчас, например
-  «12 in a row now».
+  ««Meditated?». 12 Passed in a row now.»
 - Подготовка: если *once*, а счёт уже не меньше порога, — отказ с формами RM-UNCLEAR-028 и
-  словами вроде «Check #7 already has 34 Passed in a row, so after 30 never comes.»
+  словами «Check #7 already has 34 Passed in a row, so 'after 30' is already past.» Не «never
+  comes»: после Missed ряд начнётся заново и снова может дойти до 30.
 - Промпты: поле *once*, пример «after» в `REMINDER_WHEN_PROMPT`, описание `ai_reminders`,
   онбординг (черновики ниже).
 - Новый сценарий *RM-COND-040* «A Reminder after N answers fires once».

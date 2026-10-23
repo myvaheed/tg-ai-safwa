@@ -58,7 +58,8 @@ class ScheduleError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class Condition:
-    """Answers that make a Reminder due: which items, which answer, how many, in a row or not.
+    """Answers that make a Reminder due: which items, which answer, how many, in a row or not,
+    and whether once, at that count, or at every multiple of it.
 
     `items` is how the screen names the items; `sql` is the SELECT of their ids that is run
     at every answer. `answer` is passed, missed or answered for a Check, done for an Action.
@@ -69,6 +70,7 @@ class Condition:
     answer: str
     count: int
     in_row: bool = False
+    once: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -685,7 +687,7 @@ def describe(schedule: Schedule, *, tz: ZoneInfo, now: datetime | None = None) -
 
 
 # One answer and many, as a condition is worded: "each answer of", "every 30 answers of".
-_ANSWER_WORDS = {
+ANSWER_WORDS = {
     "passed": ("Passed", "Passed"),
     "missed": ("Missed", "Missed"),
     "answered": ("answer", "answers"),
@@ -694,10 +696,12 @@ _ANSWER_WORDS = {
 
 
 def _describe_condition(condition: Condition) -> str:
-    one, many = _ANSWER_WORDS[condition.answer]
+    one, many = ANSWER_WORDS[condition.answer]
+    row = " in a row" if condition.in_row else ""
+    if condition.once:
+        return f"after {condition.count} {many if condition.count > 1 else one}{row} of {condition.items}"
     if condition.count == 1:
         return f"each {one} of {condition.items}"
-    row = " in a row" if condition.in_row else ""
     return f"every {condition.count} {many}{row} of {condition.items}"
 
 

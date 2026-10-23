@@ -103,6 +103,9 @@ class ConditionInput(ToolInput):
     )
     count: PositiveInt = Field(description="How many of that answer; 1 for each time.")
     in_row: bool = Field(default=False, description="Counted in a row. Only with passed or missed.")
+    once: bool = Field(
+        default=False, description="true for 'after N': it fires once, at N. false for 'every N'."
+    )
 
     @model_validator(mode="after")
     def in_row_needs_one_answer(self) -> ConditionInput:
@@ -155,7 +158,7 @@ Clock time, set_reminder_config:
 Resolve relative dates against the current time. Never invent a time.
 Answers, set_condition:
 'every 3 Missed in a row of Check #12': items='Check #12', answer=missed, count=3, in_row=true.
-'after 40 Passed in a row of Check #7': items='Check #7', answer=passed, count=40, in_row=true.
+'after 40 Passed in a row of Check #7': items='Check #7', answer=passed, count=40, in_row=true, once=true.
 'every 30 answers of Check #12': items='Check #12', answer=answered, count=30.
 'every 10 Done of Actions tagged sport': items='Actions tagged sport', answer=done, count=10.
 'each time any Check is Missed': items='any Check', answer=missed, count=1.
@@ -309,6 +312,7 @@ async def resolve_schedule(
                 answer=wanted.answer,
                 count=wanted.count,
                 in_row=wanted.in_row,
+                once=wanted.once,
             ),
         )
     return result.payload._schedule

@@ -29,7 +29,7 @@ from ..schedules.api import is_open, total_count
 from ..schedules.rules import repeats
 from ..tags.api import Tag
 from ..values.api import value_names
-from .api import Condition
+from .api import ANSWER_WORDS, Condition
 
 # The views a condition's SELECT may read.
 CONDITION_VIEWS = frozenset({"ai_checks", "ai_cards"})
@@ -134,7 +134,8 @@ async def count_now(
     session: AsyncSession, condition: Condition, ids: Sequence[int], item_id: int
 ) -> str | None:
     """How many answers the condition counted at this item's answer, as the Cue says it, or
-    None when that answer is not one it counts or does not bring the count to a multiple.
+    None when that answer is not one it counts or does not bring the count to a multiple —
+    once, to the count itself.
 
     Each answer counts at its own place, in the order saved: the answers one commit saves
     together each reach their own count, so a multiple is said once and never skipped.
@@ -145,7 +146,9 @@ async def count_now(
         return None
     answers = answers[place:]
     counted = _counted(condition, answers)
-    if not counted or counted[0].id != item_id or len(counted) % condition.count:
+    if not counted or counted[0].id != item_id:
+        return None
+    if len(counted) != condition.count if condition.once else len(counted) % condition.count:
         return None
     if condition.answer == "done":
         return f"{len(counted)} Done now"
@@ -157,13 +160,20 @@ async def count_now(
 async def never_reached(
     session: AsyncSession, condition: Condition, ids: Sequence[int]
 ) -> str | None:
-    """Why the condition's items, one series, never bring it to its count, or None when they
-    can. It counts what it counts now, and every answer the series still has to come: one
-    while it does not repeat and is open, or what is left of its Schedule's total. More than
-    one series, or one without end, can reach any count.
+    """Why the condition never comes to its count, or None when it can: once, the count is
+    already past; or its items, one series, never reach it. They reach what it counts now,
+    and every answer the series still has to come: one while it does not repeat and is open,
+    or what is left of its Schedule's total. More than one series, or one without end, can
+    reach any count.
 
     A Check runs as its own Schedule does, or else as the Action it hangs on.
     """
+    counted = len(_counted(condition, await _answers(session, condition, ids)))
+    if condition.once and counted >= condition.count:
+        return (
+            f"{condition.items} already has {count_words(condition, counted)}, "
+            f"so 'after {condition.count}' is already past."
+        )
     model, series = _series(condition.answer)
     roots = set(await session.scalars(select(series).where(model.id.in_(ids))))
     if len(roots) != 1:
@@ -179,8 +189,7 @@ async def never_reached(
             .where(CardCheck.check_id == newest.id)
         )
         runs = card or newest
-    counted = len(_counted(condition, await _answers(session, condition, ids)))
-    rule = runs.schedule_record.rule if runs.schedule_record is not None else None
+    rule =runs.schedule_record.rule if runs.schedule_record is not None else None
     never = f"so a count of {condition.count} never comes."
     if not rule or not repeats(rule):
         if counted + int(is_open(newest)) >= condition.count:
@@ -206,7 +215,7 @@ async def finds_now(session: AsyncSession, condition: Condition) -> str:
 
 async def finds_text(session: AsyncSession, condition: Condition, ids: Sequence[int]) -> str:
     """What the SELECT finds now: the newest title of each series, up to
-    CONDITION_PREVIEW_TITLES of them, and how many more."""
+    CONDITION_PREVIEW_TITLES of them, and how many more; then what it counts now."""
     model, series = _series(condition.answer)
     named: dict[int, str] = {}
     for root, title in await session.execute(
@@ -218,4 +227,16 @@ async def finds_text(session: AsyncSession, condition: Condition, ids: Sequence[
     titles = list(named.values())
     shown = ", ".join(f"«{title}»" for title in titles[:CONDITION_PREVIEW_TITLES])
     more = len(titles) - CONDITION_PREVIEW_TITLES
-    return shown + (f" and {more} more" if more > 0 else "") + "."
+    counted = len(_counted(condition, await _answers(session, condition, ids)))
+    return (
+        shown
+        + (f" and {more} more" if more > 0 else "")
+        + f". {count_words(condition, counted)} now."
+    )
+
+
+def count_words(condition: Condition, count: int) -> str:
+    """A count of the condition's answers as the screens say it: 12 Passed in a row, 3 Done."""
+    one, many = ANSWER_WORDS[condition.answer]
+    row = " in a row" if condition.in_row else ""
+    return f"{count} {one if count == 1 else many}{row}"

@@ -224,7 +224,8 @@ Feature: Reminders
     And the answer is Passed, Missed, any answer of a Check, or Done of an Action, and only Passed and
       Missed count in a row
     And the screen says "every 3 Missed in a row of Check #12", and what the SELECT finds now by up to
-      3 titles and how many more (CONDITION_PREVIEW_TITLES = 3), and shows no first firing
+      3 titles and how many more (CONDITION_PREVIEW_TITLES = 3), then what it counts now, such as
+      "0 Missed in a row now", and shows no first firing
     And Save makes a Reminder with no time: the clock never fires it, and a restart does not move it
 
   Scenario: RM-COND-031 — The SELECT is checked before the owner sees it
@@ -280,7 +281,7 @@ Feature: Reminders
     And it shows what its SELECT finds now, or, when the SELECT no longer runs, that it counts
       nothing, why, and to ask Safwa to set it again
     And Safwa reads it in ai_reminders with schedule_kind condition and its condition: the items, the
-      SELECT, the answer, the count and whether in a row, and no next firing
+      SELECT, the answer, the count, whether in a row and whether once, and no next firing
 
   Scenario: RM-END-036 — A repeating Reminder can end on a last day or after a total
     Given Safwa proposes a repeating Reminder whose words say until when, for how long, or how many times
@@ -347,3 +348,19 @@ Feature: Reminders
     And the link gets the small check of VL-LINK-019, as any saved link of a Value to a Check does
     When the owner discards it
     Then nothing is written
+
+  Scenario: RM-COND-040 — A Reminder after N answers fires once
+    Given Safwa proposes a Reminder with the words "after 30 Passed in a row of Check #7"
+    When those words are worked through
+    Then the short session of RM-SCHEDULE-001 reads "after 30" as once, and "every 30" as at every
+      multiple
+    And the screen says "after 30 Passed in a row of Check #7", and what it counts now, by RM-COND-030
+    When an answer brings the count to 30 itself
+    Then its words go to Safwa as one request that says it is its last time, and the Reminder is
+      deleted as that request is written
+    And no answer after it says anything
+    And answers saved together say it once, at the 30th, by RM-COND-032
+    When the count is already 30 or more as the Reminder is proposed
+    Then it is refused with the answer forms of RM-UNCLEAR-028, saying the count it has now and that
+      after 30 is already past
+    And every 30 is not refused: it fires at the next multiple

@@ -735,7 +735,8 @@ the Cue row, exactly as for anything else Safwa says first.
   `OnCommitted(check.answered)` and `OnCommitted(card.done)`, runs each SELECT again
   (`reminders/conditions.py`) and writes the Cue of each Reminder whose count the answer brings
   to a multiple. Each answer counts at its own place in the order saved, so the answers one
-  commit saves together say a multiple once. It writes even while other words wait: that answer
+  commit saves together say a multiple once. A condition set `once` fires at its count itself
+  and is deleted as its Cue is written; preparation refuses one already past (`RM-COND-040`). It writes even while other words wait: that answer
   will not come again (`RM-COND-032`).
 
 ### A committed change, or a time of day, writes a hook's Cue

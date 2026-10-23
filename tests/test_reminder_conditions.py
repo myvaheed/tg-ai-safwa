@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
@@ -24,6 +25,7 @@ from safwa.features.reminders.agent import (
     REMINDER_ANSWER_FORMS,
     REMINDER_ITEMS_PROMPT,
     REMINDER_TIME_FORMS,
+    REMINDER_WHEN_PROMPT,
     ConditionInput,
     unclear,
 )
@@ -46,7 +48,7 @@ from safwa.features.reminders.conditions import (
     never_reached,
     one_series_select,
 )
-from safwa.features.reminders.firing import tick
+from safwa.features.reminders.firing import LAST_FIRE, tick
 from safwa.features.reminders.hooks import REMINDER_CONDITION_HOOK
 from safwa.features.reminders.model import Reminder, ScheduleKind
 from safwa.features.reminders.telegram import render_reminder, render_reminders
@@ -118,6 +120,63 @@ def test_a_condition_reads_as_its_items_answer_and_count():
     assert schedule_from_payload(schedule_payload(on(sport))) == on(sport)
 
 
+def test_after_n_reads_as_once():
+    """RM-COND-040 — tests/brd/reminders.feature"""
+    once = replace(of_check(12, "passed", 30), once=True)
+    assert describe(on(once), tz=TZ) == "after 30 Passed in a row of Check #12"
+    assert describe(on(replace(once, count=1, in_row=False)), tz=TZ) == "after 1 Passed of Check #12"
+    assert ConditionInput(items="Check #12", answer="passed", count=3).once is False
+    assert "count=40, in_row=true, once=true." in REMINDER_WHEN_PROMPT
+    assert schedule_from_payload(schedule_payload(on(once))) == on(once)
+
+
+async def test_after_n_fires_once_at_n_and_deletes_itself(sessions):
+    """RM-COND-040 — tests/brd/reminders.feature"""
+    sink = hook_sink(sessions)
+    async with sessions() as session:
+        live = await create_check(session, title="Meditated?", schedule="after completion")
+        after_three = replace(of_check(live.id, "passed"), once=True)
+        reminder = await condition_reminder(session, after_three)
+        await session.commit()
+        reminder_id = reminder.id
+
+    async def answer() -> list[str]:
+        nonlocal live
+        async with sessions() as session:
+            _, live = await resolve_check(session, live.id, CheckOutcome.PASSED)
+            await session.commit()
+        await sink.drain()
+        return await said(sessions)
+
+    assert await answer() == []
+    assert await answer() == []
+    (cue,) = await answer()
+    assert "after 3 Passed in a row of Check #" in cue and "; 3 in a row now;" in cue
+    assert LAST_FIRE in cue
+    async with sessions() as session:
+        assert await session.get(Reminder, reminder_id) is None
+    # Gone with its words, it says nothing at the sixth.
+    for _ in range(3):
+        assert await answer() == [cue]
+
+
+async def test_after_n_already_past_is_refused_with_the_count_now(sessions):
+    """RM-COND-040 — tests/brd/reminders.feature"""
+    async with sessions() as session:
+        live = await create_check(session, title="Meditated?", schedule="after completion")
+        for _ in range(3):
+            _, live = await resolve_check(session, live.id, CheckOutcome.PASSED)
+        after_two = replace(of_check(live.id, "passed", 2), once=True)
+        ids = await found_ids(session, after_two)
+        assert await never_reached(session, after_two, ids) == (
+            f"Check #{live.id} already has 3 Passed in a row, so 'after 2' is already past."
+        )
+        assert await never_reached(session, replace(after_two, count=4), ids) is None
+        # Every 2 still comes, at the next multiple.
+        assert await never_reached(session, replace(after_two, once=False), ids) is None
+        assert await finds_text(session, after_two, ids) == "«Meditated?». 3 Passed in a row now."
+
+
 def test_only_passed_and_missed_count_in_a_row():
     """RM-COND-030 — tests/brd/reminders.feature"""
     ConditionInput(items="Check #12", answer="missed", count=3, in_row=True)
@@ -158,7 +217,7 @@ async def test_the_review_screen_shows_what_the_select_finds_and_no_first_firing
         ids = await found_ids(session, condition)
         # A series is named once, by its newest title.
         assert await finds_text(session, condition, ids) == (
-            "«Ran?», «Walked?», «Read?» and 3 more."
+            "«Ran?», «Walked?», «Read?» and 3 more. 0 Missed now."
         )
         assert CONDITION_PREVIEW_TITLES == 3
         single = of_check(checks[0].id)
@@ -184,7 +243,7 @@ async def test_the_review_screen_shows_what_the_select_finds_and_no_first_firing
     lines = [field_line(field, Effect.CREATE) for field in screen.fields]
     assert lines == [
         f"<i>🔁 When:</i> every 3 Missed in a row of Check #{checks[0].id}",
-        "<i>🔎 Finds now:</i> «Sat straight?».",
+        "<i>🔎 Finds now:</i> «Sat straight?». 0 Missed in a row now.",
         "<i>Words:</i> Cheer the owner on.",
     ]
 
@@ -636,6 +695,7 @@ async def test_safwa_reads_a_condition_in_ai_reminders(read_views):
             "SELECT schedule_kind, json_extract(condition, '$.answer') AS answer, "
             "json_extract(condition, '$.count') AS count, "
             "json_extract(condition, '$.in_row') AS in_row, "
+            "json_extract(condition, '$.once') AS once, "
             "json_extract(condition, '$.sql') AS sql, next_fire_at_local FROM ai_reminders"
         )
     ).rows
@@ -644,6 +704,7 @@ async def test_safwa_reads_a_condition_in_ai_reminders(read_views):
         "answer": "missed",
         "count": 3,
         "in_row": 1,
+        "once": 0,
         "sql": condition.sql,
         "next_fire_at_local": None,
     }
