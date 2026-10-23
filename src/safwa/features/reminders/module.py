@@ -20,6 +20,9 @@ from .telegram import REMINDER_CALLBACK_ACTIONS, render_reminder, render_reminde
 
 MODULE = FeatureModule(
     name="reminders",
+    agents=(agent.REMINDER_AGENT,),
+    # Remind lands on an Action, a Goal or a Check, so the feature that owns it applies it.
+    mutation_tools=(agent.REMIND_TOOL,),
     proposals=(
         ProposalContribution(
             handler=proposal.ReminderProposalHandler(),

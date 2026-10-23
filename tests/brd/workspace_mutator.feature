@@ -1,17 +1,18 @@
 ﻿Feature: The workspace
-  The workspace is what the owner keeps: their Cards, Checks, Values, Tags, Requests and
-  Reminders. It is not an item and it has no screen. What is here is the one part of Safwa
-  that proposes every change to it, and what that part is given before it proposes one.
+  The workspace is what the owner keeps: their Cards, Checks, Values, Tags and Requests. It is
+  not an item and it has no screen. What is here is the one part of Safwa that proposes every
+  change to it, and what that part is given before it proposes one.
 
   Background:
     Given the owner has asked Safwa for a change to something they keep
 
   Scenario: WS-SCOPE-001 — What the owner keeps is changed by one part of Safwa
     Given a request that would create, change or delete a Card, a Check, a Value, a
-      Tag, a Request or a Reminder
+      Tag or a Request
     Or a request that would archive a Card or Check
     Then all of it is handed to the same part, however many kinds it touches
     And the Diary is not part of the workspace: a day is written by the part that owns days
+    And a Reminder and the Remind on an item are set by their own part, by RM-AGENT-041
     And every way Safwa has of changing anything belongs to the part that owns what it changes,
       so a way that reaches no part reaches nothing
 

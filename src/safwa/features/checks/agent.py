@@ -10,7 +10,7 @@ from tg_agent_shell.ai.autoapproval import SCALAR_UPDATE, AutoApprovalRule
 from tg_agent_shell.ai.contracts import AgentChange, Reference, ToolInput
 from tg_agent_shell.proposals.api import ChangeAction, MutationToolSpec
 
-from ...constants import NOTE_REPLACED_WHOLE, REMIND_DESCRIPTION, REMIND_LEAD_MAX_MINUTES
+from ...constants import NOTE_REPLACED_WHOLE
 
 # The answers are the Card lifecycle verbs underneath: Passed completes, Missed cancels.
 ANSWER_MODES = {"passed": ChangeAction.COMPLETE, "missed": ChangeAction.CANCEL}
@@ -18,7 +18,7 @@ ANSWER_MODES = {"passed": ChangeAction.COMPLETE, "missed": ChangeAction.CANCEL}
 
 class CheckToolInput(ToolInput):
     content_fields = frozenset({"title", "note", "schedule"})
-    semantic_null_fields = frozenset({"schedule", "remind"})
+    semantic_null_fields = frozenset({"schedule"})
 
     mode: Literal["create", "update", "passed", "missed", "link", "unlink"] = Field(
         description=(
@@ -39,9 +39,6 @@ class CheckToolInput(ToolInput):
             "null removes it. A Check with a Schedule hangs on a Goal or on no Card."
         ),
     )
-    remind: int | None = Field(
-        default=None, ge=0, le=REMIND_LEAD_MAX_MINUTES, description=REMIND_DESCRIPTION
-    )
     values: Reference | list[Reference] | None = Field(
         default=None,
         description=(
@@ -58,13 +55,13 @@ class CheckToolInput(ToolInput):
                 raise ValueError("a new Check must not include an id")
             if not (self.title or "").strip():
                 raise ValueError("a new Check needs a title")
-            if supplied - {"title", "note", "schedule", "remind"}:
-                raise ValueError("a new Check accepts only title, note, schedule and remind")
+            if supplied - {"title", "note", "schedule"}:
+                raise ValueError("a new Check accepts only title, note and schedule")
             return self
         if self.id is None:
             raise ValueError(f"check mode '{self.mode}' needs an id")
         if self.mode == "update":
-            editable = {"title", "note", "schedule", "remind"}
+            editable = {"title", "note", "schedule"}
             if not supplied:
                 raise ValueError("an updated Check needs at least one proposed field")
             if unsupported := supplied - editable:

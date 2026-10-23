@@ -5,9 +5,9 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
-from advisor_e2e_helpers import PLAN, route_turn
+from advisor_e2e_helpers import PLAN, route_turn, save
 from schedule_helpers import create_check
-from sqlalchemy import select
+from sqlalchemy import func, select
 from ui_harness import spawn_timer
 
 from llm_gateway import CompletionTurn as ProviderTurn
@@ -18,6 +18,7 @@ from safwa.bootstrap.modules import (
     PROPOSALS,
     SCREENS,
 )
+from safwa.features.cards.model import Card
 from safwa.features.checks.model import CheckOutcome
 from safwa.features.checks.use_cases import resolve_check
 from safwa.features.reminders.agent import (
@@ -29,6 +30,7 @@ from safwa.features.reminders.agent import (
 )
 from safwa.features.reminders.api import schedule_of
 from safwa.features.reminders.model import Reminder
+from safwa.features.schedules.api import entity_reminder
 from telegram_llm import ChatHost, DialogueMessage
 from tg_agent_shell.ai.mini import MINI_SESSION_REPAIR_ROUNDS
 from tg_agent_shell.ai.outcome import AIOutcomeKind
@@ -59,7 +61,7 @@ def reminder_script(config: dict[str, object], *, instruction: str, when: str):
     finished, so its answer is the last response in the queue.
     """
     return [
-        route_turn("workspace_mutator"),
+        route_turn("reminder"),
         turn(("reminder", {"mode": "create", "instruction": instruction, "when": when})),
         "I set that up for you.",
         turn(("set_reminder_config", config), prefix="setup"),
@@ -135,7 +137,7 @@ async def test_an_unresolvable_phrase_becomes_a_retryable_tool_error(e2e_harness
     # `not_clear_enough` must reach the model as a question, never as a guessed hour.
     advisor, provider = e2e_harness.advisor(
         [
-            route_turn("workspace_mutator"),
+            route_turn("reminder"),
             turn(
                 (
                     "reminder",
@@ -181,7 +183,7 @@ def unclear_errors(provider) -> list[str]:
 def unclear_script(*setup, when: str):
     """A Reminder the setup session answers with `setup`, refused, then asked about."""
     return [
-        route_turn("workspace_mutator"),
+        route_turn("reminder"),
         turn(("reminder", {"mode": "create", "instruction": "Cheer me on.", "when": when})),
         "Sure.",
         *setup,
@@ -209,7 +211,7 @@ def condition_turns(items: str, sql: str, answer: str = "missed", count: int = 3
 
 def create_reminder_turns(when: str) -> list[object]:
     return [
-        route_turn("workspace_mutator"),
+        route_turn("reminder"),
         turn(("reminder", {"mode": "create", "instruction": "Cheer me on.", "when": when})),
         "I set that up for you.",
     ]
@@ -481,7 +483,7 @@ async def test_editing_a_reminder_without_when_never_touches_the_schedule(e2e_ha
 
     advisor, _provider = e2e_harness.advisor(
         [
-            route_turn("workspace_mutator"),
+            route_turn("reminder"),
             turn(
                 (
                     "reminder",
@@ -650,7 +652,7 @@ async def test_the_model_removes_a_reminder_with_one_save(e2e_harness):
 
     advisor, _provider = e2e_harness.advisor(
         [
-            route_turn("workspace_mutator"),
+            route_turn("reminder"),
             turn(("remove", {"entity": "reminder", "id": reminder_id})),
             "That one is gone.",
             "That one is gone.",
@@ -673,3 +675,41 @@ async def test_the_model_removes_a_reminder_with_one_save(e2e_harness):
     assert not any("destructive" in text.lower() for text in message.rendered)
     # The receipt says what happened: there is no archive to read "Archive" as.
     assert any("Delete Reminder" in text for text in message.rendered)
+
+
+async def test_rm_agent_041_a_new_item_and_its_remind_are_two_routes(e2e_harness):
+    """RM-AGENT-041 — tests/brd/reminders.feature"""
+    every_day = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    async with e2e_harness.sessions() as session:
+        card_id = (await session.scalar(select(func.max(Card.id))) or 0) + 1
+    advisor, provider = e2e_harness.advisor(
+        [
+            route_turn("workspace_mutator"),
+            turn(("action", {"mode": "create", "title": "Stretch", "schedule": "every day at 20:00"})),
+            turn(("set_schedule_config", {"days": every_day, "time": "20:00"}), prefix="schedule"),
+        ]
+    )
+
+    outcome = await advisor.handle("Add Stretch every day at 20:00 and remind me 30 minutes before")
+    assert [change.entity for change in advisor.reviews.proposal(outcome.proposal_id).changes] == [
+        "card"
+    ]
+    provider.responses.extend(
+        [
+            "Stretch is saved.",
+            route_turn("reminder"),
+            turn(("remind", {"item": "action", "id": card_id, "minutes_before": 30})),
+        ]
+    )
+    remind, _affected = await save(advisor, outcome.proposal_id)
+
+    [change] = advisor.reviews.proposal(remind.proposal_id).changes
+    assert (change.entity, change.entity_id, change.values) == ("card", card_id, {"remind": 30})
+    provider.responses.extend(["Remind is on.", "Stretch is set, with Remind 30 minutes before."])
+    answered, _affected = await save(advisor, remind.proposal_id)
+
+    assert answered.kind is AIOutcomeKind.ANSWER
+    async with e2e_harness.sessions() as session:
+        card = await session.get(Card, card_id)
+        assert card.title == "Stretch"
+        assert (await entity_reminder(session, card)).lead_minutes == 30

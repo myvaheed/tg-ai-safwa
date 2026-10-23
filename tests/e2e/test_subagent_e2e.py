@@ -295,7 +295,6 @@ async def test_the_board_owns_every_mutation_tool(e2e_harness):
         "value",
         "tag",
         "request",
-        "reminder",
         "remove",
         "nothing_to_do",
     }

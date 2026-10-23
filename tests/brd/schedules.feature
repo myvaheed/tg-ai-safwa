@@ -224,13 +224,16 @@ Feature: One plain-language Schedule for Actions and Checks
     And what Safwa is handed when it fires says no lateness while the moment is still ahead,
       and how late it is once the moment has passed
 
-  Scenario: SCH-REMIND-029 — Safwa can turn Remind on when it proposes an Action, a Goal or a Check
-    Given the owner asks for an Action, a Goal or a Check with "remind me an hour before"
-    When Safwa proposes it with remind of 60 minutes, on the item's own tool and never as a new Reminder
+  Scenario: SCH-REMIND-029 — Safwa can turn Remind on for an Action, a Goal or a Check
+    Given the owner asks to be reminded of an Action, a Goal or a Check "an hour before"
+    When the reminder part proposes Remind of 60 minutes on that item, never a new Reminder, by
+      RM-AGENT-041
     Then the review screen shows Remind as "1 hour before"
-    And Save writes the Schedule, then turns Remind on 1 hour before each of its moments, by SCH-REMIND-028
-    And remind of 0 is at the time, and remind null on an update turns Remind off
-    And a remind on an item whose Schedule, proposed or its own, has no clock still ahead goes back to the model,
+    And Save turns Remind on 1 hour before each of its moments, by SCH-REMIND-028
+    And Remind of 0 is at the time, and null turns Remind off
+    And the item's own tools have no remind: a new item asked for with Remind is proposed first,
+      and its Remind after Save
+    And Remind on an item whose Schedule has no clock still ahead goes back to the model,
       "Remind needs a Schedule with a time still ahead.", and nothing is proposed
 
   Scenario: SCH-PERIOD-031 — An open instance is on the period it is in, and a closing counts for it

@@ -1,25 +1,21 @@
-"""Remind's lead: how long before each moment its Reminder fires, and the tools' `remind`."""
+"""Remind's lead: how long before each moment its Reminder fires, and the `remind` tool."""
 
 from __future__ import annotations
 
-import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
 from schedule_helpers import rule_for
 from sqlalchemy import func, select
 
-from llm_gateway import CompletionTurn, ToolCall
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.constants import WEEKDAY_NAMES
-from safwa.features.cards.model import Card
 from safwa.features.cards.telegram.review import CardProposalPresenter
 from safwa.features.cards.use_cases import create_card
-from safwa.features.checks.model import Check
 from safwa.features.checks.telegram.review import CheckProposalPresenter
+from safwa.features.checks.use_cases import create_check
 from safwa.features.reminders.api import (
     REMINDER_CATCHUP_GRACE_MINUTES,
     Schedule,
@@ -40,7 +36,6 @@ from tg_agent_shell.proposals.prepare import ChangePreparer
 
 TZ = ZoneInfo("Europe/Istanbul")
 BERLIN = ZoneInfo("Europe/Berlin")
-EVERY_DAY = {"days": list(WEEKDAY_NAMES), "time": "20:00"}
 
 
 def _local(moment: datetime, tz: ZoneInfo = TZ) -> datetime:
@@ -151,45 +146,51 @@ async def test_safwa_reads_the_lead_in_ai_reminders(read_views) -> None:
     assert row["lead_minutes"] == 45
 
 
-def _answering(name, arguments):
-    async def complete(request):
-        return CompletionTurn(
-            content="",
-            tool_calls=[ToolCall(id="1", name=name, arguments_json=json.dumps(arguments))],
-        )
-
-    return SimpleNamespace(complete=complete)
-
-
 @pytest.mark.parametrize(
-    ("tool", "entity", "field", "terminal", "config"),
+    ("item", "entity", "schedule"),
     [
-        ("action", "card", "schedule", "set_schedule_config", EVERY_DAY),
-        ("goal", "card", "deadline", "set_deadline", {"date": "20.10.2099", "time": "18:00"}),
-        ("check", "check", "schedule", "set_schedule_config", EVERY_DAY),
+        ("action", "card", "daily 20:00"),
+        ("goal", "card", "20.10.2099 18:00"),
+        ("check", "check", "daily 20:00"),
     ],
 )
-async def test_safwa_turns_remind_on_with_the_item_it_proposes(
-    sessions, tool, entity, field, terminal, config
-) -> None:
+async def test_safwa_turns_remind_on_with_the_remind_tool(sessions, item, entity, schedule) -> None:
     """SCH-REMIND-029 — tests/brd/schedules.feature"""
-    arguments = {"mode": "create", "title": "Stretch", field: "at 20", "remind": 60}
     async with sessions() as session:
-        change = PROPOSALS.change_from_tool(tool, arguments)
-        prepared = await ChangePreparer(_answering(terminal, config), None, PROPOSALS).prepare(
-            session, change
+        make = create_card if entity == "card" else create_check
+        kind = {"kind": item} if entity == "card" else {}
+        target = await make(
+            session,
+            **kind,
+            title="Stretch",
+            schedule=schedule,
+            schedule_rule=await rule_for(session, schedule),
         )
-        proposal = ProposalChange(entity=entity, action=change.action, values=prepared.values)
+        change = PROPOSALS.change_from_tool(
+            "remind", {"item": item, "id": target.id, "minutes_before": 60}
+        )
+        assert (change.entity, change.values) == (entity, {"remind": 60})
+        prepared = await ChangePreparer(None, None, PROPOSALS).prepare(session, change)
+        proposal = ProposalChange(
+            entity=entity,
+            action=change.action,
+            entity_id=target.id,
+            expected_version=prepared.expected_version,
+            values=prepared.values,
+        )
         presenter = CardProposalPresenter() if entity == "card" else CheckProposalPresenter()
         screen = await presenter.screen(session, [proposal])
-        assert "<i>Remind:</i> 1 hour before" in [
-            field_line(shown, Effect.CREATE) for shown in screen.fields
-        ]
-        [created] = await PROPOSALS.handler(entity).apply(ApplyContext(session, frozenset()), proposal)
-        item = await session.get(Card if entity == "card" else Check, created)
-        reminder = await entity_reminder(session, item)
+        assert any("1 hour before" in (field_line(shown, Effect.UPDATE) or "") for shown in screen.fields)
+        await PROPOSALS.handler(entity).apply(ApplyContext(session, frozenset()), proposal)
+        reminder = await entity_reminder(session, target)
         assert reminder.lead_minutes == 60
-        assert reminder.next_fire_at == item.period_start - timedelta(hours=1)
+        assert reminder.next_fire_at == target.period_start - timedelta(hours=1)
+
+
+@pytest.mark.parametrize("tool", ["goal", "action", "check"])
+def test_the_items_own_tools_have_no_remind(tool) -> None:
+    """SCH-REMIND-029 — tests/brd/schedules.feature"""
+    assert "remind" not in PROPOSALS.tools[tool].input_model.model_fields
 
 
 async def test_remind_of_0_is_at_the_time_and_null_turns_it_off(sessions) -> None:
@@ -203,7 +204,9 @@ async def test_remind_of_0_is_at_the_time_and_null_turns_it_off(sessions) -> Non
             schedule_rule=await rule_for(session, "daily 20:00"),
         )
         for lead, kept in ((0, 0), (None, None)):
-            change = PROPOSALS.change_from_tool("action", {"mode": "update", "id": card.id, "remind": lead})
+            change = PROPOSALS.change_from_tool(
+                "remind", {"item": "action", "id": card.id, "minutes_before": lead}
+            )
             prepared = await ChangePreparer(None, None, PROPOSALS).prepare(session, change)
             assert prepared.values["remind"] == lead
             await PROPOSALS.handler("card").apply(
@@ -223,7 +226,6 @@ async def test_remind_of_0_is_at_the_time_and_null_turns_it_off(sessions) -> Non
 
 async def test_remind_without_a_clock_still_ahead_goes_back_to_the_model(sessions) -> None:
     """SCH-REMIND-029 — tests/brd/schedules.feature"""
-    weekly = _answering("set_schedule_config", {"period": "week", "count": 3})
     async with sessions() as session:
         quota = await create_card(
             session,
@@ -232,14 +234,11 @@ async def test_remind_without_a_clock_still_ahead_goes_back_to_the_model(session
             schedule="three times a week",
             schedule_rule={"kind": "quota", "period": "week", "count": 3},
         )
-        for provider, arguments in (
-            (weekly, {"mode": "create", "title": "Swim", "schedule": "three times a week", "remind": 15}),
-            (None, {"mode": "update", "id": quota.id, "remind": 15}),
-        ):
-            change = PROPOSALS.change_from_tool("action", arguments)
-            with pytest.raises(ToolPreparationError) as refusal:
-                await ChangePreparer(provider, None, PROPOSALS).prepare(session, change)
-            result = refusal.value.as_tool_result()
-            assert (result["code"], result["error"]) == ("remind_needs_time", REMIND_NEEDS_TIME)
-        assert await session.scalar(select(func.count(Card.id))) == 1
+        change = PROPOSALS.change_from_tool(
+            "remind", {"item": "action", "id": quota.id, "minutes_before": 15}
+        )
+        with pytest.raises(ToolPreparationError) as refusal:
+            await ChangePreparer(None, None, PROPOSALS).prepare(session, change)
+        result = refusal.value.as_tool_result()
+        assert (result["code"], result["error"]) == ("remind_needs_time", REMIND_NEEDS_TIME)
         assert await session.scalar(select(func.count(Reminder.id))) == 0

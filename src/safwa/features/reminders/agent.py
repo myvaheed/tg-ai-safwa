@@ -1,11 +1,14 @@
 """What the model may do with a Reminder.
 
-Two things live here because they are one contract: the mutation tool the workspace mutator
-calls, and the setup session that turns its free-text ``when`` into schedule parameters — a
-clock time, or a condition on answers of Checks or Actions. The model never names a schedule
-shape — it is derived from which parameters came back. A condition's items come back as
-words: one Check or one Action gets the SELECT of its series from code, and a second session
-writes any other items as the SELECT of their ids.
+The reminder subagent lives here with its two tools, because they are one contract with the
+setup session that turns a free-text ``when`` into schedule parameters — a clock time, or a
+condition on answers of Checks or Actions. `reminder` makes or changes a Reminder; `remind`
+turns on the Remind of an Action, a Goal or a Check, a change the feature owning that item
+applies. The workspace mutator keeps neither, so no time crowds its prompt.
+
+The model never names a schedule shape — it is derived from which parameters came back. A
+condition's items come back as words: one Check or one Action gets the SELECT of its series
+from code, and a second session writes any other items as the SELECT of their ids.
 
 Every way the words fail to become a schedule ends in one :class:`ScheduleError`: what is
 unclear, then the forms that work, so the owner always hears both.
@@ -18,10 +21,10 @@ from datetime import datetime
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import Field, PositiveInt, PrivateAttr, model_validator
+from pydantic import BaseModel, Field, PositiveInt, PrivateAttr, model_validator
 
 from llm_gateway import LlmProvider
-from tg_agent_shell.ai.contracts import RecordToolInput, ToolInput
+from tg_agent_shell.ai.contracts import AgentChange, ChangeAction, RecordToolInput, ToolInput
 from tg_agent_shell.ai.mini import (
     MINI_SESSION_MAX_TOOL_CALLS,
     MiniSessionError,
@@ -29,8 +32,14 @@ from tg_agent_shell.ai.mini import (
     run_mini_session,
 )
 from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
+from tg_agent_shell.telegram.manifest import AgentSpec
 
-from ...constants import WEEKDAY_NAMES
+from ...constants import (
+    PROPOSING_TURN,
+    READING_THE_WORKSPACE,
+    REMIND_LEAD_MAX_MINUTES,
+    WEEKDAY_NAMES,
+)
 from .api import (
     BOUNDS_LINES,
     LAST_MONTH_DAY,
@@ -43,6 +52,12 @@ from .api import (
 )
 from .conditions import ConditionError, checked_select, items_view
 from .model import ScheduleKind
+
+REMIND_DESCRIPTION = (
+    "Remind the user at its time, 0, or this many minutes before it: "
+    "'remind me' is 0, 'remind me 25 minutes before' is 25, '3 hours before' is 180. "
+    "null turns it off."
+)
 
 
 class ReminderToolInput(RecordToolInput):
@@ -99,7 +114,10 @@ class ReminderConfigInput(ToolInput):
 class ConditionInput(ToolInput):
     items: str = Field(description="Which Checks or Actions, in the phrase's words, with every #id.")
     answer: Literal["passed", "missed", "answered", "done"] = Field(
-        description="passed or missed of a Check, answered for any answer of a Check, done of an Action."
+        description=(
+            "passed (yes) or missed (no) of a Check, answered for any answer of a Check, done "
+            "of an Action."
+        )
     )
     count: PositiveInt = Field(description="How many of that answer; 1 for each time.")
     in_row: bool = Field(default=False, description="Counted in a row. Only with passed or missed.")
@@ -134,6 +152,65 @@ REMINDER_TOOL = MutationToolSpec(
         "when it fires."
     ),
     to_change=entity_change("reminder"),
+)
+
+
+class RemindToolInput(ToolInput):
+    item: Literal["action", "goal", "check"]
+    id: PositiveInt
+    minutes_before: int | None = Field(ge=0, le=REMIND_LEAD_MAX_MINUTES, description=REMIND_DESCRIPTION)
+
+
+def _remind_change(call: BaseModel) -> AgentChange:
+    """An update of the item with Remind alone, applied by the feature that owns it. A Goal's
+    Remind is an Action's, so the call names no kind for a Card to refuse."""
+    return AgentChange(
+        entity="check" if call.item == "check" else "card",
+        action=ChangeAction.UPDATE,
+        id=call.id,
+        values={"remind": call.minutes_before},
+    )
+
+
+REMIND_TOOL = MutationToolSpec(
+    name="remind",
+    input_model=RemindToolInput,
+    description="Propose Remind on one Action, Goal or Check: a message at its time or before it.",
+    to_change=_remind_change,
+)
+
+REMINDER_AGENT_PROMPT = f"""You keep the user's Reminders and the Remind on their Actions, Goals and Checks.
+
+{{items}}
+
+{PROPOSING_TURN}
+
+# Which tool
+- At an Action's, a Goal's or a Check's own time, or before it: `remind` on that item.
+- Any other time, or on answers of Checks or Actions: `reminder`.
+- To delete a Reminder: `remove`. Never remove anything else.
+- The Morning and Evening times are Profile fields, not Reminders.
+
+# when
+- The user's own words, in their language. Never invent a date, an hour or a count.
+- Name each Check or Action in them as 'Check #12' or 'Action #7'; a group stays in words: 'Actions tagged sport'.
+
+# Find the item
+Never create a Check or an Action.
+
+{READING_THE_WORKSPACE}"""
+
+REMINDER_AGENT = AgentSpec(
+    name="reminder",
+    purpose=(
+        'set, change or delete a Reminder: at a time, on answers of Checks or Actions such as '
+        '"tell me when …", or Remind before an Action, a Goal or a Check.'
+    ),
+    instructions=REMINDER_AGENT_PROMPT,
+    # The Reminders, and the items a Remind or a count of answers names. No Sprint and no
+    # workspace state: what it decides is when, never what the work is.
+    views=("ai_reminders", "ai_checks", "ai_cards", "ai_tags", "ai_values"),
+    mutation_tools=("reminder", "remind", "remove"),
 )
 
 REMINDER_WHEN_PROMPT = f"""Read when one Reminder fires. End with one call: set_reminder_config, set_condition or not_clear_enough.

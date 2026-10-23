@@ -86,11 +86,11 @@ async def type_words(services, message: QueueTestMessage, words: str) -> QueueTe
     return typed
 
 
-async def review(e2e_harness, calls, *answers: str, request: str = "Change it"):
-    """Safwa's proposal from `calls`, drawn as its review screen."""
-    advisor, provider = e2e_harness.advisor(
-        [route_turn("workspace_mutator"), mutation_turn(*calls), *answers]
-    )
+async def review(
+    e2e_harness, calls, *answers: str, request: str = "Change it", agent: str = "workspace_mutator"
+):
+    """Safwa's proposal from `calls` by `agent`, drawn as its review screen."""
+    advisor, provider = e2e_harness.advisor([route_turn(agent), mutation_turn(*calls), *answers])
     outcome = await advisor.handle(request)
     assert outcome.proposal_id is not None
     services = review_services(e2e_harness, advisor)
@@ -562,7 +562,9 @@ async def test_remind_offers_the_choices_and_other_its_schedule_offers(e2e_harne
     """CD-EDIT-067 — tests/brd/cards.feature"""
     card_id = await run_action(e2e_harness, schedule="daily 09:00")
     advisor, _provider, services, message, proposal_id = await review(
-        e2e_harness, [("action", {"mode": "update", "id": card_id, "remind": 60})]
+        e2e_harness,
+        [("remind", {"item": "action", "id": card_id, "minutes_before": 60})],
+        agent="reminder",
     )
     await press(services, message, "✏️ Edit")
     assert message.buttons() == ["🔔 Remind", "↩️ Back"]
@@ -579,28 +581,6 @@ async def test_remind_offers_the_choices_and_other_its_schedule_offers(e2e_harne
 
     assert advisor.reviews.proposal(proposal_id).changes[0].values["remind"] == 30
     assert redrawn_buttons(message) == DECISION
-
-
-async def test_a_schedule_set_to_off_takes_the_proposals_remind_with_it(e2e_harness):
-    """CD-EDIT-067 — tests/brd/cards.feature"""
-    card_id = await run_action(e2e_harness, schedule="daily 09:00")
-    every_day = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    advisor, _provider, services, message, proposal_id = await review(
-        e2e_harness,
-        [("action", {"mode": "update", "id": card_id, "schedule": "at 21:00", "remind": 60})],
-        schedule_turn(days=every_day, time="21:00"),
-    )
-    await press(services, message, "✏️ Edit")
-    assert message.buttons() == ["⏱ Schedule", "🔔 Remind", "↩️ Back"]
-    await press(services, message, "⏱ Schedule")
-
-    await type_words(services, message, "off")
-
-    values = advisor.reviews.proposal(proposal_id).changes[0].values
-    assert values["schedule"] is None and "remind" not in values
-    assert redrawn_buttons(message) == DECISION
-    await render_proposal(message, services, proposal_id, editing=True)
-    assert message.buttons() == ["⏱ Schedule", "↩️ Back"]
 
 
 async def test_a_value_the_check_leaves_out_has_no_button(e2e_harness):
@@ -746,14 +726,13 @@ async def test_a_check_proposal_is_edited_with_the_checks_own_controls(e2e_harne
                     "id": check.id,
                     "note": "Seven hours.",
                     "schedule": "every evening at 21:00",
-                    "remind": 60,
                 },
             )
         ],
         schedule_turn(days=every_day, time="21:00"),
     )
     await press(services, message, "✏️ Edit")
-    assert message.buttons() == ["⏱ Schedule", "🔔 Remind", "📝 Note", "↩️ Back"]
+    assert message.buttons() == ["⏱ Schedule", "📝 Note", "↩️ Back"]
     await press(services, message, "📝 Note")
     assert CHECK_NOTE_INSTRUCTION in drawn(message)
     assert "Markdown is supported" in drawn(message)
@@ -765,14 +744,6 @@ async def test_a_check_proposal_is_edited_with_the_checks_own_controls(e2e_harne
     saved = advisor.reviews.proposal(proposal_id).changes[0].values
     assert saved["note"] == "Eight hours."
     assert saved["schedule_rule"] == rule and len(provider.calls) == asked
-
-    await render_proposal(message, services, proposal_id, editing=True)
-    await press(services, message, "⏱ Schedule")
-    await type_words(services, message, "off")
-    saved = advisor.reviews.proposal(proposal_id).changes[0].values
-    assert saved["schedule"] is None and "remind" not in saved
-    await render_proposal(message, services, proposal_id, editing=True)
-    assert message.buttons() == ["⏱ Schedule", "📝 Note", "↩️ Back"]
 
     async with e2e_harness.sessions() as session:
         await toggle_check_value(session, check.id, ids["Calm"])
@@ -787,7 +758,14 @@ async def test_a_check_proposal_is_edited_with_the_checks_own_controls(e2e_harne
     assert message.buttons() == ["✓ Health", "Focus", "↩️ Back"]
     _advisor, _provider, services, message, _id = await review(
         e2e_harness,
-        [("check", {"mode": "update", "id": check.id, "title": "Slept well?", "remind": 15})],
+        [("check", {"mode": "update", "id": check.id, "title": "Slept well?", "note": "Nine."})],
+    )
+    await press(services, message, "✏️ Edit")
+    assert message.buttons() == ["📝 Note", "↩️ Back"]
+    _advisor, _provider, services, message, _id = await review(
+        e2e_harness,
+        [("remind", {"item": "check", "id": check.id, "minutes_before": 15})],
+        agent="reminder",
     )
     await press(services, message, "✏️ Edit")
     assert message.buttons() == ["🔔 Remind", "↩️ Back"]
@@ -795,6 +773,34 @@ async def test_a_check_proposal_is_edited_with_the_checks_own_controls(e2e_harne
         e2e_harness, [("check", {"mode": "passed", "id": check.id})]
     )
     assert "✏️ Edit" not in message.buttons()
+
+
+async def test_a_trackers_schedule_set_to_off_takes_its_remind_with_it(e2e_harness):
+    """CH-EDIT-022 — tests/brd/checks.feature"""
+    every_day = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    advisor, _provider = e2e_harness.advisor(
+        [
+            *reminder_script(
+                {"days": every_day, "time": "21:00"}, instruction="Go to bed.", when="every day at 21"
+            ),
+            reminder_turn(("set_tracker", {"title": "In bed by 21?", "values": []}), prefix="tracker"),
+        ]
+    )
+    outcome = await advisor.handle("Remind me to go to bed every day at 21")
+    async with e2e_harness.sessions() as session:
+        await advisor.switch_proposal(session, outcome.proposal_id, 0)
+    services = review_services(e2e_harness, advisor)
+    message = QueueTestMessage()
+    await render_proposal(message, services, outcome.proposal_id, editing=True)
+    assert "🔔 Remind" in message.buttons()
+
+    await press(services, message, "⏱ Schedule")
+    await type_words(services, message, "off")
+
+    saved = advisor.reviews.proposal(outcome.proposal_id).changes[0].values
+    assert saved["schedule"] is None and "remind" not in saved
+    await render_proposal(message, services, outcome.proposal_id, editing=True)
+    assert "🔔 Remind" not in message.buttons()
 
 
 async def diary_review(e2e_harness, *calls: dict):

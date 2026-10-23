@@ -1,8 +1,8 @@
 """The workspace mutator: what the roster promises about the one session that changes the workspace.
 
-The workspace is not an entity — it is the set the owner keeps, Cards, Checks, Values, Tags,
-Requests and Reminders — so what can be asserted here is the contract of the session that
-proposes every change to it.
+The workspace is not an entity — it is the set the owner keeps, Cards, Checks, Values, Tags
+and Requests — so what can be asserted here is the contract of the session that proposes every
+change to it. Reminders and Remind are the reminder subagent's.
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ from safwa.features.planning.use_cases import start_sprint
 from safwa.features.profile.agent import PROFILE_AGENT
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
+from safwa.features.reminders.agent import REMINDER_AGENT
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.use_cases import create_value
 from safwa.features.workspace_mutator.agent import MUTATOR_AGENT
@@ -50,8 +51,13 @@ def test_every_mutation_tool_belongs_to_the_part_that_owns_what_it_changes():
 
     assert routed == set(PROPOSALS.tools)
     assert set(PROPOSALS.tools) - set(MUTATOR_AGENT.mutation_tools) == {
-        "diary", "stop_onboarding", "sprint", "profile",
+        "diary", "stop_onboarding", "sprint", "profile", "reminder", "remind",
     }
+    # One way to take anything away, shared by the two parts that keep what the owner keeps.
+    assert [agent.name for agent in AGENTS if "remove" in agent.mutation_tools] == [
+        MUTATOR_AGENT.name,
+        REMINDER_AGENT.name,
+    ]
     assert ONBOARDING_AGENT.mutation_tools == ()
     assert [agent.name for agent in AGENTS if "stop_onboarding" in agent.mutation_tools] == [
         PROFILE_AGENT.name,

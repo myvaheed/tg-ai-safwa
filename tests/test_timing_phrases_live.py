@@ -10,8 +10,8 @@ Each case names the batch that makes its form readable: `now` for forms the code
 `1a` for a last day, a total on a Reminder and the start of a quota, `1b` for days of the
 month, `goal` for a Reminder on answers that fires once, after N. The passes are the measure:
 `-k now` before and after a change says whether the new fields cost the old forms anything,
-and `-k 1a` says whether the new ones are read. The `goal` cases other than the first two were
-written by someone who never read the prompts, so a pass is a reading, not a copy.
+and `-k 1a` says whether the new ones are read. The `goal` cases were written by someone who
+never read the prompts, so a pass is a reading, not a copy; no case repeats a prompt's example.
 
 A condition's `one_item` says whether the code wrote the SELECT of one series, as it does
 when the items are exactly 'Check #N' or 'Action #N'; otherwise the second session wrote it.
@@ -75,29 +75,6 @@ CASES = (
     Case("now", "reminder", "каждые 2 часа", {"kind": "interval", "interval": 120}),
     Case("now", "reminder", "в четверг в 10", {"kind": "once", "date": "22.10.2026", "time": "10:00"}),
     Case("now", "reminder", "по четвергам в 10", {"kind": "weekly", "days": ["Thu"], "time": "10:00"}),
-    Case(
-        "now", "reminder", "every 3 Missed in a row of Check #12",
-        {
-            "kind": "condition",
-            "answer": "missed",
-            "count": 3,
-            "in_row": True,
-            "once": False,
-            "filters": False,
-            "one_item": True,
-        },
-    ),
-    Case(
-        "now", "reminder", "каждые 10 Done у Actions с тегом sport",
-        {
-            "kind": "condition",
-            "answer": "done",
-            "count": 10,
-            "in_row": False,
-            "filters": False,
-            "one_item": False,
-        },
-    ),
     Case("now", "reminder", "каждое утро", {"unclear": "time"}),
     Case("now", "schedule", "5 раз в день", {"form": "quota", "period": "day", "count": 5}),
     Case("now", "schedule", "once a week", {"form": "quota", "period": "week", "count": 1}),
@@ -196,9 +173,6 @@ CASES = (
     ),
     # The trap: a monthly count beside as many days of the month is those days.
     Case("1b", "schedule", "дважды в месяц, 1 и 15 числа", {"form": "fixed", "month_days": [1, 15], "time": None}),
-    # The first two copy the setup session's example; the rest were written blind.
-    Case("goal", "reminder", "after 30 Passed in a row of Check #7", answers("passed", 30, in_row=True, once=True, one_item=True)),
-    Case("goal", "reminder", "после 30 Passed подряд у Check #7", answers("passed", 30, in_row=True, once=True, one_item=True)),
     Case("goal", "reminder", "#14 «Помедитировал?» — когда дойду до 30 дней подряд", answers("passed", 30, in_row=True, once=True, one_item=True)),
     Case("goal", "reminder", "если пропущу #21 три дня подряд", answers("missed", 3, in_row=True, once=False, one_item=True)),
     Case("goal", "reminder", "каждые 10 выполненных Действий с тегом Sport", answers("done", 10, once=False, one_item=False)),

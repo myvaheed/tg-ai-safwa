@@ -1,29 +1,25 @@
 """The workspace mutator: the one session that proposes every change to the workspace.
 
-The workspace is what the owner keeps — Cards, Checks, Values, Tags, Requests and Reminders.
-This package is that subagent and nothing else: the roster lets it declare mutation tools
-the features that own those entities publish.
+The workspace is what the owner keeps — Cards, Checks, Values, Tags and Requests. Reminders
+and the Remind on an item have their own subagent, so this one never names a time. This
+package is that subagent and nothing else: the roster lets it declare mutation tools the
+features that own those entities publish.
 """
 
 from __future__ import annotations
 
 from tg_agent_shell.telegram.manifest import AgentSpec
 
-from ...constants import INBOX_TAG_NAME
+from ...constants import INBOX_TAG_NAME, PROPOSING_TURN, READING_THE_WORKSPACE
 
-MUTATOR_TOOLS = ("goal", "action", "check", "value", "tag", "request", "reminder", "remove")
+MUTATOR_TOOLS = ("goal", "action", "check", "value", "tag", "request", "remove")
 
 
-MUTATOR_PROMPT = """You keep the user's workspace: their Cards, Checks, Values, Tags, Requests and Reminders.
+MUTATOR_PROMPT = f"""You keep the user's workspace: their Cards, Checks, Values, Tags and Requests.
 
-{items}
+{{items}}
 
-# How a turn goes
-1. Read what you need with `query_data`. Never in the same response as a mutation tool.
-2. With the mutation tools, in the same response: one line of text naming what you will change.
-3. After the review: one short sentence naming what was saved. The interface prints the Saved/Discarded/Failed receipt itself.
-The user may override your proposal; what they saved is their choice. It takes priority. Never undo or redo it on your own.
-Nothing to change, or the request is not yours: call nothing_to_do with the reason.
+{PROPOSING_TURN}
 
 # Proposing
 - Propose only what was asked. When the choice is the user's, cite the item instead of guessing it.
@@ -35,31 +31,14 @@ Nothing to change, or the request is not yours: call nothing_to_do with the reas
 - Starting or finishing a Sprint and its Success criteria are not yours.
 
 # Inbox
-An Action can hold a note, captured idea or draft. Use Tag "{inbox_tag}" to capture these without extra detail.
+An Action can hold a note, captured idea or draft. Use Tag "{INBOX_TAG_NAME}" to capture these without extra detail.
 
-# Reminders
-- Pass the user's own words through in `when`. Never invent a date or an hour.
-- A Reminder on answers names its Checks or Actions in `when`, each by #id, e.g. 'every 3 Missed in a row of Check #12' or 'every 10 Done of Actions tagged sport'.
-- The Morning and Evening times are Profile fields, not Reminders.
-- To be reminded of an Action, a Goal or a Check, at its time or before it: `remind` on its own tool, never a Reminder.
-
-# Read the data
-`query_data` runs one read-only `SELECT` or `WITH ... SELECT` over these views only.
-Every value listed under a view is the lowercase code stored in that column.
-Find an item the user describes in other words with `search`. Nothing close: call nothing_to_do and say so.
-
-{views}
-
-`created_at` and `updated_at` are UTC text: compare them with `datetime('now')`.
-IDs are small integers. Never ask the user for one you can find yourself.""".replace("{inbox_tag}", INBOX_TAG_NAME)
+{READING_THE_WORKSPACE}"""
 
 
 MUTATOR_AGENT = AgentSpec(
     name="workspace_mutator",
-    purpose=(
-        "create, update or delete a Card, Check, Value, Tag, Request or Reminder; "
-        "archive a Card or Check only."
-    ),
+    purpose="create, update or delete a Card, Check, Value, Tag or Request; archive a Card or Check only.",
     instructions=MUTATOR_PROMPT,
     # What it changes, and what it judges a change against. The Diary is not the workspace's,
     # and neither is the log of what has already happened.
@@ -69,7 +48,6 @@ MUTATOR_AGENT = AgentSpec(
         "ai_tags",
         "ai_values",
         "ai_requests",
-        "ai_reminders",
         "ai_current_sprint",
     ),
     mutation_tools=MUTATOR_TOOLS,

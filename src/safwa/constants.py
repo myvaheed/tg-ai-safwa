@@ -19,13 +19,25 @@ WEEKDAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 NOTE_REPLACED_WHOLE = (
     "On update, it replaces the whole Note: write what it holds now, then the new words."
 )
-# How long before its moment Remind may fire, and how the Card and the Check tools ask for it.
+# How long before its moment Remind may fire.
 REMIND_LEAD_MAX_MINUTES = 24 * 60
-REMIND_DESCRIPTION = (
-    "Remind the user at its time, 0, or this many minutes before it: "
-    "'remind me' is 0, 'remind me 25 minutes before' is 25, '3 hours before' is 180. "
-    "Only when the user asks. On update, null turns it off."
-)
+# How a subagent that proposes changes goes through a turn, and how it reads the workspace.
+# The workspace mutator and the reminder subagent say both in one wording: two copies drift.
+PROPOSING_TURN = """# How a turn goes
+1. Read what you need with `query_data`. Never in the same response as a mutation tool.
+2. With the mutation tools, in the same response: one line of text naming what you will change.
+3. After the review: one short sentence naming what was saved. The interface prints the Saved/Discarded/Failed receipt itself.
+The user may override your proposal; what they saved is their choice. It takes priority. Never undo or redo it on your own.
+Nothing to change, or the request is not yours: call nothing_to_do with the reason."""
+READING_THE_WORKSPACE = """# Read the data
+`query_data` runs one read-only `SELECT` or `WITH ... SELECT` over these views only.
+Every value listed under a view is the lowercase code stored in that column.
+Find an item the user describes in other words with `search`. Nothing close: call nothing_to_do and say so.
+
+{views}
+
+`created_at` and `updated_at` are UTC text: compare them with `datetime('now')`.
+IDs are small integers. Never ask the user for one you can find yourself."""
 # How many rows one page of a Card or a Check selector lists.
 SELECTOR_PAGE_SIZE = 10
 # The advisor window is a token budget rather than a message count: a Summary of at most

@@ -364,3 +364,18 @@ Feature: Reminders
     Then it is refused with the answer forms of RM-UNCLEAR-028, saying the count it has now and that
       after 30 is already past
     And every 30 is not refused: it fires at the next multiple
+
+  Scenario: RM-AGENT-041 — Reminders and Remind are set by their own part of Safwa
+    Given a request to set, change or delete a Reminder, at a time or on answers, or to turn Remind
+      on or off for an Action, a Goal or a Check
+    Then it is handed to the reminder part, and the workspace part has no tool for a Reminder or
+      Remind
+    And the reminder part reads the Reminders, Checks, Cards, Tags and Values, and is not handed the
+      state of the workspace
+    And it proposes a Reminder by RM-WRITE-008 and Remind by SCH-REMIND-029, and takes a Reminder
+      away with the one way of WS-REMOVE-003
+    And it has no tool that creates a Check or an Action
+    When the request also asks for a new item, such as an Action every day at 20:00 with Remind 30
+      minutes before
+    Then the workspace part proposes the item, and after its Save the reminder part proposes its
+      Remind

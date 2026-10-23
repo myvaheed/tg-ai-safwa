@@ -316,17 +316,22 @@ each moment as they would without a lead and take the lead off it, so midnight, 
 an interval and a change of daylight saving time are the moments' own arithmetic
 (`SCH-REMIND-028`).
 
-Safwa turns Remind on through `remind` on the `action`, `goal` and `check` tools: the minutes
-before, 0 at the time, and null on an update turns it off. `read_proposed_remind` refuses one
-whose Schedule, the proposed one or the item's own, has no clock still ahead, with
+Safwa turns Remind on through `remind`, the reminder subagent's tool: the item — an Action, a
+Goal or a Check — its id, and the minutes before, 0 at the time, null to turn it off. Its change
+is an update of that item with Remind alone, so the feature that owns the item prepares and
+applies it. `read_proposed_remind` refuses one whose Schedule has no clock still ahead, with
 `REMIND_NEEDS_TIME` as a retryable error the model asks the owner about. The review screen shows
-Remind beside the Schedule, and Save calls `set_remind` once the Schedule is written. Like a
-Reminder's proposal, it always takes the review screen: no auto-approval rule names `remind`
-(`SCH-REMIND-029`). The mutator's prompt says a reminder of an item's own time is `remind` on
-its tool, never a Reminder, which follows the item only as Remind does.
+Remind, and Save calls `set_remind`. Like a Reminder's proposal, it always takes the review
+screen: no auto-approval rule names `remind` (`SCH-REMIND-029`). The `action`, `goal` and
+`check` tools have no `remind`, so a new item asked for with Remind is the workspace mutator's
+proposal first and the reminder subagent's after its Save (`RM-AGENT-041`). That subagent's
+prompt says a reminder of an item's own time is `remind` on that item, never a Reminder, which
+follows the item only as Remind does. Remind on a proposal still comes from 📊 Also track, whose
+Check is at its time, and a Schedule set to off under Edit takes it with it.
 
-`test_remind_phrases_live.py` measures it with the mutator and the Scheduler live, reasoning
-off, over six phrases that ask for a lead and one that does not, three runs a model. The first
+`test_remind_phrases_live.py` measured it with the mutator and the Scheduler live, while `remind`
+was a field of the item's own tool, reasoning off, over six phrases that ask for a lead and one
+that does not, three runs a model. The first
 description, "'remind me 15 minutes before' is 15, 'an hour before' is 60, 'remind me' is 0",
 read 19 of 21 on Qwen3.6 35B-A3B and 12 of 21 on Qwen3.5 9B: 9B copied its 60 for "remind me
 when it is time" and turned "10 minutes before" into 600, and both models sometimes made no

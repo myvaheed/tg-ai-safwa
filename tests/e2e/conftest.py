@@ -158,7 +158,12 @@ class E2EHarness:
         images: bool = False,
         mark_answer_source: bool = False,
     ) -> tuple[RootSession, ScriptedProvider]:
-        subagents = (self.subagent("workspace_mutator"),) if subagents is None else subagents
+        # The two that propose changes to what the owner keeps, as the application binds them.
+        subagents = (
+            (self.subagent("workspace_mutator"), self.subagent("reminder"))
+            if subagents is None
+            else subagents
+        )
         # A test about what happens *during* a turn needs the boundary to hold still, so
         # which scripted provider answers the script is the test's to say.
         provider = provider_factory(responses)

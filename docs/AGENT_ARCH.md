@@ -536,7 +536,8 @@ flowchart LR
   reasoning would only second-guess it, and a wrong `missing` there opens a screen nobody
   asked for.
 - **Every mutation tool belongs to a subagent**, never to the Advisor. `workspace_mutator` owns the workspace,
-  `diary` owns the Diary. Preparation runs where the change was authored.
+  `reminder` owns the Reminders and the Remind on an item, `diary` owns the Diary. Preparation
+  runs where the change was authored.
 - **A proposal screen decides with Save and Discard, and Edit sets by hand what a call names**
   (`PR-EDIT-033`). A feature's `ProposalContribution.editable` maps a call's values to the
   `EditableField`s its own item screen has, and the shell offers only the values the call names.

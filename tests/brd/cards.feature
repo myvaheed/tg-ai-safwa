@@ -651,7 +651,6 @@
     And Remind offers the choices and "✏️ Other" its Schedule offers by SCH-REMIND-019
     And a Schedule typed there is read before the review comes back, as one Safwa proposed is
     And a Schedule left as it was is not read again when another field is set
-    And a Schedule set to off takes the proposal's Remind with it
     And the Goals a Card stands under and the Checks it carries have no button
 
   Scenario: CD-EDIT-068 — Edit can change where a proposal leaves an Action
