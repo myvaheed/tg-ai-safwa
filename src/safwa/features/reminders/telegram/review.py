@@ -15,13 +15,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.ai.contracts import AgentChange
-from tg_agent_shell.proposals.api import (
-    ChangeAction,
-    Effect,
-    ProposalChange,
-    ProposalScreen,
-    ShownField,
-)
+from tg_agent_shell.proposals.api import ProposalChange, ProposalScreen, ShownField
 from tg_agent_shell.proposals.render import ACTION_VERBS, result_value
 from tg_agent_shell.telegram import citation_title, edited_screen, required_text
 from tg_agent_shell.telegram.contributions import TextInputFlow
@@ -76,12 +70,7 @@ class ReminderProposalPresenter:
         )
         text = str(values.get("instruction") or (reminder.instruction if reminder else ""))
         head = f"Reminder “{result_value(text)}”" if text else f"Reminder #{change.entity_id}"
-        # A Reminder has no archive, so the only removal `remove` can send reads as one.
-        verb = (
-            "Delete"
-            if change.action is ChangeAction.ARCHIVE
-            else ACTION_VERBS.get(change.action, change.action.title())
-        )
+        verb = ACTION_VERBS.get(change.action, change.action.title())
         schedule = values.get("schedule_text")
         return f"{verb} {head}" + (f" ({schedule})" if schedule else "")
 
@@ -143,10 +132,6 @@ class ReminderProposalPresenter:
                 *((ShownField(DONT_DISTURB, hours, hours, anchor=True),) if hours else ()),
                 ShownField("Words", current.get("words"), proposed["words"], anchor=True),
             ),
-            # A Reminder has no archive, so the only removal `remove` can send reads as one.
-            effect=Effect.DELETE
-            if change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}
-            else None,
         )
 
 

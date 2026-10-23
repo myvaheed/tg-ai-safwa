@@ -679,7 +679,7 @@ async def test_the_model_removes_a_reminder_with_one_save(e2e_harness):
     advisor, _provider = e2e_harness.advisor(
         [
             route_turn("reminder"),
-            turn(("remove", {"entity": "reminder", "id": reminder_id})),
+            turn(("reminder", {"mode": "delete", "id": reminder_id})),
             "That one is gone.",
             "That one is gone.",
         ]

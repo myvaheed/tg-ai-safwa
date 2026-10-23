@@ -2,9 +2,10 @@
 
 The reminder subagent lives here with its two tools, because they are one contract with the
 setup session that turns a free-text ``when`` into schedule parameters — a clock time, or a
-condition on answers of Checks or Actions. `reminder` makes or changes a Reminder; `remind`
-turns on the Remind of an Action, a Goal or a Check, a change the feature owning that item
-applies. The workspace mutator keeps neither, so no time crowds its prompt.
+condition on answers of Checks or Actions. `reminder` makes, changes or deletes a Reminder;
+`remind` turns on the Remind of an Action, a Goal or a Check, a change the feature owning that
+item applies, and is the one way to change the Reminder it makes. The workspace mutator keeps
+neither, so no time crowds its prompt, and the subagent has no tool that deletes anything else.
 
 The model never names a schedule shape — it is derived from which parameters came back. A
 condition's items come back as words: one Check or one Action gets the SELECT of its series
@@ -70,22 +71,32 @@ REMIND_DESCRIPTION = (
 
 
 class ReminderToolInput(RecordToolInput):
-    create_requires = ("when",)
+    create_requires = ("instruction", "when")
 
-    instruction: str = Field(
+    mode: Literal["create", "update", "delete"]
+    instruction: str | None = Field(
+        default=None,
         description=(
             "What Safwa does when it fires, as a request to the Advisor. Name every item it "
             "concerns by #id."
-        )
+        ),
     )
     when: str | None = Field(
         default=None,
         description=(
-            "The timing in plain words, e.g. 'every weekday at 8am', 'in 90 minutes', "
-            "'every 3 Missed in a row of Check #12' or 'every 10 Done of Actions tagged sport'. "
-            "Required to create. Omit it on update to leave the schedule untouched."
+            "The user's own words for when, in their language, with each Check or Action named "
+            "as 'Check #12' or 'Action #7'. Required to create. Omit it on update to leave the "
+            "schedule untouched."
         ),
     )
+
+    @model_validator(mode="after")
+    def validate_target(self) -> ReminderToolInput:
+        if self.mode != "delete":
+            return super().validate_target()
+        if self.id is None:
+            raise ValueError("a deleted Reminder needs an id")
+        return self
 
 
 class ReminderConfigInput(ToolInput):
@@ -202,7 +213,7 @@ REMINDER_AGENT_PROMPT = f"""You keep the user's Reminders and the Remind on thei
 # Which tool
 - At an Action's, a Goal's or a Check's own time, or before it: `remind` on that item.
 - Any other time, or on answers of Checks or Actions: `reminder`.
-- To delete a Reminder: `remove`. Never remove anything else.
+- To delete a Reminder: `reminder` with mode=delete and its id.
 - The Morning and Evening times are Profile fields, not Reminders.
 
 # when
@@ -224,7 +235,7 @@ REMINDER_AGENT = AgentSpec(
     # The Reminders, and the items a Remind or a count of answers names. No Sprint and no
     # workspace state: what it decides is when, never what the work is.
     views=("ai_reminders", "ai_checks", "ai_cards", "ai_tags", "ai_values"),
-    mutation_tools=("reminder", "remind", "remove"),
+    mutation_tools=("reminder", "remind"),
 )
 
 REMINDER_WHEN_PROMPT = f"""Read when one Reminder fires. End with one call: set_reminder_config, set_condition or not_clear_enough.

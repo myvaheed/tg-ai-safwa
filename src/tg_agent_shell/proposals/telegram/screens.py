@@ -59,7 +59,7 @@ async def render_proposal(
         presenter = services.root.proposals.presenter(changes[0].entity)
         screen = await presenter.screen(session, changes) if presenter is not None else None
         screen = screen or _plain_screen(changes)
-        effect = screen.effect or effect_of(changes)
+        effect = effect_of(changes)
         heading = (
             f"<b>{EFFECT_ICONS[effect]} {html.escape(screen.mode or effect.value)} "
             f"{html.escape(screen.item)}</b>"

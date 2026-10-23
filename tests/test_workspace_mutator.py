@@ -30,7 +30,6 @@ from safwa.features.planning.use_cases import start_sprint
 from safwa.features.profile.agent import PROFILE_AGENT
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
-from safwa.features.reminders.agent import REMINDER_AGENT
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.use_cases import create_value
 from safwa.features.workspace_mutator.agent import MUTATOR_AGENT
@@ -53,10 +52,9 @@ def test_every_mutation_tool_belongs_to_the_part_that_owns_what_it_changes():
     assert set(PROPOSALS.tools) - set(MUTATOR_AGENT.mutation_tools) == {
         "diary", "stop_onboarding", "sprint", "profile", "reminder", "remind",
     }
-    # One way to take anything away, shared by the two parts that keep what the owner keeps.
+    # One way to take away what the workspace keeps; a Reminder's part deletes with its own.
     assert [agent.name for agent in AGENTS if "remove" in agent.mutation_tools] == [
         MUTATOR_AGENT.name,
-        REMINDER_AGENT.name,
     ]
     assert ONBOARDING_AGENT.mutation_tools == ()
     assert [agent.name for agent in AGENTS if "stop_onboarding" in agent.mutation_tools] == [
@@ -75,7 +73,7 @@ def test_ws_remove_003_one_way_to_delete_and_two_kinds_that_may_be_archived():
     """WS-REMOVE-003 — tests/brd/workspace_mutator.feature"""
     entities = set(get_args(RemoveToolInput.model_fields["entity"].annotation))
 
-    assert entities == {"card", "check", "tag", "value", "request", "reminder"}
+    assert entities == {"card", "check", "tag", "value", "request"}
     assert ARCHIVABLE == {"card", "check"}
     for entity in sorted(entities - ARCHIVABLE):
         with pytest.raises(ValueError, match="never archived"):

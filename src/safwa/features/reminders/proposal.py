@@ -3,6 +3,9 @@
 Timing is resolved during preparation, before the proposal row exists, so the review
 screen shows a real schedule and Save applies exactly what the owner approved. A condition's
 SELECT is run there too, so the screen shows what it finds now.
+
+The Reminder an item's Remind made is the item's to change: a change or a deletion of it goes
+back to the model with the item to use `remind` on.
 """
 
 from __future__ import annotations
@@ -28,6 +31,9 @@ from tg_agent_shell.proposals.api import (
 
 from ...enums import ActorType
 from ...foundation.workspace import Workspace
+from ..cards.model import Card
+from ..checks.model import Check
+from ..schedules.api import item_type
 from .agent import UNREADABLE_ITEMS, resolve_schedule, unclear
 from .api import Condition, ScheduleError, describe, schedule_from_payload, schedule_payload
 from .conditions import (
@@ -53,7 +59,16 @@ class ReminderProposalHandler:
     version_model: type[Any] | None = None
 
     async def prepare(self, context: PreparationContext, change: Any) -> PreparedChange:
-        _reminder, expected_version = await require_target(context, change, Reminder)
+        reminder, expected_version = await require_target(context, change, Reminder)
+        if reminder is not None and reminder.item_type is not None:
+            item, title = await _remind_of(context.session, reminder)
+            raise ToolPreparationError(
+                "remind_of_item",
+                f"Reminder #{reminder.id} is the Remind of {item} «{title}».",
+                f"Use remind on {item}.",
+            )
+        if change.action is ChangeAction.DELETE:
+            return PreparedChange(values={}, expected_version=expected_version)
         values = await self._resolve_timing(context, dict(change.values))
         return PreparedChange(values=values, expected_version=expected_version)
 
@@ -115,8 +130,7 @@ class ReminderProposalHandler:
             return [reminder.id]
         if change.entity_id is None:
             raise DomainError("This Reminder change has no target")
-        # `remove` may only send archive for a Reminder, and a Reminder has no archive.
-        if change.action in {ChangeAction.DELETE, ChangeAction.ARCHIVE}:
+        if change.action is ChangeAction.DELETE:
             await delete_reminder(session, change.entity_id, actor=ActorType.AI)
             return [change.entity_id]
         if change.action is not ChangeAction.UPDATE:
@@ -137,6 +151,14 @@ class ReminderProposalHandler:
                 actor=ActorType.AI,
             )
         return [reminder.id]
+
+
+async def _remind_of(session: AsyncSession, reminder: Reminder) -> tuple[str, str]:
+    """The item whose Remind made the Reminder, as `remind` names it, and its title."""
+    model = Check if reminder.item_type == item_type(Check) else Card
+    item = await session.get(model, reminder.item_id)
+    kind = "Check" if model is Check else item.kind.title()
+    return f"{kind} #{item.id}", item.title
 
 
 async def _finds(session: AsyncSession, condition: Condition) -> str:

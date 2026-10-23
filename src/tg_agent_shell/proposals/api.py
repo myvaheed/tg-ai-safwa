@@ -226,8 +226,6 @@ class ProposalScreen:
     blocks: tuple[str, ...] = ()
     # The heading's verb when the effect's own word says less: "Answer", "Start".
     mode: str | None = None
-    # What Save does when the changes' actions say otherwise: a Reminder has no archive.
-    effect: Effect | None = None
 
 
 @dataclass(frozen=True)

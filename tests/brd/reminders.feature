@@ -377,9 +377,11 @@ Feature: Reminders
       Remind
     And the reminder part reads the Reminders, Checks, Cards, Tags and Values, and is not handed the
       state of the workspace
-    And it proposes a Reminder by RM-WRITE-008 and Remind by SCH-REMIND-029, and takes a Reminder
-      away with the one way of WS-REMOVE-003
-    And it has no tool that creates a Check or an Action
+    And it proposes a Reminder by RM-WRITE-008 and Remind by SCH-REMIND-029, and deletes a
+      Reminder with the same tool that proposes one
+    And it has no tool that creates, archives or deletes a Check or an Action
+    When it would change or delete the Reminder an item's Remind made
+    Then it is refused with that item's id, to set the item's Remind instead
     When the request also asks for a new item, such as an Action every day at 20:00 with Remind 30
       minutes before
     Then the workspace part proposes the item, and after its Save the reminder part proposes its

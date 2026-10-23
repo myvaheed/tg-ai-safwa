@@ -1,11 +1,12 @@
-"""`remove` — the one tool that deletes, and the one that archives.
+"""`remove` — the one tool that deletes what the workspace keeps, and the one that archives.
 
 It owns no entity of its own: the change it produces is handled by the feature that owns
 the target, which is why it registers as a plain mutation tool.
 
 Archiving exists so the workspace does not fill up, so only what the owner makes many of
 and reaches a state where it is over may be archived: a Card and a Check. Everything else
-is deleted, and deleting is never quietly turned into archiving.
+is deleted, and deleting is never quietly turned into archiving. A Reminder is not the
+workspace's: `reminder` deletes it.
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ class RemoveToolInput(ToolInput):
             "closed, and that happens on its own two Sprints later."
         ),
     )
-    entity: Literal["card", "check", "tag", "value", "request", "reminder"]
+    entity: Literal["card", "check", "tag", "value", "request"]
     id: PositiveInt
 
     @model_validator(mode="after")

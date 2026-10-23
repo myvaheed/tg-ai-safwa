@@ -28,6 +28,7 @@
     Then Safwa has exactly one way to take it away, whatever kind it is
     And that way also archives, but only a Card or a Check, which are the two the owner makes
       many of and finishes
+    And a Reminder is not kept in the workspace: its own part deletes it, by RM-AGENT-041
     When Safwa asks to archive anything else
     Then it is refused, and never turned into a deletion instead
 
