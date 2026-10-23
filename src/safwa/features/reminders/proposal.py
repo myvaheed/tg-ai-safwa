@@ -2,7 +2,7 @@
 
 Timing is resolved during preparation, before the proposal row exists, so the review
 screen shows a real schedule and Save applies exactly what the owner approved. A condition's
-SELECT is run there too, so the screen shows what it finds now.
+items are found there too, so the screen shows what it counts now.
 
 The Reminder an item's Remind made is the item's to change: a change or a deletion of it goes
 back to the model with the item to use `remind` on.
@@ -34,16 +34,9 @@ from ...foundation.workspace import Workspace
 from ..cards.model import Card
 from ..checks.model import Check
 from ..schedules.api import item_type
-from .agent import UNREADABLE_ITEMS, resolve_schedule, unclear
+from .agent import resolve_schedule, unclear
 from .api import Condition, ScheduleError, describe, schedule_from_payload, schedule_payload
-from .conditions import (
-    ConditionError,
-    finds_text,
-    found_ids,
-    item_names,
-    never_reached,
-    one_series_select,
-)
+from .conditions import finds_text, found_ids, items_series, never_reached
 from .model import Reminder, ScheduleKind
 from .use_cases import (
     create_reminder,
@@ -90,8 +83,7 @@ class ReminderProposalHandler:
                 instruction=str(prepared.get("instruction", "")),
                 now=now,
                 tz=tz,
-                names=await item_names(context.session),
-                series_select=partial(one_series_select, context.session),
+                items_series=partial(items_series, context.session),
             )
             if schedule.kind is ScheduleKind.CONDITION:
                 prepared["finds"] = await _finds(context.session, schedule.condition)
@@ -162,12 +154,9 @@ async def _remind_of(session: AsyncSession, reminder: Reminder) -> tuple[str, st
 
 
 async def _finds(session: AsyncSession, condition: Condition) -> str:
-    """What the condition's SELECT finds now, or why it is refused: it does not run, or it
-    finds one series that can never reach its count (RM-COND-034)."""
-    try:
-        ids = await found_ids(session, condition)
-    except ConditionError as error:
-        raise unclear(f"{UNREADABLE_ITEMS} {error}", "answers") from error
+    """What the condition finds now, or why it is refused: its one series can never reach its
+    count (RM-COND-034)."""
+    ids = await found_ids(session, condition)
     never = await never_reached(session, condition, ids)
     if never is not None:
         raise unclear(never, "answers")

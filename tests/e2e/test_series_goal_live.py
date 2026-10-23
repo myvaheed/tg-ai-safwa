@@ -4,9 +4,9 @@ Opt-in with ``--live-provider``, as `test_also_track_live.py` is, and run from t
 holds `.env` and `data/models`. Every turn is the live model, reasoning off: the Advisor, the
 mutator and the Reminder's setup session; search reads the bot's own text model, so the owner's
 words find a tracker named otherwise. The workspace holds four daily trackers and three Actions. What is
-compared is the condition of the Reminder proposed, with the titles of the items its SELECT
-finds; a request too vague to set proposes no Reminder. The requests were written by someone
-who never read the prompts, so a pass is a reading, not a copy.
+compared is the condition of the Reminder proposed, with the titles of the items it counts; a
+request too vague to set proposes no Reminder. The requests were written by someone who never
+read the prompts, so a pass is a reading, not a copy; a group in words is the subagent's to list.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from safwa.features.cards.model import Card
 from safwa.features.checks.model import Check
 from safwa.features.checks.use_cases import toggle_check_value
 from safwa.features.reminders.api import schedule_from_payload
-from safwa.features.reminders.conditions import found_ids, one_series_select
+from safwa.features.reminders.conditions import found_ids
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.use_cases import create_value
 from safwa.qa import qa_provider_settings
@@ -100,6 +100,38 @@ ASKED = (
         {"titles": ["Лёг до 23?"], "answer": "answered", "count": 14, "in_row": False, "once": True},
     ),
     Ask("Let me know when I'm doing well with my health habits.", ASKS),
+    Ask(
+        "Как только в проверках про Здоровье наберётся 7 «да» подряд, один раз скажи мне: «Неделя "
+        "без пропусков, красавчик!»",
+        {
+            "titles": ["Помедитировал?", "Сделал зарядку?"],
+            "answer": "passed",
+            "count": 7,
+            "in_row": True,
+            "once": True,
+        },
+    ),
+    Ask(
+        "every time ive answered 10 of my checks, yes or no whatever, ping me with 'ten more in the "
+        "books, keep showing up'",
+        {
+            "titles": ["Read 20 minutes?", "Лёг до 23?", "Помедитировал?", "Сделал зарядку?"],
+            "answer": "answered",
+            "count": 10,
+            "in_row": False,
+            "once": False,
+        },
+    ),
+    Ask(
+        "каждые 15 сделанных дел с тегом Sport напомни: «Пятнадцать позади, выпей воды и потянись!»",
+        {
+            "titles": ["Пробежка", "Силовая тренировка"],
+            "answer": "done",
+            "count": 15,
+            "in_row": False,
+            "once": False,
+        },
+    ),
 )
 
 
@@ -184,7 +216,6 @@ async def test_the_model_sets_a_reminder_on_answers(settings, encoder, e2e_harne
     async with e2e_harness.sessions() as session:
         ids = await found_ids(session, condition)
         titles = sorted(set(await session.scalars(select(model.title).where(model.id.in_(ids)))))
-        one_item = await one_series_select(session, condition.items) is not None
     reading = {
         "titles": titles,
         "answer": DOMAIN_ANSWERS[condition.kind, condition.answer],
@@ -192,5 +223,5 @@ async def test_the_model_sets_a_reminder_on_answers(settings, encoder, e2e_harne
         "in_row": condition.in_row,
         "once": condition.once,
     }
-    print(f"{case.words!r}: items {condition.items!r}, one_item {one_item}, {reading}")
+    print(f"{case.words!r}: items {condition.items!r}, {reading}")
     assert reading == case.expected, f"{case.words!r} was read as {reading}"

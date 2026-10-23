@@ -86,7 +86,7 @@ claude/habit-trackers. Основание: §6 и §8 [обзора напоми
 - `never_reached` (D5): ответы, которые счётчик уже видит, плюс оставшиеся по текущей ревизии.
   Отказ называет причину: «Check #7 does not repeat, so a count of 3 never comes.» или
   «Check #7 counts 2 now and has 2 answers left, so a count of 5 never comes.»
-- `REMINDER_ITEMS_PROMPT`: убрать три строки, которые теперь делает код (черновик ниже).
+- Промпт второй мини-сессии: убрать три строки, которые теперь делает код (черновик ниже).
 - Сценарии: RM-COND-030 — один Check или одна Action по #id получают SELECT от кода;
   RM-COND-033 — найденные экземпляры берутся сериями, поэтому удаление первого экземпляра и
   переход Value их не теряют; RM-COND-034 — область счёта.
@@ -146,7 +146,7 @@ Qwen3.6 35B, 2 прохода. 9B — когда результат устрои
 промптов, чтобы проход был чтением, а не копией примера.
 
 - `tests/test_timing_phrases_live.py`: 48 прежних фраз и 26 фраз батча `goal` — 24 вслепую и две
-  мои, почти копии примера мини-сессии. Ключ `one_item` — написал ли SELECT одной серии код (D7).
+  мои, почти копии примера мини-сессии. Ключ one_item — написал ли SELECT одной серии код (D7).
 - `tests/e2e/test_series_goal_live.py`: 10 запросов владельца через Advisor, mutator и
   мини-сессию. В рабочем пространстве 4 ежедневных трекера и 3 Actions; поиск читает текстовую
   модель бота.
@@ -225,7 +225,7 @@ Qwen3.6 35B, 2 прохода. 9B — когда результат устрои
 - **Модель называет только полярность:** `answer` — yes, no или any. yes — это Passed у Check и
   Done у Action, no — Missed у Check, any — любой ответ.
 - **Вид item решают items:** для одного item — слово в «Check #12» или «Action #7», для остальных —
-  поле `returns` у `set_items`, рядом с SELECT, который его читает. `Condition` хранит `kind`
+  поле `returns` у терминала второй мини-сессии, рядом с SELECT, который его читает. `Condition` хранит `kind`
   (check или action) и `answer`; экран говорит Passed, Missed, answers или Done по виду.
 - **У Action один ответ — Done:** он хранится как yes, «подряд» у Action — это все Done, Missed у
   Action отклоняется с формами ответа.
@@ -234,7 +234,7 @@ Qwen3.6 35B, 2 прохода. 9B — когда результат устрои
 - **Промпт `reminder`** (П8): слова владельца как есть, с item в виде «Check #12» или «Action #7»;
   примеры «every …», правило «after» и правило про Done ушли.
 
-Поле в `set_items` названо `returns`, а не `kind`: у `ai_cards` в том же промпте есть колонка `kind`
+Поле там названо `returns`, а не `kind`: у `ai_cards` в том же промпте есть колонка `kind`
 (goal или action).
 
 Сокращённый замер на каждую правку — фразы `goal`, поток цели серии, Remind и «Also track», 47
@@ -299,11 +299,143 @@ Qwen3.6 35B, 2 прохода. 9B — когда результат устрои
 - **Фразы:** «после 20 выполнений #5 и #9 в сумме» оба раза называет их Check; «when my Health
   checks have racked up 15 misses» оба раза без `once`; «on the 20th at 8am» по-прежнему monthly.
 
+## Батч 9 — У1: items только по #id (план)
+
+Счёт в Condition уже прост: yes, no или any, count, in_row для yes и no, once. Сложны items:
+группа словами («Actions tagged sport», «Checks ценности Health») становится SQL второй
+мини-сессии, и этот SELECT выполняется при каждом ответе. Замер батча 8: список «Action #1,
+Action #2» и выдуманный «Check #5» уходят во вторую мини-сессию, и та пишет SELECT, который
+ничего не находит.
+
+**Решение.** Items — только Checks или только Actions, каждый по #id. Группу сабагент
+разворачивает в список сам, через `query_data`, когда ставит Reminder. Вторая мини-сессия и SQL
+уходят целиком.
+
+**Критерий успеха.**
+- В потоке цели серии нет провалов «SELECT ничего не нашёл» и «item не существует».
+- Слепые фразы с группой возвращаются с отказом, а не с чужим SELECT.
+- Полный набор зелёный; в `conditions.py` нет SQL.
+
+### Схема
+
+`Condition`: `items` (слова для экрана), `series` (корни серий: id, который остаётся при удалении
+любой копии), `kind`, `answer`, `count`, `in_row`, `once`. Поля `sql` больше нет. Схема БД не
+меняется: условие лежит в JSON.
+
+### Код
+
+- Items разбирает код: каждая ссылка — «Check #N» или «Action #N», с названием в кавычках или без,
+  между ними только запятые, «и», «and», «&». Иначе — отказ сабагенту.
+- Отказы (идут сабагенту с формами ответа, как сейчас):
+  - группа или слова помимо #id: «Name each item by #id, as 'Check #1, Check #2'. Find a group's
+    items with query_data.»;
+  - Checks вместе с Actions: «Count Checks and Actions in separate Reminders.»;
+  - #id, которого нет: «Check #5 does not exist.» Это П14, он входит сюда.
+- Голый «#14» по-прежнему возвращается мини-сессии с NAME_THE_ID.
+- Уходят: вторая мини-сессия с её промптом, схемой и терминалом, проверка SELECT как текста,
+  выполнение SQL в `found_ids`, список Tags и Values для SELECT и параметр `names` у
+  `resolve_schedule`.
+- Разбор одного item становится разбором items в `(kind, series)`, `items_series`; `found_ids` — запрос ORM по
+  корням серий. П13 не нужен: список #id и так идёт через код.
+
+### Сценарии (меняются исходы, нужен твой ок)
+
+- **RM-COND-030:** items — Checks или Actions по #id, одного вида; группу Safwa перечисляет по #id,
+  когда ставит Reminder. Строки о второй сессии, о Tags и Values для неё уходят.
+- **RM-COND-031** «The SELECT is checked before the owner sees it» становится «The items are checked
+  before the owner sees them»: каждый #id существует, все одного вида, иначе — назад к Safwa с
+  формами ответа.
+- **RM-COND-033** «The SELECT runs again at every answer» становится «The series are fixed when the
+  Reminder is set»: считается каждая копия этих серий, открытая или отвеченная; item, созданный
+  позже, не считается; удаление всех оставляет Reminder, который ничего не считает.
+- **RM-COND-034:** «SELECT that finds one series» становится «items that are one series».
+- **RM-COND-035:** экран показывает, что считается сейчас; строка «when the SELECT no longer runs»
+  уходит; `ai_reminders` показывает серии вместо SELECT.
+- **RM-UNCLEAR-028:** формы ответа (ниже).
+
+### Тексты на согласование
+
+1. **`REMINDER_WHEN_PROMPT`**, две строки примеров про группы:
+   ```text
+   'every 10 Done of Action #3 and Action #5': items='Action #3, Action #5', answer=yes, count=10.
+   'each time Check #4 is Missed': items='Check #4', answer=no, count=1.
+   ```
+   вместо 'every 10 Done of Actions tagged sport' и 'each time any Check is Missed'.
+2. **Поле `items` у `ConditionInput`:**
+   ```text
+   The Checks or Actions by #id: 'Check #12' or 'Action #3, Action #5'.
+   ```
+3. **Промпт `reminder`, строка о `when`:**
+   ```text
+   - Name each Check or Action in them as 'Check #12' or 'Action #7'; list a group's items the same way: 'Action #3, Action #5'.
+   ```
+4. **`REMINDER_ANSWER_FORMS`** (видит и владелец). Заодно П15 — форма с «after»:
+   ```text
+   "every 3 Missed in a row of Check #12", "after 30 answers of Check #12", "every 10 Done of Action #3 and Action #5"
+   ```
+5. **`ai_reminders`, строка о `condition`:**
+   ```text
+   - `condition` is JSON `{items, series, kind, answer, count, in_row, once}`: `kind` is check or action; it fires each time the answers (yes | no | any; an action's Done is yes) of every copy of the `series` reach a multiple of `count`, or once at `count` when `once`; in a row when `in_row`; its `next_fire_at_local` is null
+   ```
+6. **Онбординг, две строки:** формы как в п. 4 и вместо «Its words select the items again at every
+   answer, so items made later count too, and deleting them leaves the Reminder.»:
+   ```text
+   It counts the Checks or Actions named when it was set, every copy of each; an item made later does not count.
+   ```
+
+### Тесты
+
+- Слепые фразы `goal`: 9 фраз с группой («с тегом Sport», «ценности Health», «из Действия #8»,
+  «любой Проверки», «tagged Reading», «Reading actions») ждут теперь отказ «by #id». Две фразы со
+  списком («#5 и #9», «#14, #17, #21») остаются.
+- Поток цели серии: три новых слепых случая с группой (Tag, Value, «все мои Checks»), их пишет
+  сабагент, который не читал промптов. «Все спортивные» и «медитация и зарядка» уже есть.
+- Юнит- и E2E-тесты на SQL групп переписываются на серии; тесты проверки SELECT уходят вместе с
+  ней.
+- Сокращённый замер на 35B, 2 прохода.
+
+### Цена
+
+- Item, созданный после Reminder, не считается: «все спортивные» — это те, что были в момент
+  постановки. Чтобы считать новый, Reminder ставят заново.
+- «Любая Check» — это список всех Checks на момент постановки.
+
+У2 — условие полями прямо в `reminder` вместо слов `when` — отдельный план после замера У1.
+
+### Сокращённый замер на 35B, 2 прохода
+
+| | П10–П12 | У1 |
+|---|---|---|
+| Слепые фразы `goal`, из 24 | 19 и 20 | 22 и 21 |
+| Поток цели серии, прежние 10 | 5 и 5 | 7 и 5 |
+| Поток, новые слепые группы, из 3 | — | 2 и 2 |
+| Remind на item, из 10 | 7 и 8 | 9 и 8 |
+| «📊 Also track», из 3 | 2 и 2 | 3 и 3 |
+
+У 10 фраз `goal` с группой теперь другой ожидаемый исход — отказ, так что строка фраз сравнима не
+один к одному.
+
+- **SQL-провалов больше нет.** Группу сабагент перечисляет сам: «с тегом Sport» оба раза стало
+  «Action #1, Action #2» после отказа, «все мои Checks» — все четыре в одном проходе из двух.
+- **П14 работает:** выдуманный «Check #14» получил «does not exist», и сабагент нашёл Check #4.
+- **Форма «after» в отказах помогла:** «Как только 14 раз…» оба раза дошло с `once`.
+- **Фразы с группой** 9 из 10 оба раза возвращаются отказом. Исключение — «once the Checks under
+  #8…»: мини-сессия пишет «Check #8».
+- **Отказ по items не всегда доходит до списка:** подсказка ошибки говорит «Tell the user what is
+  unclear», и в одном проходе сабагент спросил владельца вместо `query_data`.
+- **Мини-сессия меняет вид item:** «Check #1, когда 7 утр подряд…» стало `items='Action #1'`, и
+  Reminder считал Пробежку.
+- **Сабагент по-прежнему пересказывает:** `when` — только «Check #1» (пять повторов подряд) или «Check
+  #2 пропущен сегодня и вчера» без «каждый раз», и `once` читается неверно.
+- **Не связано с У1:** поиск не находит «медитация», «stay up past 11», «pills» и «report»;
+  Advisor раз ответил «Я создал напоминание» без вызова; «хорошая серия» раз получила count 7 из
+  примера в тексте Reminder.
+
 ## Тексты на согласование
 
 Mutator не меняется: он передаёт слова владельца в `when` как есть.
 
-**1. `REMINDER_ITEMS_PROMPT`, батч 2.** Убрать три строки, которые теперь делает код. Ничего не
+**1. Промпт второй мини-сессии, батч 2.** Убрать три строки, которые теперь делает код. Ничего не
 добавляется, мини-сессия групп читает на три строки меньше:
 
 ```text
@@ -339,11 +471,11 @@ true for 'after N': it fires once, at N. false for 'every N'.
 
 **6. Пример «after» в mutator, батч 5.** Откатан: ни одного «after» за 18 вызовов `reminder`.
 
-**7. `REMINDER_ITEMS_PROMPT` без ответов, батч 5.** Убраны колонки `status` и `stage`, строки их
+**7. Промпт второй мини-сессии без ответов, батч 5.** Убраны колонки `status` и `stage`, строки их
 значений и запрет фильтровать по ним: сессия групп не видит ответов и не фильтрует по ним.
 
 **8. Два повтора, батч 5.** Убраны строка `REMINDER_WHEN_PROMPT` «items: the phrase's own words…»
-(её говорит описание поля `items`) и строка `REMINDER_ITEMS_PROMPT` «Read ai_checks for answers of
+(её говорит описание поля `items`) и строка промпта второй мини-сессии «Read ai_checks for answers of
 Checks, ai_cards for Done of Actions.» (её говорит контекст сессии).
 
 ## Не входит

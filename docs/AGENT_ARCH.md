@@ -726,15 +726,15 @@ the Cue row, exactly as for anything else Safwa says first.
 - `reminders.start`, a `Run` on `OnStarted()`, works out again a time-of-day Reminder a timezone
   move left on the wrong moment and rolls on a repeat overdue past the grace (`RM-START-020`).
 - A Reminder on answers has no `next_fire_at`, so neither the tick nor the start ever
-  touches it. Its `condition` holds the items in words, the SELECT of their ids, the answer,
-  the count and whether in a row. The `when` session returns the items as words. One Check or
-  one Action gets the SELECT of its series from code (`one_series_select`); a second mini
-  session writes any other items' SELECT over `ai_checks` or `ai_cards`, checked as text by its
-  terminal (`RM-COND-031`). The SELECT picks series: every copy of each series it finds counts
-  (`RM-COND-033`). Preparation runs it for the review screen and refuses a count one series
-  can never reach (`RM-COND-034`). `reminders.condition`, a `Run` on
-  `OnCommitted(check.answered)` and `OnCommitted(card.done)`, runs each SELECT again
-  (`reminders/conditions.py`) and writes the Cue of each Reminder whose count the answer brings
+  touches it. Its `condition` holds the items in words, the series of each, the answer, the
+  count and whether in a row. The `when` session returns the items as Checks or Actions by #id;
+  code keeps the series of each (`items_series`) and refuses a group in words, both kinds, or an
+  #id that does not exist (`RM-COND-031`): the subagent lists a group by #id first. Every copy
+  of each series counts, and an item made later does not (`RM-COND-033`). Preparation reads
+  them for the review screen and refuses a count one series can never reach (`RM-COND-034`).
+  `reminders.condition`, a `Run` on `OnCommitted(check.answered)` and `OnCommitted(card.done)`,
+  counts each Reminder's series again (`reminders/conditions.py`) and writes the Cue of each
+  Reminder whose count the answer brings
   to a multiple. Each answer counts at its own place in the order saved, so the answers one
   commit saves together say a multiple once. A condition set `once` fires at its count itself
   and is deleted as its Cue is written; preparation refuses one already past (`RM-COND-040`). It writes even while other words wait: that answer
@@ -894,8 +894,6 @@ it reads. How the index behind it is kept and asked is [SEARCH.md](SEARCH.md).
 
 A saved Request shares the validation and nothing else: it runs on the ordinary session, and no cap
 applies, because its result is always a list in the interface and never enters the model's history.
-A Reminder on answers keeps its SELECT the same way, over `ai_checks` and `ai_cards` only: its ids
-are counted in code and never reach a model either.
 
 ## Citations
 

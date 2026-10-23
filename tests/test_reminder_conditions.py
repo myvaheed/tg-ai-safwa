@@ -10,7 +10,6 @@ from zoneinfo import ZoneInfo
 import pytest
 from pydantic import ValidationError
 from schedule_helpers import create_card, create_check
-from sqlalchemy import text
 from ui_harness import FakeMessage, button_texts, services_for
 
 from safwa.features.cards.use_cases import CARD_DONE, delete_card, finish_action, toggle_card_check
@@ -19,14 +18,12 @@ from safwa.features.checks.use_cases import (
     CHECK_ANSWERED,
     delete_check,
     resolve_check,
-    toggle_check_value,
     update_check_fields,
 )
 from safwa.features.reminders.agent import (
     NAME_THE_ID,
     NO_MISSED,
     REMINDER_ANSWER_FORMS,
-    REMINDER_ITEMS_PROMPT,
     REMINDER_TIME_FORMS,
     REMINDER_WHEN_PROMPT,
     ConditionInput,
@@ -43,13 +40,13 @@ from safwa.features.reminders.api import (
 )
 from safwa.features.reminders.conditions import (
     CONDITION_PREVIEW_TITLES,
+    NAME_BY_ID,
+    ONE_KIND,
     ConditionError,
-    checked_select,
     finds_text,
     found_ids,
-    item_names,
+    items_series,
     never_reached,
-    one_series_select,
 )
 from safwa.features.reminders.firing import LAST_FIRE, tick
 from safwa.features.reminders.hooks import REMINDER_CONDITION_HOOK
@@ -58,7 +55,6 @@ from safwa.features.reminders.telegram import render_reminder, render_reminders
 from safwa.features.reminders.telegram.review import ReminderProposalPresenter
 from safwa.features.reminders.use_cases import create_reminder, reconcile_reminders
 from safwa.features.tags.use_cases import create_tag
-from safwa.features.values.use_cases import create_value
 from tg_agent_shell.cues.initiatives import bind_committed
 from tg_agent_shell.cues.queue import waiting_cues
 from tg_agent_shell.hooks.contracts import OnCommitted, Run
@@ -67,20 +63,26 @@ from tg_agent_shell.proposals.api import ChangeAction, Effect, ProposalChange
 from tg_agent_shell.proposals.marks import field_line
 
 TZ = ZoneInfo("Europe/Istanbul")
-SPORT_SQL = (
-    "SELECT id FROM ai_cards WHERE kind = 'action' "
-    "AND instr(',' || COALESCE(direct_tags, '') || ',', ',sport,') > 0"
-)
 
 
 def of_check(check_id: int, answer: str = "no", count: int = 3, *, in_row: bool = True):
+    """A condition on one Check, named by the first copy of its series."""
     return Condition(
         items=f"Check #{check_id}",
-        sql=(
-            "SELECT id FROM ai_checks WHERE series_id = "
-            f"(SELECT series_id FROM ai_checks WHERE id = {check_id})"
-        ),
+        series=(check_id,),
         kind="check",
+        answer=answer,
+        count=count,
+        in_row=in_row,
+    )
+
+
+def of_items(kind: str, ids: list[int], answer: str, count: int, *, in_row: bool = False):
+    """A condition on several items of one kind, each the first copy of its series."""
+    return Condition(
+        items=", ".join(f"{kind.title()} #{item_id}" for item_id in ids),
+        series=tuple(ids),
+        kind=kind,
         answer=answer,
         count=count,
         in_row=in_row,
@@ -117,8 +119,8 @@ def test_a_condition_reads_as_its_items_answer_and_count():
         == "every 30 answers of Check #12"
     )
     assert describe(on(of_check(12, count=1)), tz=TZ) == "each Missed of Check #12"
-    sport = Condition(items="Actions tagged sport", sql=SPORT_SQL, kind="action", answer="yes", count=10)
-    assert describe(on(sport), tz=TZ) == "every 10 Done of Actions tagged sport"
+    sport = of_items("action", [3, 5], "yes", 10)
+    assert describe(on(sport), tz=TZ) == "every 10 Done of Action #3, Action #5"
     # No clock ever fires it, and it travels through a proposal whole.
     assert next_fire(on(sport), previous=None, now=datetime.now(UTC), tz=TZ) is None
     assert schedule_from_payload(schedule_payload(on(sport))) == on(sport)
@@ -168,12 +170,13 @@ async def test_after_n_already_past_is_refused_with_the_count_now(sessions):
     """RM-COND-040 — tests/brd/reminders.feature"""
     async with sessions() as session:
         live = await create_check(session, title="Meditated?", schedule="after completion")
+        first = live.id
         for _ in range(3):
             _, live = await resolve_check(session, live.id, CheckOutcome.PASSED)
-        after_two = replace(of_check(live.id, "yes", 2), once=True)
+        after_two = replace(of_check(first, "yes", 2), once=True)
         ids = await found_ids(session, after_two)
         assert await never_reached(session, after_two, ids) == (
-            f"Check #{live.id} already has 3 Passed in a row, so 'after 2' is already past."
+            f"Check #{first} already has 3 Passed in a row, so 'after 2' is already past."
         )
         assert await never_reached(session, replace(after_two, count=4), ids) is None
         # Every 2 still comes, at the next multiple.
@@ -184,15 +187,16 @@ async def test_after_n_already_past_is_refused_with_the_count_now(sessions):
 def test_the_short_session_names_only_yes_no_or_any():
     """RM-COND-030 — tests/brd/reminders.feature"""
     ConditionInput(items="Check #12", answer="no", count=3, in_row=True)
-    ConditionInput(items="Checks #1 and #2", answer="yes", count=50)
+    ConditionInput(items="Check #1, Check #2", answer="yes", count=50)
     with pytest.raises(ValidationError, match="in_row needs answer yes or no"):
         ConditionInput(items="Check #12", answer="any", count=3, in_row=True)
     # An id alone says neither what it is, and an Action is never Missed.
     for items in ("#12", "#5 и #9"):
         with pytest.raises(ValidationError, match=re.escape(NAME_THE_ID)):
             ConditionInput(items=items, answer="yes", count=3)
-    with pytest.raises(ValidationError, match=NO_MISSED):
-        ConditionInput(items="Action #7", answer="no", count=3)
+    for items in ("Action #7", "Action #7 и Action #8"):
+        with pytest.raises(ValidationError, match=NO_MISSED):
+            ConditionInput(items=items, answer="no", count=3)
 
 
 async def test_a_condition_has_no_time_the_clock_or_a_restart_would_move(sessions):
@@ -213,20 +217,17 @@ async def test_a_condition_has_no_time_the_clock_or_a_restart_would_move(session
         assert await waiting_cues(session) == []
 
 
-async def test_the_review_screen_shows_what_the_select_finds_and_no_first_firing(sessions):
+async def test_the_review_screen_shows_what_it_counts_and_no_first_firing(sessions):
     """RM-COND-030 — tests/brd/reminders.feature"""
     async with sessions() as session:
         titles = ["Sat straight?", "Slept 7 hours?", "Drank water?", "Read?", "Walked?"]
         checks = [await create_check(session, title=title) for title in titles]
-        _, successor = await resolve_check(
-            session,
-            (await create_check(session, title="Ran?", schedule="after completion")).id,
-            CheckOutcome.PASSED,
-        )
-        condition = Condition(items="any Check", sql="SELECT id FROM ai_checks", kind="check", answer="no", count=3)
-        ids = await found_ids(session, condition)
+        ran = await create_check(session, title="Ran?", schedule="after completion")
+        _, successor = await resolve_check(session, ran.id, CheckOutcome.PASSED)
+        every = of_items("check", [check.id for check in checks] + [ran.id], "no", 3)
+        ids = await found_ids(session, every)
         # A series is named once, by its newest title.
-        assert await finds_text(session, condition, ids) == (
+        assert await finds_text(session, every, ids) == (
             "«Ran?», «Walked?», «Read?» and 3 more. 0 Missed now."
         )
         assert CONDITION_PREVIEW_TITLES == 3
@@ -247,8 +248,6 @@ async def test_the_review_screen_shows_what_the_select_finds_and_no_first_firing
                 )
             ],
         )
-        empty = Condition(items="Actions tagged sport", sql=SPORT_SQL, kind="action", answer="yes", count=10)
-        assert await finds_text(session, empty, await found_ids(session, empty)) == "Nothing yet."
     assert successor is not None
     lines = [field_line(field, Effect.CREATE) for field in screen.fields]
     assert lines == [
@@ -258,67 +257,43 @@ async def test_the_review_screen_shows_what_the_select_finds_and_no_first_firing
     ]
 
 
-@pytest.mark.parametrize(
-    ("sql", "kind", "error"),
-    [
-        ("DELETE FROM checks", "check", "Only SELECT queries are allowed"),
-        ("SELECT id FROM ai_checks; SELECT 1", "check", "Only one SQL statement is allowed"),
-        ("SELECT id FROM ai_reminders", "check", "ai_reminders"),
-        ("SELECT id FROM ai_cards", "check", "The SELECT must read ai_checks"),
-        ("SELECT id FROM ai_checks", "action", "The SELECT must read ai_cards"),
-    ],
-)
-def test_a_select_that_cannot_find_the_items_is_refused_as_text(sql, kind, error):
-    """RM-COND-031 — tests/brd/reminders.feature"""
-    with pytest.raises(ConditionError, match=error):
-        checked_select(sql, kind)
-
-
-def test_the_select_session_is_shown_no_answer_of_the_items():
+async def test_the_items_are_kept_as_their_series(sessions):
     """RM-COND-030 — tests/brd/reminders.feature"""
-    assert "status" not in REMINDER_ITEMS_PROMPT
-    assert "stage" not in REMINDER_ITEMS_PROMPT
-
-
-async def test_the_select_session_spells_tags_and_values_as_stored(sessions):
-    """RM-COND-030 — tests/brd/reminders.feature"""
-    assert "Spell a Tag or a Value exactly as the context lists it." in REMINDER_ITEMS_PROMPT
     async with sessions() as session:
-        assert await item_names(session) == "Tags: none\nValues: none"
-        sport = await create_tag(session, "Sport")
-        await create_tag(session, "reading")
-        await create_value(session, "Health", "Strength for the years ahead.")
-        await create_card(session, kind="action", title="Run", stage="today", tag_ids={sport.id})
-        assert await item_names(session) == "Tags: reading, Sport\nValues: Health"
-        # Every example and every column the prompt names runs on the views as written.
-        for line in REMINDER_ITEMS_PROMPT.splitlines():
-            if line.startswith("'"):
-                sql = line[line.index(": SELECT") + 2 :]
-                kind = "action" if "FROM ai_cards" in sql.split("WHERE")[0] else "check"
-                condition = Condition(items="", sql=sql, kind=kind, answer="any", count=1)
-                await found_ids(session, condition)
-            if line.startswith(("ai_checks(", "ai_cards(")):
-                view, _, columns = line.rstrip(")").partition("(")
-                await session.execute(text(f"SELECT {columns} FROM {view} LIMIT 0"))
-        tagged = Condition(
-            items="Actions tagged sport",
-            sql=SPORT_SQL.replace(",sport,", ",Sport,"),
-            kind="action", answer="yes",
-            count=1,
+        live = await create_check(session, title="Sat straight?", schedule="after completion")
+        first = live.id
+        _, live = await resolve_check(session, live.id, CheckOutcome.PASSED)
+        other = await create_check(session, title="Slept 7 hours?")
+        run = await create_card(session, kind="action", title="Run", stage="today")
+        swim = await create_card(session, kind="action", title="Swim", stage="today")
+        # A later copy names the same series, by the id it keeps; its title may follow the id.
+        for items in (f"Check #{live.id}", f" check#{first} ", f"Check #{first} «Sat straight?»"):
+            assert await items_series(session, items) == ("check", (first,))
+        assert await items_series(session, f"Check #{live.id} и Check #{other.id}") == (
+            "check",
+            (first, other.id),
         )
-        assert len(await found_ids(session, tagged)) == 1
+        assert await items_series(session, f"Action #{swim.id} and Action #{run.id}") == (
+            "action",
+            (run.id, swim.id),
+        )
 
 
-async def test_a_select_that_does_not_return_ids_is_refused_when_it_runs(sessions):
+async def test_the_items_are_checked_before_the_owner_sees_them(sessions):
     """RM-COND-031 — tests/brd/reminders.feature"""
     async with sessions() as session:
-        for sql, error in (
-            ("SELECT title FROM ai_checks", "a column named id"),
-            ("SELECT id FROM ai_checks WHERE nonsense = 1", "does not run"),
+        check = await create_check(session, title="Sat straight?")
+        run = await create_card(session, kind="action", title="Run", stage="today")
+        for items, error in (
+            ("any Check", NAME_BY_ID),
+            (f"Checks of Action #{run.id}", NAME_BY_ID),
+            (f"#{check.id}", NAME_BY_ID),
+            (f"Check #{check.id}, Action #{run.id}", ONE_KIND),
+            ("Check #999", "Check #999 does not exist."),
+            (f"Action #{run.id}, Action #998", "Action #998 does not exist."),
         ):
-            condition = Condition(items="any Check", sql=sql, kind="check", answer="no", count=3)
-            with pytest.raises(ConditionError, match=error):
-                await found_ids(session, condition)
+            with pytest.raises(ConditionError, match=re.escape(error)):
+                await items_series(session, items)
 
 
 async def test_a_condition_fires_at_every_multiple_of_its_count(sessions):
@@ -411,23 +386,17 @@ async def test_answers_saved_together_count_one_by_one(sessions, checks, answer,
     sink = hook_sink(sessions)
     async with sessions() as session:
         card = await create_card(session, kind="action", title="Go to the market", stage="today")
+        check_ids = []
         for title in ("Milk", "Bread", "Eggs", "Tea")[:checks]:
             check = await create_check(session, title=title)
             await toggle_card_check(session, card.id, check.id)
-        condition = Condition(
-            items=f"Checks of Action #{card.id}",
-            sql=f"SELECT id FROM ai_checks WHERE card_id = {card.id}",
-            kind="check",
-            answer=answer,
-            count=3,
-            in_row=in_row,
-        )
-        await condition_reminder(session, condition)
+            check_ids.append(check.id)
+        await condition_reminder(session, of_items("check", check_ids, answer, 3, in_row=in_row))
         await session.commit()
         card_id = card.id
 
     async with sessions() as session:
-        outcomes = {check: CheckOutcome.PASSED for check in await found_ids(session, condition)}
+        outcomes = {check_id: CheckOutcome.PASSED for check_id in check_ids}
         await finish_action(session, card_id, check_outcomes=outcomes)
         await session.commit()
     await sink.drain()
@@ -443,15 +412,12 @@ async def test_done_of_actions_counts_in_all(sessions):
     """RM-COND-032 — tests/brd/reminders.feature"""
     sink = hook_sink(sessions)
     async with sessions() as session:
-        tag = await create_tag(session, "sport")
         runs = [
-            await create_card(
-                session, kind="action", title=title, stage="today", tag_ids={tag.id}
-            )
+            await create_card(session, kind="action", title=title, stage="today")
             for title in ("Run", "Swim", "Lift")
         ]
         reading = await create_card(session, kind="action", title="Read", stage="today")
-        sport = Condition(items="Actions tagged sport", sql=SPORT_SQL, kind="action", answer="yes", count=2)
+        sport = of_items("action", [run.id for run in runs], "yes", 2)
         await condition_reminder(session, sport)
         await session.commit()
 
@@ -463,57 +429,43 @@ async def test_done_of_actions_counts_in_all(sessions):
         return await said(sessions)
 
     assert await done(runs[0].id) == []
-    assert await done(reading.id) == []  # not one the SELECT finds
+    assert await done(reading.id) == []  # not one of its series
     (cue,) = await done(runs[1].id)
-    assert "every 2 Done of Actions tagged sport; 2 Done now" in cue
+    assert f"every 2 Done of {sport.items}; 2 Done now" in cue
     assert await done(runs[2].id) == [cue]
 
 
-async def test_the_select_runs_again_at_every_answer(sessions):
+async def test_the_series_are_fixed_when_the_reminder_is_set(sessions):
     """RM-COND-033 — tests/brd/reminders.feature"""
     sink = hook_sink(sessions)
     async with sessions() as session:
         tag = await create_tag(session, "sport")
-        sport = Condition(items="Actions tagged sport", sql=SPORT_SQL, kind="action", answer="yes", count=1)
-        reminder = await condition_reminder(session, sport)
+        run = await create_card(session, kind="action", title="Run", stage="today", tag_ids={tag.id})
+        each = of_items("action", [run.id], "yes", 1)
+        reminder = await condition_reminder(session, each)
         await session.commit()
         later = await create_card(
-            session, kind="action", title="Run", stage="today", tag_ids={tag.id}
+            session, kind="action", title="Swim", stage="today", tag_ids={tag.id}
         )
         await session.commit()
+
+    async def done(card_id: int) -> int:
+        async with sessions() as session:
+            await finish_action(session, card_id)
+            await session.commit()
+        await sink.drain()
+        return len(await said(sessions))
+
+    # An Action made later does not count, even with the same Tag.
+    assert await done(later.id) == 0
+    assert await done(run.id) == 1
+
     async with sessions() as session:
-        await finish_action(session, later.id)
+        await delete_card(session, run.id)
         await session.commit()
-    await sink.drain()
-    assert len(await said(sessions)) == 1
-
-    async with sessions() as session:
-        await delete_card(session, later.id)
-        await session.commit()
-        stored = await session.get(Reminder, reminder.id)
-        assert stored is not None
-        assert await found_ids(session, sport) == []
-
-
-async def test_one_item_gets_the_select_of_its_series_from_code(sessions):
-    """RM-COND-030 — tests/brd/reminders.feature"""
-    async with sessions() as session:
-        live = await create_check(session, title="Sat straight?", schedule="after completion")
-        first = live.id
-        _, live = await resolve_check(session, live.id, CheckOutcome.PASSED)
-        run = await create_card(session, kind="action", title="Run", stage="today")
-        series = ("check", f"SELECT id FROM ai_checks WHERE series_id = {first}")
-        # A later copy names the same series, by the id it keeps; its title may follow the id.
-        assert await one_series_select(session, f"Check #{live.id}") == series
-        assert await one_series_select(session, f" check#{first} ") == series
-        assert await one_series_select(session, f"Check #{first} «Sat straight?»") == series
-        assert await one_series_select(session, f"Action #{run.id}") == (
-            "action",
-            f"SELECT id FROM ai_cards WHERE series_id = {run.id}",
-        )
-        # Anything else is the second session's to write.
-        for items in ("any Check", f"Checks of Action #{run.id}", "Check #999", f"#{first}"):
-            assert await one_series_select(session, items) is None
+        assert await session.get(Reminder, reminder.id) is not None
+        assert await found_ids(session, each) == []
+        assert await finds_text(session, each, []) == "Nothing: its items were deleted."
 
 
 async def test_a_series_counts_after_its_first_copy_is_deleted(sessions):
@@ -523,14 +475,12 @@ async def test_a_series_counts_after_its_first_copy_is_deleted(sessions):
         live = await create_check(session, title="Sat straight?", schedule="after completion")
         first = live.id
         _, live = await resolve_check(session, live.id, CheckOutcome.PASSED)
-        kind, sql = await one_series_select(session, f"Check #{first}")
-        each = Condition(items=f"Check #{first}", sql=sql, kind=kind, answer="yes", count=1)
+        kind, series = await items_series(session, f"Check #{live.id}")
+        each = Condition(items=f"Check #{first}", series=series, kind=kind, answer="yes", count=1)
         await condition_reminder(session, each)
         await delete_check(session, first)
         await session.commit()
         live_id = live.id
-        # A SELECT that reached the series through the deleted copy finds nothing now.
-        assert await found_ids(session, of_check(first)) == []
         assert await found_ids(session, each) == [live_id]
 
     async with sessions() as session:
@@ -539,47 +489,6 @@ async def test_a_series_counts_after_its_first_copy_is_deleted(sessions):
     await sink.drain()
     (cue,) = await said(sessions)
     assert cue.endswith("1 now; 1 Passed and 0 Missed in all")
-
-
-async def test_the_select_finds_series_and_every_answer_they_had(sessions):
-    """RM-COND-033 — tests/brd/reminders.feature"""
-    sink = hook_sink(sessions)
-    async with sessions() as session:
-        health = await create_value(session, "Health", "Strength for the years ahead.")
-        live = await create_check(session, title="Drank water?", schedule="after completion")
-        await toggle_check_value(session, live.id, health.id)
-        first = live.id
-        _, live = await resolve_check(session, live.id, CheckOutcome.MISSED)
-        measured = Condition(
-            items="Checks of Health",
-            sql=(
-                "SELECT id FROM ai_checks "
-                "WHERE instr(',' || COALESCE(direct_values, '') || ',', ',Health,') > 0"
-            ),
-            kind="check", answer="yes",
-            count=1,
-        )
-        await condition_reminder(session, measured)
-        await session.commit()
-        live_id = live.id
-
-    # Answered, the Check hands its Value to the next copy, and the SELECT finds only that one;
-    # its series still counts the answer.
-    async with sessions() as session:
-        _, successor = await resolve_check(session, live_id, CheckOutcome.PASSED)
-        await session.commit()
-    await sink.drain()
-    (cue,) = await said(sessions)
-    assert cue.endswith("1 now; 1 Passed and 1 Missed in all")
-    # A SELECT that filters on the answer still counts the whole series.
-    async with sessions() as session:
-        passed = Condition(
-            items="Passed Checks",
-            sql="SELECT id FROM ai_checks WHERE status = 'passed'",
-            kind="check", answer="no",
-            count=1,
-        )
-        assert await found_ids(session, passed) == [first, live_id, successor.id]
 
 
 async def test_one_series_runs_as_its_schedule_does(sessions):
@@ -618,20 +527,15 @@ async def test_one_series_runs_as_its_schedule_does(sessions):
             f"Check #{on_once.id} does not repeat, so a count of 3 never comes."
         )
         # More than one series takes any count.
-        every = Condition(items="any Check", sql="SELECT id FROM ai_checks", kind="check", answer="no", count=9)
-        assert await never(every) is None
-        market = Condition(
-            items=f"Action #{once.id}",
-            sql=f"SELECT id FROM ai_cards WHERE id = {once.id}",
-            kind="action", answer="yes",
-            count=2,
-        )
+        assert await never(of_items("check", [alone.id, on_once.id], "no", 9)) is None
+        market = of_items("action", [once.id], "yes", 2)
         assert await never(market) == (
             f"Action #{once.id} does not repeat, so a count of 2 never comes."
         )
 
         # The answers it has had count with what is left of a new revision's total.
         live = await create_check(session, title="Walked?", schedule="after completion")
+        first = live.id
         for _ in range(2):
             _, live = await resolve_check(session, live.id, CheckOutcome.PASSED)
         await update_check_fields(
@@ -643,9 +547,9 @@ async def test_one_series_runs_as_its_schedule_does(sessions):
             },
         )
         await session.commit()
-        assert await never(of_check(live.id, "yes", 4, in_row=False)) is None
-        assert await never(of_check(live.id, "yes", 5, in_row=False)) == (
-            f"Check #{live.id} counts 2 now and has 2 answers left, so a count of 5 never comes."
+        assert await never(of_check(first, "yes", 4, in_row=False)) is None
+        assert await never(of_check(first, "yes", 5, in_row=False)) == (
+            f"Check #{first} counts 2 now and has 2 answers left, so a count of 5 never comes."
         )
 
 
@@ -678,15 +582,12 @@ async def test_a_condition_is_listed_and_opened_like_any_other(sessions):
     assert "🔎 Finds now: «Sat straight?»." in text
     assert button_texts(markup)[:2] == ["✏️ Text", "🗑 Delete"]
 
-    # A SELECT that no longer runs says so on the screen.
+    # With its items deleted, it says so on the screen.
     async with sessions() as session:
-        stored = await session.get(Reminder, reminder_id)
-        stored.condition = {**stored.condition, "sql": "SELECT id FROM ai_checks WHERE gone = 1"}
+        await delete_check(session, check_id)
         await session.commit()
     await render_reminder(detail, services, reminder_id)
-    text = detail.edits[-1][0]
-    assert "⚠️ It counts nothing: The SELECT does not run: no such column: gone." in text
-    assert "Ask Safwa to set it again." in text
+    assert "🔎 Finds now: Nothing: its items were deleted." in detail.edits[-1][0]
 
 
 async def test_safwa_reads_a_condition_in_ai_reminders(read_views):
@@ -694,8 +595,7 @@ async def test_safwa_reads_a_condition_in_ai_reminders(read_views):
     sessions, runner = read_views
     async with sessions() as session:
         check = await create_check(session, title="Sat straight?", schedule="after completion")
-        condition = of_check(check.id)
-        await condition_reminder(session, condition)
+        await condition_reminder(session, of_check(check.id))
         await session.commit()
 
     (row,) = (
@@ -705,7 +605,7 @@ async def test_safwa_reads_a_condition_in_ai_reminders(read_views):
             "json_extract(condition, '$.count') AS count, "
             "json_extract(condition, '$.in_row') AS in_row, "
             "json_extract(condition, '$.once') AS once, "
-            "json_extract(condition, '$.sql') AS sql, next_fire_at_local FROM ai_reminders"
+            "json_extract(condition, '$.series') AS series, next_fire_at_local FROM ai_reminders"
         )
     ).rows
     assert row == {
@@ -715,7 +615,7 @@ async def test_safwa_reads_a_condition_in_ai_reminders(read_views):
         "count": 3,
         "in_row": 1,
         "once": 0,
-        "sql": condition.sql,
+        "series": f"[{check.id}]",
         "next_fire_at_local": None,
     }
 
@@ -730,8 +630,8 @@ def test_the_forms_follow_what_the_words_meant():
     )
     assert REMINDER_ANSWER_FORMS == (
         "every 3 Missed in a row of Check #12",
-        "every 30 answers of Check #12",
-        "every 10 Done of Actions tagged sport",
+        "after 30 answers of Check #12",
+        "every 10 Done of Action #3 and Action #5",
     )
 
     def told(about):

@@ -11,7 +11,7 @@ waiting writes nothing, and the due Reminders it would have carried stay due for
 after that.  A hook's request waiting is no reason to hold them: the Cue poll says everything
 waiting in one turn.
 
-A Reminder on answers has no clock: an answer to an item its SELECT finds writes its Cue,
+A Reminder on answers has no clock: an answer to a copy of one of its series writes its Cue,
 and only when that answer brings the count to a multiple; one set once fires at the count
 itself and then deletes itself, as a one-shot does. Its words go even while others
 wait, because the answer that made the count will not come again.
@@ -23,7 +23,6 @@ Reminder waits seconds for a quiet moment, never one of its own cycles.
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -39,11 +38,9 @@ from .api import (
     roll_forward,
     schedule_of,
 )
-from .conditions import ConditionError, count_now, found_ids
+from .conditions import count_now, found_ids
 from .model import Reminder, ScheduleKind
 from .use_cases import firing_schedule
-
-logger = logging.getLogger(__name__)
 
 # How many due Reminders one Cue may carry.  Everything the tick found goes over
 # in a single advisor turn; the rest stay overdue and the next tick takes them.
@@ -189,11 +186,7 @@ async def fire_conditions(
         condition = schedule.condition
         if (condition.kind == "action") != (item_type == "card"):
             continue
-        try:
-            ids = await found_ids(session, condition)
-        except ConditionError as error:
-            logger.warning("Reminder #%s counts nothing: %s", reminder.id, error)
-            continue
+        ids = await found_ids(session, condition)
         if item_id not in ids:
             continue
         count = await count_now(session, condition, ids, item_id)

@@ -168,12 +168,12 @@ MANUAL = f"""# Safwa
 
 # Reminders
 - A Reminder is words and when they come due: a time, or a count of answers of Checks or Actions. When it fires, its words come to the Advisor as a request, and the Advisor answers them.
-- In words only: create one, or change when it fires. Say the time in plain words, such as "every weekday at 8:00", or the answers, such as "every 3 Missed in a row of Check #12", "every 30 answers of Check #12" or "every 10 Done of Actions tagged sport". "🔔 Remind" on a Schedule also makes one.
+- In words only: create one, or change when it fires. Say the time in plain words, such as "every weekday at 8:00", or the answers, such as "every 3 Missed in a row of Check #12", "after 30 answers of Check #12" or "every 10 Done of Action #3 and Action #5". "🔔 Remind" on a Schedule also makes one.
 - A Reminder may fire on days of the month: "on the 1st and 15th of each month at 9", "on the last day of each month at 18:00".
 - A repeating Reminder may end: "every day at 9 until 30 November", "every 2 hours for a week", "every weekday at 8, 10 times". Its last firing says so, and then it deletes itself. Its screen counts the times fired.
 - Don't disturb in Profile: Reminders that repeat every few minutes or hours wait until it ends.
 - A habit tracker is a repeating Check marked yes or no, with a Remind and Values if you like. A new Reminder that repeats at a time of day offers "📊 Also track" on its screen.
-- A Reminder on answers fires at every multiple of its count: 3, 6, 9. "After 30" fires once, at 30, and then deletes itself. A corrected answer fires nothing. Its words select the items again at every answer, so items made later count too, and deleting them leaves the Reminder. Its screen shows what they find now and the count now.
+- A Reminder on answers fires at every multiple of its count: 3, 6, 9. "After 30" fires once, at 30, and then deletes itself. A corrected answer fires nothing. It counts the Checks or Actions named when it was set, every copy of each; an item made later does not count. Its screen shows what they find now and the count now.
 - With buttons: "⏰ Reminders" or /reminders: "✏️ Text" to change the words, "🗑 Delete".
 - Deleting is the only way to stop one.
 

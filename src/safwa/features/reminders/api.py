@@ -61,14 +61,14 @@ class Condition:
     """Answers that make a Reminder due: which items, which answer, how many, in a row or not,
     and whether once, at that count, or at every multiple of it.
 
-    `items` is how the screen names the items; `sql` is the SELECT of their ids that is run
-    at every answer. `kind` is what the items are, check or action: their words say it for one
-    item, and the SELECT's session for the rest, never the answer. `answer` is yes, no or any:
+    `items` is how the screen names the items: Checks or Actions by #id. `series` holds the
+    series of each, by the id a series keeps when any copy is deleted. `kind` is what the items
+    are, check or action, as their #ids say, never the answer. `answer` is yes, no or any:
     Passed, Missed or either of a Check; an Action's is yes, its Done, its only answer.
     """
 
     items: str
-    sql: str
+    series: tuple[int, ...]
     kind: str
     answer: str
     count: int
@@ -606,7 +606,7 @@ def _condition_payload(condition: Condition | None) -> dict[str, Any] | None:
 
 
 def _condition_of(payload: dict[str, Any] | None) -> Condition | None:
-    return Condition(**payload) if payload else None
+    return Condition(**{**payload, "series": tuple(payload["series"])}) if payload else None
 
 
 def schedule_of(reminder: Any) -> Schedule:
