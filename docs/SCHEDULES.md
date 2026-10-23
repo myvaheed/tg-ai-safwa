@@ -109,9 +109,13 @@ the day without a clock. Being due at the end of its day is what puts it in Toda
 in that day's plan even when it is set during the day, and makes it overdue only once the day
 ends, with no other code knowing about it. Days, Monday-based weeks and calendar months use
 the workspace timezone. A quota does not invent a clock. Unused quota
-does not carry forward. Every quota answer belongs to the current calendar period, including
-extra answers; a late appointment answer remains attached to its appointment. One instance
-stays open at a time.
+does not carry forward. Every answer belongs to the period it happens in, extra answers
+included (`SCH-PERIOD-031`): a quota's day, week or month; an interval moment's time until the
+next moment; a moment on days from the start of its day to the start of the next moment's day.
+An answer before the Schedule's first day belongs to its first period. One instance stays open
+at a time, and the `schedules.period` hook moves it on to each new period as it starts, so it
+is never on a period that has passed; the period it leaves gets no answer and no Missed
+(`current_slot`).
 
 Any repeating form may carry a total, `"limit": N`: "five times a day, 50 times in total". It
 counts the instances answered under that revision — Done on an Action, Passed or Missed on a
@@ -283,8 +287,8 @@ of a series with nothing open, which starts it again on a new instance. Historic
 the current series instance, and appointments are counted only while their revision is active.
 Clearing Schedule ends its plan and allows ordinary completion and reopening of the final
 Action; earlier repeating instances remain closed. Deleting the last open instance ends its
-active plan while retaining the history of surviving instances. An early interval completion
-advances past the consumed appointment.
+active plan while retaining the history of surviving instances. An early completion counts
+for the period it happens in and leaves the next appointment where it was (`SCH-INTERVAL-009`).
 
 ## Remind
 
@@ -346,8 +350,9 @@ flowchart TD
 `follow_remind` keeps it true after every operation that could change it: a Schedule written,
 a title changed, an Action finished or a Goal closed, a Check answered. A copy finished early
 moves the Reminder to the next copy, whose moment is its anchor, so it is not said for the
-appointment already done. An overdue copy keeps it: a repeating Reminder fires at each later
-moment of the rule until the copy is finished. The lead stays with the Reminder through all of
+appointment already done. An open copy keeps it as it moves on to each new period, and the
+Reminder's anchor moves with the copy while its next fire stays: a repeating Reminder fires at
+each later moment of the rule until the copy is finished. The lead stays with the Reminder through all of
 it. Only a changed timing reschedules, so a rename never moves the next fire. Deleting an item
 deletes its Reminder with it (`drop_reminders`).
 

@@ -82,6 +82,7 @@ MANUAL = f"""# Safwa
 - Ask the Advisor for scheduled work and progress: planned, done and remaining counts for the asked dates, the current Sprint and all time.
 - Blocked is a warning on an Action, with its reason. It stops nothing.
 - A repeating Action makes its next copy when it is finished.
+- A repeating Action or Check left open moves on to each new day or period; the one it leaves gets no answer and no Missed. An answer counts for the period it is given in.
 - A Done Card is archived two Sprints later, or by hand. It still counts.
 - In words: create, change, move, finish, place under another Goal or take it from one, delete.
 - Deleting a Card deletes only it. The Cards under it lose that parent and keep their others; one left with none becomes root-level. The Advisor then asks where to put those, offering the Goals the deleted Card stood under. Cards without a parent in Profile → Hooks switches this off or on.

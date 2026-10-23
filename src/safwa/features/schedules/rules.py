@@ -6,7 +6,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from ..reminders.api import next_fire, roll_forward, schedule_from_payload
+from ..reminders.api import current_moment, next_fire, roll_forward, schedule_from_payload
 
 # A Deadline or an appointment without a clock is due by the end of its day.
 END_OF_DAY = time(23, 59)
@@ -55,6 +55,16 @@ def first_slot(rule: dict[str, Any], at: datetime, tz: ZoneInfo) -> datetime | N
     if rule["kind"] == "deadline":
         return deadline_moment(rule, tz)
     return next_fire(schedule_from_payload(rule["timing"]), previous=None, now=at, tz=tz)
+
+
+def current_slot(rule: dict[str, Any], at: datetime, tz: ZoneInfo) -> datetime | None:
+    """The slot whose period holds `at`, or the first one while `at` is before the Schedule
+    starts: a quota's period, or a repeating time's moment. None for a rule without periods."""
+    if rule["kind"] == "quota":
+        return period_start(from_start(rule, at, tz), rule["period"], tz)
+    if rule["kind"] != "fixed":
+        return None
+    return current_moment(schedule_from_payload(rule["timing"]), at, tz)
 
 
 def repeats(rule: dict[str, Any]) -> bool:

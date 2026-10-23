@@ -49,10 +49,11 @@ Feature: One plain-language Schedule for Actions and Checks
     Then it can be used as an ordinary Action
     And earlier completed instances stay closed
 
-  Scenario: SCH-INTERVAL-009 — Early completion consumes its appointment
+  Scenario: SCH-INTERVAL-009 — Early completion counts for the period it happens in
     Given an Action or Check repeating at a fixed interval
-    When its future appointment is completed early
-    Then the next appointment is later than the one just completed
+    When its next appointment is completed before it comes
+    Then the completion counts for the period it happens in, by SCH-PERIOD-031
+    And the next appointment stays the one that was next
 
   Scenario: SCH-REPAIR-010 — Clear timing does not ask the owner to fix model formatting
     Given a Schedule with an explicit weekday and clock
@@ -141,7 +142,8 @@ Feature: One plain-language Schedule for Actions and Checks
     Given Remind is on for a repeating Action or Check
     When it is finished before its appointment
     Then the Reminder names the next instance and fires first at that instance's appointment
-    And an instance left overdue is reminded at the Schedule's next moment, and at each one after it
+    And an instance left open moves on to each new period, by SCH-PERIOD-031, and is reminded at
+      the Schedule's next moment, and at each one after it; moving on leaves the Reminder as it is
     And a changed Schedule moves the Reminder to it, and a Schedule without a clock deletes it
     And the Reminder keeps how long before each moment it fires
     And a renamed item rewrites the Reminder's words
@@ -230,3 +232,23 @@ Feature: One plain-language Schedule for Actions and Checks
     And remind of 0 is at the time, and remind null on an update turns Remind off
     And a remind on an item whose Schedule, proposed or its own, has no clock still ahead goes back to the model,
       "Remind needs a Schedule with a time still ahead.", and nothing is proposed
+
+  Scenario: SCH-PERIOD-031 — An open instance is on the period it is in, and a closing counts for it
+    Given an Action every day, and a Check every day at 20:00
+    Then a moment's period runs from the start of its day to the start of the next moment's day
+    And an interval moment's period runs to the next moment, and a quota's is its day, week or month
+    When a new period starts while an instance is open
+    Then the same instance moves on to it, and the period it leaves gets no answer and no Missed
+    When the Action is not done on Monday and is Done on Tuesday
+    Then it counts for Tuesday, and the next instance is Wednesday's
+    When the Check starts on Monday at 21:00 and is answered at 21:30
+    Then it counts for Monday, and the next instance is Tuesday's at 20:00
+    When the next is answered on Tuesday at 15:00, and the one after it at 18:00
+    Then both count for Tuesday, and the next instance is Wednesday's at 20:00
+    When a Check every 10 minutes from 12:00 is left unanswered until 12:25
+    Then it is on 12:20 by then, its answer counts for 12:20, and the next instance is at 12:30
+    And a closing before the Schedule's first day counts for its first period
+    When a Check every day at 7:00 is Passed from Monday to Wednesday, left on Thursday, and Passed
+      on Friday at 9:00 and on Saturday
+    Then Friday's answer counts for Friday, and the five Passed are in a row: Thursday has no answer
+      and no Missed

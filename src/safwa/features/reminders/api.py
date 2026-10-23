@@ -461,6 +461,39 @@ def _by_last_day(schedule: Schedule, moment: datetime, tz: ZoneInfo) -> datetime
     return moment
 
 
+def current_moment(schedule: Schedule, at: datetime, tz: ZoneInfo) -> datetime | None:
+    """The moment whose period holds `at`, or the first one while `at` is before it; None for
+    a one-shot or a condition. It reads an item's Schedule, which never keeps Don't disturb.
+
+    An interval's moment holds until its next moment. A moment on a day holds from the start of
+    its local day until the start of the next moment's day: 15:00 is in that day's 20:00, and a
+    day with no moment is in the one before it.
+    """
+    if schedule.kind in {ScheduleKind.ONCE, ScheduleKind.CONDITION}:
+        return None
+    if schedule.kind is ScheduleKind.INTERVAL:
+        first = schedule.anchor_at or at
+        step = timedelta(minutes=schedule.interval_minutes or 0)
+        if at < first or not step:
+            return first
+        return first + (at - first) // step * step
+    today = at.astimezone(tz).date()
+    day = next(
+        (
+            today - timedelta(days=back)
+            for back in range(_LONGEST_GAP_DAYS + 1)
+            if _runs_on(schedule, today - timedelta(days=back))
+        ),
+        None,
+    )
+    if schedule.at_time is None or day is None:
+        raise ScheduleError("A daily, weekly or monthly schedule needs days and a time")
+    moment = _combine(day, schedule.at_time, tz)
+    if schedule.anchor_at is None:
+        return moment
+    return max(moment, _next_wall_clock(schedule, schedule.anchor_at, inclusive=True, tz=tz))
+
+
 def on_wall_clock(schedule: Schedule, moment: datetime, tz: ZoneInfo) -> bool:
     """Whether a stored instant still lands on this schedule's local day and clock.
 

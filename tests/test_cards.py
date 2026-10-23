@@ -754,10 +754,10 @@ async def test_cd_hardtime_033_schedule_supplies_the_next_appointment(sessions):
     """CD-HARDTIME-033 — tests/brd/cards.feature"""
     async with sessions() as session:
         daily = await create_card(session, kind="action", title="Pills", schedule="daily 09:00")
-        first_at = daily.scheduled_at
         result = await finish_action(session, daily.id)
         successor = await session.get(Card, result.successor_ids[0])
-        assert successor.scheduled_at > first_at
+        # The next appointment follows the one the completion counts for, by SCH-PERIOD-031.
+        assert successor.scheduled_at > daily.scheduled_at
         assert successor.scheduled_at.astimezone(await workspace_zone(session)).strftime("%H:%M") == "09:00"
         once = await create_card(session, kind="action", title="Passport", schedule="31.12.2099 10:00")
         assert (await finish_action(session, once.id)).successor_ids == []
