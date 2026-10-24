@@ -30,6 +30,7 @@ from safwa.features.reminders.agent import (
 )
 from safwa.features.reminders.api import schedule_from_payload, schedule_of
 from safwa.features.reminders.conditions import NAME_BY_ID, ONE_KIND
+from safwa.features.reminders.items import OPEN_ITEMS
 from safwa.features.reminders.model import Reminder
 from safwa.features.schedules.api import entity_reminder
 from telegram_llm import ChatHost, DialogueMessage
@@ -685,6 +686,29 @@ async def test_the_model_removes_a_reminder_with_one_save(e2e_harness):
     assert not any("destructive" in text.lower() for text in message.rendered)
     # The receipt says what happened: there is no archive to read "Archive" as.
     assert any("Delete Reminder" in text for text in message.rendered)
+
+
+async def test_rm_agent_041_the_reminder_part_picks_from_its_open_items(e2e_harness):
+    """RM-AGENT-041 — tests/brd/reminders.feature"""
+    async with e2e_harness.sessions() as session:
+        meditated = await create_check(session, title="Помедитировал?", schedule="daily 21:00")
+        await session.commit()
+    advisor, provider = e2e_harness.advisor(
+        [
+            route_turn("reminder"),
+            turn(("remind", {"item": "check", "id": meditated.id, "minutes_before": 0})),
+        ]
+    )
+
+    outcome = await advisor.handle("remind me to meditate")
+
+    assert outcome.kind is AIOutcomeKind.PROPOSAL
+    line = f"- Check #{meditated.id} «Помедитировал?»; schedule: daily 21:00"
+    # The Advisor's request has no such block; the subagent's has it before its first step.
+    assert not any(line in str(message["content"]) for message in provider.calls[0])
+    assert any(
+        f"{OPEN_ITEMS}\n{line}" in str(message["content"]) for message in provider.calls[1]
+    )
 
 
 async def test_rm_agent_041_a_new_item_and_its_remind_are_two_routes(e2e_harness):

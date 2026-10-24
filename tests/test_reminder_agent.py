@@ -6,11 +6,16 @@ import pytest
 from schedule_helpers import rule_for
 
 from safwa.bootstrap.modules import AGENTS, PROPOSALS, SYSTEM_PROMPT
-from safwa.features.cards.use_cases import create_card
-from safwa.features.checks.use_cases import create_check
+from safwa.features.cards.use_cases import archive_subtree, create_card, finish_action
+from safwa.features.checks.model import CheckOutcome
+from safwa.features.checks.use_cases import create_check, resolve_check, toggle_check_value
+from safwa.features.reminders import items
 from safwa.features.reminders.agent import REMINDER_AGENT
+from safwa.features.reminders.items import NO_OPEN_ITEMS, OPEN_ITEMS, open_items, reminder_items
 from safwa.features.schedules.api import entity_reminder
 from safwa.features.schedules.use_cases import set_remind
+from safwa.features.tags.use_cases import create_tag
+from safwa.features.values.use_cases import create_value
 from safwa.features.workspace_mutator.agent import MUTATOR_AGENT
 from tg_agent_shell.proposals.api import ChangeAction, ToolPreparationError
 from tg_agent_shell.proposals.prepare import ChangePreparer
@@ -25,7 +30,65 @@ def test_rm_agent_041_reminders_and_remind_have_their_own_part():
     assert "ai_reminders" not in MUTATOR_AGENT.views
     assert REMINDER_AGENT.views == ("ai_reminders", "ai_checks", "ai_cards", "ai_tags", "ai_values")
     assert REMINDER_AGENT.workspace_state is False
+    assert REMINDER_AGENT.current is reminder_items
     assert not {"goal", "action", "check"} & set(REMINDER_AGENT.mutation_tools)
+
+
+async def test_rm_agent_041_the_reminder_part_is_handed_its_open_items_with_a_schedule(sessions):
+    """RM-AGENT-041 — tests/brd/reminders.feature"""
+    async with sessions() as session:
+        health = await create_value(session, "Health", "Strong enough to carry the day.")
+        sport = await create_tag(session, "Sport")
+        daily = dict(schedule="daily 21:00", schedule_rule=await rule_for(session, "daily 21:00"))
+        one_day = dict(
+            schedule="20.10.2099 21:00", schedule_rule=await rule_for(session, "20.10.2099 21:00")
+        )
+        meditated = await create_check(session, title="Помедитировал?", **daily)
+        await toggle_check_value(session, meditated.id, health.id)
+        # The answered copy is not listed: the series is its open copy.
+        _, meditated = await resolve_check(session, meditated.id, CheckOutcome.PASSED)
+        await create_check(session, title="Купил молоко?")
+        run = await create_card(
+            session,
+            kind="action",
+            title="Пробежка",
+            tag_ids={sport.id},
+            value_ids={health.id},
+            **daily,
+        )
+        await create_card(session, kind="action", title="Разобрать почту")
+        called = await create_card(session, kind="action", title="Позвонить маме", **one_day)
+        await finish_action(session, called.id)
+        await archive_subtree(session, called.id)
+        marathon = await create_card(session, kind="goal", title="Марафон", **one_day)
+        await session.commit()
+
+        assert await open_items(session) == "\n".join(
+            [
+                OPEN_ITEMS,
+                f"- Check #{meditated.id} «Помедитировал?»; schedule: daily 21:00; values: Health",
+                f"- Action #{run.id} «Пробежка»; schedule: daily 21:00; tags: Sport; values: Health",
+                f"- Goal #{marathon.id} «Марафон»; deadline: 20.10.2099 21:00",
+            ]
+        )
+
+
+async def test_rm_agent_041_open_items_past_the_most_are_left_to_search(sessions, monkeypatch):
+    """RM-AGENT-041 — tests/brd/reminders.feature"""
+    async with sessions() as session:
+        assert await open_items(session) == NO_OPEN_ITEMS
+        daily = dict(schedule="daily 21:00", schedule_rule=await rule_for(session, "daily 21:00"))
+        checks = [await create_check(session, title=f"Трекер {n}?", **daily) for n in range(3)]
+        await session.commit()
+        monkeypatch.setattr(items, "OPEN_ITEMS_MAX", 1)
+
+        assert await open_items(session) == "\n".join(
+            [
+                OPEN_ITEMS,
+                f"- Check #{checks[0].id} «Трекер 0?»; schedule: daily 21:00",
+                "And 2 more: find them with `search`.",
+            ]
+        )
 
 
 def test_rm_agent_041_the_reminder_tool_deletes_a_reminder_by_its_id():

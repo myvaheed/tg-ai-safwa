@@ -5,7 +5,8 @@ setup session that turns a free-text ``when`` into the parameters of a clock tim
 makes, changes or deletes a Reminder; `remind` turns on the Remind of an Action, a Goal or a
 Check, a change the feature owning that item applies, and is the one way to change the Reminder
 it makes. The workspace mutator keeps neither, so no time crowds its prompt, and the subagent
-has no tool that deletes anything else.
+has no tool that deletes anything else. The open items with a Schedule follow its dialogue,
+see `items`, so it names the owner's by meaning.
 
 A time arrives as the owner's words, and its shape is derived from which parameters the setup
 session sent back. A condition on answers of Checks or Actions arrives as its own fields: five
@@ -53,6 +54,7 @@ from .api import (
     resolve,
 )
 from .conditions import ITEM_WORD, item_kinds
+from .items import reminder_items
 
 # What a condition's items are is their words' to say: an #id alone says neither, and an Action
 # is never Missed.
@@ -227,7 +229,8 @@ REMINDER_AGENT_PROMPT = f"""You keep the user's Reminders and the Remind on thei
 - Never invent a count: ask the user.
 
 # Find the item
-Never create a Check or an Action.
+- For `remind` or `condition`: pick the user's items from Open items by meaning, in any language.
+- Not in Open items: find it with `search`.
 
 {READING_THE_WORKSPACE}"""
 
@@ -242,6 +245,7 @@ REMINDER_AGENT = AgentSpec(
     # workspace state: what it decides is when, never what the work is.
     views=("ai_reminders", "ai_checks", "ai_cards", "ai_tags", "ai_values"),
     mutation_tools=("reminder", "remind"),
+    current=reminder_items,
 )
 
 REMINDER_WHEN_PROMPT = f"""Read the clock time one Reminder fires at. End with one call: set_reminder_config or not_clear_enough.

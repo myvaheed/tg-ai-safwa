@@ -370,6 +370,8 @@ Feature: Reminders
       Remind
     And the reminder part reads the Reminders, Checks, Cards, Tags and Values, and is not handed the
       state of the workspace
+    And it is handed the open Checks, Actions and Goals that have a Schedule, each by #id with its
+      Schedule, Tags and Values, up to 50 (OPEN_ITEMS_MAX = 50), and finds any other with search
     And it proposes a Reminder by RM-WRITE-008 and Remind by SCH-REMIND-029, and deletes a
       Reminder with the same tool that proposes one
     And it has no tool that creates, archives or deletes a Check or an Action
