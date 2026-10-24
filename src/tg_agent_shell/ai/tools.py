@@ -45,15 +45,19 @@ from ..hooks.contracts import OfferTool, RefuseTool
 from ..hooks.registry import HookRegistry
 from .contracts import (
     CALL_HELPER_TOOL,
+    FINISH_TOOL,
     FORWARD_TOOL,
     NOTHING_TO_DO_TOOL,
     QUERY_TOOL,
     ROUTE_TOOL,
+    SUB_TOOL,
     AgentChange,
     CallHelperInput,
+    FinishInput,
     MutationToolSpec,
     OpenInput,
     RouteInput,
+    SubInput,
     ToolResultStatus,
     open_tool,
     tool_json_schema,
@@ -90,6 +94,9 @@ class WatcherFailed(RuntimeError):
 # proposal the owner approves. A session's own read tools are immediate too, but they are
 # its own: a subagent that named one of these would never be heard.
 IMMEDIATE_TOOLS = frozenset({"query_data", "open", "call_helper"})
+
+# The calls that end a session to open a subsession, and to close it with its result.
+SUBSESSION_TOOLS = frozenset({"sub", "finish"})
 
 
 def query_read_tool(query_runner: ReadOnlyQueryRunner) -> ReadToolSpec:
@@ -190,17 +197,27 @@ class ToolAdapters:
         # The same trail the runtime writes `route` to: one record of what a session did.
         self.trail = trail
         self.subagents = dict(subagents or {})
+        # Which of them `route` hands a turn to, and which `sub` opens a subsession with.
+        self.routed = {name: sub for name, sub in self.subagents.items() if sub.title is None}
+        self.talks = {name: sub for name, sub in self.subagents.items() if sub.title is not None}
         self.hooks = hooks if hooks is not None else HookRegistry.of()
         # The root session reads and routes. Every mutation tool belongs to the
         # subagent that owns that feature, so judging *which* change to propose
         # happens where the change is authored. An empty roster means there is
-        # nothing to route to, so neither `route` nor `forward` is offered. The root's own
-        # reads are the application's, beside the two every root session has.
+        # nothing to route to, so neither `route` nor `forward` is offered, and none with a
+        # title means no `sub`. The root's own reads are the application's, beside the two
+        # every root session has.
         self.root_reads = {spec.name: spec for spec in read_tools}
-        if taken := sorted((IMMEDIATE_TOOLS | RUNTIME_TOOLS) & set(self.root_reads)):
+        shell_tools = IMMEDIATE_TOOLS | RUNTIME_TOOLS | SUBSESSION_TOOLS
+        if taken := sorted(shell_tools & set(self.root_reads)):
             raise RuntimeError(f"A root read tool takes the name of a shell tool: {taken}")
-        reads = (QUERY_TOOL, open_tool(screens), *(spec.schema for spec in read_tools))
-        self.root_tools = (*reads, ROUTE_TOOL, FORWARD_TOOL) if self.subagents else reads
+        self.root_tools = (
+            QUERY_TOOL,
+            open_tool(screens),
+            *(spec.schema for spec in read_tools),
+            *((ROUTE_TOOL, FORWARD_TOOL) if self.routed else ()),
+            *((SUB_TOOL,) if self.talks else ()),
+        )
         self.helpers = dict(helpers or {})
 
     # ------------------------------------------------------------- the tool port
@@ -216,6 +233,9 @@ class ToolAdapters:
         published here to every session that has a view to read: a subagent scoped to none
         would only ever be refused. `IMMEDIATE_TOOLS` is the whole set the adapters answer
         themselves, and a subagent declares none of them.
+
+        A subsession's agent answers the owner, so its words are its answers and `finish`
+        is what ends the subsession; like `sub` for the root, it ends the session that calls it.
         """
         routed = self.subagents.get(kind)
         if routed is None:
@@ -224,11 +244,13 @@ class ToolAdapters:
                 tools=self.root_tools,
                 helper_tool=CALL_HELPER_TOOL,
                 read_specs=self.root_reads,
+                ending_tools=frozenset({"sub"}) if self.talks else frozenset(),
             )
         # No helper tool: a helper is offered by a complex read, and only the root
         # session's reads are ever offered one.
         reads_views = routed.query_runner is None or bool(routed.query_runner.views)
-        first_call_required = not routed.answers_questions
+        talks = routed.title is not None
+        first_call_required = not (routed.answers_questions or talks)
         return AgentDefinition(
             kind=kind,
             tools=(
@@ -237,9 +259,11 @@ class ToolAdapters:
                 *(spec.schema for spec in routed.read_tools),
                 *(self.proposals.tools[name].schema() for name in routed.mutation_tools),
                 *((NOTHING_TO_DO_TOOL,) if first_call_required else ()),
+                *((FINISH_TOOL,) if talks else ()),
             ),
             read_specs={spec.name: spec for spec in routed.read_tools},
             first_call_required=first_call_required,
+            ending_tools=frozenset({"finish"}) if talks else frozenset(),
         )
 
     def is_immediate(self, agent: AgentSession, name: str) -> bool:
@@ -263,6 +287,9 @@ class ToolAdapters:
 
     async def _dispatch(self, agent: AgentSession, call: ToolCall) -> ToolOutcome:
         """Anything that is not a read is a change waiting for the owner."""
+        if call.name in SUBSESSION_TOOLS:
+            result = self.sub(call) if call.name == "sub" else self.finish(call)
+            return ToolOutcome(result=result, succeeded=result.get("status") != "error")
         if call.name == "query_data":
             read = await self.query(agent, call)
             return ToolOutcome(result=read.rows, succeeded=read.succeeded)
@@ -287,18 +314,70 @@ class ToolAdapters:
                     if isinstance(error, ValidationError)
                     else str(error)
                 ),
-                "hint": f'Send {{"name": "<subagent>"}}. One of: {", ".join(self.subagents)}.',
+                "hint": f'Send {{"name": "<subagent>"}}. One of: {", ".join(self.routed)}.',
                 "retryable": True,
             }
-        if name not in self.subagents:
+        if name not in self.routed:
             return None, {
                 "status": ToolResultStatus.ERROR.value,
                 "code": "unknown_subagent",
                 "error": f"There is no subagent named {name!r}.",
-                "hint": f"Route to one of: {', '.join(self.subagents) or 'none'}.",
+                "hint": f"Route to one of: {', '.join(self.routed) or 'none'}.",
                 "retryable": True,
             }
         return name, None
+
+    def sub(self, call: ToolCall) -> dict[str, Any]:
+        """The agent a subsession opens with, or the result asking for one that exists."""
+        try:
+            name = SubInput.model_validate(json.loads(call.arguments_json or "{}")).name.strip()
+        except (ValidationError, json.JSONDecodeError, TypeError, ValueError) as error:
+            return {
+                "status": ToolResultStatus.ERROR.value,
+                "code": "invalid_arguments",
+                "error": (
+                    validation_error_summary(error)
+                    if isinstance(error, ValidationError)
+                    else str(error)
+                ),
+                "hint": f'Send {{"name": "<agent>"}}. One of: {", ".join(self.talks)}.',
+                "retryable": True,
+            }
+        if name not in self.talks:
+            return {
+                "status": ToolResultStatus.ERROR.value,
+                "code": "unknown_agent",
+                "error": f"There is no agent named {name!r}.",
+                "hint": f"Call sub with one of: {', '.join(self.talks)}.",
+                "retryable": True,
+            }
+        return {"status": ToolResultStatus.OK.value, "agent": name}
+
+    def finish(self, call: ToolCall) -> dict[str, Any]:
+        """The result a subsession closes with, or the result asking for one."""
+        try:
+            result = FinishInput.model_validate(json.loads(call.arguments_json or "{}")).result
+        except (ValidationError, json.JSONDecodeError, TypeError, ValueError) as error:
+            return {
+                "status": ToolResultStatus.ERROR.value,
+                "code": "invalid_arguments",
+                "error": (
+                    validation_error_summary(error)
+                    if isinstance(error, ValidationError)
+                    else str(error)
+                ),
+                "hint": 'Send {"result": "<what the conversation came to>"}.',
+                "retryable": True,
+            }
+        if not result.strip():
+            return {
+                "status": ToolResultStatus.ERROR.value,
+                "code": "result_missing",
+                "error": "finish needs the result.",
+                "next": "Call finish again with the result in a few sentences.",
+                "retryable": True,
+            }
+        return {"status": ToolResultStatus.OK.value, "result": result.strip()}
 
     def refuse_mixed(self) -> dict[str, Any]:
         return {
@@ -392,6 +471,8 @@ class ToolAdapters:
             }
 
     def _agent_of(self, agent: AgentSession) -> Literal["root", "subagent"]:
+        # A subsession's agent starts a session of its own, and is still not the root: a
+        # hook written for the root would point it at a helper it cannot call.
         if agent.parent_run_id is not None or agent.kind in self.subagents:
             return "subagent"
         return "root"
@@ -573,7 +654,7 @@ class ToolAdapters:
         # subagent rather than told to look the id up itself (AG-OPEN-055).
         if routed is None:
             finder = next(
-                (name for name, sub in self.subagents.items() if item_type in sub.opens), None
+                (name for name, sub in self.routed.items() if item_type in sub.opens), None
             )
             if finder is not None:
                 return f'route("{finder}") finds a {item_type} by what the user said and opens it.'

@@ -16,6 +16,7 @@ from agent_runtime import ToolOutcome
 from llm_gateway import ToolCall
 from tg_agent_shell.ai.contracts import ToolResultStatus
 from tg_agent_shell.ai.mini import ReadToolSpec
+from tg_agent_shell.ai.subagents import RoutedSubagent
 from tg_agent_shell.ai.tools import (
     AgentSession,
     HelperPort,
@@ -102,7 +103,7 @@ async def test_ag_tool_033_a_read_that_failed_earns_no_offer() -> None:
     assert session.offered_helpers == ("any",)
 
 
-def _refusing(evaluate, *, policy=None) -> ToolAdapters:
+def _refusing(evaluate, *, policy=None, **adapters: Any) -> ToolAdapters:
     hooks = HookRegistry.of(
         (HookSpec(
             name="refusal", owner="test", on=(OnBeforeTool(tool="read_thing"),),
@@ -116,6 +117,7 @@ def _refusing(evaluate, *, policy=None) -> ToolAdapters:
     return _adapters(
         hooks=hooks,
         helpers={"any": HelperPort(run=None)},  # type: ignore[arg-type]
+        **adapters,
     )
 
 
@@ -204,6 +206,21 @@ async def test_ag_hook_036_a_refusal_stands_where_its_helper_cannot_be_granted()
     assert ran == []
     assert not outcome.succeeded and outcome.result["code"] == "refused"
     assert not session.offered_helpers
+
+
+async def test_a_refusal_written_for_the_root_never_reaches_a_subsession_s_agent() -> None:
+    # It starts a session of its own, as the root does, and has no helper to be pointed at.
+    ran: list[str] = []
+
+    async def too_hard(event):
+        return ("Too hard here. call_helper(\"any\", ...) instead.",)
+
+    session = _session(ran)
+    session.kind = "coach"
+    coach = RoutedSubagent(name="coach", prompt="", title="💬 Budget talk")
+    outcome = await _refusing(too_hard, subagents={"coach": coach}).run(session, READ)
+
+    assert ran == ["read_thing"] and outcome.succeeded
 
 
 async def test_a_switched_off_refusal_lets_the_call_run() -> None:

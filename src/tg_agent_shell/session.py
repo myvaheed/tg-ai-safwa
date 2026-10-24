@@ -105,6 +105,8 @@ class RootSession:
         self.sessions = sessions
         self.proposals = proposals
         self.subagents = {routed.name: routed for routed in subagents}
+        # The agents a subsession is opened with, which answer the owner in it themselves.
+        self.talks = {name: sub for name, sub in self.subagents.items() if sub.title is not None}
         # Every review this process still owes an answer to. It is memory, not a table: a
         # restart is what ends them, and nothing outside this process ever reads one.
         self.reviews = reviews if reviews is not None else ProposalStore()
@@ -174,9 +176,8 @@ class RootSession:
         # Words typed over a screen are an answer to the request that opened it, so that
         # request continues rather than being replaced by a second one. A turn with a source
         # message answers the owner; a Cue's turn has none, and no AfterRequest is about it.
-        answer: AIOutcome | None = None
-        try:
-            outcome = await self.runtime.handle(
+        return await self._answer(
+            self.runtime.handle(
                 turn_dialogue,
                 source_message_id=source_message_id,
                 host_state=(
@@ -184,7 +185,34 @@ class RootSession:
                 ),
                 shown=shown,
             )
-            answer = await self._decide_or_show(outcome)
+        )
+
+    async def talk(
+        self,
+        kind: str,
+        *,
+        source_message_id: int | None = None,
+        dialogue: list[DialogueMessage] | None = None,
+    ) -> AIOutcome:
+        """One turn of the open subsession, answered by its agent, `kind`.
+
+        It is a new request of its own: it reads only the subsession's stretch of the chat,
+        which is empty when its agent speaks first, and it never continues a request of the
+        conversation the subsession was opened from.
+        """
+        return await self._answer(
+            self.runtime.start(
+                [item.as_message() for item in dialogue or ()],
+                kind=kind,
+                source_message_id=source_message_id,
+                host_state={OWNER_REQUEST: True} if source_message_id is not None else {},
+            )
+        )
+
+    async def _answer(self, turn: Awaitable[TurnOutcome]) -> AIOutcome:
+        answer: AIOutcome | None = None
+        try:
+            answer = await self._decide_or_show(await turn)
             return answer
         finally:
             await self._end_unseen_reviews(answer)

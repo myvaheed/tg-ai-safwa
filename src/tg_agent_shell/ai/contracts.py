@@ -369,6 +369,42 @@ FORWARD_TOOL: dict[str, Any] = {
 }
 
 
+class SubInput(ToolInput):
+    name: str = Field(description="The agent to talk with, spelled as listed.")
+
+
+SUB_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "sub",
+        "description": (
+            "Hand the user's next messages to an agent, for a conversation of its own. "
+            "It ends your turn. Its result comes back to this conversation."
+        ),
+        "parameters": tool_json_schema(SubInput),
+    },
+}
+
+
+class FinishInput(ToolInput):
+    result: str = Field(
+        description="What the conversation came to, in a few sentences in the user's language."
+    )
+
+
+FINISH_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "finish",
+        "description": (
+            "End this conversation and hand its result back. Call it alone, once the user "
+            "is done."
+        ),
+        "parameters": tool_json_schema(FinishInput),
+    },
+}
+
+
 class NothingToDoInput(ToolInput):
     reason: str = Field(
         description="Why, in one short sentence in the user's language. Cite each item it is about."

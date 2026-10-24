@@ -144,7 +144,8 @@ class Registry:
         """The routing rules a root prompt carries, one line per declared subagent.
 
         A subagent no line names is one nothing routes to, so this is built from the
-        roster rather than written out beside it.
+        roster rather than written out beside it. One with a `title` is opened with `sub`
+        instead, and `subsessions` lists it.
         """
         unknown = {
             name
@@ -154,7 +155,11 @@ class Registry:
         }
         if unknown:
             raise RuntimeError(f"A subagent declares tools no feature publishes: {sorted(unknown)}")
-        return "\n".join(line(agent) for agent in self.agents)
+        return "\n".join(line(agent) for agent in self.agents if agent.title is None)
+
+    def subsessions(self, line: Callable[[AgentSpec], str]) -> str:
+        """The lines a root prompt carries about the subagents `sub` opens a subsession with."""
+        return "\n".join(line(agent) for agent in self.agents if agent.title is not None)
 
     def subagents(
         self, context: AgentContext, *, prompt: Callable[[AgentSpec], str]

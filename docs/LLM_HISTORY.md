@@ -58,7 +58,9 @@ any stretch — the window, a period read and the Summary alike — because `Tel
 out inside the query, before the scan's limit and the budget. The stretch is read only by
 `TelegramHistorySource.subsession`, the window over the open one, which starts where it opened and
 so keeps all of it through a clear. A message belongs to a stretch by its id, so nothing is written
-on it to say so, and an edit leaves it where it was said.
+on it to say so, and an edit leaves it where it was said. Its agent reads the stretch in its own
+roles; the conversation reads, in its place, the result it closed with: a `MessageKind.EVENT`
+newer than the whole stretch ([AGENT_ARCH.md](AGENT_ARCH.md)).
 
 What each kind is to the conversation is said once, in the window's vocabulary: the owner's words,
 Safwa's answers and Cues, and `MessageKind.EVENT` — a line the interface wrote about what happened:

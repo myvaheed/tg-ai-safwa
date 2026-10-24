@@ -22,6 +22,12 @@ from .tools import conversation_for
 # are not all saved.
 PRIOR_RECEIPTS = "Already proposed in this request:"
 
+# What heads the conversation a subsession's agent was opened from.
+OPENED_FROM = (
+    "The conversation you were opened from, newest last. None of it is yours: read it for "
+    "what the user wants to talk about."
+)
+
 
 class Memory(Protocol):
     """What the durable block is read from. Where the facts are kept is not the engine's."""
@@ -77,6 +83,8 @@ class ContextBuilder:
     ) -> list[dict[str, Any]]:
         """Rebuild the context prefix a session reads, from live state, by its kind."""
         routed = self.subagents.get(kind)
+        if routed is not None and routed.title is not None:
+            return await self.talk(routed, dialogue)
         if routed is not None:
             return await self.routed(routed, dialogue, prior_receipts)
         return await self.root(dialogue)
@@ -92,13 +100,37 @@ class ContextBuilder:
             {"role": "system", "content": self.system_prompt},
             system_note(ordered_owner_context(memory.text, context.state)),
         ]
-        # The history source has already bounded the window by its token budget, and
-        # laid it out as the provider's own messages, earlier calls and results included.
-        for item in dialogue:
-            if item["role"] == "user":
-                append_user_message(messages, str(item["content"]))
-            else:
-                messages.append(dict(item))
+        _extend_with(messages, dialogue)
+        append_user_message(messages, system_text(context.clock))
+        return messages
+
+    async def talk(
+        self, talk: RoutedSubagent, dialogue: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """A subsession's agent reads the conversation it was opened from as data, and its
+        own stretch of the chat in its own roles.
+
+        The conversation it was opened from does not change while the subsession is open,
+        so it stands before the state, which a Save changes, and the head stays cached for
+        the whole subsession.
+        """
+        messages: list[dict[str, Any]] = [{"role": "system", "content": talk.prompt}]
+        opened_from = (
+            conversation_for(await talk.conversation(), talk.history_messages)
+            if talk.conversation is not None
+            else ""
+        )
+        if opened_from:
+            append_user_message(messages, system_text(f"{OPENED_FROM}\n{opened_from}"))
+        async with self.sessions() as session:
+            context = await self.workspace_state(session)
+        if talk.workspace_state:
+            append_user_message(
+                messages, system_text(f"Current workspace state:\n{context.state}")
+            )
+        _extend_with(messages, dialogue)
+        if talk.current is not None:
+            append_user_message(messages, system_text(await talk.current()))
         append_user_message(messages, system_text(context.clock))
         return messages
 
@@ -140,3 +172,14 @@ class ContextBuilder:
         if routed.current is not None:
             append_user_message(messages, system_text(await routed.current()))
         return messages
+
+
+def _extend_with(messages: list[dict[str, Any]], dialogue: list[dict[str, Any]]) -> None:
+    """The dialogue in its own roles. The history source has already bounded the window by
+    its token budget, and laid it out as the provider's own messages, earlier calls and
+    results included."""
+    for item in dialogue:
+        if item["role"] == "user":
+            append_user_message(messages, str(item["content"]))
+        else:
+            messages.append(dict(item))

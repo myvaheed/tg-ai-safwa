@@ -1,7 +1,8 @@
 """Where a tool call becomes a review the owner decides.
 
 This is the seam the whole proposal rule rests on: the model never mutates, so its calls
-arrive here as prepared changes, and what leaves is either an open review or words. A call
+arrive here as prepared changes, and what leaves is either an open review or words — or a
+subsession opened or closed, when the session ended on `sub` or `finish`. A call
 that could not be prepared, or that a check sent back, goes back to the model as a
 corrected tool result, and the session runs again — `None` from `materialize` is what asks
 the runtime for that. An answer a check held back runs the session again the same way.
@@ -157,6 +158,8 @@ class ProposalMaterializer:
         run again — the repair round, bounded by `MAX_REPAIR_ROUNDS` — or that its answer
         was held back with what is missing, which happens once per request.
         """
+        if result.ended is not None:
+            return as_turn(_subsession_outcome(result.ended))
         if not result.pending_tools:
             return await self._answer_unless_held(agent, result.message, result.forwarded)
         mutation_tools = [tool for tool in result.pending_tools if tool.change is not None]
@@ -457,6 +460,14 @@ class ProposalMaterializer:
                 summary=description.summary,
                 fields=tuple(description.fields),
             )
+
+def _subsession_outcome(ended: PendingTool) -> AIOutcome:
+    """What the call that ended the session asks of the chat: `sub` opens a subsession
+    with the agent it named, `finish` closes the open one with its result."""
+    if ended.call.name == "sub":
+        return AIOutcome(AIOutcomeKind.ENTER, "", subsession=ended.result["agent"])
+    return AIOutcome(AIOutcomeKind.FINISH, ended.result["result"])
+
 
 def _owner_request(dialogue: list[dict[str, Any]]) -> str:
     """The owner's own last words in the session that proposed this."""

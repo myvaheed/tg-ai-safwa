@@ -15,6 +15,10 @@ from agent_runtime import TurnOutcome
 class AIOutcomeKind(StrEnum):
     ANSWER = "answer"
     PROPOSAL = "proposal"
+    # The root opened a subsession with `subsession`'s agent, which speaks next.
+    ENTER = "enter"
+    # A subsession's agent closed it, and `message` is its result.
+    FINISH = "finish"
 
 
 @dataclass
@@ -22,6 +26,7 @@ class AIOutcome:
     kind: AIOutcomeKind
     message: str
     proposal_id: int | None = None
+    subsession: str | None = None
     # The item `open` resolved, as a deep-link payload: the chat shows its screen after
     # the answer.
     open_item: str | None = None

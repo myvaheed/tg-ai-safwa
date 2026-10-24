@@ -19,11 +19,11 @@ from sqlalchemy import func, select
 
 from telegram_llm import DialogueMessage, markdown_to_telegram_html
 
-from ..ai.outcome import AIOutcome
+from ..ai.outcome import AIOutcome, AIOutcomeKind
 from ..ai.runs import AgentRun
 from ..foundation.clock import utcnow
 from ..foundation.kinds import MessageKind
-from ..history import TelegramMessage, cleared_through
+from ..history import Subsession, TelegramMessage, cleared_through
 from ..hooks.contracts import BeforeTurn, Shown
 from ..proposals.model import BatchDecision
 from ..proposals.telegram import render_ai_outcome
@@ -38,10 +38,13 @@ logger = logging.getLogger(__name__)
 
 
 async def chat_is_free(services: Services) -> bool:
-    """Whether work nobody asked for may use the chat: no turn, no review, no session.
+    """Whether work nobody asked for may use the chat: no turn, no review, no session, no
+    subsession.
 
     An open proposal is an unanswered question; raising a second one on top of it, one
-    the owner did not even initiate, turns the chat into a stack of screens.
+    the owner did not even initiate, turns the chat into a stack of screens. An open
+    subsession is a conversation the owner is having elsewhere: what is said in the chat now
+    is said inside it, and leaves the chat with it.
     """
     if services.turn.active or services.root.reviews.busy:
         return False
@@ -51,7 +54,11 @@ async def chat_is_free(services: Services) -> bool:
         claimed = await session.scalar(
             select(func.count(AgentRun.id)).where(AgentRun.claimed_at.is_not(None))
         )
-    return not claimed
+        # The bot has the one chat, its owner's.
+        talking = await session.scalar(
+            select(func.count(Subsession.id)).where(Subsession.through_message_id.is_(None))
+        )
+    return not claimed and not talking
 
 
 async def speak_on_schedule(
@@ -236,6 +243,10 @@ class CueRuntime:
             kind = MessageKind.CUE if passing is None else MessageKind.PASSING_CUE
             access = self.services.access
             if access is not None and access.blocked and not access.unlocking:
+                # A subsession is a conversation, and nobody is there to have it: the
+                # request is asked again once the chat is open.
+                if outcome.kind is AIOutcomeKind.ENTER:
+                    return False
                 while outcome.proposal_id is not None:
                     self.services.root.reviews.end_proposal(outcome.proposal_id)
                     outcome = await self.services.root.resolve_approval(

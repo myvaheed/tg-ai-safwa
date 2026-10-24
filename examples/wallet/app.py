@@ -67,6 +67,7 @@ A photo the user sent reads as `[words](media:N)`. A receipt photo is an entry t
 A question about what a photo shows: `relook(media_id=N, question=...)`, then answer.
 
 {REGISTRY.routes(lambda agent: f'- `route("{agent.name}")` — {agent.purpose}')}
+{REGISTRY.subsessions(lambda agent: f'- `sub("{agent.name}")` — {agent.purpose}')}
 
 `query_data` runs one read-only SELECT over these views only:
 {view_catalogue(REGISTRY.views, ROOT_VIEWS)}

@@ -450,6 +450,35 @@ Where it does not reach:
 - It proves that the cited item exists, not that it is the one the owner meant: it makes that
   mistake visible rather than impossible.
 
+## `sub` — a conversation handed to an agent
+
+A subagent whose `AgentSpec` has a `title` is not routed to. The Advisor's `sub(name)` opens a
+subsession with it: a stretch of the chat in which that agent answers each of the owner's
+messages, every one a new root request of its own kind (`RootSession.talk`), until it calls
+`finish(result)`. Both are the shell's ending tools (`AgentDefinition.ending_tools`): each is sent
+alone, `ToolAdapters` checks its argument, and the session ends on it. The materializer turns the
+call into `AIOutcomeKind.ENTER` or `AIOutcomeKind.FINISH`, and `render_ai_outcome` opens or closes
+the subsession through [subsessions.py](../src/tg_agent_shell/telegram/subsessions.py).
+
+- The stretch is a range of message ids in the `subsessions` table
+  ([LLM_HISTORY.md](LLM_HISTORY.md)). Nothing marks a message as part of it, so every way of
+  sending lands in the right conversation.
+- Opening writes the row, posts the frame, a `MessageKind.RECEIPT` with the title, and runs the
+  agent's first answer in the same turn. Closing is one conditional update; the result is a new
+  `MessageKind.EVENT` of the conversation it was opened from, and then the stretch is taken out
+  of the chat, best effort.
+- Its agent reads its prompt → the conversation it was opened from, as data, its
+  `history_messages` newest → the workspace state when it declares it → its stretch in its own
+  roles → its own current values → the clock. Its words answer the owner. It is offered
+  `finish`, never `nothing_to_do`, `route`, `sub` or `forward`, and tool hooks see it as a
+  subagent.
+- Proposals inside work as they do for the Advisor: it is the root of its own request.
+- While one is open, `chat_is_free` is false, and the turn's own hooks, `BeforeTurn` and
+  `AfterTurn`, run only for turns of the conversation; usage is counted for every turn.
+
+`Registry.subsessions` writes the root prompt's lines for these agents from the roster, as
+`Registry.routes` does for the routed ones.
+
 ## `call_helper` — one turn that reads and answers with rows
 
 ```mermaid

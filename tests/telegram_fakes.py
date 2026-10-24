@@ -116,7 +116,8 @@ class QueueTestMessage:
         parent: QueueTestMessage | None = None,
     ) -> None:
         self.message_id = message_id
-        self.chat = SimpleNamespace(id=700, type="private")
+        # A message sent in answer is in the same chat.
+        self.chat = parent.chat if parent is not None else SimpleNamespace(id=700, type="private")
         self.from_user = SimpleNamespace(id=owner_id, is_bot=is_bot, full_name="Owner")
         self.bot = parent.bot if parent is not None else QueueTestBot()
         self.date = datetime.now(UTC)

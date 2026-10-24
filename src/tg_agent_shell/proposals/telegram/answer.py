@@ -1,8 +1,8 @@
 """What an agent's answer looks like in the chat, and how a decision resumes it.
 
-An answer is either prose or a review screen, so the branch belongs here rather than in the
-turn that asked for it, and so does the continuation an approved or discarded screen owes
-the session it suspended.
+An answer is prose, a review screen, or a subsession opened or closed, so the branch belongs
+here rather than in the turn that asked for it, and so does the continuation an approved or
+discarded screen owes the session it suspended.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from aiogram.types import Message
 
 from telegram_llm import markdown_to_telegram_html
 
-from ...ai.outcome import AIOutcome
+from ...ai.outcome import AIOutcome, AIOutcomeKind
 from ...ai.steps import Listener, listening
 from ...foundation.errors import failure_reason
 from ...foundation.kinds import MessageKind
@@ -29,6 +29,7 @@ from ...telegram import (
     send_prose,
     send_registered,
 )
+from ...telegram.subsessions import enter_subsession, finish_subsession
 from ..model import DECISION_RECEIPTS, KEPT_RECEIPT, BatchDecision
 from .screens import render_proposal
 
@@ -43,7 +44,17 @@ async def render_ai_outcome(
     kind: MessageKind = MessageKind.DIALOGUE_ASSISTANT,
     event_id: str | None = None,
 ) -> None:
-    """Render one agent state; suspended approval batches expose only their head item."""
+    """Render one agent state; suspended approval batches expose only their head item.
+
+    A subsession opened here has its agent's first answer rendered in turn, as its own.
+    """
+    if outcome.kind is AIOutcomeKind.ENTER and outcome.subsession is not None:
+        first = await enter_subsession(message, services, outcome.subsession, event_id=event_id)
+        await render_ai_outcome(message, services, first)
+        return
+    if outcome.kind is AIOutcomeKind.FINISH:
+        await finish_subsession(message, services, outcome.message)
+        return
     if outcome.proposal_id is not None:
         try:
             await render_proposal(message, services, outcome.proposal_id, event_id=event_id)

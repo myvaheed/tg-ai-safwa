@@ -10,11 +10,12 @@ from tg_agent_shell.foundation.screens import ScreenSpec
 from tg_agent_shell.telegram.contributions import HOME_NAV, ScreenCommand
 from tg_agent_shell.telegram.manifest import FeatureModule
 
-from . import telegram, views
+from . import agent, telegram, views
 from .model import Wallet
 
 MODULE = FeatureModule(
     name="wallets",
+    agents=(agent.COACH,),
     views=views.VIEWS,
     screens=(
         ScreenSpec(

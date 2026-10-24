@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from functools import partial
+from typing import Any
 
 from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -62,7 +63,8 @@ class AgentSpec:
     """One subagent as a feature declares it, before an application binds it."""
 
     name: str
-    # The line the Advisor's prompt carries under `route("<name>")`.
+    # The line the Advisor's prompt carries under `route("<name>")`, or under `sub("<name>")`
+    # for a subagent with a `title`.
     purpose: str
     instructions: str
     mutation_tools: tuple[str, ...] = ()
@@ -82,6 +84,9 @@ class AgentSpec:
     history_messages: int = SUBAGENT_HISTORY_LAST_MESSAGES
     # It answers questions as well as doing work, so its first step may be words.
     answers_questions: bool = False
+    # What the chat calls a subsession with it, icon first. Set, and nothing routes to it:
+    # `sub` opens a subsession with it instead.
+    title: str | None = None
 
     def bind(self, context: AgentContext, *, prompt: str) -> RoutedSubagent:
         """The session this declaration runs as here: its reads, its scope and its current
@@ -97,7 +102,14 @@ class AgentSpec:
             opens=self.opens,
             history_messages=self.history_messages,
             answers_questions=self.answers_questions,
+            title=self.title,
+            conversation=partial(_opened_from, context) if self.title is not None else None,
         )
+
+
+async def _opened_from(context: AgentContext) -> list[dict[str, Any]]:
+    """The conversation outside every subsession, which one is opened from."""
+    return [item.as_message() for item in await context.history.dialogue(context.owner_id)]
 
 
 @dataclass(frozen=True, slots=True)

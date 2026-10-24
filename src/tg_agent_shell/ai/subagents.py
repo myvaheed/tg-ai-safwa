@@ -4,12 +4,16 @@ A routed subagent is a session of the same shape as the Advisor's — its own pr
 tools, its own transcript — reading the same conversation.  What it proposes is the review
 screen; what it writes goes back to the Advisor, which forwards it to the owner as it is or
 answers in its own words.
+
+A subagent with a `title` is not routed to: `sub` opens a subsession with it, and it answers
+the owner itself, message after message, until it calls `finish`.
 """
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from .mini import ReadToolSpec
 from .sql import ReadOnlyQueryRunner
@@ -42,3 +46,9 @@ class RoutedSubagent:
     current: Callable[[], Awaitable[str]] | None = field(default=None)
     # The item types its `open` may put on the screen. Declaring none withholds the tool.
     opens: tuple[str, ...] = ()
+    # What the chat calls a subsession with it, icon first. None for a subagent `route`
+    # hands the turn to.
+    title: str | None = None
+    # The conversation a subsession with it was opened from, read again at every step: it
+    # does not change while the subsession is open.
+    conversation: Callable[[], Awaitable[list[dict[str, Any]]]] | None = field(default=None)

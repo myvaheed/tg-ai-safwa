@@ -28,6 +28,7 @@ from .chat import (
 from .model import UiSession
 from .progress import Progress
 from .services import Services, audio_payload
+from .subsessions import talking
 from .text_input import handle_text_input
 
 logger = logging.getLogger(__name__)
@@ -250,26 +251,38 @@ async def run_dialogue_turn(
     `message` is the owner event that holds the turn. `source_message_id` is the dialogue
     turn itself, which is a different message whenever the owner's words reached the chat
     as a bot message rather than as their own text.
+
+    While a subsession is open its agent answers, from its own stretch of the chat. The
+    work around a turn is the conversation's: it stands before and after the conversation's
+    own turns only, and a turn that opened a subsession has nothing after it there.
     """
     dialogue_revision = services.turn.dialogue_revision
     try:
         services.turn.begin(message.message_id)
         notice = await open_turn_notice(message, services)
         async with keep_typing(message):
-            dialogue = await services.history.dialogue(message.chat.id)
-            await run_before_turn(
-                message, services,
-                BeforeTurn(
-                    owner_id=services.owner_id, chat_id=message.chat.id,
-                    dialogue_revision=dialogue_revision,
-                ),
-                lambda: services.turn.dialogue_revision == dialogue_revision,
-            )
+            subsession = await talking(message, services)
+            if subsession is not None:
+                dialogue = await services.history.subsession.dialogue(message.chat.id)
+            else:
+                dialogue = await services.history.dialogue(message.chat.id)
+                await run_before_turn(
+                    message, services,
+                    BeforeTurn(
+                        owner_id=services.owner_id, chat_id=message.chat.id,
+                        dialogue_revision=dialogue_revision,
+                    ),
+                    lambda: services.turn.dialogue_revision == dialogue_revision,
+                )
             with listening(notice.step):
-                outcome = await services.root.handle(
-                    request,
-                    source_message_id=source_message_id,
-                    dialogue=dialogue,
+                outcome = await (
+                    services.root.handle(
+                        request, source_message_id=source_message_id, dialogue=dialogue
+                    )
+                    if subsession is None
+                    else services.root.talk(
+                        subsession, source_message_id=source_message_id, dialogue=dialogue
+                    )
                 )
         # Only the owner invalidates their own answer. The workspace revision does not:
         # an autoapproved change bumps it from inside this very turn.
@@ -279,10 +292,13 @@ async def run_dialogue_turn(
         await render_ai_outcome(message, services, outcome)
         await end_turn(message, services)
 
-        await run_after_turn(message, services, AfterTurn(
-            owner_id=services.owner_id, chat_id=message.chat.id,
-            source_message_id=source_message_id, dialogue_revision=dialogue_revision,
-        ))
+        if subsession is None and await talking(message, services) is None:
+            await run_after_turn(message, services, AfterTurn(
+                owner_id=services.owner_id, chat_id=message.chat.id,
+                source_message_id=source_message_id, dialogue_revision=dialogue_revision,
+            ))
+        elif services.usage is not None:
+            await services.usage.answered()
     except Exception as error:
         logger.exception("Could not complete an advisor turn")
         await send_registered(

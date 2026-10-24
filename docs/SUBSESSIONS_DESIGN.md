@@ -248,7 +248,7 @@ stateDiagram-v2
 |---|---|
 | [model](../src/agent_runtime/model.py), [loop](../src/agent_runtime/loop.py) | Завершающие инструменты в `AgentDefinition`, завершивший вызов в `AgentLoopResult`, общая проверка одиночного вызова |
 | [история](../src/tg_agent_shell/history.py) | Таблица рядом с `ChatClearBoundary`, `start_subsession`, `close_subsession`, `current_subsession`; исключение отрезков в основном окне; окно отрезка `TelegramHistorySource.subsession` |
-| Новый модуль subsessions в shell | Вход, ход подсессии, закрытие с доставкой итога и удалением отрезка |
+| [subsessions](../src/tg_agent_shell/telegram/subsessions.py), [session](../src/tg_agent_shell/session.py) | Вход, закрытие с доставкой итога и удалением отрезка; ход подсессии — `RootSession.talk` |
 | [dialogue](../src/tg_agent_shell/telegram/dialogue.py), [media](../src/tg_agent_shell/media/telegram.py) | В начале хода выбрать окно и вид агента; хуки хода только для основного разговора |
 | [контекст](../src/tg_agent_shell/ai/messages.py) | Контекст агента подсессии из раздела 5 |
 | [tools](../src/tg_agent_shell/ai/tools.py), [manifest](../src/tg_agent_shell/telegram/manifest.py), [registry](../src/tg_agent_shell/registry.py) | Объявление, `sub` у корня, `finish` у агента подсессии, вид агента для tool hooks |
