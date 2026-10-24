@@ -1403,6 +1403,74 @@ progress (answers/checks)»), а вызов — `about=time`, потому чт�
 Шаг 1 батч не трогал: «a dozen Reading actions» провалилась оба раза, «если пропущу #21 три дня
 подряд» раз прочитана с `once=true`.
 
+## Батч 13b — в сессии `when` ответы раньше времени (откатан)
+
+В трёх провалах `goal` батча 13 план сессии называл ответы, а вызов был `about=time`: первой
+стояла строка «No clock time … about=time», и часа в словах нет. Строка об ответах теперь стоит
+первой и говорит, что час ей не важен. Значение `answers` владелец заменил на `condition`, как
+называет это код:
+
+```text
+Counts answers of Checks or Actions, with or without a clock time, like 'every 3 Missed of Check #12': about=condition.
+No clock time, like 'every morning', 'soon', 'twice a week', 'once a month': about=time.
+```
+
+Поле `about`: `Literal["time", "condition"]`, описание «time when the phrase means a clock time,
+condition when it counts answers of Checks or Actions.»
+
+**Критерий успеха** — 2 прохода на 35B: фразы `goal` не меньше 23 из 24 в каждом проходе, и «five
+mornings in a row», «21-day streak», «whenever any check gets answered» проходят оба раза; «sometime
+next week» остаётся `about=time`; поток, Remind и «Also track» не хуже 13. Шаг 1 не мерим: сессию
+условия батч не трогает.
+
+### Замер на 35B, 2 прохода
+
+| | 13 | 13b |
+|---|---|---|
+| Фразы `goal`, из 24 | 22 и 22 | 19 и 22 |
+| Поток цели серии, провалов из 16 | 0 и 2 | 1 и 2 |
+| Remind на item, из 10 | 9 и 9 | 9 и 10 |
+| «📊 Also track», из 3 | 3 и 2 | 2 и 3 |
+
+Критерий не выполнен, фразы `goal` хуже 13. Все 7 провалов — `about=time` на фразы об ответах, и
+в каждом план сам называет условие: «describes a condition for firing a reminder, not a specific
+clock time … Therefore, it is unclear because no clock time is specified». Один план прямо цитирует
+строку: «phrases that count answers of Checks or Actions should be treated as `about=condition`.
+Since there is no clock time specified … » — и всё равно `about=time`. Модель читает `about` как
+причину неясности, а она одна: нет часа. Обе строки стоят под «Not clear, not_clear_enough:», и
+порядок с «with or without a clock time» этого не меняют.
+
+«five mornings in a row» провалилась оба раза, как в 13. «sometime next week» осталась
+`about=time`.
+
+Остальные провалы до сессии `when` не доходят: в потоке сабагент повторял SQL («7 misses»,
+«20 тренировок», «7 «да» подряд»); Remind «two hours ahead of Call mom» сабагент сделал `reminder`
+вместо `remind`; «Also track» — после Save Check сабагент снова вызвал `reminder` и `remind`, как раз
+во втором проходе 13.
+
+## Батч 13c — счёт ответов как свой исход сессии `when`
+
+13b показал: пока «это счёт ответов» — поле `about` внутри `not_clear_enough`, модель решает «нет
+часа, значит неясно» и ставит `about=time`, даже когда план называет условие. Теперь это третий
+исход, наравне с двумя другими; 13b откатан целиком.
+
+- Terminal tool `counts_answers` без полей: «The words count answers of Checks or Actions, not a
+  time.» Код делает то же, что делал на `about=answers`: `CountsAnswers`, и сабагент получает
+  `when_counts_answers`.
+- У `not_clear_enough` нет поля `about`: он значит только «время неясно».
+- `REMINDER_WHEN_PROMPT`:
+
+```text
+Read the clock time one Reminder fires at. End with one call: set_reminder_config, counts_answers or not_clear_enough.
+...
+Counts answers of Checks or Actions, like 'every 3 Missed of Check #12': counts_answers.
+Not clear, not_clear_enough:
+No clock time, like 'every morning', 'soon', 'twice a week', 'once a month'.
+reason: what is missing, in one short sentence.
+```
+
+Владелец решил закоммитить без живого замера.
+
 ## Тексты на согласование
 
 Mutator не меняется: он передаёт слова владельца в `when` как есть.
@@ -1454,7 +1522,7 @@ Checks, ai_cards for Done of Actions.» (её говорит контекст с
 
 Владелец просил не забыть; что-то из этого, возможно, стоит убрать.
 
-- Подстраховка `about=answers` в сессии `when`. Сабагент всё ещё иногда кладёт ответы в `when` (12d:
+- Подстраховка `counts_answers` (до 13c — `about=answers`) в сессии `when`. Сабагент всё ещё иногда кладёт ответы в `when` (12d:
   «на 7 да подряд в проверках Здоровье»); с планом она ловит 18–19 таких фраз из 20.
 - Строка поля `instruction` «Name every item it concerns by #id». По ней Advisor при срабатывании
   узнаёт item. С 12e этот текст не видит ни одна короткая сессия.

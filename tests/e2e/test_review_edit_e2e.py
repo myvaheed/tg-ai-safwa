@@ -902,7 +902,7 @@ async def test_a_reminder_proposals_words_are_read_again_with_its_time(e2e_harne
         [
             *reminder_script(config, instruction="Ask what to start.", when="weekdays at 8:30"),
             reminder_turn(("set_reminder_config", config), prefix="again"),
-            reminder_turn(("not_clear_enough", {"reason": "No hour.", "about": "time"}), prefix="no"),
+            reminder_turn(("not_clear_enough", {"reason": "No hour."}), prefix="no"),
         ]
     )
     outcome = await advisor.handle("remind me each weekday morning")

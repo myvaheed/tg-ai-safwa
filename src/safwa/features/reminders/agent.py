@@ -165,10 +165,11 @@ class ReminderConfigInput(ToolInput):
 
 class ReminderUnclearInput(ToolInput):
     reason: str = Field(description="What is missing or unclear, in one short sentence.")
-    about: Literal["time", "answers"] | None = Field(
-        default=None,
-        description="time when the phrase means a clock time, answers when it counts answers.",
-    )
+
+
+# Words that count answers, which `on_answers` reads instead: the call alone says so.
+class CountsAnswersInput(ToolInput):
+    pass
 
 
 REMINDER_TOOL = MutationToolSpec(
@@ -242,7 +243,7 @@ REMINDER_AGENT = AgentSpec(
     current=reminder_items,
 )
 
-REMINDER_WHEN_PROMPT = f"""Read the clock time one Reminder fires at. End with one call: set_reminder_config or not_clear_enough.
+REMINDER_WHEN_PROMPT = f"""Read the clock time one Reminder fires at. End with one call: set_reminder_config, counts_answers or not_clear_enough.
 The user's words are in the conversation. Read the time from the user's own words; the timing phrase says which time.
 Clock time, set_reminder_config:
 'every day at 8', 'every morning at 8': days=[Mon, Tue, Wed, Thu, Fri, Sat, Sun], time=08:00.
@@ -262,9 +263,9 @@ Clock time, set_reminder_config:
 'every day at 9, 10 times': days=[Mon, Tue, Wed, Thu, Fri, Sat, Sun], time=09:00, limit=10.
 {BOUNDS_LINES}
 Resolve relative dates against the current time. Never invent a time.
+Counts answers of Checks or Actions, like 'every 3 Missed of Check #12': counts_answers.
 Not clear, not_clear_enough:
-No clock time, like 'every morning', 'soon', 'twice a week', 'once a month': about=time.
-Counts answers of Checks or Actions, like 'every 3 Missed of Check #12': about=answers.
+No clock time, like 'every morning', 'soon', 'twice a week', 'once a month'.
 reason: what is missing, in one short sentence."""
 
 # The forms the owner is shown when the words cannot be scheduled.
@@ -344,6 +345,11 @@ async def resolve_schedule(
                     model=ResolvedConfig,
                 ),
                 TerminalTool(
+                    name="counts_answers",
+                    description="The words count answers of Checks or Actions, not a time.",
+                    model=CountsAnswersInput,
+                ),
+                TerminalTool(
                     name="not_clear_enough",
                     description="The phrase does not say when; say what is missing.",
                     model=ReminderUnclearInput,
@@ -355,9 +361,9 @@ async def resolve_schedule(
         )
     except MiniSessionError as error:
         raise unclear(refusals[-1] if refusals else UNREADABLE_WHEN) from error
+    if result.name == "counts_answers":
+        raise CountsAnswers(COUNTS_ANSWERS)
     if result.name == "not_clear_enough":
-        if result.payload.about == "answers":
-            raise CountsAnswers(COUNTS_ANSWERS)
         raise unclear(result.payload.reason)
     return result.payload._schedule
 
