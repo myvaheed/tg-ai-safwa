@@ -8,20 +8,21 @@ itself.
 
 Each case names the batch that makes its form readable: `now` for forms the code holds today,
 `1a` for a last day, a total on a Reminder and the start of a quota, `1b` for days of the
-month, `goal` for a Reminder on answers that fires once, after N. The passes are the measure:
-`-k now` before and after a change says whether the new fields cost the old forms anything,
-and `-k 1a` says whether the new ones are read. The `goal` cases were written by someone who
-never read the prompts, so a pass is a reading, not a copy; no case repeats a prompt's example.
+month, `goal` for words that count answers, beside times that sound like them. The passes
+are the measure: `-k now` before and after a change says whether the new fields cost the old
+forms anything, and `-k 1a` says whether the new ones are read. The `goal` cases were written
+by someone who never read the prompts, so a pass is a reading, not a copy; no case repeats a
+prompt's example.
 
-A condition's items are Checks or Actions by #id. A phrase that names a group comes back
-unclear about answers: the subagent lists a group by #id before it sets the Reminder.
+The setup session reads only a time: words that count answers come back unclear about answers,
+for the subagent to name as a `condition`; the reading of a condition is measured by
+`tests/e2e/test_series_goal_live.py`.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import date, datetime
-from types import SimpleNamespace
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -29,9 +30,8 @@ import pytest
 
 from llm_gateway import OpenAICompatibleProvider
 from safwa.constants import WEEKDAY_NAMES
-from safwa.features.reminders.agent import resolve_schedule
+from safwa.features.reminders.agent import CountsAnswers, resolve_schedule
 from safwa.features.reminders.api import Schedule, ScheduleError, schedule_from_payload
-from safwa.features.reminders.conditions import items_series
 from safwa.features.schedules.agent import ScheduleCompiler
 from safwa.qa import qa_provider_settings
 
@@ -40,13 +40,6 @@ pytestmark = pytest.mark.live_provider
 TZ = ZoneInfo("Europe/Istanbul")
 # A Saturday at noon: next Monday is 19.10, next Friday 23.10, next month starts 01.11.
 NOW = datetime(2026, 10, 17, 12, 0, tzinfo=TZ)
-# The answer a condition keeps, by what its items are, in the words the cases were written in.
-DOMAIN_ANSWERS = {
-    ("check", "yes"): "passed",
-    ("check", "no"): "missed",
-    ("check", "any"): "answered",
-    ("action", "yes"): "done",
-}
 REASONING_EFFORT = "none"
 EVERY_DAY = list(WEEKDAY_NAMES)
 WORKWEEK = ["Mon", "Tue", "Wed", "Thu", "Fri"]
@@ -60,13 +53,8 @@ class Case:
     expected: dict[str, Any]
 
 
-def answers(answer: str, count: int, *, in_row: bool = False, once: bool) -> dict[str, Any]:
-    """The reading of a condition."""
-    return {"kind": "condition", "answer": answer, "count": count, "in_row": in_row, "once": once}
-
-
-# A group in words, which only the subagent can list by #id.
-GROUP = {"unclear": "answers"}
+# Words that count answers, which the subagent names as a condition instead.
+ANSWERS = {"unclear": "answers"}
 
 
 CASES = (
@@ -176,33 +164,33 @@ CASES = (
     ),
     # The trap: a monthly count beside as many days of the month is those days.
     Case("1b", "schedule", "дважды в месяц, 1 и 15 числа", {"form": "fixed", "month_days": [1, 15], "time": None}),
-    Case("goal", "reminder", "#14 «Помедитировал?» — когда дойду до 30 дней подряд", answers("passed", 30, in_row=True, once=True)),
-    Case("goal", "reminder", "если пропущу #21 три дня подряд", answers("missed", 3, in_row=True, once=False)),
-    Case("goal", "reminder", "каждые 10 выполненных Действий с тегом Sport", GROUP),
-    Case("goal", "reminder", "после 10 выполненных Действий с тегом Sport", GROUP),
-    Case("goal", "reminder", "как только по Проверкам ценности Health будет 100 «да»", GROUP),
+    Case("goal", "reminder", "#14 «Помедитировал?» — когда дойду до 30 дней подряд", ANSWERS),
+    Case("goal", "reminder", "если пропущу #21 три дня подряд", ANSWERS),
+    Case("goal", "reminder", "каждые 10 выполненных Действий с тегом Sport", ANSWERS),
+    Case("goal", "reminder", "после 10 выполненных Действий с тегом Sport", ANSWERS),
+    Case("goal", "reminder", "как только по Проверкам ценности Health будет 100 «да»", ANSWERS),
     Case(
         "goal", "reminder", "каждый раз, когда отвечаю на любую Проверку из Действия #8 «Подготовка к марафону»",
-        GROUP,
+        ANSWERS,
     ),
-    Case("goal", "reminder", "на каждый пятый пропуск любой Проверки", GROUP),
-    Case("goal", "reminder", "после 20 выполнений #5 и #9 в сумме", answers("done", 20, once=True)),
-    Case("goal", "reminder", "всякий раз как сделаю #33", answers("done", 1, once=False)),
-    Case("goal", "reminder", "после 50 ответов на #11 без разницы да или нет", answers("answered", 50, once=True)),
+    Case("goal", "reminder", "на каждый пятый пропуск любой Проверки", ANSWERS),
+    Case("goal", "reminder", "после 20 выполнений #5 и #9 в сумме", ANSWERS),
+    Case("goal", "reminder", "всякий раз как сделаю #33", ANSWERS),
+    Case("goal", "reminder", "после 50 ответов на #11 без разницы да или нет", ANSWERS),
     Case("goal", "reminder", "когда пройдёт 20 минут", {"kind": "once", "date": "17.10.2026", "time": "12:20"}),
-    Case("goal", "reminder", "когда по #21 накопится много пропусков", {"unclear": "answers"}),
-    Case("goal", "reminder", "as soon as I hit a 21-day streak on #14", answers("passed", 21, in_row=True, once=True)),
+    Case("goal", "reminder", "когда по #21 накопится много пропусков", ANSWERS),
+    Case("goal", "reminder", "as soon as I hit a 21-day streak on #14", ANSWERS),
     Case(
         "goal", "reminder", "if I skip “Morning stretch?” #17 five mornings in a row",
-        answers("missed", 5, in_row=True, once=False),
+        ANSWERS,
     ),
-    Case("goal", "reminder", "for every 10 yeses on Checks tagged Reading", GROUP),
-    Case("goal", "reminder", "when my Health checks have racked up 15 misses", GROUP),
-    Case("goal", "reminder", "whenever any check gets answered, yes or no", GROUP),
-    Case("goal", "reminder", "once the Checks under #8 have been passed 40 times", GROUP),
-    Case("goal", "reminder", "every 4 misses — #14, #17, #21 all counted together", answers("missed", 4, once=False)),
-    Case("goal", "reminder", "on the 100th time I finish #33", answers("done", 100, once=True)),
-    Case("goal", "reminder", "after I've finished a dozen Reading actions", GROUP),
+    Case("goal", "reminder", "for every 10 yeses on Checks tagged Reading", ANSWERS),
+    Case("goal", "reminder", "when my Health checks have racked up 15 misses", ANSWERS),
+    Case("goal", "reminder", "whenever any check gets answered, yes or no", ANSWERS),
+    Case("goal", "reminder", "once the Checks under #8 have been passed 40 times", ANSWERS),
+    Case("goal", "reminder", "every 4 misses — #14, #17, #21 all counted together", ANSWERS),
+    Case("goal", "reminder", "on the 100th time I finish #33", ANSWERS),
+    Case("goal", "reminder", "after I've finished a dozen Reading actions", ANSWERS),
     Case("goal", "reminder", "after 45 minutes", {"kind": "once", "date": "17.10.2026", "time": "12:45"}),
     Case("goal", "reminder", "on the 20th at 8am", {"kind": "once", "date": "20.10.2026", "time": "08:00"}),
     Case("goal", "reminder", "sometime next week", {"unclear": "time"}),
@@ -220,28 +208,7 @@ def _timing(schedule: Schedule, *, all_day: bool = False) -> dict[str, Any]:
         "until": f"{schedule.until:%d.%m.%Y}" if schedule.until else None,
         "limit": schedule.total,
     }
-    if schedule.condition is not None:
-        condition = schedule.condition
-        reading.update(
-            answer=DOMAIN_ANSWERS[condition.kind, condition.answer],
-            count=condition.count,
-            in_row=condition.in_row,
-            once=condition.once,
-            items=condition.items,
-        )
     return reading
-
-
-class _OwnSeries:
-    """The one read `items_series` makes, without a database: every id is its own series."""
-
-    async def execute(self, statement):
-        ids = statement.whereclause.right.value
-        return SimpleNamespace(all=lambda: [(item_id, item_id) for item_id in ids])
-
-
-async def _own_series(items: str) -> tuple[str, tuple[int, ...]]:
-    return await items_series(_OwnSeries(), items)  # type: ignore[arg-type]
 
 
 async def _reminder(provider, phrase: str) -> dict[str, Any]:
@@ -252,12 +219,11 @@ async def _reminder(provider, phrase: str) -> dict[str, Any]:
             instruction="Remind me.",
             now=NOW,
             tz=TZ,
-            items_series=_own_series,
         )
+    except CountsAnswers:
+        return ANSWERS
     except ScheduleError as error:
-        words = str(error)
-        about = "time" if "On answers:" not in words else "answers" if "By time:" not in words else "either"
-        return {"unclear": about, "reason": words.splitlines()[0]}
+        return {"unclear": "time", "reason": str(error).splitlines()[0]}
     return _timing(schedule)
 
 

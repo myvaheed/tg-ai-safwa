@@ -1,7 +1,7 @@
 """Reminders on answers: the items they count, and what an answer makes of them.
 
-The items are Checks or Actions named by #id, all of one kind, as the `when` session writes
-them: 'Check #12', or 'Check #12 «Meditated?», Check #14'. Each is kept as its series, by the
+The items are Checks or Actions named by #id, all of one kind, as the subagent writes them:
+'Check #12', or 'Check #12 «Meditated?», Check #14'. Each is kept as its series, by the
 id the series keeps when any copy is deleted, so every copy counts, answered or open, and an
 item made later counts only as a copy of one of them. A group in words is the subagent's to
 list by #id before it sets the Reminder.
@@ -28,8 +28,8 @@ from .api import ANSWER_WORDS, Condition
 
 # How many of the series found the review screen names before "and N more".
 CONDITION_PREVIEW_TITLES = 3
-# One Check or one Action as the `when` session writes it: 'Check #12', or 'Check #12
-# «Meditated?»' with its title after the id.
+# One Check or one Action as the subagent writes it: 'Check #12', or 'Check #12 «Meditated?»'
+# with its title after the id.
 ITEM = re.compile(r"(check|action) ?#(\d+)(?: [«\"“][^»\"”]*[»\"”])?", re.IGNORECASE)
 # What may stand between two of them.
 BETWEEN = re.compile(r"(?:\s|,|;|&|\band\b|\bи\b)*", re.IGNORECASE)
@@ -37,7 +37,7 @@ BETWEEN = re.compile(r"(?:\s|,|;|&|\band\b|\bи\b)*", re.IGNORECASE)
 ITEM_WORD = re.compile(r"\b(check|action)s?\b", re.IGNORECASE)
 # A Check's yes and no, as its answers are stored.
 OUTCOMES = {"yes": CheckOutcome.PASSED.value, "no": CheckOutcome.MISSED.value}
-NAME_BY_ID = "Name each item by #id, as 'Check #1, Check #2'. Find a group's items with query_data."
+NAME_BY_ID = "Name each item by #id, as 'Check #1, Check #2'."
 ONE_KIND = "Count Checks and Actions in separate Reminders."
 
 

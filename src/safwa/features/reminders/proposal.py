@@ -2,7 +2,7 @@
 
 Timing is resolved during preparation, before the proposal row exists, so the review
 screen shows a real schedule and Save applies exactly what the owner approved. A condition's
-items are found there too, so the screen shows what it counts now.
+items are kept there as their series and found, so the screen shows what it counts now.
 
 The Reminder an item's Remind made is the item's to change: a change or a deletion of it goes
 back to the model with the item to use `remind` on.
@@ -11,7 +11,6 @@ back to the model with the item to use `remind` on.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from functools import partial
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -34,9 +33,16 @@ from ...foundation.workspace import Workspace
 from ..cards.model import Card
 from ..checks.model import Check
 from ..schedules.api import item_type
-from .agent import resolve_schedule, unclear
-from .api import Condition, ScheduleError, describe, schedule_from_payload, schedule_payload
-from .conditions import finds_text, found_ids, items_series, never_reached
+from .agent import ConditionInput, CountsAnswers, resolve_schedule
+from .api import (
+    Condition,
+    Schedule,
+    ScheduleError,
+    describe,
+    schedule_from_payload,
+    schedule_payload,
+)
+from .conditions import ConditionError, finds_text, found_ids, items_series, never_reached
 from .model import Reminder, ScheduleKind
 from .use_cases import (
     create_reminder,
@@ -68,32 +74,41 @@ class ReminderProposalHandler:
     async def _resolve_timing(
         self, context: PreparationContext, values: dict[str, Any]
     ) -> dict[str, Any]:
-        """An unresolvable phrase becomes a retryable tool error carrying what is unclear and
-        the forms that work."""
+        """An unresolvable time becomes a retryable tool error carrying what is unclear and
+        the forms that work; a condition's items or count it cannot keep become one too."""
         prepared = dict(values)
         when = str(prepared.pop("when", "") or "").strip()
-        if not when:
+        wanted = prepared.pop("condition", None)
+        if not when and wanted is None:
             return prepared  # an edit with no timing leaves the schedule alone
         tz = ZoneInfo(context.world.timezone)
         now = datetime.now(UTC)
-        try:
-            schedule = await resolve_schedule(
-                context.provider,
-                when=when,
-                instruction=str(prepared.get("instruction", "")),
-                now=now,
-                tz=tz,
-                items_series=partial(items_series, context.session),
-            )
-            if schedule.kind is ScheduleKind.CONDITION:
-                prepared["finds"] = await _finds(context.session, schedule.condition)
-        except ScheduleError as error:
-            raise ToolPreparationError(
-                "schedule_unclear",
-                str(error),
-                "Tell the user what is unclear and these forms, then call reminder again with "
-                "their answer in when. Never invent a time.",
-            ) from error
+        if wanted is not None:
+            condition = await _condition(context.session, ConditionInput.model_validate(wanted))
+            prepared["finds"] = await _finds(context.session, condition)
+            schedule = Schedule(kind=ScheduleKind.CONDITION, condition=condition)
+        else:
+            try:
+                schedule = await resolve_schedule(
+                    context.provider,
+                    when=when,
+                    instruction=str(prepared.get("instruction", "")),
+                    now=now,
+                    tz=tz,
+                )
+            except CountsAnswers as error:
+                raise ToolPreparationError(
+                    "when_counts_answers",
+                    str(error),
+                    "Call reminder again with condition instead of when.",
+                ) from error
+            except ScheduleError as error:
+                raise ToolPreparationError(
+                    "schedule_unclear",
+                    str(error),
+                    "Tell the user what is unclear and these forms, then call reminder again with "
+                    "their answer in when. Never invent a time.",
+                ) from error
         prepared["schedule"] = schedule_payload(schedule)
         prepared["schedule_text"] = describe(schedule, tz=tz, now=now)
         return prepared
@@ -153,13 +168,40 @@ async def _remind_of(session: AsyncSession, reminder: Reminder) -> tuple[str, st
     return f"{kind} #{item.id}", item.title
 
 
+async def _condition(session: AsyncSession, wanted: ConditionInput) -> Condition:
+    """The condition the call names, its items kept as their series, or refused when they are
+    not Checks or Actions by #id that exist (RM-COND-031)."""
+    try:
+        kind, series = await items_series(session, wanted.items)
+    except ConditionError as error:
+        raise ToolPreparationError(
+            "condition_items",
+            str(error),
+            "Find each item's #id with query_data, then call reminder again.",
+        ) from error
+    return Condition(
+        items=wanted.items,
+        series=series,
+        kind=kind,
+        # Done is an Action's only answer: no Missed to count, or to break a row.
+        answer="yes" if kind == "action" else wanted.answer,
+        count=wanted.count,
+        in_row=wanted.in_row and kind == "check",
+        once=wanted.once,
+    )
+
+
 async def _finds(session: AsyncSession, condition: Condition) -> str:
     """What the condition finds now, or why it is refused: its one series can never reach its
     count (RM-COND-034)."""
     ids = await found_ids(session, condition)
     never = await never_reached(session, condition, ids)
     if never is not None:
-        raise unclear(never, "answers")
+        raise ToolPreparationError(
+            "count_never_reached",
+            never,
+            "Tell the user, then call reminder again with their answer.",
+        )
     return await finds_text(session, condition, ids)
 
 

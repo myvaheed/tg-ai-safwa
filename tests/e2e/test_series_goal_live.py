@@ -2,11 +2,12 @@
 
 Opt-in with ``--live-provider``, as `test_also_track_live.py` is, and run from the folder that
 holds `.env` and `data/models`. Every turn is the live model, reasoning off: the Advisor, the
-mutator and the Reminder's setup session; search reads the bot's own text model, so the owner's
+reminder subagent; search reads the bot's own text model, so the owner's
 words find a tracker named otherwise. The workspace holds four daily trackers and three Actions. What is
 compared is the condition of the Reminder proposed, with the titles of the items it counts; a
 request too vague to set proposes no Reminder. The requests were written by someone who never
 read the prompts, so a pass is a reading, not a copy; a group in words is the subagent's to list.
+The subagent names the condition itself, so this is where its reading is measured.
 """
 
 from __future__ import annotations
@@ -131,6 +132,23 @@ ASKED = (
             "in_row": False,
             "once": False,
         },
+    ),
+    Ask(
+        "Слушай, каждый раз, когда я отвечаю «нет» на зарядку, сразу пиши мне что-нибудь типа «Ничего, "
+        "завтра наверстаешь, хотя бы 5 минут разминки». На каждый пропуск, без исключений.",
+        {"titles": ["Сделал зарядку?"], "answer": "missed", "count": 1, "in_row": False, "once": False},
+    ),
+    Ask(
+        "Can you ping me every time I've skipped my reading 7 times? Not in a row, just keep a running "
+        "tally of all the misses, and on every 7th one ask me if 20 minutes is too much and whether I "
+        "should drop it to 10.",
+        {"titles": ["Read 20 minutes?"], "answer": "missed", "count": 7, "in_row": False, "once": False},
+    ),
+    Ask(
+        "Хочу маленький праздник: когда я в сумме отмечу 50-ю пробежку (считай все пробежки, подряд не "
+        "обязательно), поздравь меня и напомни, что пора купить новые кроссовки. Это один раз, на 50-й, "
+        "дальше не повторяй.",
+        {"titles": ["Пробежка"], "answer": "done", "count": 50, "in_row": False, "once": True},
     ),
 )
 

@@ -23,10 +23,11 @@ from safwa.features.checks.use_cases import (
 from safwa.features.reminders.agent import (
     NAME_THE_ID,
     NO_MISSED,
-    REMINDER_ANSWER_FORMS,
+    REMINDER_AGENT_PROMPT,
     REMINDER_TIME_FORMS,
     REMINDER_WHEN_PROMPT,
     ConditionInput,
+    ReminderToolInput,
     unclear,
 )
 from safwa.features.reminders.api import (
@@ -132,7 +133,7 @@ def test_after_n_reads_as_once():
     assert describe(on(once), tz=TZ) == "after 30 Passed in a row of Check #12"
     assert describe(on(replace(once, count=1, in_row=False)), tz=TZ) == "after 1 Passed of Check #12"
     assert ConditionInput(items="Check #12", answer="yes", count=3).once is False
-    assert "count=40, in_row=true, once=true." in REMINDER_WHEN_PROMPT
+    assert "count=40, once=true." in REMINDER_AGENT_PROMPT
     assert schedule_from_payload(schedule_payload(on(once))) == on(once)
 
 
@@ -184,7 +185,7 @@ async def test_after_n_already_past_is_refused_with_the_count_now(sessions):
         assert await finds_text(session, after_two, ids) == "«Meditated?». 3 Passed in a row now."
 
 
-def test_the_short_session_names_only_yes_no_or_any():
+def test_safwa_names_the_answer_only_as_yes_no_or_any():
     """RM-COND-030 — tests/brd/reminders.feature"""
     ConditionInput(items="Check #12", answer="no", count=3, in_row=True)
     ConditionInput(items="Check #1, Check #2", answer="yes", count=50)
@@ -197,6 +198,22 @@ def test_the_short_session_names_only_yes_no_or_any():
     for items in ("Action #7", "Action #7 и Action #8"):
         with pytest.raises(ValidationError, match=NO_MISSED):
             ConditionInput(items=items, answer="no", count=3)
+
+
+def test_a_reminder_is_set_by_a_time_or_by_a_condition():
+    """RM-COND-030 — tests/brd/reminders.feature"""
+    condition = {"items": "Check #12", "answer": "no", "count": 3}
+    ReminderToolInput(mode="create", instruction="Cheer me on.", condition=condition)
+    ReminderToolInput(mode="create", instruction="Cheer me on.", when="every day at 8")
+    ReminderToolInput(mode="update", id=4, condition=condition)
+    with pytest.raises(ValidationError, match="needs when or condition"):
+        ReminderToolInput(mode="create", instruction="Cheer me on.")
+    with pytest.raises(ValidationError, match="not both"):
+        ReminderToolInput(
+            mode="create", instruction="Cheer me on.", when="every day at 8", condition=condition
+        )
+    # The setup session reads only a time.
+    assert "set_condition" not in REMINDER_WHEN_PROMPT
 
 
 async def test_a_condition_has_no_time_the_clock_or_a_restart_would_move(sessions):
@@ -620,7 +637,7 @@ async def test_safwa_reads_a_condition_in_ai_reminders(read_views):
     }
 
 
-def test_the_forms_follow_what_the_words_meant():
+def test_an_unclear_time_gets_the_time_forms():
     """RM-UNCLEAR-028 — tests/brd/reminders.feature"""
     assert REMINDER_TIME_FORMS == (
         "tomorrow at 15:00",
@@ -628,18 +645,6 @@ def test_the_forms_follow_what_the_words_meant():
         "every weekday at 8:00",
         "every 2 hours",
     )
-    assert REMINDER_ANSWER_FORMS == (
-        "every 3 Missed in a row of Check #12",
-        "after 30 answers of Check #12",
-        "every 10 Done of Action #3 and Action #5",
-    )
-
-    def told(about):
-        return str(unclear("No hour was given.", about))
-
-    assert told("time").splitlines()[0] == "No hour was given."
-    assert all(form in told("time") for form in REMINDER_TIME_FORMS)
-    assert not any(form in told("time") for form in REMINDER_ANSWER_FORMS)
-    assert all(form in told("answers") for form in REMINDER_ANSWER_FORMS)
-    assert not any(form in told("answers") for form in REMINDER_TIME_FORMS)
-    assert all(form in told(None) for form in REMINDER_TIME_FORMS + REMINDER_ANSWER_FORMS)
+    told = str(unclear("No hour was given."))
+    assert told.splitlines()[0] == "No hour was given."
+    assert all(form in told for form in REMINDER_TIME_FORMS)

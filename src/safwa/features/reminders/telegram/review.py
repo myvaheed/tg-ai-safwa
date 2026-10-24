@@ -78,8 +78,8 @@ class ReminderProposalPresenter:
         self, session: AsyncSession, changes: Sequence[ProposalChange]
     ) -> ProposalScreen | None:
         """The words, when they fire and when they fire first, as the owner will meet them;
-        for a condition, what its SELECT finds now instead of a first firing; for a new
-        interval, the Don't disturb it waits out."""
+        for a condition, what it counts now instead of a first firing; for a new interval, the
+        Don't disturb it waits out."""
         change = changes[-1]
         values = dict(change.values)
         reminder = (

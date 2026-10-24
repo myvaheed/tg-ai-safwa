@@ -299,7 +299,7 @@ Qwen3.6 35B, 2 прохода. 9B — когда результат устрои
 - **Фразы:** «после 20 выполнений #5 и #9 в сумме» оба раза называет их Check; «when my Health
   checks have racked up 15 misses» оба раза без `once`; «on the 20th at 8am» по-прежнему monthly.
 
-## Батч 9 — У1: items только по #id (план)
+## Батч 9 — У1: items только по #id (сделан)
 
 Счёт в Condition уже прост: yes, no или any, count, in_row для yes и no, once. Сложны items:
 группа словами («Actions tagged sport», «Checks ценности Health») становится SQL второй
@@ -369,7 +369,7 @@ Action #2» и выдуманный «Check #5» уходят во вторую 
    ```text
    - Name each Check or Action in them as 'Check #12' or 'Action #7'; list a group's items the same way: 'Action #3, Action #5'.
    ```
-4. **`REMINDER_ANSWER_FORMS`** (видит и владелец). Заодно П15 — форма с «after»:
+4. **Формы ответа** (видит и владелец). Заодно П15 — форма с «after»:
    ```text
    "every 3 Missed in a row of Check #12", "after 30 answers of Check #12", "every 10 Done of Action #3 and Action #5"
    ```
@@ -430,6 +430,175 @@ Action #2» и выдуманный «Check #5» уходят во вторую 
 - **Не связано с У1:** поиск не находит «медитация», «stay up past 11», «pills» и «report»;
   Advisor раз ответил «Я создал напоминание» без вызова; «хорошая серия» раз получила count 7 из
   примера в тексте Reminder.
+
+
+## Батч 10 — У2: условие полями в `reminder` (сделан)
+
+Сейчас сабагент пересказывает слова владельца в `when`, а мини-сессия читает из пересказа items,
+ответ, счёт, «подряд» и «один раз». Замер У1: на этом пути теряется «каждый раз» и `once`, а
+мини-сессия меняет вид item («Check #1» стал `items='Action #1'`). Условие — это пять отдельных
+полей без календарной арифметики; их может назвать сам сабагент, который видит слова владельца
+и уже нашёл items.
+
+**Решение.** У `reminder` появляется поле `condition` с полями `ConditionInput`: items, answer,
+count, in_row, once. Reminder ставят по `when` или по `condition`, не по обоим. `when` остаётся
+только для времени; мини-сессия читает только время.
+
+**Критерий успеха.**
+- В потоке цели серии нет провалов от пересказа: вид items, `once` и счёт — те, что в словах
+  владельца.
+- 20 фраз `goal` про ответы мини-сессия возвращает с `about=answers`, 4 фразы про время — как
+  раньше.
+- Remind и «Also track» не хуже; полный набор зелёный; в `resolve_schedule` нет условия.
+
+### Код
+
+- `ReminderToolInput`: поле `condition: ConditionInput | None`. `create_requires` — только
+  `instruction`; валидатор: create требует `when` или `condition`, оба сразу — отказ. Update без
+  обоих оставляет расписание, как сейчас.
+- `ConditionInput` со своим валидатором (in_row без yes или no, голый #id, Missed у Actions)
+  переезжает из мини-сессии в tool: эти ошибки сабагент получает сразу на вызове.
+- Подготовка строит `Condition` из полей: `items_series`, затем `found_ids` и `never_reached`, как
+  сейчас. Ошибки идут сабагенту своими кодами, без форм ответа:
+  - items не по #id, двух видов или несуществующие — *condition_items*, подсказка ведёт к
+    `query_data` (П17);
+  - счёт, которого одна серия не достигнет, или «after N» уже пройдено — *count_never_reached*,
+    подсказка — сказать владельцу.
+- Мини-сессия: уходят терминал `set_condition`, блок примеров ответов и параметр `items_series` у
+  `resolve_schedule`. Если в `when` всё же пришли ответы, она отвечает `not_clear_enough` с
+  `about=answers`, и сабагент получает *when_counts_answers*: поставить `condition` вместо `when`.
+  Это подстраховка ценой одной строки промпта.
+- `unclear` оставляет только формы времени; формы ответа уходят: ни владелец, ни
+  сабагент больше не пишут ответы словами для мини-сессии.
+- Ложные docstring чинятся на месте: модуль `agent.py`, `proposal.py`, экран (`screen` ещё
+  говорит «what its SELECT finds»), `conditions.py` («as the `when` session writes»).
+
+### Сценарии (меняются исходы, нужен твой ок)
+
+- **Описание фичи и RM-SCHEDULE-001:** словами приходит время, а условие на ответы Safwa называет
+  полями; «words are the only way timing ever arrives» — только о времени.
+- **RM-UNCLEAR-028:** форм ответа больше нет. Слова, которые считают ответы, возвращаются Safwa —
+  поставить их как condition, без форм. Где нельзя понять или мини-сессия не прочла, — формы
+  времени.
+- **RM-COND-030:** Safwa сама называет items, ответ (yes, no или any), счёт, «подряд» и «один
+  раз»; короткой сессии нет. #id без Check или Action и Missed у Actions возвращаются Safwa.
+- **RM-COND-031:** Safwa узнаёт, что не так, и находит #id каждого item через `query_data`; форм
+  ответа нет.
+- **RM-COND-034, RM-COND-040:** отказ без форм ответа, Safwa говорит владельцу, что не так. «Short
+  session reads after 30 as once» в RM-COND-040 становится «Safwa names after 30 as once».
+- **RM-EDIT-038:** заново со словами читается время; условие из слов не читается.
+
+### Тексты на согласование
+
+1. **Промпт `reminder`, разделы `Which tool`, `when` и новый `condition`:**
+   ```text
+   # Which tool
+   - At an Action's, a Goal's or a Check's own time, or before it: `remind` on that item.
+   - At any other time: `reminder` with when.
+   - On answers of Checks or Actions: `reminder` with condition.
+   - To delete a Reminder: `reminder` with mode=delete and its id.
+   - The Morning and Evening times are Profile fields, not Reminders.
+
+   # when
+   - The user's own words for the time, in their language. Never invent a date or an hour.
+
+   # condition
+   - 'every 3 Missed in a row of Check #12': items='Check #12', answer=no, count=3, in_row=true.
+   - 'after 40 Passed of Check #7': items='Check #7', answer=yes, count=40, once=true.
+   - 'every 10 Done of Actions tagged Sport': find them with query_data, then items='Action #3, Action #5', answer=yes, count=10.
+   - Never invent a count: ask the user.
+   ```
+   Строка «Any other time, or on answers…» делится на две, строка «Name each Check or Action in
+   them…» уходит. Плюс пять строк на каждом ходе сабагента, Remind тоже. Три примера — из
+   мини-сессии, где они дали 22 из 24 фраз; «each time» = count 1 уже в описании `count`.
+2. **`REMINDER_WHEN_PROMPT`:** первая строка
+   ```text
+   Read the clock time one Reminder fires at. End with one call: set_reminder_config or not_clear_enough.
+   ```
+   Уходят строка «A Reminder fires at a clock time, or on answers…», блок «Answers,
+   set_condition:» с пятью примерами и строки «No items, no answer or no count: about=answers.»,
+   «Cannot tell a time from answers: leave about out.» Вместо них одна строка:
+   ```text
+   Counts answers of Checks or Actions, like 'every 3 Missed of Check #12': about=answers.
+   ```
+   Мини-сессия читает на 8 строк меньше.
+3. **Описания полей `reminder`:**
+   ```text
+   when: The user's own words for a clock time, in their language. Omit it for a Reminder on answers, and on update to leave the schedule untouched.
+   condition: For a Reminder on answers of Checks or Actions, instead of when.
+   ```
+   И `once` в `ConditionInput` (рекомендую: шесть случаев потока на «когда» и «как только» ждут
+   `once`, а пересказа, который их сохранял бы, больше нет):
+   ```text
+   true for 'after N', 'when I reach N' or 'as soon as': it fires once, at N. false for 'every N' or 'each time'.
+   ```
+4. **Ошибки сабагенту:**
+   - валидатор: «a new Reminder needs when or condition», «set when or condition, not both»;
+   - *when_counts_answers*: «when counts answers of Checks or Actions.», подсказка «Call reminder
+     again with condition instead of when.»;
+   - *condition_items*: текст ошибки как в У1, подсказка «Find each item's #id with query_data, then
+     call reminder again.» `NAME_BY_ID` короче — «Name each item by #id, as 'Check #1, Check #2'.»:
+     про `query_data` говорит подсказка;
+   - *count_never_reached*: текст как сейчас, подсказка «Tell the user, then call reminder again with
+     their answer.»
+5. **Онбординг и `ai_reminders` не меняются.** Владелец по-прежнему говорит словами, и формы
+   «every 3 Missed in a row of Check #12» в онбординге остаются примерами для него; JSON условия
+   тот же.
+
+### Тесты
+
+- E2E: сценарии условия идут вызовом `reminder` с `condition`, без хода мини-сессии; новые — оба
+  поля сразу, ни одного на create, ответы в `when` (*when_counts_answers*, затем `condition`),
+  коды *condition_items* и *count_never_reached*.
+- Юнит: валидатор `ReminderToolInput`; `unclear` только с формами времени; тесты `ConditionInput`
+  остаются.
+- Фразы `goal`: 20 фраз про ответы ждут `about=answers`; `answers()`, `GROUP` и заглушка серий
+  уходят.
+- Поток цели серии: код тот же. Чтение условия теперь мерит только он, поэтому три новых слепых
+  случая на формы, которые были лишь во фразах: «каждый раз» (count 1), Missed всего, не подряд,
+  и N-й Done у Action один раз.
+- Снимок промпта; сокращённый замер на 35B, 2 прохода.
+
+### Цена
+
+- Условие на ответы больше не «только слова»: параметры называет модель. Код по-прежнему сам
+  считает серии, счёт и достижимость.
+- Пять строк в каждом ходе сабагента, в том числе на Remind.
+- Пример `items='Check #12'` модель может скопировать: П14 («does not exist») это ловит.
+
+### Сокращённый замер на 35B, 2 прохода
+
+| | У1 | У2 |
+|---|---|---|
+| Фразы `goal` про время, из 4 | — | 3 и 3 |
+| Фразы `goal` про ответы дают `about=answers`, из 20 | — | 14 и 14 |
+| Поток цели серии, прежние 10 | 7 и 5 | 5 и 4 |
+| Поток, слепые группы, из 3 | 2 и 2 | 2 и 3 |
+| Поток, новые слепые формы, из 3 | — | 2 и 3 |
+| Remind на item, из 10 | 9 и 8 | 9 и 9 |
+| «📊 Also track», из 3 | 3 и 3 | 3 и 3 |
+
+Из 13 провалов потока за два прохода:
+
+- **10 — item не найден.** Сабагент ищет Action в `ai_checks` («пробежки» десять одинаковых
+  запросов подряд), фильтрует по несуществующей колонке `categories`, ищет LIKE своими словами
+  («медитация» против «Помедитировал?»), берёт не тот Check («stay up past 11» стал Check #1) или
+  выдумывает Check #5 и сдаётся. Это ask-04 и ask-07 и ask-08 в обоих проходах, ask-01, ask-05,
+  ask-11 и ask-16 в одном.
+- **2 — чтение условия:** «7 утр подряд» без `in_row` и «два дня подряд, каждый раз» как count 1.
+- **1 — Advisor** ответил «Я создал напоминание» без вызова (ask-05).
+
+Что дал У2:
+
+- **Вид items больше не меняется:** ни одного Check, ставшего Action.
+- **`once` держится:** «когда», «как только», «один раз, на 50-й» — `once=true` во всех случаях,
+  где item найден; «каждый раз» на каждый пропуск — count 1; «не подряд» — без `in_row`.
+- **Валидатор работает:** раз сабагент прислал `when` вместе с `condition`, получил «not both» и
+  исправил вызов.
+- **Ответы в `when` сабагент не кладёт:** ни разу за 32 случая потока. Подстраховка мини-сессии
+  срабатывает на 14 из 20 фраз; на остальных она пишет «No clock time specified» и даёт формы
+  времени.
+- Remind и «Also track» не хуже.
 
 ## Тексты на согласование
 
