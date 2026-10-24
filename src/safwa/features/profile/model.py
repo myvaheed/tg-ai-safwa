@@ -19,6 +19,8 @@ HOME_AFTER_MINUTES_DEFAULT = 30
 HOME_AFTER_MINUTES_MIN = 5
 HOME_AFTER_MINUTES_MAX = 1440
 TODAY_CAPACITY_EP_DEFAULT = 20
+# The local windows the owner's interval Reminders wait out, out of the box.
+DONT_DISTURB_DEFAULT = ("22:00-08:00",)
 
 
 class UserProfile(Base, TimestampMixin):
@@ -41,12 +43,16 @@ class UserProfile(Base, TimestampMixin):
     today_capacity_ep: Mapped[float] = mapped_column(Float, default=TODAY_CAPACITY_EP_DEFAULT)
     home_after_minutes: Mapped[int] = mapped_column(Integer, default=HOME_AFTER_MINUTES_DEFAULT)
     secret_word_hash: Mapped[str | None] = mapped_column(Text, server_default=null())
+    # Local HH:MM-HH:MM windows; none is off.
+    dont_disturb: Mapped[list[str]] = mapped_column(
+        JSON, default=lambda: list(DONT_DISTURB_DEFAULT)
+    )
     # The automatic reactions the owner turned off, by hook name. A hook that is not
     # here is on, so a new hook needs no column of its own.
     disabled_hooks: Mapped[list[str]] = mapped_column(JSON, default=list)
 
 
-ProfileValue = str | bool | int | float | time | None
+ProfileValue = str | bool | int | float | time | list[str] | None
 
 
 class ProfileField(StrEnum):
@@ -62,3 +68,4 @@ class ProfileField(StrEnum):
     EFFORT_TRACKING = "effort_tracking"
     TODAY_CAPACITY_EP = "today_capacity_ep"
     HOME_AFTER_MINUTES = "home_after_minutes"
+    DONT_DISTURB = "dont_disturb"

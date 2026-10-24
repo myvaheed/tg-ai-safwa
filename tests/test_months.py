@@ -89,7 +89,6 @@ async def test_the_session_reads_days_of_the_month():
         instruction="Pay the bills.",
         now=NOW,
         tz=TZ,
-        names="",
     )
     assert (schedule.kind, schedule.month_days) == (ScheduleKind.MONTHLY, (1, 15))
     assert schedule.until == date(2026, 12, 31)

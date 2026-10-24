@@ -359,3 +359,26 @@ Feature: Proposals
     Then nothing about that field is reported as changed
     When the owner discards a proposal they edited
     Then Safwa is told it was discarded, by PR-RESULT-011
+
+  Scenario: PR-SWITCH-037 — A feature may offer to turn a proposal into another one before Save
+    Given a feature declares that a proposed change of its item may turn into another call
+    When the review screen of a proposal that offers it is drawn
+    Then its button stands above Edit, Save and Discard
+    And a proposal its feature does not offer it to, or that holds several changes, has no such button
+    When the owner presses it
+    Then the feature writes the other call, which may read and ask a model and writes nothing
+    And that call is checked as Safwa's own would be, while the chat shows Safwa typing
+    And what that call carries already read is not read again
+    And the same review now holds that call in place of the first, drawn as that item's review
+    And nothing is written before the owner presses Save
+    When the check refuses the other call
+    Then the proposal stays as it was, and the reason is on the screen
+    When the owner saves it
+    Then the other call is written, and the call Safwa made is told it was saved with what was
+      written: that item, its result ids and its fields
+    And it is told the owner changed its call on its screen before saving, with what it proposed
+      and what was saved, to say the owner chose it, to report what was saved and to answer, and
+      never to make its own call again
+    And it is not told to carry on with what of the request is unfinished
+    When the owner discards it
+    Then nothing is written, and Safwa is told it was discarded, by PR-RESULT-011

@@ -34,6 +34,7 @@ from ..proposals.api import (
     MutationToolSpec,
     ProposalHandler,
     ProposalPresenter,
+    ProposalSwitch,
     SimilarItems,
 )
 from .contributions import ScreenCommand, StartLink, TextInputFlow
@@ -138,6 +139,8 @@ class ProposalContribution:
     similar: SimilarItems | None = None
     # Which values of a call the owner may set by hand under Edit, or nothing.
     editable: EditableFields | None = None
+    # What a proposed change may turn into instead, each a button above Edit.
+    switches: tuple[ProposalSwitch, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -17,6 +17,7 @@ from tg_agent_shell.cues.queue import drop_hook_cue
 from tg_agent_shell.foundation.errors import DomainError
 
 from .model import (
+    DONT_DISTURB_DEFAULT,
     EVENING_TIME_DEFAULT,
     HOME_AFTER_MINUTES_DEFAULT,
     MORNING_TIME_DEFAULT,
@@ -82,6 +83,12 @@ async def home_after_minutes(session: AsyncSession) -> int:
     """How long the owner may leave the chat before it is emptied."""
     profile = await session.get(UserProfile, 1)
     return profile.home_after_minutes if profile is not None else HOME_AFTER_MINUTES_DEFAULT
+
+
+async def dont_disturb(session: AsyncSession) -> list[str]:
+    """The local HH:MM-HH:MM windows the owner's interval Reminders wait out; none is off."""
+    profile = await session.get(UserProfile, 1)
+    return list(profile.dont_disturb if profile is not None else DONT_DISTURB_DEFAULT)
 
 
 async def secret_word_verifier(session: AsyncSession) -> str | None:

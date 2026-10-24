@@ -1,20 +1,31 @@
-"""What Schedules ask the Advisor to raise on their own: a Schedule that ran its total or
-reached its last day."""
+"""What Schedules do on their own: ask the Advisor to raise a Schedule that ran its total or
+reached its last day, and move each open instance on to the period it is in."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.changes import Committed
-from tg_agent_shell.hooks.contracts import Advise, HookSpec, OnCommitted
+from tg_agent_shell.hooks.contracts import (
+    Advise,
+    HookSpec,
+    OnCommitted,
+    OnStarted,
+    OnTick,
+    Run,
+    RunContext,
+    Started,
+    Tick,
+)
 
+from ...constants import SCHEDULER_POLL_SECONDS
 from ..cards.model import Card
 from ..checks.model import Check
-from .api import SCHEDULE_ENDED, item_label
+from .api import SCHEDULE_ENDED, item_label, move_on_open_instances
 
 END_REQUEST = (
     "Ran all the times its Schedule has, or reached its last day, and no longer repeats:\n{items}\n"
@@ -56,4 +67,25 @@ SCHEDULE_END_HOOK = HookSpec(
     effect=Advise(prepare=end_request),
     title="Schedule end",
     description="After a Schedule runs all its times or reaches its last day, asks whether to start it again.",
+)
+
+
+async def every_look(event: Tick | Started) -> tuple[Tick | Started, ...]:
+    return (event,)
+
+
+async def move_on(event: Tick | Started, context: RunContext) -> None:
+    async with context.sessions() as session:
+        await move_on_open_instances(session)
+        await session.commit()
+
+
+SCHEDULE_PERIOD_HOOK = HookSpec(
+    name="schedules.period",
+    owner="schedules",
+    on=(OnTick(every=timedelta(seconds=SCHEDULER_POLL_SECONDS)), OnStarted()),
+    evaluate=every_look,
+    effect=Run(move_on),
+    title="Schedule periods",
+    description="As a new period of a repeating Schedule starts, moves its open Action or Check on to it.",
 )

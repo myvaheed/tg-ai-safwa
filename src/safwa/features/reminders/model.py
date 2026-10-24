@@ -41,8 +41,8 @@ class Reminder(Base, TimestampMixin):
     nothing more: the tick writes the words down as a Cue and moves this row on in the same
     transaction, and the Cue row is what survives until the owner has them.
 
-    A Reminder on answers has no `next_fire_at`: `condition` holds the items, the SELECT of
-    their ids, the answer, the count and whether in a row, and `reminders.condition` writes
+    A Reminder on answers has no `next_fire_at`: `condition` holds the items, the series of
+    each, the answer, the count and whether in a row, and `reminders.condition` writes
     its Cue when an answer makes that count.
 
     A repeat may end: `until` is the last local day it fires on and `total` how many times it
@@ -63,7 +63,6 @@ class Reminder(Base, TimestampMixin):
     # UTC.  The one-shot moment, or the moment a recurrence starts; a floor, never a rhythm.
     anchor_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     interval_minutes: Mapped[int | None] = mapped_column(Integer)
-    quiet_windows: Mapped[list[str]] = mapped_column(JSON, default=list)
 
     condition: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     until: Mapped[date | None] = mapped_column(Date)

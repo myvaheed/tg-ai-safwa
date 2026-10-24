@@ -59,8 +59,8 @@ MANUAL = f"""# Safwa
 - A Card is a Goal or an Action. A Card may stand under one Goal or several, its parents. A Goal with no parent is root-level; with a parent it is displayed as a Subgoal. An Action may stand under any Goals or alone and has no children.
 - Goal markers count Goal levels including the Card itself: 🎯 for one level, 🎯² for two, 🎯³ for three, and so on. Actions do not count.
 - Cards stand at most {CARD_TREE_DEPTH_MAX} levels deep along any path, counting the root as 1 and including Actions. A Card cannot be placed under itself or its descendants.
-- Goals name a specific, attainable, meaningful result, with a verifiable completion criterion in Note; Deadline is optional. A Subgoal contributes to each parent's result. Unclear results or criteria are clarified before proposing. Directions are Values; ongoing practices are repeating Actions.
-- After a Goal or Subgoal is created, Safwa silently checks that it is one concrete result that takes more than one day, with an observable Done, and that a Subgoal moves each parent forward. If not, the Advisor says the Goal could be improved and asks with advice. It may suggest a criterion, a Value, a repeating Action or an Action instead, for the user to confirm. A Goal tagged "{INBOX_TAG_NAME}" is not checked. Goal clarification in Profile → Hooks switches this off or on.
+- Goals name a specific, attainable, meaningful result, with a verifiable completion criterion in Note; Deadline is optional. A Subgoal contributes to each parent's result. Unclear results or criteria are clarified before proposing. Directions are Values; ongoing practices are repeating Actions or Checks.
+- After a Goal or Subgoal is created, Safwa silently checks that it is one concrete result that takes more than one day, with an observable Done, and that a Subgoal moves each parent forward. If not, the Advisor says the Goal could be improved and asks with advice. It may suggest a criterion, a Value, a repeating Action or Check, or an Action instead, for the user to confirm. A Goal tagged "{INBOX_TAG_NAME}" is not checked. Goal clarification in Profile → Hooks switches this off or on.
 - An Action has a stage: Backlog, Sprint, Today, Done. It goes to Sprint or Today when the user takes it on; it need not pass every stage. An open Goal shows its children's live stage. Goals and Subgoals close only by an explicit Done or approved proposal, even with open Cards under them, which stay open; only an explicit reopen opens them again.
 - After all Actions under a Goal or Subgoal are Done, the Advisor asks whether to close it too or create a new Action. Goal completion follow-up in Profile → Hooks switches this question off or on.
 - After a Goal is closed over open Cards that serve no other open Goal, the Advisor asks whether to keep it closed, reopen it or close them too. Open Cards under a closed Goal in Profile → Hooks switches this off or on.
@@ -82,6 +82,7 @@ MANUAL = f"""# Safwa
 - Ask the Advisor for scheduled work and progress: planned, done and remaining counts for the asked dates, the current Sprint and all time.
 - Blocked is a warning on an Action, with its reason. It stops nothing.
 - A repeating Action makes its next copy when it is finished.
+- A repeating Action or Check left open moves on to each new day or period; the one it leaves gets no answer and no Missed. An answer counts for the period it is given in.
 - A Done Card is archived two Sprints later, or by hand. It still counts.
 - In words: create, change, move, finish, place under another Goal or take it from one, delete.
 - Deleting a Card deletes only it. The Cards under it lose that parent and keep their others; one left with none becomes root-level. The Advisor then asks where to put those, offering the Goals the deleted Card stood under. Cards without a parent in Profile → Hooks switches this off or on.
@@ -113,7 +114,7 @@ MANUAL = f"""# Safwa
 - In words: create, rename, put on a Card, answer, delete.
 - With buttons: "☑️ Checks" on its Card, counting answered of all; on the Check, "✅ Yes" answers Passed and "❌ No" answers Missed, "📝 Note", "⏱ Schedule", "💎 Values", "🗑 Delete". "Answered: ✅8 · ❌2" opens the series' answers, newest first.
 - Not with buttons: creating a Check, or putting it on a Card. Ask the Advisor.
-- After a Check is created, Safwa silently checks that it observes a state or a result rather than work done, is answered yes or no, and is about its Card's result. "Did I exercise?" every morning is a repeating Action; "No sweets?" is a Check. If something clearly does not fit, the Advisor says the Check could be improved, suggests the change with its reason, and asks. Check review in Profile → Hooks switches this off or on.
+- After a Check is created, Safwa silently checks that it marks a fact answered yes or no — a state, a result or a habit done — and is about its Card's result. "Did I exercise?" every morning tracks a habit; "Was I a good father?" needs a fact that shows it. If something clearly does not fit, the Advisor says the Check could be improved, suggests the change with its reason, and asks. Check review in Profile → Hooks switches this off or on.
 
 # Values and Tags
 - A Value is what the user lives by: "📖 Endless learning". It has a name and a description: why it matters and what the user does for it on an ordinary day. A vivid name and description make it clearer what the user wants; the Advisor helps word them from the user's own words. A Card carries a Value when it serves it; a Check carries one when it shows how well it is held. A Value is in focus while a Card in Today carries it, including Goals above its Actions, or a Check linked to it is scheduled for today and still needs an answer. The Advisor reads every Value. A Value's or a Tag's description holds at most {DESCRIPTION_MAX_CHARS} characters.
@@ -167,10 +168,12 @@ MANUAL = f"""# Safwa
 
 # Reminders
 - A Reminder is words and when they come due: a time, or a count of answers of Checks or Actions. When it fires, its words come to the Advisor as a request, and the Advisor answers them.
-- In words only: create one, or change when it fires. Say the time in plain words, such as "every weekday at 8:00", or the answers, such as "every 3 Missed in a row of Check #12", "every 30 answers of Check #12" or "every 10 Done of Actions tagged sport". "🔔 Remind" on a Schedule also makes one.
+- In words only: create one, or change when it fires. Say the time in plain words, such as "every weekday at 8:00", or the answers, such as "every 3 Missed in a row of Check #12", "after 30 answers of Check #12" or "every 10 Done of Action #3 and Action #5". "🔔 Remind" on a Schedule also makes one.
 - A Reminder may fire on days of the month: "on the 1st and 15th of each month at 9", "on the last day of each month at 18:00".
 - A repeating Reminder may end: "every day at 9 until 30 November", "every 2 hours for a week", "every weekday at 8, 10 times". Its last firing says so, and then it deletes itself. Its screen counts the times fired.
-- A Reminder on answers fires at every multiple of its count: 3, 6, 9. A corrected answer fires nothing. Its words select the items again at every answer, so items made later count too, and deleting them leaves the Reminder. Its screen shows what they find now.
+- Don't disturb in Profile: Reminders that repeat every few minutes or hours wait until it ends.
+- A habit tracker is a repeating Check marked yes or no, with a Remind and Values if you like. A new Reminder that repeats at a time of day offers "📊 Also track" on its screen.
+- A Reminder on answers fires at every multiple of its count: 3, 6, 9. "After 30" fires once, at 30, and then deletes itself. A corrected answer fires nothing. It counts the Checks or Actions named when it was set, every copy of each; an item made later does not count. Its screen shows what they find now and the count now.
 - With buttons: "⏰ Reminders" or /reminders: "✏️ Text" to change the words, "🗑 Delete".
 - Deleting is the only way to stop one.
 
@@ -183,7 +186,7 @@ MANUAL = f"""# Safwa
 - "Today overload" and "Effort Points reminder" are in Hooks only while Effort Points are on, and ask nothing while they are off.
 
 # Profile
-- "⚙️ Profile": About me and Advisor instructions (what the Advisor must know and follow), Morning time, Evening time, Diary instruction, Motivator instructions, Home after, Secret word, Time tracking, Effort Points, and "🔔 Hooks".
+- "⚙️ Profile": About me and Advisor instructions (what the Advisor must know and follow), Morning time, Evening time, Diary instruction, Motivator instructions, Home after, Don't disturb, Secret word, Time tracking, Effort Points, and "🔔 Hooks".
 - "Motivator instructions" sets the Home motivation's style and emphasis. Send off to clear it.
 - "Usage time" shows roughly how long the user has used Safwa in all, such as "~2d 5h 25m". It is not Time tracking.
 - "⌛ Time tracking" is off until pressed. On, it offers "⌛ Time spent" on an Action, keeps a Sprint's time for its retro and turns on "Time tracking reminder". The active day it measures runs from the Morning time to the Evening time.

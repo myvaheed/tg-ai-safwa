@@ -1,8 +1,9 @@
 Feature: Reminders
   A Reminder is some words and when they come due, and nothing else: a time, or a count of answers of
-  Checks or Actions. Nobody builds a schedule by hand — not the owner and not Safwa. The timing arrives as plain
+  Checks or Actions. Nobody builds a schedule by hand — not the owner and not Safwa. A time arrives as plain
   words, one short session turns those words into parameters, and the schedule is worked out from
-  them in code. When one comes due, exactly one thing happens: the words are handed to Safwa as a
+  them in code; a count of answers arrives as the few choices Safwa names. When one comes due,
+  exactly one thing happens: the words are handed to Safwa as a
   request, and Safwa decides what to say.
 
   Numbers below name the constant they come from; the tests read the constant.
@@ -10,12 +11,13 @@ Feature: Reminders
   Background:
     Given a workspace with the owner's own timezone, and a Safwa that proposes rather than writes
 
-  Scenario: RM-SCHEDULE-001 — Timing arrives as words and is worked out in code
-    Given Safwa proposes a Reminder and says when in plain words
+  Scenario: RM-SCHEDULE-001 — A time arrives as words and is worked out in code
+    Given Safwa proposes a Reminder at a time and says it in plain words
     When the proposal is put together
     Then a short session turns those words into parameters
     And the schedule itself is worked out from those parameters in code
-    And there is no box anywhere for a schedule, so words are the only way timing ever arrives
+    And there is no box anywhere for a time, so words are the only way a time ever arrives; a count
+      of answers arrives by RM-COND-030
 
   Scenario: RM-SCHEDULE-002 — Words that do not pin down a time ask the owner
     Given the owner says "remind me every morning"
@@ -55,8 +57,7 @@ Feature: Reminders
     When the schedule is worked out
     Then the reason is said plainly and no schedule is made
     And each of these is such a reason: an interval under 5 minutes
-      (REMINDER_MIN_INTERVAL_MINUTES = 5), weekdays other than every day given together with an interval, quiet hours on
-      something that is not an interval, quiet hours that leave no time of day at all, a date with
+      (REMINDER_MIN_INTERVAL_MINUTES = 5), weekdays other than every day given together with an interval, a date with
       no hour on it, minutes from now given with anything else, a last day or a total on something
       that happens once, a last day before the first firing, days of the month given together with
       weekdays or an interval, days of the month with no hour, and nothing given at all
@@ -67,10 +68,10 @@ Feature: Reminders
     Given a daily Reminder at 08:30
     When the clocks go forward or back
     Then it still fires at 08:30
-    And the edge of a quiet window lands at the same clock time on both sides of the change
+    And the edge of a Don't disturb window lands at the same clock time on both sides of the change
 
   Scenario: RM-QUIET-007 — Quiet hours push a firing to the end of them, and the end is not quiet
-    Given a repeating Reminder with quiet hours
+    Given Don't disturb in the Profile (PS-QUIET-025) and a Reminder of the owner's that repeats by an interval
     When a firing would land inside them
     Then it moves to the moment they end
     And one range written across midnight behaves the same as two ranges meeting at 00:00
@@ -202,75 +203,84 @@ Feature: Reminders
   Scenario: RM-UNCLEAR-028 — Words that cannot be scheduled come back with what is unclear and the forms that work
     Given Safwa proposes a Reminder whose words do not say when, or say a time no schedule can keep
     When those words are worked through
-    Then nothing is written, and Safwa is told what is unclear and the forms a Reminder's timing may take
-    And the words meant a time, so the forms are times: "tomorrow at 15:00", "on Thursday at 10:00",
-      "every weekday at 8:00", "every 2 hours except 22:00–09:00" (REMINDER_TIME_FORMS)
-    And words that meant answers get the answer forms: "every 3 Missed in a row of Check #12",
-      "every 30 answers of Check #12", "every 10 Done of Actions tagged sport" (REMINDER_ANSWER_FORMS)
-    And words where neither can be told, or that the short session could not read at all, get both
+    Then nothing is written, and Safwa is told what is unclear and the forms a time may take:
+      "tomorrow at 15:00", "on Thursday at 10:00", "every weekday at 8:00", "every 2 hours"
+      (REMINDER_TIME_FORMS), as it is when the short session could not read them at all
+    And words that count answers of Checks or Actions go back to Safwa without forms, to name them
+      as a condition by RM-COND-030
     And Safwa tells the owner, and tries again with the owner's answer, by RM-SCHEDULE-002
 
   Scenario: RM-COND-030 — A Reminder can come due on answers of Checks or Actions
-    Given Safwa proposes a Reminder with the words "every 3 Missed in a row of Check #12"
-    When those words are worked through
-    Then the short session of RM-SCHEDULE-001 reads which items, which answer, how many, and whether in a row
-    And a second short session writes those items as one SELECT of their ids, over ai_checks for a
-      Check's answer and over ai_cards for Done
-    And that session is told to find the items whatever their answer, never filtering on status or
-      stage, so the answers are counted in code
-    And that session is given every Tag and Value by the name stored, so "tagged sport" finds a Tag
-      named Sport
+    Given the owner asks for a word at every 3 Missed in a row of Check #12
+    When Safwa proposes the Reminder
+    Then it names the condition itself, with no short session: the items, the answer, how many,
+      whether in a row and whether once
+    And the items are Checks or Actions by #id, such as "Check #12", "Check #12 «Sat straight?»" or
+      "Action #3, Action #5", and code keeps the series of each, by the series id that stays when any
+      copy is deleted
+    And a group in words, such as "Actions tagged sport", is listed by #id by Safwa before it
+      proposes the Reminder, and words that name no #id go back to Safwa by RM-COND-031
     And the answer is Passed, Missed, any answer of a Check, or Done of an Action, and only Passed and
       Missed count in a row
-    And the screen says "every 3 Missed in a row of Check #12", and what the SELECT finds now by up to
-      3 titles and how many more (CONDITION_PREVIEW_TITLES = 3), and shows no first firing
+    And Safwa names the answer only as yes, no or any; whether the items are Checks or Actions comes
+      from their words
+    And an #id with neither Check nor Action beside it, and Missed of Actions, go back to Safwa
+    And the screen says "every 3 Missed in a row of Check #12", the items it counts by up to 3 titles
+      and how many more (CONDITION_PREVIEW_TITLES = 3), then their count now, such as "0 Missed in a
+      row now", and shows no first firing
     And Save makes a Reminder with no time: the clock never fires it, and a restart does not move it
 
-  Scenario: RM-COND-031 — The SELECT is checked before the owner sees it
-    Given the second short session writes the SELECT
-    When it is not one SELECT over ai_checks and ai_cards, or a Check's answer does not read ai_checks,
-      or Done does not read ai_cards
-    Then it goes back to that session to repair, by its repair rounds (MINI_SESSION_REPAIR_ROUNDS = 3)
-    And a SELECT that still fails, does not run, or returns no id column comes back as words that
-      cannot be scheduled, with the answer forms of RM-UNCLEAR-028
+  Scenario: RM-COND-031 — The items are checked before the owner sees them
+    Given Safwa names the items
+    When they are words other than Checks or Actions by #id, Checks and Actions together, or an #id
+      that does not exist
+    Then nothing is written, and Safwa is told what is wrong, to find each item's #id and try again
 
   Scenario: RM-COND-032 — A Reminder on answers fires at every multiple of its count
     Given a Reminder on 3 Missed in a row of a repeating Check
-    When an answer to an item its SELECT finds is saved — by hand, or from a proposal the owner saved
-    Then the answers of every item the SELECT finds now are counted, newest first, and a Pending
-      instance is skipped
+    When an answer to a copy of one of its series is saved — by hand, or from a proposal the owner saved
+    Then the answers of every copy of its series are counted, newest first, and a Pending instance is
+      skipped
     And in a row counts back to the first other answer, and in all counts every such answer
     And at 3, 6 and 9 its words go to Safwa as one request, as any Reminder's do when it comes due,
       saying how many there are now and how many Passed and Missed in all
     And a fourth and a fifth Missed say nothing, and neither does an answer it does not count
+    And answers saved together, such as the Checks one Done answers, count one by one in the order
+      saved, each with the count at its own place: 3 or 4 of them under every 3 answers say it once,
+      at the third
     And a corrected answer says nothing, even when the count it leaves is a multiple
     And Done of an Action counts the same way, in all, and says how many are Done now
     And it stays after it fires, and deleting it is the only off switch, by RM-WRITE-010; it is not in
       Profile → Hooks
 
-  Scenario: RM-COND-033 — The SELECT runs again at every answer
-    Given a Reminder on "every 10 Done of Actions tagged sport"
-    When an Action tagged sport after the Reminder was made is Done
-    Then it counts
-    And deleting every item the SELECT finds leaves the Reminder, which counts nothing until its SELECT
-      finds something again
+  Scenario: RM-COND-033 — The series are fixed when the Reminder is set
+    Given a Reminder on "every 10 Done of Action #3 and Action #5"
+    When a new copy of Action #3 is Done
+    Then it counts, as every copy of its series does, answered or open
+    And so a deleted first copy still leaves every answer of that series counted
+    When an Action made after the Reminder is Done
+    Then it does not count, even with the same Tag as Action #3
+    And deleting every copy of its series leaves the Reminder, which counts nothing and says so on its
+      screen
 
   Scenario: RM-COND-034 — A count one series can never reach is refused
-    Given words whose SELECT finds one series of a Check or of an Action
-    When that series runs at most N times: once when it does not repeat, or its total by SCH-TOTAL-021
-    Then a count above N is refused with the answer forms of RM-UNCLEAR-028
+    Given items that are one series of a Check or of an Action
+    When the most it can count is N: what it counts now, and every answer the series still has to
+      come, one while it does not repeat and is open, or what is left of its total by SCH-TOTAL-021
+    Then a count above N is refused, saying that the series does not repeat, or how many it counts
+      now and how many answers it has left, and Safwa tells the owner
+    And 2 Passed under an earlier revision, with a new revision of 2 times, reach 4 Passed in all
     And a Check runs as its own Schedule does, or else as the Action it hangs on
-    And a SELECT that finds more than one series, or a series that repeats without end, takes any count
+    And items of more than one series, or a series that repeats without end, take any count
 
   Scenario: RM-COND-035 — A Reminder on answers is listed and read like any other
     Given a Reminder on answers, and one with a time
     When the owner opens /reminders
     Then the one with a time comes first, and the one on answers follows, by its words and its answers
     And opening it shows its answers and no next firing, and the same two things to do, by RM-UI-023
-    And it shows what its SELECT finds now, or, when the SELECT no longer runs, that it counts
-      nothing, why, and to ask Safwa to set it again
-    And Safwa reads it in ai_reminders with schedule_kind condition and its condition: the items, the
-      SELECT, the answer, the count and whether in a row, and no next firing
+    And it shows the items it counts now, or that its items were deleted
+    And Safwa reads it in ai_reminders with schedule_kind condition and its condition: the items,
+      their series, the answer, the count, whether in a row and whether once, and no next firing
 
   Scenario: RM-END-036 — A repeating Reminder can end on a last day or after a total
     Given Safwa proposes a repeating Reminder whose words say until when, for how long, or how many times
@@ -315,8 +325,59 @@ Feature: Reminders
     Given Safwa proposes to make a Reminder, or to change one's words
     When the owner presses "✏️ Edit" on its review screen
     Then the words have "✏️ Text", which asks for them as the Reminder's own "✏️ Text" does
-    And when the proposal sets when it fires, that is read again with the new words before the
-      review comes back, as it is for Safwa's
+    And when the proposal sets a time, that is read again with the new words before the review
+      comes back, as it is for Safwa's; a count of answers is not read from the words
     And a time that cannot be read with them leaves the proposal as it was, with what is unclear
       on the screen
     And when it fires has no button
+
+  Scenario: RM-TRACK-039 — A new Reminder at a time of day can also be tracked as a Check
+    Given Safwa proposes a Reminder "Remind the user to drink water" every day at 07:00, and the owner has the Values "Health" and "Family"
+    When its review screen is drawn
+    Then "📊 Also track" stands above Save and Discard, by PR-SWITCH-037
+    And a Reminder that happens once, repeats by an interval or counts answers has no such button, and neither has a change to a Reminder
+    When the owner presses it
+    Then a short session writes a yes/no question in the language of the words, "Drank water?", and picks the Values the habit plainly serves, "Health"
+    And a Value name not in the list is sent back to the session to fix, and none at all is fine
+    And the review now proposes a new Check "Drank water?" with the Schedule "every day at 07:00", Remind at the time and the Value "Health"
+    And the Schedule is the Reminder's own timing, carried over in code and not read again: its last day and its total are the Schedule's, and the screen says the total
+    And Edit offers the Check's own fields, "💎 Values" among them, by CH-EDIT-022
+    When the owner saves it
+    Then the Check, its Schedule, the Reminder Remind makes and the link to "Health" are written together, and no other Reminder is
+    And the link gets the small check of VL-LINK-019, as any saved link of a Value to a Check does
+    When the owner discards it
+    Then nothing is written
+
+  Scenario: RM-COND-040 — A Reminder after N answers fires once
+    Given the owner asks for a word after 30 Passed in a row of Check #7
+    When Safwa proposes the Reminder
+    Then it names "after 30" as once, and "every 30" as at every multiple
+    And the screen says "after 30 Passed in a row of Check #7", and what it counts now, by RM-COND-030
+    When an answer brings the count to 30 itself
+    Then its words go to Safwa as one request that says it is its last time, and the Reminder is
+      deleted as that request is written
+    And no answer after it says anything
+    And answers saved together say it once, at the 30th, by RM-COND-032
+    When the count is already 30 or more as the Reminder is proposed
+    Then it is refused, saying the count it has now and that after 30 is already past, and Safwa
+      tells the owner
+    And every 30 is not refused: it fires at the next multiple
+
+  Scenario: RM-AGENT-041 — Reminders and Remind are set by their own part of Safwa
+    Given a request to set, change or delete a Reminder, at a time or on answers, or to turn Remind
+      on or off for an Action, a Goal or a Check
+    Then it is handed to the reminder part, and the workspace part has no tool for a Reminder or
+      Remind
+    And the reminder part reads the Reminders, Checks, Cards, Tags and Values, and is not handed the
+      state of the workspace
+    And it is handed the open Checks, Actions and Goals that have a Schedule, each by #id with its
+      Schedule, Tags and Values, up to 50 (OPEN_ITEMS_MAX = 50), and finds any other with search
+    And it proposes a Reminder by RM-WRITE-008 and Remind by SCH-REMIND-029, and deletes a
+      Reminder with the same tool that proposes one
+    And it has no tool that creates, archives or deletes a Check or an Action
+    When it would change or delete the Reminder an item's Remind made
+    Then it is refused with that item's id, to set the item's Remind instead
+    When the request also asks for a new item, such as an Action every day at 20:00 with Remind 30
+      minutes before
+    Then the workspace part proposes the item, and after its Save the reminder part proposes its
+      Remind

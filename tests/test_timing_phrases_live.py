@@ -3,13 +3,20 @@
 Opt-in with ``--live-provider``; it reads SAFWA_QA_AI_* over SAFWA_AI_* from `.env`, so run
 it from the folder that holds `.env`. Reasoning is always off, as Safwa is meant to run: a step
 the owner waits 5-10 seconds for is no use. A phrase is one Scheduler session for a Schedule, or the setup session of
-a Reminder, and a second one for the SELECT of a condition. What is compared is what the code
-made of the model's answer, never the answer itself.
+a Reminder. What is compared is what the code made of the model's answer, never the answer
+itself.
 
 Each case names the batch that makes its form readable: `now` for forms the code holds today,
 `1a` for a last day, a total on a Reminder and the start of a quota, `1b` for days of the
-month. The passes are the measure: `-k now` before and after a change says whether the new
-fields cost the old forms anything, and `-k 1a` says whether the new ones are read.
+month, `goal` for words that count answers, beside times that sound like them. The passes
+are the measure: `-k now` before and after a change says whether the new fields cost the old
+forms anything, and `-k 1a` says whether the new ones are read. The `goal` cases were written
+by someone who never read the prompts, so a pass is a reading, not a copy; no case repeats a
+prompt's example.
+
+The setup session reads only a time: words that count answers come back unclear about answers,
+for the subagent to name as a `condition`; the reading of a condition is measured by
+`tests/e2e/test_series_goal_live.py`.
 """
 
 from __future__ import annotations
@@ -23,7 +30,7 @@ import pytest
 
 from llm_gateway import OpenAICompatibleProvider
 from safwa.constants import WEEKDAY_NAMES
-from safwa.features.reminders.agent import resolve_schedule
+from safwa.features.reminders.agent import CountsAnswers, resolve_schedule
 from safwa.features.reminders.api import Schedule, ScheduleError, schedule_from_payload
 from safwa.features.schedules.agent import ScheduleCompiler
 from safwa.qa import qa_provider_settings
@@ -33,7 +40,6 @@ pytestmark = pytest.mark.live_provider
 TZ = ZoneInfo("Europe/Istanbul")
 # A Saturday at noon: next Monday is 19.10, next Friday 23.10, next month starts 01.11.
 NOW = datetime(2026, 10, 17, 12, 0, tzinfo=TZ)
-NAMES = "Tags: Sport, Reading\nValues: Health"
 REASONING_EFFORT = "none"
 EVERY_DAY = list(WEEKDAY_NAMES)
 WORKWEEK = ["Mon", "Tue", "Wed", "Thu", "Fri"]
@@ -47,26 +53,19 @@ class Case:
     expected: dict[str, Any]
 
 
+# Words that count answers, which the subagent names as a condition instead.
+ANSWERS = {"unclear": "answers"}
+
+
 CASES = (
     Case("now", "reminder", "каждый день в 8", {"kind": "daily", "days": EVERY_DAY, "time": "08:00"}),
     Case("now", "reminder", "every weekday at 8am", {"kind": "weekly", "days": WORKWEEK, "time": "08:00"}),
     Case("now", "reminder", "по понедельникам в 9:30", {"days": ["Mon"], "time": "09:30"}),
     Case("now", "reminder", "завтра в 15:00", {"kind": "once", "date": "18.10.2026", "time": "15:00"}),
     Case("now", "reminder", "in 90 minutes", {"kind": "once", "date": "17.10.2026", "time": "13:30"}),
-    Case(
-        "now", "reminder", "каждые 2 часа, кроме 22:00–09:00",
-        {"interval": 120, "quiet": ["22:00-09:00"]},
-    ),
+    Case("now", "reminder", "каждые 2 часа", {"kind": "interval", "interval": 120}),
     Case("now", "reminder", "в четверг в 10", {"kind": "once", "date": "22.10.2026", "time": "10:00"}),
     Case("now", "reminder", "по четвергам в 10", {"kind": "weekly", "days": ["Thu"], "time": "10:00"}),
-    Case(
-        "now", "reminder", "every 3 Missed in a row of Check #12",
-        {"kind": "condition", "answer": "missed", "count": 3, "in_row": True, "filters": False},
-    ),
-    Case(
-        "now", "reminder", "каждые 10 Done у Actions с тегом sport",
-        {"kind": "condition", "answer": "done", "count": 10, "in_row": False, "filters": False},
-    ),
     Case("now", "reminder", "каждое утро", {"unclear": "time"}),
     Case("now", "schedule", "5 раз в день", {"form": "quota", "period": "day", "count": 5}),
     Case("now", "schedule", "once a week", {"form": "quota", "period": "week", "count": 1}),
@@ -165,6 +164,36 @@ CASES = (
     ),
     # The trap: a monthly count beside as many days of the month is those days.
     Case("1b", "schedule", "дважды в месяц, 1 и 15 числа", {"form": "fixed", "month_days": [1, 15], "time": None}),
+    Case("goal", "reminder", "#14 «Помедитировал?» — когда дойду до 30 дней подряд", ANSWERS),
+    Case("goal", "reminder", "если пропущу #21 три дня подряд", ANSWERS),
+    Case("goal", "reminder", "каждые 10 выполненных Действий с тегом Sport", ANSWERS),
+    Case("goal", "reminder", "после 10 выполненных Действий с тегом Sport", ANSWERS),
+    Case("goal", "reminder", "как только по Проверкам ценности Health будет 100 «да»", ANSWERS),
+    Case(
+        "goal", "reminder", "каждый раз, когда отвечаю на любую Проверку из Действия #8 «Подготовка к марафону»",
+        ANSWERS,
+    ),
+    Case("goal", "reminder", "на каждый пятый пропуск любой Проверки", ANSWERS),
+    Case("goal", "reminder", "после 20 выполнений #5 и #9 в сумме", ANSWERS),
+    Case("goal", "reminder", "всякий раз как сделаю #33", ANSWERS),
+    Case("goal", "reminder", "после 50 ответов на #11 без разницы да или нет", ANSWERS),
+    Case("goal", "reminder", "когда пройдёт 20 минут", {"kind": "once", "date": "17.10.2026", "time": "12:20"}),
+    Case("goal", "reminder", "когда по #21 накопится много пропусков", ANSWERS),
+    Case("goal", "reminder", "as soon as I hit a 21-day streak on #14", ANSWERS),
+    Case(
+        "goal", "reminder", "if I skip “Morning stretch?” #17 five mornings in a row",
+        ANSWERS,
+    ),
+    Case("goal", "reminder", "for every 10 yeses on Checks tagged Reading", ANSWERS),
+    Case("goal", "reminder", "when my Health checks have racked up 15 misses", ANSWERS),
+    Case("goal", "reminder", "whenever any check gets answered, yes or no", ANSWERS),
+    Case("goal", "reminder", "once the Checks under #8 have been passed 40 times", ANSWERS),
+    Case("goal", "reminder", "every 4 misses — #14, #17, #21 all counted together", ANSWERS),
+    Case("goal", "reminder", "on the 100th time I finish #33", ANSWERS),
+    Case("goal", "reminder", "after I've finished a dozen Reading actions", ANSWERS),
+    Case("goal", "reminder", "after 45 minutes", {"kind": "once", "date": "17.10.2026", "time": "12:45"}),
+    Case("goal", "reminder", "on the 20th at 8am", {"kind": "once", "date": "20.10.2026", "time": "08:00"}),
+    Case("goal", "reminder", "sometime next week", {"unclear": "time"}),
 )
 
 
@@ -176,29 +205,25 @@ def _timing(schedule: Schedule, *, all_day: bool = False) -> dict[str, Any]:
         "time": None if all_day or schedule.at_time is None else f"{schedule.at_time:%H:%M}",
         "date": f"{schedule.anchor_at.astimezone(TZ):%d.%m.%Y}" if schedule.anchor_at else None,
         "interval": schedule.interval_minutes,
-        "quiet": [f"{start:%H:%M}-{end:%H:%M}" for start, end in schedule.quiet_windows] or None,
         "until": f"{schedule.until:%d.%m.%Y}" if schedule.until else None,
         "limit": schedule.total,
     }
-    if schedule.condition is not None:
-        condition = schedule.condition
-        # The SELECT finds the items; the answers are counted in code, never filtered there.
-        filters = any(word in condition.sql.lower() for word in ("status", "stage"))
-        reading.update(
-            answer=condition.answer, count=condition.count, in_row=condition.in_row, filters=filters
-        )
     return reading
 
 
 async def _reminder(provider, phrase: str) -> dict[str, Any]:
     try:
         schedule = await resolve_schedule(
-            provider, when=phrase, instruction="Remind me.", now=NOW, tz=TZ, names=NAMES
+            provider,
+            when=phrase,
+            instruction="Remind me.",
+            now=NOW,
+            tz=TZ,
         )
+    except CountsAnswers:
+        return ANSWERS
     except ScheduleError as error:
-        words = str(error)
-        about = "time" if "On answers:" not in words else "answers" if "By time:" not in words else "either"
-        return {"unclear": about, "reason": words.splitlines()[0]}
+        return {"unclear": "time", "reason": str(error).splitlines()[0]}
     return _timing(schedule)
 
 

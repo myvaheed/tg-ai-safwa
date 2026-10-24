@@ -334,6 +334,7 @@
     When the change commits
     Then one mini session reads only its title, Note, Deadline and the titles of its parent Goals
     And it answers clear for one concrete result that takes more than one day, whose Done is observable and which, as a Subgoal, moves each parent's result forward
+    And a streak the owner named, such as meditation on 30 mornings in a row with that Done in Note, is such a result
     And it answers unclear, with what is unclear and one advice, for a direction, an ongoing practice or a rule, work for one day, two results, a Done nothing shows, or a Subgoal that does not move a parent forward
     And it does not judge whether the Goal is attainable or worth doing
     And a clear Goal produces no question or change
@@ -650,7 +651,6 @@
     And Remind offers the choices and "✏️ Other" its Schedule offers by SCH-REMIND-019
     And a Schedule typed there is read before the review comes back, as one Safwa proposed is
     And a Schedule left as it was is not read again when another field is set
-    And a Schedule set to off takes the proposal's Remind with it
     And the Goals a Card stands under and the Checks it carries have no button
 
   Scenario: CD-EDIT-068 — Edit can change where a proposal leaves an Action

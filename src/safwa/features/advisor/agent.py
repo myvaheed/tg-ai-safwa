@@ -32,7 +32,7 @@ Write in the user's language.
 ITEMS = f"""# Safwa items
 {items(VALUE, GOAL, ACTION, CHECK, LINK)}- Tag: a free label for finding things.
 - Request: a saved query over Cards and Checks the user reruns.
-- Reminder: a message at a set time, not work.
+- Reminder: words that come back at a time or on answers, not work.
 - A title ending in ` [✅2, 🔄#7]` is a finished repeat; #7 is the open one. ❌ in place of ✅: a Check answered Missed.
 - ` [✅2]` with no id: the series has ended. ` [📦]`: archived."""
 

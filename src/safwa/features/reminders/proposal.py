@@ -2,7 +2,10 @@
 
 Timing is resolved during preparation, before the proposal row exists, so the review
 screen shows a real schedule and Save applies exactly what the owner approved. A condition's
-SELECT is run there too, so the screen shows what it finds now.
+items are kept there as their series and found, so the screen shows what it counts now.
+
+The Reminder an item's Remind made is the item's to change: a change or a deletion of it goes
+back to the model with the item to use `remind` on.
 """
 
 from __future__ import annotations
@@ -27,9 +30,19 @@ from tg_agent_shell.proposals.api import (
 
 from ...enums import ActorType
 from ...foundation.workspace import Workspace
-from .agent import UNREADABLE_ITEMS, resolve_schedule, unclear
-from .api import Condition, ScheduleError, describe, schedule_from_payload, schedule_payload
-from .conditions import ConditionError, finds_text, found_ids, item_names, most_answers
+from ..cards.model import Card
+from ..checks.model import Check
+from ..schedules.api import item_type
+from .agent import ConditionInput, CountsAnswers, resolve_schedule
+from .api import (
+    Condition,
+    Schedule,
+    ScheduleError,
+    describe,
+    schedule_from_payload,
+    schedule_payload,
+)
+from .conditions import ConditionError, finds_text, found_ids, items_series, never_reached
 from .model import Reminder, ScheduleKind
 from .use_cases import (
     create_reminder,
@@ -45,39 +58,57 @@ class ReminderProposalHandler:
     version_model: type[Any] | None = None
 
     async def prepare(self, context: PreparationContext, change: Any) -> PreparedChange:
-        _reminder, expected_version = await require_target(context, change, Reminder)
+        reminder, expected_version = await require_target(context, change, Reminder)
+        if reminder is not None and reminder.item_type is not None:
+            item, title = await _remind_of(context.session, reminder)
+            raise ToolPreparationError(
+                "remind_of_item",
+                f"Reminder #{reminder.id} is the Remind of {item} «{title}».",
+                f"Use remind on {item}.",
+            )
+        if change.action is ChangeAction.DELETE:
+            return PreparedChange(values={}, expected_version=expected_version)
         values = await self._resolve_timing(context, dict(change.values))
         return PreparedChange(values=values, expected_version=expected_version)
 
     async def _resolve_timing(
         self, context: PreparationContext, values: dict[str, Any]
     ) -> dict[str, Any]:
-        """An unresolvable phrase becomes a retryable tool error carrying what is unclear and
-        the forms that work."""
+        """An unresolvable time becomes a retryable tool error carrying what is unclear and
+        the forms that work; a condition's items or count it cannot keep become one too."""
         prepared = dict(values)
         when = str(prepared.pop("when", "") or "").strip()
-        if not when:
+        wanted = prepared.pop("condition", None)
+        if not when and wanted is None:
             return prepared  # an edit with no timing leaves the schedule alone
         tz = ZoneInfo(context.world.timezone)
         now = datetime.now(UTC)
-        try:
-            schedule = await resolve_schedule(
-                context.provider,
-                when=when,
-                instruction=str(prepared.get("instruction", "")),
-                now=now,
-                tz=tz,
-                names=await item_names(context.session),
-            )
-            if schedule.kind is ScheduleKind.CONDITION:
-                prepared["finds"] = await _finds(context.session, schedule.condition)
-        except ScheduleError as error:
-            raise ToolPreparationError(
-                "schedule_unclear",
-                str(error),
-                "Tell the user what is unclear and these forms, then call reminder again with "
-                "their answer in when. Never invent a time.",
-            ) from error
+        if wanted is not None:
+            condition = await _condition(context.session, ConditionInput.model_validate(wanted))
+            prepared["finds"] = await _finds(context.session, condition)
+            schedule = Schedule(kind=ScheduleKind.CONDITION, condition=condition)
+        else:
+            try:
+                schedule = await resolve_schedule(
+                    context.provider,
+                    when=when,
+                    instruction=str(prepared.get("instruction", "")),
+                    now=now,
+                    tz=tz,
+                )
+            except CountsAnswers as error:
+                raise ToolPreparationError(
+                    "when_counts_answers",
+                    str(error),
+                    "Call reminder again with condition instead of when.",
+                ) from error
+            except ScheduleError as error:
+                raise ToolPreparationError(
+                    "schedule_unclear",
+                    str(error),
+                    "Tell the user what is unclear and these forms, then call reminder again with "
+                    "their answer in when. Never invent a time.",
+                ) from error
         prepared["schedule"] = schedule_payload(schedule)
         prepared["schedule_text"] = describe(schedule, tz=tz, now=now)
         return prepared
@@ -106,8 +137,7 @@ class ReminderProposalHandler:
             return [reminder.id]
         if change.entity_id is None:
             raise DomainError("This Reminder change has no target")
-        # `remove` may only send archive for a Reminder, and a Reminder has no archive.
-        if change.action in {ChangeAction.DELETE, ChangeAction.ARCHIVE}:
+        if change.action is ChangeAction.DELETE:
             await delete_reminder(session, change.entity_id, actor=ActorType.AI)
             return [change.entity_id]
         if change.action is not ChangeAction.UPDATE:
@@ -130,19 +160,47 @@ class ReminderProposalHandler:
         return [reminder.id]
 
 
-async def _finds(session: AsyncSession, condition: Condition) -> str:
-    """What the condition's SELECT finds now, or why it is refused: it does not run, or it
-    finds one series that can never reach its count (RM-COND-034)."""
+async def _remind_of(session: AsyncSession, reminder: Reminder) -> tuple[str, str]:
+    """The item whose Remind made the Reminder, as `remind` names it, and its title."""
+    model = Check if reminder.item_type == item_type(Check) else Card
+    item = await session.get(model, reminder.item_id)
+    kind = "Check" if model is Check else item.kind.title()
+    return f"{kind} #{item.id}", item.title
+
+
+async def _condition(session: AsyncSession, wanted: ConditionInput) -> Condition:
+    """The condition the call names, its items kept as their series, or refused when they are
+    not Checks or Actions by #id that exist (RM-COND-031)."""
     try:
-        ids = await found_ids(session, condition)
+        kind, series = await items_series(session, wanted.items)
     except ConditionError as error:
-        raise unclear(f"{UNREADABLE_ITEMS} {error}", "answers") from error
-    most = await most_answers(session, condition, ids)
-    if most is not None and condition.count > most:
-        times = "once" if most == 1 else f"{most} times"
-        raise unclear(
-            f"{condition.items} runs {times} in all, so a count of {condition.count} never comes.",
-            "answers",
+        raise ToolPreparationError(
+            "condition_items",
+            str(error),
+            "Find each item's #id with query_data, then call reminder again.",
+        ) from error
+    return Condition(
+        items=wanted.items,
+        series=series,
+        kind=kind,
+        # Done is an Action's only answer: no Missed to count, or to break a row.
+        answer="yes" if kind == "action" else wanted.answer,
+        count=wanted.count,
+        in_row=wanted.in_row and kind == "check",
+        once=wanted.once,
+    )
+
+
+async def _finds(session: AsyncSession, condition: Condition) -> str:
+    """What the condition finds now, or why it is refused: its one series can never reach its
+    count (RM-COND-034)."""
+    ids = await found_ids(session, condition)
+    never = await never_reached(session, condition, ids)
+    if never is not None:
+        raise ToolPreparationError(
+            "count_never_reached",
+            never,
+            "Tell the user, then call reminder again with their answer.",
         )
     return await finds_text(session, condition, ids)
 

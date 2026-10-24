@@ -25,9 +25,9 @@ from ..reminders.api import Schedule, describe, lead_words, repeat_days, schedul
 from ..reminders.model import Reminder, ScheduleKind
 from .model import ScheduleDefinition
 from .rules import (
+    current_slot,
     deadline_moment,
     first_slot,
-    from_start,
     next_slot,
     past_until,
     period_end,
@@ -226,14 +226,43 @@ async def restart_slot(
 
 
 async def prepare_occurrence(session: AsyncSession, entity: Card | Check) -> None:
-    """A quota fact belongs to the period it happens in, or the first one when it happens
-    before the quota's first day."""
+    """A closing belongs to the period it happens in, or the first one when it happens before
+    the Schedule starts, so an early one takes nothing from the next period (SCH-PERIOD-031)."""
     definition = entity.schedule_record
-    if definition and definition.rule["kind"] == "quota":
-        tz = await workspace_zone(session)
-        entity.period_start = period_start(
-            from_start(definition.rule, utcnow(), tz), definition.rule["period"], tz
-        )
+    if definition and definition.rule:
+        slot = current_slot(definition.rule, utcnow(), await workspace_zone(session))
+        if slot is not None:
+            entity.period_start = slot
+
+
+async def move_on_open_instances(session: AsyncSession, *, now: datetime | None = None) -> None:
+    """Put each open instance of a repeating Schedule on the period it is in, once that period
+    starts after its own: the same instance, with nothing written for the period it leaves.
+
+    Remind's Reminder counts from the instance's moment, so it moves with it and keeps its next
+    fire: a later rename then finds its timing unchanged and does not fire it again."""
+    now = now or utcnow()
+    tz = await workspace_zone(session)
+    for model in (Card, Check):
+        open_ = model.completed_at.is_(None) if model is Card else model.outcome.is_(None)
+        for entity in await session.scalars(
+            select(model).where(
+                open_,
+                model.archived_at.is_(None),
+                model.schedule_id.is_not(None),
+                model.period_start.is_not(None),
+            )
+        ):
+            rule = entity.schedule_record.rule
+            if not rule or not repeats(rule):
+                continue
+            slot = current_slot(rule, now, tz)
+            if slot is None or slot <= entity.period_start or past_until(rule, slot, tz):
+                continue
+            entity.period_start = slot
+            reminder = await entity_reminder(session, entity)
+            if reminder is not None:
+                reminder.anchor_at = slot
 
 
 async def assign_first(session: AsyncSession, entity: Card | Check) -> None:

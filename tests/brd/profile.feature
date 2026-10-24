@@ -14,7 +14,7 @@ Feature: Profile
     And About me and Advisor instructions come after it, so they are what it goes by
 
   Scenario: PS-FIELD-002 — Profile writes only the fields it has
-    Given the ten fields
+    Given the eleven fields
     When anything tries to write a name that is not one of them
     Then it is refused, no field changes, and nothing is recorded as having changed
 
@@ -167,3 +167,16 @@ Feature: Profile
     When Today overload or Effort Points is switched off
     Then Today capacity is hidden from Profile and AI context, and cannot be changed
     And switching back on restores the saved value
+
+  Scenario: PS-QUIET-025 — Don't disturb holds back the owner's Reminders that repeat by an interval
+    Given a new workspace, whose Don't disturb is 22:00–08:00 (DONT_DISTURB_DEFAULT = ("22:00-08:00",))
+    Then the Profile shows it, with a "💤 Don't disturb" button
+    When the owner sends hours on its screen or asks Safwa in words, such as "22–8 and 13–14"
+    Then a short session reads them as windows, 22:00–08:00 and 13:00–14:00, and saves them
+    And off removes every window, read in code without the session
+    But words that name no hours, or windows that leave no time of day, are refused with the forms that work, and the field keeps what it had
+    And every Reminder of the owner's that repeats by an interval waits out the windows by RM-QUIET-007, from the moment they are saved, without a restart
+    And its next firing is worked out again from its start: every 2 hours from 20:00 rings at 20:00 and next at 08:00, and at 22:00 once Don't disturb is off
+    But a Reminder at a clock time, such as every day at 23:00, rings at that time
+    And a Reminder that Remind made rings at its item's moments
+    And the review screen of a Reminder that repeats by an interval shows "💤 Don't disturb" with the windows

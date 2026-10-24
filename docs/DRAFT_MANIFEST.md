@@ -35,8 +35,8 @@ While there is value in the items on the right, we value the items on the left m
 
 1. **Each level means one thing.** A Value is a direction the person lives by and is never done.
    A Goal is one concrete result with an observable Done. An Action fits in one day; what does
-   not is a Goal. An ongoing practice is a repeating Action. A Check observes a state or a
-   result; it is never work done.
+   not is a Goal. An ongoing practice is a repeating Action, or a Check that tracks it. A
+   Check marks a fact yes or no: a state, a result or a habit done.
 2. **An item serves the Value it makes more of, not the Value it needs.** Earning money can
    serve Freedom; needing perseverance to earn it does not make it serve Perseverance. What a
    result needs belongs under it, never above it.

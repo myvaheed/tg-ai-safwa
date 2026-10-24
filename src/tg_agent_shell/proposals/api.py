@@ -226,8 +226,6 @@ class ProposalScreen:
     blocks: tuple[str, ...] = ()
     # The heading's verb when the effect's own word says less: "Answer", "Start".
     mode: str | None = None
-    # What Save does when the changes' actions say otherwise: a Reminder has no archive.
-    effect: Effect | None = None
 
 
 @dataclass(frozen=True)
@@ -338,6 +336,22 @@ EditableFields = Callable[[AgentChange], Mapping[str, EditableField]]
 
 
 @dataclass(frozen=True, slots=True)
+class ProposalSwitch:
+    """A button that turns a proposed change into another call, for the owner to save
+    instead (PR-SWITCH-037). The feature says when it is offered and writes the call; the
+    shell prepares that call as Safwa's own and puts it in the proposal's place.
+
+    The call may carry values already read, as its preparation would leave them: they go
+    to preparation as what it read before, and are not read again.
+    """
+
+    label: str
+    offered: Callable[[ProposalChange], bool]
+    # Reads and may ask a model; writes nothing.
+    rewrite: Callable[[PreparationContext, ProposalChange], Awaitable[AgentChange]]
+
+
+@dataclass(frozen=True, slots=True)
 class ProposalRegistry:
     """Every proposal capability the running application has, keyed the way it is used."""
 
@@ -355,6 +369,20 @@ class ProposalRegistry:
     autoapprovals: Mapping[tuple[str, str], AutoApprovalRule] = field(default_factory=dict)
     # By entity; one absent here offers nothing under Edit.
     editable: Mapping[str, EditableFields] = field(default_factory=dict)
+    # By entity, in the order its feature declares them; one absent here turns into nothing.
+    switches: Mapping[str, Sequence[ProposalSwitch]] = field(default_factory=dict)
+
+    def offered_switches(
+        self, changes: Sequence[ProposalChange]
+    ) -> list[tuple[int, ProposalSwitch]]:
+        """What a proposal may turn into instead, each by its place among its feature's. A
+        proposal of several changes offers none: one button could not say which it turns."""
+        if len(changes) != 1:
+            return []
+        declared = self.switches.get(changes[0].entity, ())
+        return [
+            (place, switch) for place, switch in enumerate(declared) if switch.offered(changes[0])
+        ]
 
     def fields_for(self, call: AgentChange) -> Mapping[str, EditableField]:
         fields = self.editable.get(call.entity)

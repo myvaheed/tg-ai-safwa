@@ -15,13 +15,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.ai.contracts import AgentChange
-from tg_agent_shell.proposals.api import (
-    ChangeAction,
-    Effect,
-    ProposalChange,
-    ProposalScreen,
-    ShownField,
-)
+from tg_agent_shell.proposals.api import ProposalChange, ProposalScreen, ShownField
 from tg_agent_shell.proposals.render import ACTION_VERBS, result_value
 from tg_agent_shell.telegram import citation_title, edited_screen, required_text
 from tg_agent_shell.telegram.contributions import TextInputFlow
@@ -29,10 +23,11 @@ from tg_agent_shell.telegram.contributions import TextInputFlow
 from ....foundation.workspace import Workspace
 from ..api import describe, next_fire, schedule_from_payload, schedule_of
 from ..model import Reminder
-from ..use_cases import update_reminder_text
+from ..use_cases import firing_schedule, update_reminder_text
 from .screens import reminder_title, render_reminder
 
 logger = logging.getLogger(__name__)
+DONT_DISTURB = "💤 Don't disturb"
 
 
 async def reminder_citation_label(
@@ -75,12 +70,7 @@ class ReminderProposalPresenter:
         )
         text = str(values.get("instruction") or (reminder.instruction if reminder else ""))
         head = f"Reminder “{result_value(text)}”" if text else f"Reminder #{change.entity_id}"
-        # A Reminder has no archive, so the only removal `remove` can send reads as one.
-        verb = (
-            "Delete"
-            if change.action is ChangeAction.ARCHIVE
-            else ACTION_VERBS.get(change.action, change.action.title())
-        )
+        verb = ACTION_VERBS.get(change.action, change.action.title())
         schedule = values.get("schedule_text")
         return f"{verb} {head}" + (f" ({schedule})" if schedule else "")
 
@@ -88,7 +78,8 @@ class ReminderProposalPresenter:
         self, session: AsyncSession, changes: Sequence[ProposalChange]
     ) -> ProposalScreen | None:
         """The words, when they fire and when they fire first, as the owner will meet them;
-        for a condition, what its SELECT finds now instead of a first firing."""
+        for a condition, what it counts now instead of a first firing; for a new interval, the
+        Don't disturb it waits out."""
         change = changes[-1]
         values = dict(change.values)
         reminder = (
@@ -111,13 +102,23 @@ class ReminderProposalPresenter:
             else {}
         )
         payload = values.get("schedule")
+        firing = (
+            await firing_schedule(session, schedule_from_payload(payload), None)
+            if payload is not None
+            else None
+        )
         proposed = {
             "words": values.get("instruction") or current.get("words"),
             "when": values.get("schedule_text") or current.get("when"),
-            "first": at(next_fire(schedule_from_payload(payload), previous=None, now=now, tz=tz))
-            if payload is not None
+            "first": at(next_fire(firing, previous=None, now=now, tz=tz))
+            if firing is not None
             else current.get("first"),
         }
+        hours = (
+            ", ".join(f"{start:%H:%M}–{end:%H:%M}" for start, end in firing.quiet_windows)
+            if firing is not None
+            else ""
+        )
         timing = (
             ShownField("🔎 Finds now", None, values["finds"])
             if values.get("finds")
@@ -128,12 +129,9 @@ class ReminderProposalPresenter:
             fields=(
                 ShownField("🔁 When", current.get("when"), proposed["when"], anchor=True),
                 timing,
+                *((ShownField(DONT_DISTURB, hours, hours, anchor=True),) if hours else ()),
                 ShownField("Words", current.get("words"), proposed["words"], anchor=True),
             ),
-            # A Reminder has no archive, so the only removal `remove` can send reads as one.
-            effect=Effect.DELETE
-            if change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}
-            else None,
         )
 
 

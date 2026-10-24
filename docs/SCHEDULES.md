@@ -109,9 +109,13 @@ the day without a clock. Being due at the end of its day is what puts it in Toda
 in that day's plan even when it is set during the day, and makes it overdue only once the day
 ends, with no other code knowing about it. Days, Monday-based weeks and calendar months use
 the workspace timezone. A quota does not invent a clock. Unused quota
-does not carry forward. Every quota answer belongs to the current calendar period, including
-extra answers; a late appointment answer remains attached to its appointment. One instance
-stays open at a time.
+does not carry forward. Every answer belongs to the period it happens in, extra answers
+included (`SCH-PERIOD-031`): a quota's day, week or month; an interval moment's time until the
+next moment; a moment on days from the start of its day to the start of the next moment's day.
+An answer before the Schedule's first day belongs to its first period. One instance stays open
+at a time, and the `schedules.period` hook moves it on to each new period as it starts, so it
+is never on a period that has passed; the period it leaves gets no answer and no Missed
+(`current_slot`).
 
 Any repeating form may carry a total, `"limit": N`: "five times a day, 50 times in total". It
 counts the instances answered under that revision — Done on an Action, Passed or Missed on a
@@ -283,8 +287,8 @@ of a series with nothing open, which starts it again on a new instance. Historic
 the current series instance, and appointments are counted only while their revision is active.
 Clearing Schedule ends its plan and allows ordinary completion and reopening of the final
 Action; earlier repeating instances remain closed. Deleting the last open instance ends its
-active plan while retaining the history of surviving instances. An early interval completion
-advances past the consumed appointment.
+active plan while retaining the history of surviving instances. An early completion counts
+for the period it happens in and leaves the next appointment where it was (`SCH-INTERVAL-009`).
 
 ## Remind
 
@@ -312,17 +316,22 @@ each moment as they would without a lead and take the lead off it, so midnight, 
 an interval and a change of daylight saving time are the moments' own arithmetic
 (`SCH-REMIND-028`).
 
-Safwa turns Remind on through `remind` on the `action`, `goal` and `check` tools: the minutes
-before, 0 at the time, and null on an update turns it off. `read_proposed_remind` refuses one
-whose Schedule, the proposed one or the item's own, has no clock still ahead, with
+Safwa turns Remind on through `remind`, the reminder subagent's tool: the item — an Action, a
+Goal or a Check — its id, and the minutes before, 0 at the time, null to turn it off. Its change
+is an update of that item with Remind alone, so the feature that owns the item prepares and
+applies it. `read_proposed_remind` refuses one whose Schedule has no clock still ahead, with
 `REMIND_NEEDS_TIME` as a retryable error the model asks the owner about. The review screen shows
-Remind beside the Schedule, and Save calls `set_remind` once the Schedule is written. Like a
-Reminder's proposal, it always takes the review screen: no auto-approval rule names `remind`
-(`SCH-REMIND-029`). The mutator's prompt says a reminder of an item's own time is `remind` on
-its tool, never a Reminder, which follows the item only as Remind does.
+Remind, and Save calls `set_remind`. Like a Reminder's proposal, it always takes the review
+screen: no auto-approval rule names `remind` (`SCH-REMIND-029`). The `action`, `goal` and
+`check` tools have no `remind`, so a new item asked for with Remind is the workspace mutator's
+proposal first and the reminder subagent's after its Save (`RM-AGENT-041`). That subagent's
+prompt says a reminder of an item's own time is `remind` on that item, never a Reminder, which
+follows the item only as Remind does. Remind on a proposal still comes from 📊 Also track, whose
+Check is at its time, and a Schedule set to off under Edit takes it with it.
 
-`test_remind_phrases_live.py` measures it with the mutator and the Scheduler live, reasoning
-off, over six phrases that ask for a lead and one that does not, three runs a model. The first
+`test_remind_phrases_live.py` measured it with the mutator and the Scheduler live, while `remind`
+was a field of the item's own tool, reasoning off, over six phrases that ask for a lead and one
+that does not, three runs a model. The first
 description, "'remind me 15 minutes before' is 15, 'an hour before' is 60, 'remind me' is 0",
 read 19 of 21 on Qwen3.6 35B-A3B and 12 of 21 on Qwen3.5 9B: 9B copied its 60 for "remind me
 when it is time" and turned "10 minutes before" into 600, and both models sometimes made no
@@ -346,8 +355,9 @@ flowchart TD
 `follow_remind` keeps it true after every operation that could change it: a Schedule written,
 a title changed, an Action finished or a Goal closed, a Check answered. A copy finished early
 moves the Reminder to the next copy, whose moment is its anchor, so it is not said for the
-appointment already done. An overdue copy keeps it: a repeating Reminder fires at each later
-moment of the rule until the copy is finished. The lead stays with the Reminder through all of
+appointment already done. An open copy keeps it as it moves on to each new period, and the
+Reminder's anchor moves with the copy while its next fire stays: a repeating Reminder fires at
+each later moment of the rule until the copy is finished. The lead stays with the Reminder through all of
 it. Only a changed timing reschedules, so a rename never moves the next fire. Deleting an item
 deletes its Reminder with it (`drop_reminders`).
 

@@ -18,6 +18,8 @@ from tg_agent_shell.access.credentials import hash_secret_word
 from tg_agent_shell.foundation.errors import DomainError
 
 from ...foundation.workspace import bump_workspace
+from ..reminders.api import ScheduleError, parse_windows
+from ..reminders.use_cases import follow_dont_disturb
 from .api import TODAY_OVERLOAD, hook_switched_on
 from .model import (
     HOME_AFTER_MINUTES_MAX,
@@ -62,6 +64,13 @@ def validated_profile_value(field: ProfileField, value: ProfileValue) -> Profile
         case ProfileField.EFFORT_TRACKING:
             if not isinstance(value, bool):
                 raise DomainError("Effort Points are on or off")
+        case ProfileField.DONT_DISTURB:
+            if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+                raise DomainError("Don't disturb is a list of HH:MM-HH:MM windows")
+            try:
+                parse_windows(value)
+            except ScheduleError as error:
+                raise DomainError(str(error)) from None
         case ProfileField.MORNING_TIME | ProfileField.EVENING_TIME:
             # Never off: the hook that reads each has a switch of its own.
             if not isinstance(value, time):
@@ -92,6 +101,8 @@ async def set_profile_field(
     await require_profile_field(session, field)
     profile = await require_profile(session)
     setattr(profile, field.value, validated)
+    if field is ProfileField.DONT_DISTURB:
+        await follow_dont_disturb(session)
     await bump_workspace(session)
     return profile
 

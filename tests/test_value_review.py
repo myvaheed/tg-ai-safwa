@@ -113,10 +113,6 @@ def test_safwa_says_what_a_value_is_before_proposing_one():
             "- Build both from the user's words. Never invent why it matters or what they do.",
         ):
             assert line in prompt
-    assert (
-        "- A new Value: if the user has not said why it matters or what they do for it, "
-        "call nothing_to_do with what needs clarification." in mutator
-    )
 
 
 def test_one_hook_checks_a_new_value_under_its_own_switch():
@@ -178,7 +174,7 @@ async def test_new_value_is_reviewed_alone_and_asked_about_only_when_unclear(ses
             assert "Read the current Values first" in words
             assert "you looked at the new Values again and they could be improved" in words
             assert "Offer to update the Value with their answer" in words
-            assert "update the Value, or to propose a Goal or a repeating Action instead" in words
+            assert "update the Value, or to propose a Goal, a repeating Action or a Check instead" in words
             assert "Change nothing until they answer" in words
             assert await pending(sessions) == []
     finally:

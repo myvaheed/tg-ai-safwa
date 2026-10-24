@@ -44,7 +44,6 @@ PAST_ONCE = {
         "at_time": "09:00",
         "anchor_at": "2020-01-01T06:00:00+00:00",
         "interval_minutes": None,
-        "quiet_windows": [],
     },
 }
 

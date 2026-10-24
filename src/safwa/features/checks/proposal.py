@@ -77,6 +77,10 @@ class CheckProposalHandler:
             )
             if values.get("remind") is not None:
                 await set_remind(session, created, values["remind"], actor=ActorType.AI)
+            # Only a call written in code names Values here: the check tool has none on create.
+            await set_named_links(
+                session, CHECK_VALUE_REFERENCE, created.id, values, linked=True, actor=ActorType.AI
+            )
             return [created.id]
         check = await session.get(Check, change.entity_id) if change.entity_id else None
         if check is None or check.version != change.expected_version:

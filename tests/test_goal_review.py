@@ -119,6 +119,8 @@ def test_the_review_knows_every_criterion_and_advises():
         "is a result, not an ongoing practice or a rule",
         "takes more than one day; work for one day is an Action",
         "has an observable Done",
+        '"Meditate 30 mornings in a row", Note "Done when 30 scheduled mornings are marked": '
+        "clear()",
         "as a Subgoal, its result moves each parent's result forward",
         "Two results. Suggest two Goals.",
         '"Never be late": unclear("A rule kept every day.',

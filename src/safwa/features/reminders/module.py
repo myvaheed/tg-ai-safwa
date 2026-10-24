@@ -11,7 +11,7 @@ from tg_agent_shell.proposals.api import SimilarItems
 from tg_agent_shell.telegram.contributions import ScreenCommand
 from tg_agent_shell.telegram.manifest import FeatureModule, ProposalContribution
 
-from . import agent, proposal, telegram, views
+from . import agent, proposal, telegram, tracker, views
 from .hooks import REMINDER_CONDITION_HOOK as REMINDER_CONDITION_HOOK
 from .hooks import REMINDER_FIRE_HOOK as REMINDER_FIRE_HOOK
 from .hooks import REMINDER_START_HOOK as REMINDER_START_HOOK
@@ -20,6 +20,9 @@ from .telegram import REMINDER_CALLBACK_ACTIONS, render_reminder, render_reminde
 
 MODULE = FeatureModule(
     name="reminders",
+    agents=(agent.REMINDER_AGENT,),
+    # Remind lands on an Action, a Goal or a Check, so the feature that owns it applies it.
+    mutation_tools=(agent.REMIND_TOOL,),
     proposals=(
         ProposalContribution(
             handler=proposal.ReminderProposalHandler(),
@@ -27,6 +30,7 @@ MODULE = FeatureModule(
             presenter=telegram.ReminderProposalPresenter(),
             editable=lambda _call: telegram.REMINDER_REVIEW_FIELDS,
             similar=SimilarItems(field="instruction", open_items=proposal.owner_reminders),
+            switches=(tracker.TRACK_SWITCH,),
         ),
     ),
     views=views.VIEWS,

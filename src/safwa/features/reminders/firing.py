@@ -11,8 +11,9 @@ waiting writes nothing, and the due Reminders it would have carried stay due for
 after that.  A hook's request waiting is no reason to hold them: the Cue poll says everything
 waiting in one turn.
 
-A Reminder on answers has no clock: an answer to an item its SELECT finds writes its Cue,
-and only when that answer brings the count to a multiple. Its words go even while others
+A Reminder on answers has no clock: an answer to a copy of one of its series writes its Cue,
+and only when that answer brings the count to a multiple; one set once fires at the count
+itself and then deletes itself, as a one-shot does. Its words go even while others
 wait, because the answer that made the count will not come again.
 
 Do not confuse the two intervals.  The tick is ``SCHEDULER_POLL_SECONDS`` and is the
@@ -22,7 +23,6 @@ Reminder waits seconds for a quiet moment, never one of its own cycles.
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -38,10 +38,9 @@ from .api import (
     roll_forward,
     schedule_of,
 )
-from .conditions import ConditionError, count_now, found_ids
+from .conditions import count_now, found_ids
 from .model import Reminder, ScheduleKind
-
-logger = logging.getLogger(__name__)
+from .use_cases import firing_schedule
 
 # How many due Reminders one Cue may carry.  Everything the tick found goes over
 # in a single advisor turn; the rest stay overdue and the next tick takes them.
@@ -100,7 +99,7 @@ async def prepare(
     that rolls past its last day is deleted."""
     firings: list[Firing] = []
     for reminder in reminders:
-        schedule = schedule_of(reminder)
+        schedule = await firing_schedule(session, schedule_of(reminder), reminder.item_type)
         if is_stale(reminder, now=now):
             following = roll_forward(schedule, previous=reminder.next_fire_at, now=now, tz=tz)
             if following is None:
@@ -135,7 +134,7 @@ async def settle(
         reminder = await session.get(Reminder, firing.reminder_id)
         if reminder is None:
             continue
-        schedule = schedule_of(reminder)
+        schedule = await firing_schedule(session, schedule_of(reminder), reminder.item_type)
         if firing.last or not schedule.repeating:
             await session.delete(reminder)
             continue
@@ -174,8 +173,10 @@ async def fire_conditions(
     session: AsyncSession, item_type: str, item_id: int, *, now: datetime, tz: ZoneInfo
 ) -> bool:
     """Write down every Reminder on answers that this answer of a Check, or Done of a Card,
-    brought to a multiple of its count. Returns whether a Cue was written."""
+    brought to a multiple of its count, or once to the count itself; a Reminder once is
+    deleted as its words are written. Returns whether a Cue was written."""
     firings: list[Firing] = []
+    done: list[Reminder] = []
     for reminder in await session.scalars(
         select(Reminder)
         .where(Reminder.schedule_kind == ScheduleKind.CONDITION.value)
@@ -183,13 +184,9 @@ async def fire_conditions(
     ):
         schedule = schedule_of(reminder)
         condition = schedule.condition
-        if (condition.answer == "done") != (item_type == "card"):
+        if (condition.kind == "action") != (item_type == "card"):
             continue
-        try:
-            ids = await found_ids(session, condition)
-        except ConditionError as error:
-            logger.warning("Reminder #%s counts nothing: %s", reminder.id, error)
-            continue
+        ids = await found_ids(session, condition)
         if item_id not in ids:
             continue
         count = await count_now(session, condition, ids, item_id)
@@ -201,11 +198,16 @@ async def fire_conditions(
                 instruction=reminder.instruction,
                 schedule=f"{describe(schedule, tz=tz)}; {count}",
                 due_at=now,
+                last=condition.once,
             )
         )
+        if condition.once:
+            done.append(reminder)
     if not firings:
         return False
     await add_cue(session, text=format_cue(firings, now=now))
+    for reminder in done:
+        await session.delete(reminder)
     return True
 
 

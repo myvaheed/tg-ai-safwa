@@ -1,8 +1,8 @@
 """The workspace mutator: what the roster promises about the one session that changes the workspace.
 
-The workspace is not an entity — it is the set the owner keeps, Cards, Checks, Values, Tags,
-Requests and Reminders — so what can be asserted here is the contract of the session that
-proposes every change to it.
+The workspace is not an entity — it is the set the owner keeps, Cards, Checks, Values, Tags
+and Requests — so what can be asserted here is the contract of the session that proposes every
+change to it. Reminders and Remind are the reminder subagent's.
 """
 
 from __future__ import annotations
@@ -50,8 +50,12 @@ def test_every_mutation_tool_belongs_to_the_part_that_owns_what_it_changes():
 
     assert routed == set(PROPOSALS.tools)
     assert set(PROPOSALS.tools) - set(MUTATOR_AGENT.mutation_tools) == {
-        "diary", "stop_onboarding", "sprint", "profile",
+        "diary", "stop_onboarding", "sprint", "profile", "reminder", "remind",
     }
+    # One way to take away what the workspace keeps; a Reminder's part deletes with its own.
+    assert [agent.name for agent in AGENTS if "remove" in agent.mutation_tools] == [
+        MUTATOR_AGENT.name,
+    ]
     assert ONBOARDING_AGENT.mutation_tools == ()
     assert [agent.name for agent in AGENTS if "stop_onboarding" in agent.mutation_tools] == [
         PROFILE_AGENT.name,
@@ -69,7 +73,7 @@ def test_ws_remove_003_one_way_to_delete_and_two_kinds_that_may_be_archived():
     """WS-REMOVE-003 — tests/brd/workspace_mutator.feature"""
     entities = set(get_args(RemoveToolInput.model_fields["entity"].annotation))
 
-    assert entities == {"card", "check", "tag", "value", "request", "reminder"}
+    assert entities == {"card", "check", "tag", "value", "request"}
     assert ARCHIVABLE == {"card", "check"}
     for entity in sorted(entities - ARCHIVABLE):
         with pytest.raises(ValueError, match="never archived"):

@@ -574,7 +574,8 @@ flowchart LR
   reasoning would only second-guess it, and a wrong `missing` there opens a screen nobody
   asked for.
 - **Every mutation tool belongs to a subagent**, never to the Advisor. `workspace_mutator` owns the workspace,
-  `diary` owns the Diary. Preparation runs where the change was authored.
+  `reminder` owns the Reminders and the Remind on an item, `diary` owns the Diary. Preparation
+  runs where the change was authored.
 - **A proposal screen decides with Save and Discard, and Edit sets by hand what a call names**
   (`PR-EDIT-033`). A feature's `ProposalContribution.editable` maps a call's values to the
   `EditableField`s its own item screen has, and the shell offers only the values the call names.
@@ -589,6 +590,15 @@ flowchart LR
   whose words the owner left alone, such as a Schedule's, is not made again. Nothing is written
   before Save. The call's record keeps `user_edited`, what the call proposed and what is saved,
   and the model reads it in the call's result (`PR-EDIT-036`).
+- **A feature may offer to turn a proposal into another call** (`PR-SWITCH-037`). Its
+  `ProposalContribution.switches` are `ProposalSwitch`es: a label, whether a prepared change
+  offers it, and a `rewrite` that reads through a `PreparationContext`, may ask a model and
+  returns the other `AgentChange`. The shell draws each offered one above Edit, and
+  `RootSession.switch_proposal` prepares the other call as the model's own, with its own values
+  as `earlier`, so what it carries already read is not read again. It takes the change's place
+  in the same proposal rather than opening a new one: the model's call waits on its own id, and
+  is answered with what Save wrote. A refusal leaves the proposal as it was. Once switched, the
+  call's record names the other change, and nothing the owner set under Edit before it.
 - **A screen that creates an item lists what is already there** (`PR-SIMILAR-030`). A feature's
   `ProposalContribution.similar` names the create value holding the new item's words and
   reads its open items; `SearchIndex.alike` compares that name with theirs by meaning, in the
@@ -754,15 +764,20 @@ the Cue row, exactly as for anything else Safwa says first.
 - `reminders.start`, a `Run` on `OnStarted()`, works out again a time-of-day Reminder a timezone
   move left on the wrong moment and rolls on a repeat overdue past the grace (`RM-START-020`).
 - A Reminder on answers has no `next_fire_at`, so neither the tick nor the start ever
-  touches it. Its `condition` holds the items in words, the SELECT of their ids, the answer,
-  the count and whether in a row. The `when` session returns the items as words; a second mini
-  session writes the SELECT over `ai_checks` or `ai_cards`, checked as text by its terminal
-  (`RM-COND-031`). Preparation runs it for the review screen and refuses a count one series
-  can never reach (`RM-COND-034`). `reminders.condition`, a `Run` on
-  `OnCommitted(check.answered)` and `OnCommitted(card.done)`, runs each SELECT again
-  (`reminders/conditions.py`) and writes the Cue of each Reminder whose count the answer brings
-  to a multiple. It writes even while other words wait: that answer will not come again
-  (`RM-COND-032`).
+  touches it. Its `condition` holds the items in words, the series of each, the answer, the
+  count and whether in a row. The subagent names it in the `condition` of `reminder`, and the
+  `when` session reads only a time. Preparation keeps the series of each item (`items_series`)
+  and refuses a group in words, both kinds, or an #id that does not exist (`RM-COND-031`): the
+  subagent lists a group by #id first. Every copy
+  of each series counts, and an item made later does not (`RM-COND-033`). Preparation reads
+  them for the review screen and refuses a count one series can never reach (`RM-COND-034`).
+  `reminders.condition`, a `Run` on `OnCommitted(check.answered)` and `OnCommitted(card.done)`,
+  counts each Reminder's series again (`reminders/conditions.py`) and writes the Cue of each
+  Reminder whose count the answer brings
+  to a multiple. Each answer counts at its own place in the order saved, so the answers one
+  commit saves together say a multiple once. A condition set `once` fires at its count itself
+  and is deleted as its Cue is written; preparation refuses one already past (`RM-COND-040`). It writes even while other words wait: that answer
+  will not come again (`RM-COND-032`).
 
 ### A committed change, or a time of day, writes a hook's Cue
 
@@ -918,8 +933,6 @@ it reads. How the index behind it is kept and asked is [SEARCH.md](SEARCH.md).
 
 A saved Request shares the validation and nothing else: it runs on the ordinary session, and no cap
 applies, because its result is always a list in the interface and never enters the model's history.
-A Reminder on answers keeps its SELECT the same way, over `ai_checks` and `ai_cards` only: its ids
-are counted in code and never reach a model either.
 
 ## Citations
 

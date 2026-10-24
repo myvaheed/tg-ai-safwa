@@ -30,7 +30,7 @@ from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.hooks.contracts import OnCommitted, RunAndAdvise
 from tg_agent_shell.hooks.registry import HookRegistry
 
-ADVICE = "Asks whether work was done. Suggest a repeating Action Morning exercises instead."
+ADVICE = "No fact shows it. Ask what fact would show it, such as Played with the kids?."
 
 
 class ReviewProvider:
@@ -116,14 +116,14 @@ def test_one_hook_checks_a_new_check_under_its_own_switch():
 def test_the_review_knows_every_criterion_and_advises():
     """CH-REVIEW-019 — tests/brd/checks.feature"""
     for criterion in (
-        "a state or a result to observe, not work to do",
-        'when the honest answer is "I did it", it is an Action, except not doing something',
-        "has no duration; anything that takes time is an Action",
+        "a state, a result or a habit done, such as Drank water? or No sweets today?",
         "answered yes or no",
         "observable: some fact shows the answer",
         "on a Card, about that Card's result",
         '"No sweets today?", every evening: clear()',
-        '"Did my morning exercises?", every morning: unclear(',
+        '"Did my morning exercises?", every morning: clear()',
+        '"Read for 20 minutes?", every evening: clear()',
+        '"Was I a good father?": unclear(',
         "Do not judge whether the Check is worth keeping.",
     ):
         assert criterion in CHECK_REVIEW_PROMPT
@@ -140,7 +140,7 @@ async def test_new_check_is_reviewed_alone_and_asked_about_only_when_unclear(
     sink = bound(sessions, provider, registry)
     try:
         check_id = await created(
-            sessions, title="Did my morning exercises?", note="Ten minutes",
+            sessions, title="Was I a good father?", note="With the kids",
             card_title="Morning routine" if on_card else None,
         )
         await sink.drain()
@@ -150,8 +150,8 @@ async def test_new_check_is_reviewed_alone_and_asked_about_only_when_unclear(
         assert request.reasoning_effort == "none"
         assert [tool["function"]["name"] for tool in request.tools] == ["clear", "unclear"]
         assert json.loads(request.messages[1]["content"]) == {
-            "title": "Did my morning exercises?",
-            "note": "Ten minutes",
+            "title": "Was I a good father?",
+            "note": "With the kids",
             "schedule": "",
             "card": "Action «Morning routine»" if on_card else "",
         }
@@ -160,10 +160,10 @@ async def test_new_check_is_reviewed_alone_and_asked_about_only_when_unclear(
         if not clear:
             assert cues[0].hook == CHECK_REVIEW_HOOK.name and cues[0].text is None
             [words] = await say_waiting(sessions, registry)
-            assert f"- [Did my morning exercises?](check:{check_id}): {ADVICE}" in words
+            assert f"- [Was I a good father?](check:{check_id}): {ADVICE}" in words
             assert "Read the current Checks first" in words
             assert "you looked at the new Checks again and they could be improved" in words
-            assert "update the Check, or to propose an Action instead" in words
+            assert "route to workspace_mutator to update the Check.\n" in words
             assert "Change nothing until they answer" in words
             assert await pending(sessions) == []
     finally:
@@ -201,7 +201,7 @@ async def test_check_changed_during_review_produces_no_cue(sessions, change):
     provider = ReviewProvider(wait=True)
     sink = bound(sessions, provider)
     try:
-        check_id = await created(sessions, title="Did my morning exercises?")
+        check_id = await created(sessions, title="Was I a good father?")
         await asyncio.wait_for(provider.started.wait(), timeout=5)
         async with sessions() as session:
             if change == "edit":

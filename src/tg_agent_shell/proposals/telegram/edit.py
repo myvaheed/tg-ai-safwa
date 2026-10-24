@@ -1,9 +1,10 @@
-"""Edit on a review screen: a field a proposal's call sets, set by hand (PR-EDIT-033).
+"""Edit on a review screen: a field a proposal's call sets, set by hand (PR-EDIT-033); and
+a switch that turns the proposal into another call (PR-SWITCH-037).
 
 Every screen here is drawn in place of the review and stays one, so words written over it
 interrupt it and an unanswered one expires as any review does (PR-EDIT-035). Nothing is
-written: the value goes into the proposal, prepared again as Safwa's own would be, and Save
-is still the owner's (PR-EDIT-034).
+written: the value or the other call goes into the proposal, prepared as Safwa's own would
+be, and Save is still the owner's (PR-EDIT-034).
 """
 
 from __future__ import annotations
@@ -207,6 +208,16 @@ async def _on_set(context: CallbackContext) -> None:
     await render_proposal(context.message, context.services, payload["id"])
 
 
+async def _on_switch(context: CallbackContext) -> None:
+    payload = context.payload
+    await _typing(context.message)
+    async with context.sessions() as session:
+        await context.services.root.switch_proposal(
+            session, int(payload["id"]), int(payload["switch"])
+        )
+    await render_proposal(context.message, context.services, payload["id"])
+
+
 def _still_open(services: Services, state: Mapping[str, Any]) -> bool:
     return services.root.reviews.proposal(int(state["id"])) is not None
 
@@ -260,4 +271,5 @@ EDIT_ACTIONS: dict[str, CallbackHandler] = {
     "proposal_edit_field": _on_field,
     "proposal_edit_other": _on_other,
     "proposal_edit_set": _on_set,
+    "proposal_switch": _on_switch,
 }

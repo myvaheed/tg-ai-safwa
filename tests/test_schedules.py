@@ -39,7 +39,7 @@ from safwa.features.schedules.api import (
     get_scheduled,
     set_schedule,
 )
-from safwa.features.schedules.rules import next_slot, period_start
+from safwa.features.schedules.rules import period_start
 from tg_agent_shell.ai.sql import DEFAULT_CHAR_BUDGET
 from tg_agent_shell.foundation.errors import DomainError
 
@@ -331,9 +331,15 @@ async def test_ended_tail_can_reopen_without_reopening_its_past_instances(sessio
             await move_card(session, first.id, CardStage.BACKLOG)
 
 
-def test_early_interval_completion_advances_beyond_the_finished_slot():
+async def test_early_interval_completion_counts_for_its_period_and_leaves_the_next(
+    sessions, monkeypatch
+):
     """SCH-INTERVAL-009 — tests/brd/schedules.feature"""
     from safwa.features.reminders.api import resolve, schedule_payload
+
+    def at(moment):
+        monkeypatch.setattr("safwa.features.schedules.api.utcnow", lambda: moment)
+        monkeypatch.setattr("safwa.features.checks.use_cases.utcnow", lambda: moment)
 
     now = datetime(2026, 10, 3, 9, tzinfo=UTC)
     timing = resolve(
@@ -343,15 +349,23 @@ def test_early_interval_completion_advances_beyond_the_finished_slot():
         now=now,
         tz=ZoneInfo("Europe/Istanbul"),
     )
-    previous = now + timedelta(hours=1)
-    repeats, at = next_slot(
-        {"kind": "fixed", "timing": schedule_payload(timing)},
-        previous,
-        now,
-        1,
-        ZoneInfo("Europe/Istanbul"),
-    )
-    assert repeats and at == previous + timedelta(hours=1)
+    at(now)
+    async with sessions() as session:
+        check = await create_check(
+            session,
+            title="Water?",
+            schedule="every hour from 13:00",
+            schedule_rule={"kind": "fixed", "timing": schedule_payload(timing)},
+        )
+        at(now + timedelta(hours=1, minutes=10))
+        _, current = await resolve_check(session, check.id, "passed")
+        assert current.period_start == now + timedelta(hours=2)
+
+        # Its 11:00 appointment is completed at 10:30, in the period of 10:00.
+        at(now + timedelta(hours=1, minutes=30))
+        _, following = await resolve_check(session, current.id, "passed")
+        assert current.period_start == now + timedelta(hours=1)
+        assert following.period_start == now + timedelta(hours=2)
 
 
 async def test_compiler_repairs_clock_arguments_without_asking_the_owner(sessions):
@@ -704,7 +718,7 @@ async def test_an_unclear_proposed_schedule_is_asked_in_the_same_reply(sessions)
 
     from safwa.bootstrap.modules import HOOKS, PROPOSALS
     from safwa.features.schedules.api import SCHEDULE_ENDED
-    from tg_agent_shell.hooks.contracts import OnCommitted
+    from tg_agent_shell.hooks.contracts import Advise, OnCommitted
     from tg_agent_shell.proposals.api import ToolPreparationError
     from tg_agent_shell.proposals.prepare import ChangePreparer
 
@@ -719,10 +733,12 @@ async def test_an_unclear_proposed_schedule_is_asked_in_the_same_reply(sessions)
         assert (result["code"], result["error"]) == ("schedule_unclear", "When does it happen?")
         assert result["hint"].startswith("Ask the user this exact question")
         assert await session.scalar(select(func.count(Card.id))) == 0
-    # No later message asks it again: the one Schedules hook follows an end, never a question.
-    assert [hook.on for hook in HOOKS if hook.owner == "schedules"] == [
-        (OnCommitted(kind=SCHEDULE_ENDED),)
+    # No later message asks it again: the one Schedules hook that speaks follows an end, never a
+    # question.
+    speaking = [
+        hook.on for hook in HOOKS if hook.owner == "schedules" and isinstance(hook.effect, Advise)
     ]
+    assert speaking == [(OnCommitted(kind=SCHEDULE_ENDED),)]
 
 
 async def test_a_schedule_the_model_cannot_read_asks_for_other_words(sessions):

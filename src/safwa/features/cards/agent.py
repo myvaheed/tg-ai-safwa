@@ -11,7 +11,7 @@ from tg_agent_shell.ai.autoapproval import RELATIONSHIP_LINK, SCALAR_UPDATE, Aut
 from tg_agent_shell.ai.contracts import AgentChange, Reference, ToolInput
 from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
 
-from ...constants import NOTE_REPLACED_WHOLE, REMIND_DESCRIPTION, REMIND_LEAD_MAX_MINUTES
+from ...constants import NOTE_REPLACED_WHOLE
 from .model import (
     CATEGORY_MEANINGS,
     ENERGY_MEANINGS,
@@ -68,7 +68,7 @@ def _validate_call(
 
 class GoalToolInput(ToolInput):
     content_fields = frozenset({"title", "note", "deadline"})
-    semantic_null_fields = frozenset({"deadline", "remind"})
+    semantic_null_fields = frozenset({"deadline"})
 
     mode: Literal["create", "update", "complete", "reopen", "link", "unlink"] = Field(
         description=(
@@ -92,9 +92,6 @@ class GoalToolInput(ToolInput):
             "On update, null removes it."
         ),
     )
-    remind: int | None = Field(
-        default=None, ge=0, le=REMIND_LEAD_MAX_MINUTES, description=REMIND_DESCRIPTION
-    )
     values: Reference | list[Reference] | None = Field(default=None, description=VALUES_DESCRIPTION)
     tags: Reference | list[Reference] | None = Field(default=None, description=TAGS_DESCRIPTION)
     checks: Reference | list[Reference] | None = Field(
@@ -111,7 +108,7 @@ class GoalToolInput(ToolInput):
 class ActionToolInput(ToolInput):
     content_fields = frozenset({"title", "note", "blocked_description", "schedule"})
     semantic_null_fields = frozenset(
-        {"schedule", "remind", "tracked_mins", "effort_points", "blocked_description"}
+        {"schedule", "tracked_mins", "effort_points", "blocked_description"}
     )
 
     mode: Literal["create", "update", "move", "complete", "reopen", "link", "unlink"] = Field(
@@ -139,9 +136,6 @@ class ActionToolInput(ToolInput):
             "'three times a day', 'Tuesday at 15:00', 'after each completion'. "
             "Never invent a time. On update, null removes it."
         ),
-    )
-    remind: int | None = Field(
-        default=None, ge=0, le=REMIND_LEAD_MAX_MINUTES, description=REMIND_DESCRIPTION
     )
     blocked_description: str | None = Field(
         default=None,

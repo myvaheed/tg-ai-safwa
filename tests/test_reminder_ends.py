@@ -158,7 +158,6 @@ async def test_the_session_reads_the_last_day_and_the_total():
         instruction="Drink water.",
         now=NOW,
         tz=TZ,
-        names="",
     )
     assert (schedule.interval_minutes, schedule.until, schedule.total) == (180, date(2026, 10, 23), 20)
 

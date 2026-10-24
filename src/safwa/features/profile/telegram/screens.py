@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import html
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import time
 from typing import Any
@@ -62,6 +62,8 @@ class EditableField:
     instruction: str
     parse: Callable[[str], Any]
     show: Callable[[Any], str]
+    # (services, parsed) -> the value stored, for a field a model reads.
+    read: Callable[[Any, Any], Awaitable[Any]] | None = None
 
 
 def _parse_home_after(raw: str) -> int:
@@ -91,6 +93,13 @@ def _parse_today_capacity(raw: str) -> float:
 
 def _clock(value: time | None) -> str:
     return value.strftime("%H:%M") if value else "off"
+
+
+def _windows(value: list[str] | str) -> str:
+    """Don't disturb as stored, or the words a proposal has not read yet."""
+    if isinstance(value, str):
+        return value
+    return ", ".join(item.replace("-", "–") for item in value) or "off"
 
 
 PROFILE_FIELDS: dict[str, EditableField] = {
@@ -157,6 +166,17 @@ PROFILE_FIELDS: dict[str, EditableField] = {
         ),
         parse=_parse_home_after,
         show=lambda value: f"{value} min",
+    ),
+    "dont_disturb": EditableField(
+        title="Don't disturb",
+        label="💤 Don't disturb",
+        instruction=(
+            "Send the hours when Reminders that repeat every few minutes or hours must wait, "
+            "such as 22:00–08:00, or 22–8 and 13–14. Send off to remove them all."
+        ),
+        parse=lambda raw: raw,
+        show=_windows,
+        read=lambda services, raw: services.features.dont_disturb.windows(raw),
     ),
     "today_capacity_ep": EditableField(
         title="Today capacity",
@@ -347,11 +367,19 @@ async def _render_profile(
     )
 
 
+async def _read_field(
+    message: Any, services: Any, state: Mapping[str, Any], value: Any
+) -> Any:
+    read = _editable_field(state).read
+    return value if read is None else await read(services, value)
+
+
 TEXT_INPUT = TextInputFlow(
     name="profile",
     validator=lambda state: _editable_field(state).parse,
     apply=_apply_field,
     render=_render_profile,
+    prepare=_read_field,
 )
 
 

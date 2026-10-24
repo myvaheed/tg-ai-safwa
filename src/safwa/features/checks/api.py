@@ -35,11 +35,12 @@ def answer_run(answers: Sequence[Any], outcome: str) -> list[Any]:
 
 CHECK = Method(
     name="Check",
-    definition="Check: a yes/no observation with no duration, on one Card or on none.",
+    definition=(
+        "Check: a yes/no fact to mark, on one Card or on none. "
+        "A repeating Check of a habit is its tracker."
+    ),
     criteria=(
-        "a state or a result to observe, not work to do: when the honest answer is "
-        '"I did it", it is an Action, except not doing something, such as No sweets?;',
-        "has no duration; anything that takes time is an Action;",
+        "a state, a result or a habit done, such as Drank water? or No sweets today?;",
         "answered yes or no;",
         "observable: some fact shows the answer;",
         "on a Card, about that Card's result.",
@@ -47,24 +48,15 @@ CHECK = Method(
     leaves=("Do not judge whether the Check is worth keeping.",),
     writing=(
         "Check title: a short yes/no question, or one part of its Card's result such as Milk.",
+        "A habit to mark yes or no is a repeating Check; work to plan in Today is an Action.",
     ),
     examples=(
         Example('"Slept 7 hours?", every evening', clear=True),
         Example('"On time?", every weekday', clear=True),
         Example('"No sweets today?", every evening', clear=True),
         Example('"Milk", on "Go to the market"', clear=True),
-        Example(
-            '"Did my morning exercises?", every morning',
-            clear=False,
-            verdict="Asks whether work was done.",
-            ask="Suggest a repeating Action Morning exercises instead.",
-        ),
-        Example(
-            '"Run 5 km?"',
-            clear=False,
-            verdict="Work that takes time.",
-            ask="Suggest an Action instead.",
-        ),
+        Example('"Did my morning exercises?", every morning', clear=True),
+        Example('"Read for 20 minutes?", every evening', clear=True),
         Example(
             '"How long did I sleep?"',
             clear=False,

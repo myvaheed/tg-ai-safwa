@@ -38,14 +38,11 @@ class ChangePreparer:
         """What this application reports as the state a proposal is made against."""
         return await self.proposals.world(session)
 
-    async def prepare(
-        self,
-        session: AsyncSession,
-        change: AgentChange,
-        *,
-        earlier: Mapping[str, Any] | None = None,
-    ) -> PreparedChange:
-        context = PreparationContext(
+    async def context(
+        self, session: AsyncSession, *, earlier: Mapping[str, Any] | None = None
+    ) -> PreparationContext:
+        """What preparing a change may read, here and now."""
+        return PreparationContext(
             session=session,
             world=await self.proposals.world(session),
             provider=self.provider,
@@ -53,4 +50,13 @@ class ChangePreparer:
             views=self.proposals.views,
             earlier=earlier,
         )
+
+    async def prepare(
+        self,
+        session: AsyncSession,
+        change: AgentChange,
+        *,
+        earlier: Mapping[str, Any] | None = None,
+    ) -> PreparedChange:
+        context = await self.context(session, earlier=earlier)
         return await self.proposals.handler(change.entity).prepare(context, change)

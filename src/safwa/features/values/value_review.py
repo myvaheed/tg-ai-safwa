@@ -40,7 +40,7 @@ CLARIFY_REQUEST = (
     "Offer each suggestion as a possibility, not as the user's meaning.\n"
     "Offer to update the Value with their answer.\n"
     "When they answer, route to workspace_mutator to update the Value, "
-    "or to propose a Goal or a repeating Action instead.\n"
+    "or to propose a Goal, a repeating Action or a Check instead.\n"
     "Change nothing until they answer."
 )
 
