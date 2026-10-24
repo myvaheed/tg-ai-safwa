@@ -10,10 +10,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import replace
 
 import pytest
 from agent_turns import mutation_turn
+from aiogram.exceptions import TelegramBadRequest
 from sqlalchemy import select
+from telegram_fakes import QueueTestMessage
+from wallet import app
 from wallet.ledger.model import Entry
 from wallet_harness import (
     OWNER_ID,
@@ -28,12 +32,17 @@ from wallet_harness import (
 )
 
 from llm_gateway import CompletionTurn, ToolCall
+from tg_agent_shell.access.credentials import hash_secret_word
+from tg_agent_shell.access.manager import AccessManager
 from tg_agent_shell.ai.messages import OPENED_FROM
-from tg_agent_shell.history import Subsession, current_subsession
+from tg_agent_shell.cues.runtime import chat_is_free
+from tg_agent_shell.history import Subsession, close_subsession, current_subsession
+from tg_agent_shell.registry import Registry
 from tg_agent_shell.telegram import callback_token_handler, expire_review
 from tg_agent_shell.telegram.commands import command_cancel
 from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.model import CallbackToken
+from tg_agent_shell.telegram.subsessions import EXIT_RESULT, NOTHING_TO_EXIT, command_exit
 
 RESULT = "Food: 300 USD a month."
 
@@ -76,7 +85,7 @@ async def say_over(running: Running, text: str) -> None:
 
 def _next_message(running: Running) -> None:
     running.message.message_id = 1 + max(
-        (sent.message_id for sent in running.message.sent), default=running.message.message_id
+        [running.message.message_id, *(sent.message_id for sent in running.message.sent)]
     )
 
 
@@ -146,7 +155,7 @@ async def test_a_subsession_answers_until_it_finishes_and_leaves_one_result(wall
     )
 
     await say(running, "Let us plan a budget")
-    assert running.chat[-2:] == ["💬 Budget talk", "What is the budget for?"]
+    assert running.chat[-2:] == ["💬 Budget talk\n/exit ends it.", "What is the budget for?"]
     await say(running, "Food")
     assert running.chat[-1] == "How much a month?"
     await say(running, "300 a month")
@@ -311,3 +320,159 @@ async def test_cancelling_the_answer_after_a_save_keeps_the_save_and_the_subsess
     assert await open_subsession(running) is not None
     await say(running, "Is it there?")
     assert running.chat[-1] == "It is written down."
+
+
+def ended(title: str = "💬 Budget talk") -> str:
+    return f"<b>{title}</b>\n{EXIT_RESULT}"
+
+
+async def talk_opened(wallet_bot, *after: CompletionTurn) -> Running:
+    """A bot whose owner has just opened a talk with the coach, scripted on with `after`."""
+    running = await started(
+        wallet_bot, sub_turn("coach"), CompletionTurn(content="What is the budget for?"), *after
+    )
+    await say(running, "Let us plan a budget")
+    return running
+
+
+async def command(running: Running, handler) -> None:
+    _next_message(running)
+    running.message.text = "/exit"
+    await handler(running.message, running.services)
+
+
+async def test_exit_ends_the_subsession_without_a_result(wallet_bot):
+    running = await talk_opened(wallet_bot)
+
+    await command(running, command_exit)
+
+    assert await open_subsession(running) is None
+    assert running.chat[-1] == ended()
+    assert [entry.text for entry in await running.services.history.recent(OWNER_ID)] == [
+        "Let us plan a budget", f"💬 Budget talk\n{EXIT_RESULT}"
+    ]
+    await command(running, command_exit)
+    assert running.chat[-1] == NOTHING_TO_EXIT
+    assert len(running.provider.requests) == 2
+
+
+async def test_exit_is_published_only_where_an_agent_opens_a_subsession(wallet_bot):
+    running = await wallet_bot.start()
+    assert "exit" in [screen.command for screen in running.services.commands]
+    plain = Registry.of(
+        tuple(
+            replace(module, agents=tuple(agent for agent in module.agents if agent.title is None))
+            for module in app.MODULES
+        ),
+        world=app.ledger_world,
+    )
+    assert "exit" not in [screen.command for screen in plain.commands]
+
+
+async def test_a_clear_ends_the_open_subsession_first(wallet_bot):
+    running = await talk_opened(wallet_bot, CompletionTurn(content="Hello again."))
+
+    async def no_word(session):
+        return None
+
+    _next_message(running)
+    await AccessManager(running.services, no_word).clear(running.message)
+
+    async with running.sessions() as session:
+        closed = await session.scalar(select(Subsession))
+    assert closed.through_message_id is not None and closed.result == EXIT_RESULT
+    await say(running, "Hi")
+    assert running.chat[-1] == "Hello again."
+    assert "What is the budget for?" not in said(running, 2)
+
+
+async def test_a_result_that_never_reached_the_chat_is_delivered_once_at_the_next_turn(
+    wallet_bot,
+):
+    running = await talk_opened(
+        wallet_bot, CompletionTurn(content="Noted."), CompletionTurn(content="Fine.")
+    )
+    # The process stopped after closing it and before saying so.
+    async with running.sessions() as session:
+        talk = await current_subsession(session, OWNER_ID)
+        assert await close_subsession(session, talk.id, RESULT)
+        await session.commit()
+
+    await say(running, "Thanks")
+    await say(running, "Bye")
+
+    assert running.chat.count(f"<b>💬 Budget talk</b>\n{RESULT}") == 1
+    assert running.chat[-1] == "Fine."
+    # Delivered before the conversation was read, so the root read it with the owner's words.
+    assert RESULT in said(running, 2) and "What is the budget for?" not in said(running, 2)
+    assert len(running.provider.requests) == 4
+
+
+async def test_a_stretch_telegram_refuses_to_delete_stays_out_of_the_conversation(wallet_bot):
+    running = await talk_opened(
+        wallet_bot, finish_turn(RESULT), CompletionTurn(content="Noted."), CompletionTurn(content="Fine.")
+    )
+
+    async def refuse(*, chat_id, message_ids):
+        raise TelegramBadRequest(method=None, message="Bad Request: message can't be deleted")
+
+    running.message.bot.delete_messages = refuse
+    await say(running, "Food, 300 a month")
+    await say(running, "Thanks")
+    await say(running, "Bye")
+
+    assert running.chat.count(f"<b>💬 Budget talk</b>\n{RESULT}") == 1
+    assert "What is the budget for?" not in said(running, 3)
+    assert [entry.text for entry in await running.services.history.recent(OWNER_ID)][:2] == [
+        "Let us plan a budget", f"💬 Budget talk\n{RESULT}"
+    ]
+    assert len(running.provider.requests) == 5
+
+
+async def test_a_subsession_whose_agent_is_gone_ends_at_the_next_message(wallet_bot):
+    running = await talk_opened(wallet_bot, CompletionTurn(content="Hello."))
+    # Started again without the feature that declared it.
+    del running.root.talks["coach"]
+
+    await say(running, "Hi")
+
+    assert running.chat.count(ended("coach")) == 1
+    assert running.chat[-1] == "Hello."
+    assert await open_subsession(running) is None
+
+
+async def test_work_nobody_asked_for_waits_while_a_subsession_is_open(wallet_bot):
+    running = await talk_opened(wallet_bot, finish_turn(RESULT))
+    assert not await chat_is_free(running.services)
+
+    await say(running, "Food, 300 a month")
+
+    assert await chat_is_free(running.services)
+
+
+async def test_locking_and_opening_the_chat_leave_the_subsession_to_go_on(wallet_bot):
+    running = await talk_opened(wallet_bot, CompletionTurn(content="How much a month?"))
+    verifier = hash_secret_word("🔑")
+
+    async def read_verifier(session):
+        return verifier
+
+    access = AccessManager(running.services, read_verifier)
+    running.services.access = access
+    await access.lock(running.message)
+    _next_message(running)
+    word = QueueTestMessage(
+        message_id=running.message.message_id,
+        text="🔑",
+        is_bot=False,
+        answer_as_new=True,
+        parent=running.message,
+    )
+    await access.intercept(word)
+    assert not access.blocked and await open_subsession(running) is not None
+
+    await say(running, "Food")
+
+    assert running.chat[-1] == "How much a month?"
+    # The clears took the stretch out of the chat, not out of the subsession.
+    assert '"role": "assistant", "content": "What is the budget for?"' in said(running, 2)

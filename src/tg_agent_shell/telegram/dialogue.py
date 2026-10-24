@@ -252,9 +252,10 @@ async def run_dialogue_turn(
     turn itself, which is a different message whenever the owner's words reached the chat
     as a bot message rather than as their own text.
 
-    While a subsession is open its agent answers, from its own stretch of the chat. The
-    work around a turn is the conversation's: it stands before and after the conversation's
-    own turns only, and a turn that opened a subsession has nothing after it there.
+    While a subsession is open its agent answers, from its own stretch of the chat; what one
+    still owes the chat is settled before anything is read. The work around a turn is the
+    conversation's: it stands before and after the conversation's own turns only, and a turn
+    that opened a subsession has nothing after it there.
     """
     dialogue_revision = services.turn.dialogue_revision
     try:

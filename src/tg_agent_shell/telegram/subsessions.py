@@ -23,25 +23,39 @@ from ..history import (
     Subsession,
     close_subsession,
     current_subsession,
+    result_event,
     start_subsession,
+    undelivered_subsessions,
 )
 from .chat import keep_typing, send_prose, send_registered
+from .contributions import ScreenCommand
 from .screens import render_citations
 from .services import Services
 
 logger = logging.getLogger(__name__)
 
-
-def result_event(subsession_id: int) -> str:
-    """The delivery of one subsession's result: the message carrying it has this event id."""
-    return f"subsession:{subsession_id}"
+# The result a subsession closes with when the owner ends it, or when its agent is gone.
+EXIT_RESULT = "The conversation was ended without a result."
+NOTHING_TO_EXIT = "No conversation with an agent is open."
 
 
 async def talking(message: Message, services: Services) -> str | None:
-    """The agent the owner's words go to: the open subsession's, or None for the root's."""
+    """The agent the owner's words go to: the open subsession's, or None for the root's.
+
+    What a subsession still owes the chat is settled first: a result that never reached it
+    is delivered, and one whose agent is no longer registered is closed, as /exit closes it.
+    """
     async with services.sessions() as session:
+        owed = await undelivered_subsessions(session, message.chat.id)
         subsession = await current_subsession(session, message.chat.id)
-    return subsession.kind if subsession is not None else None
+    for closed in owed:
+        await deliver_result(message, services, closed)
+    if subsession is None:
+        return None
+    if subsession.kind not in services.root.talks:
+        await finish_subsession(message, services, EXIT_RESULT)
+        return None
+    return subsession.kind
 
 
 async def enter_subsession(
@@ -55,7 +69,7 @@ async def enter_subsession(
     await send_registered(
         message,
         services,
-        html.escape(_title(services, kind)),
+        f"{html.escape(_title(services, kind))}\n/exit ends it.",
         kind=MessageKind.RECEIPT,
         event_id=event_id,
         replace=False,
@@ -64,20 +78,22 @@ async def enter_subsession(
         return await services.root.talk(kind)
 
 
-async def finish_subsession(message: Message, services: Services, result: str) -> None:
+async def finish_subsession(message: Message, services: Services, result: str) -> bool:
     """Close the open subsession with its result, then hand that result back.
 
-    Of two closings, the first decides: one that finds it closed already says nothing.
+    Of two closings, the first decides: one that finds it closed already does nothing, and
+    says so by returning False.
     """
     async with services.sessions() as session:
         subsession = await current_subsession(session, message.chat.id)
         if subsession is None or not await close_subsession(session, subsession.id, result):
-            return
+            return False
         await session.commit()
     async with services.sessions() as session:
         closed = await session.get(Subsession, subsession.id)
     if closed is not None:
         await deliver_result(message, services, closed)
+    return True
 
 
 async def deliver_result(message: Message, services: Services, subsession: Subsession) -> None:
@@ -86,7 +102,7 @@ async def deliver_result(message: Message, services: Services, subsession: Subse
 
     The result is a message of the conversation's own, newer than the whole stretch. Taking
     the stretch out is the chat's tidiness, not the boundary: a message Telegram keeps is
-    still no part of the conversation.
+    still no part of the conversation, so a stretch it refuses to delete is left as it is.
     """
     # Closed, so both are set.
     assert subsession.through_message_id is not None and subsession.result is not None
@@ -112,6 +128,28 @@ async def deliver_result(message: Message, services: Services, subsession: Subse
         )
     except Exception:
         logger.exception("Could not take subsession #%s out of the chat", subsession.id)
+
+
+async def command_exit(message: Message, services: Services) -> None:
+    """End the open subsession without a result, under a turn of its own.
+
+    A review open in it was already closed, as before any command.
+    """
+    if not services.turn.try_begin(message.message_id):
+        return
+    try:
+        if not await finish_subsession(message, services, EXIT_RESULT):
+            await send_registered(
+                message, services, NOTHING_TO_EXIT, kind=MessageKind.RECEIPT, replace=False
+            )
+    finally:
+        services.turn.end(message.message_id)
+
+
+# Published only by an application that declares an agent a subsession is opened with.
+EXIT_COMMAND = ScreenCommand(
+    handler=command_exit, command="exit", description="End the conversation with an agent"
+)
 
 
 def _title(services: Services, kind: str) -> str:

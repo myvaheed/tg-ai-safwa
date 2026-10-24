@@ -54,6 +54,7 @@ from .telegram.manifest import (
     HelperSpec,
 )
 from .telegram.services import CallbackHandler
+from .telegram.subsessions import EXIT_COMMAND
 
 
 def _with_catalogue[Spec: (AgentSpec, HelperSpec)](
@@ -121,7 +122,10 @@ class Registry:
             views=views,
             allowed_views=allowed,
             screens=_screens(modules),
-            commands=_commands(modules),
+            commands=(
+                *_commands(modules),
+                *((EXIT_COMMAND,) if any(agent.title for agent in agents) else ()),
+            ),
             callback_actions=_callback_actions(modules),
             text_inputs=_text_inputs(modules),
             # Tried in registration order; a payload none of them claims opens the item it cites.

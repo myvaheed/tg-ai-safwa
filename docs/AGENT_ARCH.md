@@ -475,6 +475,12 @@ the subsession through [subsessions.py](../src/tg_agent_shell/telegram/subsessio
 - Proposals inside work as they do for the Advisor: it is the root of its own request.
 - While one is open, `chat_is_free` is false, and the turn's own hooks, `BeforeTurn` and
   `AfterTurn`, run only for turns of the conversation; usage is counted for every turn.
+- `/exit` closes it with `EXIT_RESULT`, and so does an explicit clear, `AccessManager.clear`,
+  before it clears; locking the chat leaves it open. `Registry.of` publishes the command only
+  where an agent has a title.
+- The delivery is the result's message itself, by its `result_event`. One that never reached
+  the chat is delivered at the start of the owner's next turn, before anything is read, and a
+  subsession whose agent is no longer registered is closed there, as `/exit` closes it.
 
 `Registry.subsessions` writes the root prompt's lines for these agents from the roster, as
 `Registry.routes` does for the routed ones.

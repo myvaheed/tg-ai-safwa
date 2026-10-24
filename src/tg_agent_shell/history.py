@@ -21,9 +21,11 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    cast,
     delete,
     exists,
     func,
+    literal,
     or_,
     select,
     text,
@@ -50,7 +52,9 @@ __all__ = [
     "current_subsession",
     "mark_cleared",
     "register_message",
+    "result_event",
     "start_subsession",
+    "undelivered_subsessions",
 ]
 
 EDGE_CONTEXT_MESSAGE_LIMIT = 20
@@ -184,6 +188,34 @@ async def start_subsession(session: AsyncSession, chat_id: int, kind: str) -> Su
     session.add(subsession)
     await session.flush()
     return subsession
+
+
+# A closed subsession's result has reached the chat once a message carries this event id, as
+# a Cue's answer has: the delivery is not recorded anywhere else.
+RESULT_EVENT = "subsession:"
+
+
+def result_event(subsession_id: int) -> str:
+    return f"{RESULT_EVENT}{subsession_id}"
+
+
+async def undelivered_subsessions(session: AsyncSession, chat_id: int) -> list[Subsession]:
+    """The closed subsessions of this chat whose result never reached it, oldest first."""
+    delivered = exists().where(
+        TelegramMessage.chat_id == Subsession.chat_id,
+        TelegramMessage.event_id == literal(RESULT_EVENT) + cast(Subsession.id, String),
+    )
+    return list(
+        await session.scalars(
+            select(Subsession)
+            .where(
+                Subsession.chat_id == chat_id,
+                Subsession.through_message_id.is_not(None),
+                ~delivered,
+            )
+            .order_by(Subsession.id)
+        )
+    )
 
 
 async def close_subsession(session: AsyncSession, subsession_id: int, result: str) -> bool:

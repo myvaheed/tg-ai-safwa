@@ -24,6 +24,7 @@ from ..history import (
 from ..telegram.chat import UNASKED_KINDS
 from ..telegram.model import CallbackToken, UiSession
 from ..telegram.services import Services, is_dialogue
+from ..telegram.subsessions import EXIT_RESULT, finish_subsession
 from .credentials import matches_secret_word, resembles_secret_word
 from .model import AccessState, Locked, Open, Unlocking
 
@@ -109,8 +110,14 @@ class AccessManager:
                     return
 
     async def clear(self, anchor: Message, *, keep_unanswered: bool = False) -> None:
-        """Empty the chat; an automatic clear leaves what the owner has not answered in it."""
+        """Empty the chat; an automatic clear leaves what the owner has not answered in it.
+
+        An open subsession is ended first, as /exit ends it: a clear starts the conversation
+        over, and one the owner is having elsewhere would otherwise go on past it. Locking
+        clears the chat without ending it.
+        """
         async with self._transition:
+            await finish_subsession(anchor, self.services, EXIT_RESULT)
             await self._clear(anchor, anchor.message_id, keep_unanswered=keep_unanswered)
 
     async def _clear(
