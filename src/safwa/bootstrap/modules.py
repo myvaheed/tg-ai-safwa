@@ -24,7 +24,14 @@ from tg_agent_shell.search.words import SnowballWordForms, TextModel
 from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec, FeatureModule
 
 from .. import featuretoggles
-from ..features.advisor.agent import ADVISOR_VIEWS, ITEMS, PERSONA, SYSTEM_PROMPT_TEMPLATE
+from ..features.advisor.agent import (
+    ADVISOR_VIEWS,
+    ITEMS,
+    PERSONA,
+    SYSTEM_PROMPT_TEMPLATE,
+    TALK_PERSONA,
+)
+from ..features.blueprint.module import MODULE as BLUEPRINT
 from ..features.cards.module import (
     ACTION_REVIEW_HOOK,
     BLOCKER_HOOK,
@@ -110,6 +117,7 @@ MODULES: tuple[FeatureModule, ...] = (
     VALUES,
     TAGS,
     COMPASS,
+    BLUEPRINT,
     PLANNING,
     RETRO,
     LIFE,
@@ -241,15 +249,21 @@ SYSTEM_PROMPT: str = (
     SYSTEM_PROMPT_TEMPLATE.replace(
         "{routes}", REGISTRY.routes(lambda agent: f'- `route("{agent.name}")` — {agent.purpose}')
     )
+    .replace(
+        "{subsessions}",
+        REGISTRY.subsessions(lambda agent: f'- `sub("{agent.name}")` — {agent.purpose}'),
+    )
     .replace("{views}", view_catalogue(AI_VIEWS, ADVISOR_VIEWS))
     .replace("{items}", ITEMS)
 )
 
 
 def routed_prompt(agent: AgentSpec) -> str:
-    """What a routed subagent reads: the one persona block, then its own instructions, with
-    the one wording of what each item is wherever they ask for `{items}`."""
-    return f"{PERSONA}\n{agent.instructions}".replace("{items}", ITEMS)
+    """What a subagent reads: the one persona block, then its own instructions, with
+    the one wording of what each item is wherever they ask for `{items}`. A subsession's
+    agent answers the owner rather than the Advisor, and its persona says so."""
+    persona = TALK_PERSONA if agent.title is not None else PERSONA
+    return f"{persona}\n{agent.instructions}".replace("{items}", ITEMS)
 
 
 def routed_subagents(context: AgentContext):

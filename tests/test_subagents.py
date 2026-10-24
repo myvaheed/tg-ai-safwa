@@ -18,7 +18,7 @@ from safwa.bootstrap.modules import (
     SYSTEM_PROMPT,
     routed_prompt,
 )
-from safwa.features.advisor.agent import PERSONA
+from safwa.features.advisor.agent import PERSONA, TALK_PERSONA
 from safwa.features.diary.agent import (
     DIARY_PROMPT,
     conversation_read_tool,
@@ -81,7 +81,10 @@ def test_the_routing_rules_name_every_subagent_that_can_be_routed_to() -> None:
 def test_a_routed_prompt_carries_the_one_persona_block() -> None:
     """AD-VOICE-001 — tests/brd/advisor.feature"""
     for agent in AGENTS:
-        assert routed_prompt(agent).startswith(PERSONA)
+        persona = PERSONA if agent.title is None else TALK_PERSONA
+        assert routed_prompt(agent).startswith(persona)
+    # A subsession's agent answers the owner itself, and the rest of the block is the same.
+    assert TALK_PERSONA.split("\n")[3:] == PERSONA.split("\n")[3:]
     diary = next(agent for agent in AGENTS if agent.name == "diary")
     assert "You keep the user's Diary" in routed_prompt(diary)
     # Voice and citation rules are stated once, where every subagent gets the same copy.

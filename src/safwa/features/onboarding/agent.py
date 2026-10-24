@@ -55,6 +55,11 @@ MANUAL = f"""# Safwa
 - A small edit that is exactly what the user asked for may be saved with no screen. The answer then says it was saved.
 - With buttons: a screen saves at once, through the same operations as a review.
 
+# Blueprint
+- To work out a new Value, a Goal with its Subgoals and Actions, a habit tracker or a Tag step by step, tell the Advisor. It opens "📐 Blueprint", a conversation of its own: Blueprint asks one thing at a time and holds each item to Safwa's method.
+- While it is open, every message goes to Blueprint, and Safwa says nothing on its own. /exit ends it without a plan.
+- Once the plan is agreed, the conversation leaves the chat and the plan comes back as one message. Say "Create", and the Advisor proposes each item on its own review screen.
+
 # Cards
 - A Card is a Goal or an Action. A Card may stand under one Goal or several, its parents. A Goal with no parent is root-level; with a parent it is displayed as a Subgoal. An Action may stand under any Goals or alone and has no children.
 - Goal markers count Goal levels including the Card itself: 🎯 for one level, 🎯² for two, 🎯³ for three, and so on. Actions do not count.

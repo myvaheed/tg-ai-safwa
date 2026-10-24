@@ -32,7 +32,7 @@ from safwa.bootstrap.modules import (
     SCREENS,
     SYSTEM_PROMPT,
 )
-from safwa.features.advisor.agent import ITEMS, PERSONA
+from safwa.features.advisor.agent import ITEMS, PERSONA, TALK_PERSONA
 from safwa.features.compass.agent import MORE_ABOUT_TOOL, SHOW_CONSTELLATION_TOOL
 from safwa.features.schedules.agent import (
     DEADLINE_PARSER_PROMPT,
@@ -58,10 +58,12 @@ from scripts.architecture_metrics import (
 )
 from tg_agent_shell.ai.contracts import (
     CALL_HELPER_TOOL,
+    FINISH_TOOL,
     FORWARD_TOOL,
     NOTHING_TO_DO_TOOL,
     QUERY_TOOL,
     ROUTE_TOOL,
+    SUB_TOOL,
     open_tool,
 )
 from tg_agent_shell.ai.messages import ContextBuilder, StateBlocks
@@ -280,6 +282,8 @@ def _tool_schemas() -> dict[str, dict]:
         "open": open_tool(SCREENS),
         "route": ROUTE_TOOL,
         "forward": FORWARD_TOOL,
+        "sub": SUB_TOOL,
+        "finish": FINISH_TOOL,
         "nothing_to_do": NOTHING_TO_DO_TOOL,
         "query_data": QUERY_TOOL,
         "call_helper": CALL_HELPER_TOOL,
@@ -301,6 +305,7 @@ def test_rule_i_prompt_prefix_is_byte_stable(request):
     produced = {
         "SYSTEM_PROMPT": _digest(SYSTEM_PROMPT),
         "PERSONA": _digest(PERSONA),
+        "TALK_PERSONA": _digest(TALK_PERSONA),
         "ITEMS": _digest(ITEMS),
         "HEAVY_ANALYZER_PROMPT": _digest(HELPERS["heavy_analyzer"].instructions),
         "SCHEDULE_PARSER_PROMPT": _digest(SCHEDULE_PARSER_PROMPT),

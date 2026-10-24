@@ -388,7 +388,7 @@ SUB_TOOL: dict[str, Any] = {
 
 class FinishInput(ToolInput):
     result: str = Field(
-        description="What the conversation came to, in a few sentences in the user's language."
+        description="What the conversation came to, in the user's language."
     )
 
 

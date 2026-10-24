@@ -48,7 +48,7 @@ lines start at 001.
 | Retro | `RT` | The Advisor | `AD` |
 | Diagnostics | `DG` | Onboarding | `OB` |
 | Schedules | `SCH` | Life in weeks | `LF` |
-| Compass — the method and the whole tree | `CMP` | | |
+| Compass — the method and the whole tree | `CMP` | Blueprint — new items worked out step by step | `BP` |
 
 `src/tg_agent_shell/`:
 

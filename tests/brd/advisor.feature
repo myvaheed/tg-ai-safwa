@@ -14,6 +14,8 @@ Feature: Advisor
       other part is given
     And so the owner's language, and the shape a named item takes, are decided once rather
       than once per part
+    And a part the Advisor hands a conversation to is given that block too, saying that it
+      answers the owner itself
 
   Scenario: AD-MEMORY-002 — The Advisor is told how to read what the retro left
     Given the memory the Advisor is given before every answer (MEM-RETRO-010)

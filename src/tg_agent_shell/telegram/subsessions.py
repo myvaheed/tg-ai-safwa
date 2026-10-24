@@ -37,6 +37,8 @@ logger = logging.getLogger(__name__)
 # The result a subsession closes with when the owner ends it, or when its agent is gone.
 EXIT_RESULT = "The conversation was ended without a result."
 NOTHING_TO_EXIT = "No conversation with an agent is open."
+# The line under the title a subsession opens with.
+EXIT_HINT = "Send /exit to end this conversation."
 
 
 async def talking(message: Message, services: Services) -> str | None:
@@ -69,7 +71,7 @@ async def enter_subsession(
     await send_registered(
         message,
         services,
-        f"{html.escape(_title(services, kind))}\n/exit ends it.",
+        f"{html.escape(_title(services, kind))}\n{EXIT_HINT}",
         kind=MessageKind.RECEIPT,
         event_id=event_id,
         replace=False,

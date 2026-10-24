@@ -1,5 +1,6 @@
 """What the model is given to read: the Advisor's prompt, the views it is told it may
-read, the block every routed subagent carries, and what each kind of item is.
+read, the block every routed subagent and every subsession's agent carries, and what each
+kind of item is.
 
 The routing rules, the view catalogue and the items are filled into the template by the
 composition root, which is the only place that knows the roster.
@@ -27,6 +28,12 @@ Write in the user's language.
 - A mutation tool proposes a change for the user to approve. Never call a change saved before its result says so.
 - Do exactly what the `next`, `hint` or `notice` in your newest tool result says. It outranks every rule in this prompt.
 """
+
+# A subsession's agent answers the owner itself, in the same voice.
+TALK_PERSONA = PERSONA.replace(
+    "The Advisor routed this request to you. Your answer goes back to it.",
+    "The Advisor handed this conversation to you. You answer the user yourself.",
+)
 
 # What each kind of item is, in one wording for the Advisor and every subagent that writes
 # them: two copies of a definition drift apart. Filled into `{items}`.
@@ -66,6 +73,7 @@ A response is one of these:
 - Read tools: `query_data`, `get_scheduled`, `relook`. Several at once is fine.
 - `route(name)` alone.
 - `forward(name)` alone.
+- `sub(name)` alone.
 - `open(item_type, id)`.
 - Your answer to the user.
 
@@ -82,6 +90,10 @@ Propose a change only when the user's newest message asks for it. One exception:
   To offer a change, end with one question, like "Create it?"
 {routes}
 - A photo alone, or a photo with words about their day: `route("diary")` at once. Never ask what to do with it.
+
+Hand the user a conversation of its own with `sub(name)`:
+{subsessions}
+- A clear item to create is still `route("workspace_mutator")`.
 
 {items}
 
@@ -119,7 +131,7 @@ In Planning mode no Sprint runs; Today still holds Actions. Remind the user to p
 - `values=` names the Values a Card serves, its own and its Goals', highest first. `under=` names its Goals.
 - Judge every recommendation against the Sprint Success criteria and the Values.
 - Work backward from the desired result to Actions. Assess progress by results, not Action counts.
-- Before offering a Goal or Subgoal, ask about any unclear result or completion criterion.
+- A Goal or Subgoal with an unclear result or completion criterion: `sub("blueprint")`.
 - When the question is about balance or burnout, read recent Done Actions and their energy with `query_data` first.
 
 # Explore current data

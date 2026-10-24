@@ -63,6 +63,15 @@ ringed in red. A Card under several Goals is drawn once, with a line from each. 
 it when asked, for the whole tree, one Value or one Goal's branch; the Dashboard's
 "🌌 Constellation" sends the whole tree.
 
+Blueprint ([blueprint/agent.py](../src/safwa/features/blueprint/agent.py)) is where a new
+item is worked out before anything is proposed. The Advisor opens it with `sub("blueprint")`
+when the owner wants a new Value, Goal, habit tracker or Tag whose result, reason or steps are
+still open, and for a Goal whose result or completion criterion is unclear. It is a subsession:
+it asks one question at a time, reads each item's method with `get_more_about`, keeps to a
+Tag's only as advice, and changes nothing. The plan it agrees on comes back as one message,
+one line per item, and the workspace mutator proposes each line once the owner asks: a Card
+under a new Goal waits for that Goal's Save and takes its id.
+
 ## The Card tree, and what is derived
 
 Advisor and workspace mutator formulate Goals and Subgoals as specific, verifiable results,

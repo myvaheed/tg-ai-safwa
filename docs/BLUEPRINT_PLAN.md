@@ -79,12 +79,35 @@
 | Батч | Содержание | Зависит от |
 |---|---|---|
 | 0 | Слияние main в ветку, весь набор зелёный — сделано, v9.240 | — |
-| 1 | Метод Tag как совет: `TAG`, строка `ITEMS` из метода, тема `tags` в `get_more_about`, onboarding — сделан, не закоммичен | 0 |
-| 2 | Blueprint: пакет, промпт, persona, строки Advisor, тексты shell, onboarding, сценарии, e2e | 1 |
+| 1 | Метод Tag как совет: `TAG`, строка `ITEMS` из метода, тема `tags` в `get_more_about`, onboarding — сделан, v9.241 | 0 |
+| 2 | Blueprint: пакет, промпт, persona, строки Advisor, тексты shell, onboarding, сценарии, e2e — сделан, v9.242 | 1 |
 | 3 | Живой замер на 35B, 2 прохода; 9B — когда результат устроит | 2 |
 | 4 | Проект подсессий переходит в постоянные документы и сценарии shell, SUBSESSIONS_DESIGN.md удаляется | 2 |
 
 Каждый батч — отдельный коммит `vX.Y …`, только когда владелец попросит.
+
+## Батч 2 — что сделано и чем отличается от плана
+
+- Пакет *features/blueprint* с `BLUEPRINT_AGENT`, строка в `MODULES` после Compass.
+- `TALK_PERSONA`: `PERSONA` с другой второй строкой; `routed_prompt` выбирает его по `title`.
+  `PERSONA` routed-агентов не сдвинулся.
+- Advisor: «- `sub(name)` alone.», блок `{subsessions}` с «A clear item to create is still
+  `route("workspace_mutator")`.», строка в «# Advice» заменена на `sub("blueprint")`.
+- Shell: поле `result` у `finish` без «in a few sentences»; рамка — `EXIT_HINT`, «Send /exit to
+  end this conversation.».
+- Onboarding: раздел «# Blueprint».
+- Сценарии: tests/brd/blueprint.feature, BP-ENTER-001…BP-CREATE-005, префикс `BP` в таблице;
+  поправка AD-VOICE-001 — агент подсессии получает тот же блок голоса.
+- Снимок промпта: `sub`, `finish`, `TALK_PERSONA` и `agent:blueprint` добавлены.
+- **Отличие, одобрено 24.10:** в промпт Blueprint добавлен раздел, которого не было в черновике.
+  Без заголовка каталог views стоял бы голым в конце:
+  ```
+  # Read the data
+  Find an existing Value, Goal or Tag the user names with `query_data`: one read-only `SELECT` over these views only.
+  Every value listed under a view is the lowercase code stored in that column.
+  ```
+- **Не сделано из списка тестов:** Check с `link` к Goal и к Values, и Edit на экране Mutator
+  после «Создай». E2E проверяет Goal с Value и Action во втором круге по id Goal.
 
 ---
 

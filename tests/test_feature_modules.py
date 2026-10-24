@@ -113,9 +113,14 @@ def test_the_routing_rules_are_generated_from_the_roster():
     # place that can omit one.
     rules = SYSTEM_PROMPT.split("# Routing", 1)[1].split("\n# ", 1)[0]
 
-    for agent in AGENTS:
+    routed = [agent for agent in AGENTS if agent.title is None]
+    for agent in routed:
         assert f'- `route("{agent.name}")` — {agent.purpose}' in rules
-    assert rules.count('- `route("') == len(AGENTS)
+    assert rules.count('- `route("') == len(routed)
+    # One a subsession is opened with is listed under `sub` instead.
+    for agent in AGENTS:
+        if agent.title is not None:
+            assert f'- `sub("{agent.name}")` — {agent.purpose}' in rules
 
 
 def test_a_subagent_only_declares_tools_a_feature_publishes():

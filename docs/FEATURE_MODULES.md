@@ -13,7 +13,7 @@ declares the same `FeatureModule`, and a role is only what its declaration turns
 | Role | What one owns | In `MODULES` |
 |---|---|---|
 | a domain feature | its own rows, the operations every adapter calls, its screens, and the `ai_*` views it publishes | `cards`, `checks`, `values`, `tags`, `planning`, `retro`, `life`, `diary`, `profile`, `reminders`, `saved_requests`, `memory` |
-| a reader or a writer for the model | a subagent or a helper, the views its own list names and the tools it may call — no rows of its own | `workspace_mutator`, `heavy_analyzer`, the subagent `diary` declares beside its rows, `onboarding` — a subagent and hooks, with only the rows those hooks keep — and `compass`, a subagent and a hook that read the whole tree, the picture of it the Dashboard's button sends, and the method each feature words for its items, explained when asked |
+| a reader or a writer for the model | a subagent or a helper, the views its own list names and the tools it may call — no rows of its own | `workspace_mutator`, `heavy_analyzer`, the subagent `diary` declares beside its rows, `onboarding` — a subagent and hooks, with only the rows those hooks keep — and `compass`, a subagent and a hook that read the whole tree, the picture of it the Dashboard's button sends, and the method each feature words for its items, explained when asked; `blueprint`, the agent of one subsession that works new items out with the owner and changes nothing |
 | a screen with no rows behind it | a command, the menu, a report the owner reads | `home`, `diagnostics`, `summary` |
 | a process of the shell | a flow the shell runs for every feature, registered the way a feature is | `proposals` |
 

@@ -42,7 +42,12 @@ from tg_agent_shell.telegram import callback_token_handler, expire_review
 from tg_agent_shell.telegram.commands import command_cancel
 from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.model import CallbackToken
-from tg_agent_shell.telegram.subsessions import EXIT_RESULT, NOTHING_TO_EXIT, command_exit
+from tg_agent_shell.telegram.subsessions import (
+    EXIT_HINT,
+    EXIT_RESULT,
+    NOTHING_TO_EXIT,
+    command_exit,
+)
 
 RESULT = "Food: 300 USD a month."
 
@@ -155,7 +160,7 @@ async def test_a_subsession_answers_until_it_finishes_and_leaves_one_result(wall
     )
 
     await say(running, "Let us plan a budget")
-    assert running.chat[-2:] == ["💬 Budget talk\n/exit ends it.", "What is the budget for?"]
+    assert running.chat[-2:] == [f"💬 Budget talk\n{EXIT_HINT}", "What is the budget for?"]
     await say(running, "Food")
     assert running.chat[-1] == "How much a month?"
     await say(running, "300 a month")
