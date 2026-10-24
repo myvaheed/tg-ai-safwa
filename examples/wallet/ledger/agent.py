@@ -127,6 +127,26 @@ BOOKKEEPER = AgentSpec(
     current=_now,
 )
 
+AUDITOR_PROMPT = """You go through the user's ledger with them, over several messages.
+
+`query_data` runs one read-only SELECT over these views only:
+{views}
+To write, correct or remove an entry, write your plan as text and call `entry` in that same
+response, as the bookkeeper does: `mode` is create, update or delete.
+When the user is done, call `finish` with what changed, in a few sentences."""
+
+# The same ledger as the bookkeeper's, gone through in a conversation of its own rather than
+# one request at a time.
+AUDITOR = AgentSpec(
+    name="auditor",
+    title="🧾 Ledger review",
+    purpose="go through the ledger with the user and correct it, over several messages.",
+    instructions=AUDITOR_PROMPT,
+    views=("ai_wallets", "ai_categories", "ai_entries", "ai_wallet_balances"),
+    mutation_tools=("entry",),
+    current=_now,
+)
+
 ENTRY_TOOL = MutationToolSpec(
     name="entry",
     input_model=EntryToolInput,

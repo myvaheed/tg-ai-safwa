@@ -2,19 +2,38 @@
 
 The root opens one with `sub`, its agent answers message after message from its own stretch
 of the chat, and `finish` hands one result back to the conversation, whose window never
-holds the stretch. Nothing here imports Safwa.
+holds the stretch. Its agent's proposals are decided as the root's are, and whatever ends one
+of its requests ends that request and not the subsession. Nothing here imports Safwa.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 
+import pytest
+from agent_turns import mutation_turn
 from sqlalchemy import select
-from wallet_harness import OWNER_ID, Running, take_a_turn
+from wallet.ledger.model import Entry
+from wallet_harness import (
+    OWNER_ID,
+    READ,
+    TODAY,
+    Press,
+    Running,
+    WalletHarness,
+    query_turn,
+    seed_lists,
+    take_a_turn,
+)
 
 from llm_gateway import CompletionTurn, ToolCall
 from tg_agent_shell.ai.messages import OPENED_FROM
 from tg_agent_shell.history import Subsession, current_subsession
+from tg_agent_shell.telegram import callback_token_handler, expire_review
+from tg_agent_shell.telegram.commands import command_cancel
+from tg_agent_shell.telegram.dialogue import ordinary_text
+from tg_agent_shell.telegram.model import CallbackToken
 
 RESULT = "Food: 300 USD a month."
 
@@ -44,10 +63,67 @@ async def started(wallet_bot, *turns: CompletionTurn) -> Running:
 
 async def say(running: Running, text: str) -> None:
     """The owner's next message, newer than everything in the chat, as Telegram numbers it."""
+    _next_message(running)
+    await take_a_turn(running, text)
+
+
+async def say_over(running: Running, text: str) -> None:
+    """The owner's next message, typed over whatever screen is open."""
+    _next_message(running)
+    running.message.text = text
+    await ordinary_text(running.message, running.services)
+
+
+def _next_message(running: Running) -> None:
     running.message.message_id = 1 + max(
         (sent.message_id for sent in running.message.sent), default=running.message.message_id
     )
-    await take_a_turn(running, text)
+
+
+async def seeded(wallet_bot: WalletHarness) -> dict[str, int]:
+    seeding = await wallet_bot.start()
+    return await seed_lists(seeding.sessions)
+
+
+def lunch(ids: dict[str, int], amount_minor: int = 1250) -> CompletionTurn:
+    """The auditor proposing one ledger entry, its plan in the same response."""
+    return mutation_turn(
+        (
+            "entry",
+            {
+                "mode": "create",
+                "wallet_id": ids["cash"],
+                "category_id": ids["food"],
+                "amount_minor": amount_minor,
+                "happened_on": TODAY.isoformat(),
+                "note": "Lunch",
+            },
+        )
+    )
+
+
+async def decide(running: Running, action: str) -> None:
+    """Press `action` on the review open now. A frozen one keeps its buttons' tokens."""
+    [batch] = running.root.reviews.open_batches
+    head = batch.state.head.proposal_id
+    async with running.sessions() as session:
+        tokens = await session.scalars(
+            select(CallbackToken).where(
+                CallbackToken.action == action, CallbackToken.consumed_at.is_(None)
+            )
+        )
+        token = next(token.token for token in tokens if token.payload.get("id") == head)
+    await callback_token_handler(Press(token, running.screen), running.services)
+
+
+async def entries(running: Running) -> list[int]:
+    async with running.sessions() as session:
+        return [entry.amount_minor for entry in await session.scalars(select(Entry))]
+
+
+async def open_subsession(running: Running) -> Subsession | None:
+    async with running.sessions() as session:
+        return await current_subsession(session, OWNER_ID)
 
 
 def said(running: Running, request: int) -> str:
@@ -117,3 +193,121 @@ async def test_finish_shares_its_response_with_nothing(wallet_bot):
     assert "finish_is_not_shared" in said(running, 3)
     async with running.sessions() as session:
         assert await current_subsession(session, OWNER_ID) is not None
+
+
+@pytest.mark.parametrize(
+    ("action", "written", "result"),
+    [
+        ("proposal_approve", [1250], "Lunch, 12.50 from Cash, is written down."),
+        ("proposal_reject", [], "Nothing was written down."),
+    ],
+)
+async def test_a_subsession_s_proposal_is_decided_and_its_agent_finishes_after(
+    wallet_bot, action, written, result
+):
+    ids = await seeded(wallet_bot)
+    running = await started(
+        wallet_bot,
+        sub_turn("auditor"),
+        CompletionTurn(content="Which entry?"),
+        query_turn(READ),
+        lunch(ids),
+        finish_turn(result),
+    )
+
+    await say(running, "Let us go through the ledger")
+    await say(running, "Add lunch, 12.50 from Cash")
+    assert "Ledger entry" in running.chat[-1]
+    await decide(running, action)
+
+    assert await entries(running) == written
+    assert await open_subsession(running) is None
+    assert running.chat[-1] == f"<b>🧾 Ledger review</b>\n{result}"
+    assert [entry.text for entry in await running.services.history.recent(OWNER_ID)] == [
+        "Let us go through the ledger", f"🧾 Ledger review\n{result}"
+    ]
+    # The decision resumed the same request, which finished: nothing was asked twice.
+    assert len(running.provider.requests) == 5
+
+
+async def test_words_over_a_subsession_s_review_end_its_request_and_the_subsession_goes_on(
+    wallet_bot,
+):
+    ids = await seeded(wallet_bot)
+    running = await started(
+        wallet_bot,
+        sub_turn("auditor"),
+        CompletionTurn(content="Which entry?"),
+        lunch(ids),
+        lunch(ids, 1500),
+        CompletionTurn(content="Lunch is written down at 15.00."),
+    )
+    await say(running, "Let us go through the ledger")
+    await say(running, "Add lunch, 12.50 from Cash")
+
+    await say_over(running, "No, it was 15")
+    assert "Ledger entry" in running.chat[-1]
+    # A new request of the subsession's agent, reading the refused review in its stretch.
+    assert "No, it was 15" in said(running, 3)
+    await decide(running, "proposal_approve")
+
+    assert await entries(running) == [1500]
+    assert running.chat[-1].endswith("Lunch is written down at 15.00.")
+    assert await open_subsession(running) is not None
+
+
+async def test_a_subsession_s_review_out_of_time_ends_its_request_and_not_the_subsession(
+    wallet_bot,
+):
+    ids = await seeded(wallet_bot)
+    running = await started(
+        wallet_bot,
+        sub_turn("auditor"),
+        CompletionTurn(content="Which entry?"),
+        lunch(ids),
+        CompletionTurn(content="The lunch was not written down. Shall I propose it again?"),
+    )
+    await say(running, "Let us go through the ledger")
+    await say(running, "Add lunch, 12.50 from Cash")
+    [batch] = running.root.reviews.open_batches
+
+    await expire_review(running.screen, running.services, batch.state.head.proposal_id)
+    assert await entries(running) == []
+    assert await open_subsession(running) is not None
+
+    await say(running, "Is it there?")
+    assert running.chat[-1] == "The lunch was not written down. Shall I propose it again?"
+    assert len(running.provider.requests) == 4
+
+
+async def test_cancelling_the_answer_after_a_save_keeps_the_save_and_the_subsession(wallet_bot):
+    ids = await seeded(wallet_bot)
+    running = await started(
+        wallet_bot,
+        sub_turn("auditor"),
+        CompletionTurn(content="Which entry?"),
+        lunch(ids),
+        CompletionTurn(content="It is written down."),
+    )
+    await say(running, "Let us go through the ledger")
+    await say(running, "Add lunch, 12.50 from Cash")
+    # The answer after the Save is asked for and never comes.
+    asked, scripted = asyncio.Event(), running.provider.complete
+
+    async def held(request):
+        if len(running.provider.requests) == 3:
+            running.provider.requests.append(request)
+            asked.set()
+            await asyncio.Event().wait()
+        return await scripted(request)
+
+    running.provider.complete = held
+    pressing = asyncio.create_task(decide(running, "proposal_approve"))
+    await asked.wait()
+    await command_cancel(running.message, running.services)
+    await asyncio.gather(pressing, return_exceptions=True)
+
+    assert await entries(running) == [1250]
+    assert await open_subsession(running) is not None
+    await say(running, "Is it there?")
+    assert running.chat[-1] == "It is written down."

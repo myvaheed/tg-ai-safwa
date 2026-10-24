@@ -10,7 +10,7 @@ from .model import Entry
 
 MODULE = FeatureModule(
     name="ledger",
-    agents=(agent.BOOKKEEPER,),
+    agents=(agent.BOOKKEEPER, agent.AUDITOR),
     proposals=(
         ProposalContribution(
             handler=proposal.EntryProposalHandler(),
