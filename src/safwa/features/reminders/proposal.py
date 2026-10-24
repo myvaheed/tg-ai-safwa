@@ -2,9 +2,9 @@
 
 Timing is resolved during preparation, before the proposal row exists, so the review
 screen shows a real schedule and Save applies exactly what the owner approved. A condition's
-items are kept there as their series and found, so the screen shows what it counts now, and
-its words are read there by their own short session, in the conversation the call came
-from.
+items are picked there by their own short session, from the open items and the owner's words
+in the conversation the call came from, then kept as their series and found, so the screen
+shows what it counts now.
 
 The Reminder an item's Remind made is the item's to change: a change or a deletion of it goes
 back to the model with the item to use `remind` on.
@@ -36,7 +36,6 @@ from ..cards.model import Card
 from ..checks.model import Check
 from ..schedules.api import item_type
 from .agent import (
-    ConditionInput,
     ConditionUnclear,
     CountsAnswers,
     read_condition,
@@ -50,7 +49,8 @@ from .api import (
     schedule_from_payload,
     schedule_payload,
 )
-from .conditions import ConditionError, finds_text, found_ids, items_series, never_reached
+from .conditions import finds_text, found_ids, items_series, never_reached
+from .items import open_items
 from .model import Reminder, ScheduleKind
 from .use_cases import (
     create_reminder,
@@ -86,17 +86,13 @@ class ReminderProposalHandler:
         the forms that work; a condition's items or count it cannot keep become one too."""
         prepared = dict(values)
         when = str(prepared.pop("when", "") or "").strip()
-        wanted = prepared.pop("condition", None)
-        if not when and wanted is None:
+        on_answers = bool(prepared.pop("on_answers", False))
+        if not when and not on_answers:
             return prepared  # an edit with no timing leaves the schedule alone
         tz = ZoneInfo(context.world.timezone)
         now = datetime.now(UTC)
-        if wanted is not None:
-            condition = await _condition(
-                context,
-                ConditionInput.model_validate(wanted),
-                str(prepared.get("instruction", "")),
-            )
+        if on_answers:
+            condition = await _condition(context)
             prepared["finds"] = await _finds(context.session, condition)
             schedule = Schedule(kind=ScheduleKind.CONDITION, condition=condition)
         else:
@@ -104,7 +100,6 @@ class ReminderProposalHandler:
                 schedule = await resolve_schedule(
                     context.provider,
                     when=when,
-                    instruction=str(prepared.get("instruction", "")),
                     now=now,
                     tz=tz,
                 )
@@ -112,7 +107,7 @@ class ReminderProposalHandler:
                 raise ToolPreparationError(
                     "when_counts_answers",
                     str(error),
-                    "Call reminder again with condition instead of when.",
+                    "Call reminder again with on_answers=true instead of when.",
                 ) from error
             except ScheduleError as error:
                 raise ToolPreparationError(
@@ -180,12 +175,9 @@ async def _remind_of(session: AsyncSession, reminder: Reminder) -> tuple[str, st
     return f"{kind} #{item.id}", item.title
 
 
-async def _condition(
-    context: PreparationContext, wanted: ConditionInput, instruction: str
-) -> Condition:
-    """The condition the call names, its items kept as their series, or refused when they are
-    not Checks or Actions by #id that exist (RM-COND-031), or when its words do not say what
-    it counts (RM-COND-030)."""
+async def _condition(context: PreparationContext) -> Condition:
+    """The condition its own session reads, its items kept as their series, or refused when
+    the owner's words do not say what it counts (RM-COND-030)."""
     before = context.earlier and context.earlier.get("schedule")
     if before:
         # Only the words are edited by hand, and what the call counts was read from the call
@@ -194,18 +186,9 @@ async def _condition(
         if condition is not None:
             return condition
     try:
-        kind, series = await items_series(context.session, wanted.items)
-    except ConditionError as error:
-        raise ToolPreparationError(
-            "condition_items",
-            str(error),
-            "Find each item's #id with query_data, then call reminder again.",
-        ) from error
-    try:
         fields = await read_condition(
             context.provider,
-            kind=kind,
-            instruction=instruction,
+            open_items=await open_items(context.session),
             conversation=context.conversation,
         )
     except ConditionUnclear as error:
@@ -214,8 +197,10 @@ async def _condition(
             str(error),
             "Ask the user what is missing, then call reminder again.",
         ) from error
+    # The session named only items its block lists, so each exists (RM-COND-031).
+    kind, series = await items_series(context.session, fields.items)
     return Condition(
-        items=wanted.items,
+        items=fields.items,
         series=series,
         kind=kind,
         answer=fields.answer,

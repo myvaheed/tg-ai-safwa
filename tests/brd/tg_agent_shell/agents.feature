@@ -92,6 +92,14 @@ Feature: Agents — the session, the hand-over, and what comes back
       in the same block, before its own context
     And a change prepared again after the owner's edit or switch gives it no conversation
 
+  Scenario: AG-SESSION-064 — A short session that must plan writes its plan before its call
+    Given a short session is run with its plan required
+    Then its prompt ends with one line that asks for a plan of one to three short lines
+      before the call
+    And a call with no words before it is not taken, and the session is told to write its plan
+      first
+    And that counts as one of the session's repairs, as an answer in prose does
+
   Scenario: AG-SESSION-009 — A restart ends every piece of work that was waiting
     Given work was paused on a screen, or was running when the process stopped
     When Safwa starts again

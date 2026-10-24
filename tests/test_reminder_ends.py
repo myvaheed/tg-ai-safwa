@@ -148,14 +148,13 @@ async def test_the_session_reads_the_last_day_and_the_total():
     async def complete(request):
         arguments = {"interval_minutes": 180, "last_day": "Fri", "limit": 20}
         return CompletionTurn(
-            content="",
+            content="The words say a time; I call it.",
             tool_calls=[ToolCall(id="1", name="set_reminder_config", arguments_json=json.dumps(arguments))],
         )
 
     schedule = await resolve_schedule(
         SimpleNamespace(complete=complete),
         when="every 3 hours until Friday, 20 times",
-        instruction="Drink water.",
         now=NOW,
         tz=TZ,
     )

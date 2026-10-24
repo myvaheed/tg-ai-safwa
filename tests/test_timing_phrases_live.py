@@ -217,7 +217,6 @@ async def _reminder(provider, phrase: str) -> dict[str, Any]:
         schedule = await resolve_schedule(
             provider,
             when=phrase,
-            instruction="Remind me.",
             now=NOW,
             tz=TZ,
         )

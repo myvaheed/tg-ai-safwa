@@ -1,13 +1,16 @@
-"""The items the reminder subagent may Remind of or count: the open ones with a Schedule.
+"""The items the reminder subagent may Remind of, and a Reminder on answers may count: the
+open ones with a Schedule.
 
-They follow the dialogue as its current values, so the subagent picks the owner's items by
-meaning, in any language, which `search` cannot do for a short title such as «Meditated?»:
-its words share no stem with the owner's. Each is named as `items` and `remind` take it,
+They follow the subagent's dialogue as its current values, and the condition's own session
+reads them after its conversation, so both pick the owner's items by meaning, in any
+language, which `search` cannot do for a short title such as «Meditated?»: its words share
+no stem with the owner's. Each is named as `remind` and the condition take it,
 'Check #12 «Meditated?»', with the Schedule, Tags and Values that a group is told by.
 """
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from typing import Any
 
@@ -25,6 +28,8 @@ from ..values.model import CardValue, CheckValue, Value
 OPEN_ITEMS_MAX = 50
 OPEN_ITEMS = "Open items:"
 NO_OPEN_ITEMS = "Open items: none."
+# A Check or an Action as a line of the block begins.
+_LISTED = re.compile(r"^- (Check|Action) #(\d+) ", re.MULTILINE)
 
 
 async def _names(session: AsyncSession, query: Any) -> dict[int, list[str]]:
@@ -106,6 +111,11 @@ async def open_items(session: AsyncSession) -> str:
     if len(lines) > OPEN_ITEMS_MAX:
         shown.append(f"And {len(lines) - OPEN_ITEMS_MAX} more: find them with `search`.")
     return "\n".join([OPEN_ITEMS, *shown])
+
+
+def listed_items(block: str) -> set[tuple[str, int]]:
+    """The Checks and Actions an `open_items` block lists, as check or action and #id."""
+    return {(kind.lower(), int(item_id)) for kind, item_id in _LISTED.findall(block)}
 
 
 async def reminder_items(context: AgentContext) -> str:

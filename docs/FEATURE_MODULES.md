@@ -266,7 +266,7 @@ One rule, because the alternative is a reentrancy question with no good answer:
 ## Registering a feature, and integrating with one
 
 Registering is one line in `MODULES`. Integrating is not: a capability the model reaches has a
-publisher and a reader, and the two are separate declarations on purpose. These are the four
+publisher and a reader, and the two are separate declarations on purpose. These are the five
 edits that come up, and everywhere each one lands.
 
 **A new feature.** The package above, one line in `MODULES`, and `tests/brd/<name>.feature` with
@@ -311,6 +311,16 @@ the button sits in, and a `ScreenSpec` on `screens` is needed only when the mode
 cite that item type. Nothing goes in
 [`telegram/routing.py`](../src/tg_agent_shell/telegram/routing.py): it registers one command
 handler over the list the composition root built.
+
+**A mini session that reads the owner's words.** `run_mini_session(conversation=…)` puts the
+conversation before the session's context, under `CONVERSATION_SO_FAR`, in the block a routed
+subagent reads it in (`AG-SESSION-063`); the condition of a Reminder on answers reads it so.
+Three readers are older than that parameter and still build their own block, and each can move
+to it, keeping its own count of messages and changing its prompt's line about where the
+conversation is. `heavy_analyzer` joins it with `<Request from AI>` into one context;
+`cards.action_review` puts its last exchanges into a field of its JSON; and
+`proposals.request_review`, one completion with no tools, puts it into a field of its JSON too,
+and can send the block as a message of its own without becoming a mini session.
 
 What one feature is already connected to prints from the scanner, so none of this has to be
 grepped for:

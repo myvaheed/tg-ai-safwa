@@ -587,6 +587,10 @@ flowchart LR
   own reads the owner's words rather than the call's retelling of them (`AG-SESSION-063`):
   `run_mini_session` puts it before the session's context, under `CONVERSATION_SO_FAR` as the
   subagent's own block is. A change prepared again after an edit or a switch has none.
+  A session run with `plan_required` reads `PLAN_FIRST` after its own prompt and writes a
+  plan of one to three lines before its call, as a subagent's response does; a call with
+  none goes back to it as a repair (`AG-SESSION-064`). With `reasoning_effort` none those
+  words are all it thinks before the call; the Reminder's condition and `when` run so.
 - **A proposal screen decides with Save and Discard, and Edit sets by hand what a call names**
   (`PR-EDIT-033`). A feature's `ProposalContribution.editable` maps a call's values to the
   `EditableField`s its own item screen has, and the shell offers only the values the call names.
@@ -776,14 +780,13 @@ the Cue row, exactly as for anything else Safwa says first.
   move left on the wrong moment and rolls on a repeat overdue past the grace (`RM-START-020`).
 - A Reminder on answers has no `next_fire_at`, so neither the tick nor the start ever
   touches it. Its `condition` holds the items in words, the series of each, the answer, the
-  count and whether in a row. The subagent names the items by #id in the `condition` of
-  `reminder`, and a short session of its own reads what it counts from the owner's words in
-  the conversation, the Reminder's text saying which of them it counts; it is never handed
-  the items, and an edit of the words by hand reads nothing again.
-  The `when` session reads only a time. Preparation keeps
-  the series of each item (`items_series`)
-  and refuses a group in words, both kinds, or an #id that does not exist (`RM-COND-031`): the
-  subagent lists a group by #id first. Every copy
+  count and whether in a row. The subagent says only `on_answers` in `reminder`, and a short
+  session of its own reads the conversation, then the same open items the subagent reads, and
+  picks the items by #id and what it counts from the owner's words; an edit of the words by
+  hand reads nothing again. The `when` session reads only a time, and neither session reads
+  the Reminder's text. Items the session names that are not Checks or Actions by #id of the block,
+  or both kinds, go back to it as a repair (`RM-COND-031`), and preparation keeps the series
+  of each item (`items_series`). Every copy
   of each series counts, and an item made later does not (`RM-COND-033`). Preparation reads
   them for the review screen and refuses a count one series can never reach (`RM-COND-034`).
   `reminders.condition`, a `Run` on `OnCommitted(check.answered)` and `OnCommitted(card.done)`,

@@ -2,8 +2,8 @@ Feature: Reminders
   A Reminder is some words and when they come due, and nothing else: a time, or a count of answers of
   Checks or Actions. Nobody builds a schedule by hand — not the owner and not Safwa. A time arrives as plain
   words, one short session turns those words into parameters, and the schedule is worked out from
-  them in code; a count of answers arrives as its items, and a short session of its own reads the
-  owner's words. When one comes due,
+  them in code; a count of answers arrives as no more than that, and a short session of its own
+  picks the items and reads the owner's words. When one comes due,
   exactly one thing happens: the words are handed to Safwa as a
   request, and Safwa decides what to say.
 
@@ -16,6 +16,8 @@ Feature: Reminders
     Given Safwa proposes a Reminder at a time and says it in plain words
     When the proposal is put together
     Then a short session turns those words into parameters
+    And that session writes its plan before its call, by AG-SESSION-064, and never reads the
+      Reminder's own words
     And the schedule itself is worked out from those parameters in code
     And there is no box anywhere for a time, so words are the only way a time ever arrives; a count
       of answers arrives by RM-COND-030
@@ -207,38 +209,39 @@ Feature: Reminders
     Then nothing is written, and Safwa is told what is unclear and the forms a time may take:
       "tomorrow at 15:00", "on Thursday at 10:00", "every weekday at 8:00", "every 2 hours"
       (REMINDER_TIME_FORMS), as it is when the short session could not read them at all
-    And words that count answers of Checks or Actions go back to Safwa without forms, to name them
-      as a condition by RM-COND-030
+    And words that count answers of Checks or Actions go back to Safwa without forms, to set the
+      Reminder on answers by RM-COND-030
     And Safwa tells the owner, and tries again with the owner's answer, by RM-SCHEDULE-002
 
   Scenario: RM-COND-030 — A Reminder can come due on answers of Checks or Actions
     Given the owner asks for a word at every 3 Missed in a row of Check #12
     When Safwa proposes the Reminder
-    Then it names the items, and a short session reads the answer, how many, whether in a row and
-      whether once; the items do not pass through it
+    Then it says only that the Reminder is on answers, and a short session of its own picks the items
+      and reads the answer, how many, whether in a row and whether once
     And the short session reads the owner's words in the conversation as the reminder part read it,
-      by AG-SESSION-063, and the Reminder's own words say which of them it counts
+      by AG-SESSION-063, then the open items of RM-AGENT-041, and never the Reminder's own words
+    And the short session writes its plan before its call, by AG-SESSION-064
     And the items are Checks or Actions by #id, such as "Check #12", "Check #12 «Sat straight?»" or
       "Action #3, Action #5", and code keeps the series of each, by the series id that stays when any
       copy is deleted
-    And a group in words, such as "Actions tagged sport", is listed by #id by Safwa before it
-      proposes the Reminder, and words that name no #id go back to Safwa by RM-COND-031
+    And a group in words, such as "Actions tagged sport", is every open item with that Tag or Value
     And the answer is Passed, Missed, any answer of a Check, or Done of an Action, and only Passed and
       Missed count in a row
     And the short session names the answer only as yes, no or any; whether the items are Checks or
       Actions comes from their words
-    And words that do not say how many, such as "a decent run", go back to Safwa to ask the owner
-    And an #id with neither Check nor Action beside it, and Missed of Actions, go back to Safwa
+    And words that do not say how many, such as "a decent run", or that no open item fits, go back
+      to Safwa to ask the owner
+    And Missed of Actions goes back to Safwa
     And the screen says "every 3 Missed in a row of Check #12", the items it counts by up to 3 titles
       and how many more (CONDITION_PREVIEW_TITLES = 3), then their count now, such as "0 Missed in a
       row now", and shows no first firing
     And Save makes a Reminder with no time: the clock never fires it, and a restart does not move it
 
   Scenario: RM-COND-031 — The items are checked before the owner sees them
-    Given Safwa names the items
+    Given the short session of RM-COND-030 names the items
     When they are words other than Checks or Actions by #id, Checks and Actions together, or an #id
-      that does not exist
-    Then nothing is written, and Safwa is told what is wrong, to find each item's #id and try again
+      that is not an open item
+    Then it is told what is wrong, and names them again
 
   Scenario: RM-COND-032 — A Reminder on answers fires at every multiple of its count
     Given a Reminder on 3 Missed in a row of a repeating Check
@@ -329,8 +332,8 @@ Feature: Reminders
     Given Safwa proposes to make a Reminder, or to change one's words
     When the owner presses "✏️ Edit" on its review screen
     Then the words have "✏️ Text", which asks for them as the Reminder's own "✏️ Text" does
-    And when the proposal sets a time, that is read again with the new words before the review
-      comes back, as it is for Safwa's; a count of answers is not read from the words
+    And when the proposal sets a time, that is read again before the review comes back, as it is
+      for Safwa's; a count of answers is not read again
     And a time that cannot be read with them leaves the proposal as it was, with what is unclear
       on the screen
     And when it fires has no button

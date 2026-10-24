@@ -56,7 +56,7 @@ def answering(name, *arguments):
     async def complete(request):
         requests.append(request)
         return CompletionTurn(
-            content="",
+            content="The words say a time; I call it.",
             tool_calls=[
                 ToolCall(
                     id=str(len(requests)),
@@ -86,7 +86,6 @@ async def test_the_session_reads_days_of_the_month():
     schedule = await resolve_schedule(
         provider,
         when="on the 1st and 15th of each month at 9 until the end of the year",
-        instruction="Pay the bills.",
         now=NOW,
         tz=TZ,
     )

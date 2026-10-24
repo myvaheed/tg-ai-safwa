@@ -21,12 +21,10 @@ from safwa.features.checks.use_cases import (
     update_check_fields,
 )
 from safwa.features.reminders.agent import (
-    NAME_THE_ID,
     REMINDER_CONDITION_PROMPT,
     REMINDER_TIME_FORMS,
     REMINDER_WHEN_PROMPT,
     ConditionFields,
-    ConditionInput,
     ReminderToolInput,
     unclear,
 )
@@ -132,7 +130,7 @@ def test_after_n_reads_as_once():
     once = replace(of_check(12, "yes", 30), once=True)
     assert describe(on(once), tz=TZ) == "after 30 Passed in a row of Check #12"
     assert describe(on(replace(once, count=1, in_row=False)), tz=TZ) == "after 1 Passed of Check #12"
-    assert ConditionFields(answer="yes", count=3).once is False
+    assert ConditionFields(items="Check #12", answer="yes", count=3).once is False
     assert "count=40, once=true." in REMINDER_CONDITION_PROMPT
     assert schedule_from_payload(schedule_payload(on(once))) == on(once)
 
@@ -187,30 +185,26 @@ async def test_after_n_already_past_is_refused_with_the_count_now(sessions):
 
 def test_the_short_session_names_the_answer_only_as_yes_no_or_any():
     """RM-COND-030 — tests/brd/reminders.feature"""
-    ConditionFields(answer="no", count=3, in_row=True)
-    ConditionFields(answer="yes", count=50)
+    ConditionFields(items="Check #1, Check #2", answer="no", count=3, in_row=True)
+    ConditionFields(items="Action #3", answer="yes", count=50)
     with pytest.raises(ValidationError, match="in_row needs answer yes or no"):
-        ConditionFields(answer="any", count=3, in_row=True)
-    # The subagent names only the items and the words.
-    ConditionInput(items="Check #1, Check #2")
-    assert set(ConditionInput.model_fields) == {"items"}
-    # An id alone says neither what it is.
-    for items in ("#12", "#5 и #9"):
-        with pytest.raises(ValidationError, match=re.escape(NAME_THE_ID)):
-            ConditionInput(items=items)
+        ConditionFields(items="Check #1", answer="any", count=3, in_row=True)
+    # An id alone says neither what it is, and one Reminder counts one kind.
+    for items, error in (("#12", NAME_BY_ID), ("#5 и #9", NAME_BY_ID), ("Check #1, Action #2", ONE_KIND)):
+        with pytest.raises(ValidationError, match=re.escape(error)):
+            ConditionFields(items=items, answer="no", count=3)
 
 
 def test_a_reminder_is_set_by_a_time_or_by_a_condition():
     """RM-COND-030 — tests/brd/reminders.feature"""
-    condition = {"items": "Check #12"}
-    ReminderToolInput(mode="create", instruction="Cheer me on.", condition=condition)
+    ReminderToolInput(mode="create", instruction="Cheer me on.", on_answers=True)
     ReminderToolInput(mode="create", instruction="Cheer me on.", when="every day at 8")
-    ReminderToolInput(mode="update", id=4, condition=condition)
-    with pytest.raises(ValidationError, match="needs when or condition"):
+    ReminderToolInput(mode="update", id=4, on_answers=True)
+    with pytest.raises(ValidationError, match="needs when or on_answers"):
         ReminderToolInput(mode="create", instruction="Cheer me on.")
     with pytest.raises(ValidationError, match="not both"):
         ReminderToolInput(
-            mode="create", instruction="Cheer me on.", when="every day at 8", condition=condition
+            mode="create", instruction="Cheer me on.", when="every day at 8", on_answers=True
         )
     # The setup session reads only a time.
     assert "set_condition" not in REMINDER_WHEN_PROMPT

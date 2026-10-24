@@ -69,6 +69,7 @@ from tg_agent_shell.ai.contracts import (
     open_tool,
 )
 from tg_agent_shell.ai.messages import ContextBuilder, StateBlocks
+from tg_agent_shell.ai.mini import PLAN_FIRST
 from tg_agent_shell.ai.subagents import RoutedSubagent
 from tg_agent_shell.foundation.models import Base as ShellBase
 from tg_agent_shell.media.library import relook_tool
@@ -313,6 +314,7 @@ def test_rule_i_prompt_prefix_is_byte_stable(request):
         "SCHEDULE_PARSER_PROMPT": _digest(SCHEDULE_PARSER_PROMPT),
         "DEADLINE_PARSER_PROMPT": _digest(DEADLINE_PARSER_PROMPT),
         "REMINDER_CONDITION_PROMPT": _digest(REMINDER_CONDITION_PROMPT),
+        "PLAN_FIRST": _digest(PLAN_FIRST),
         "VALUE_LINK_PROMPT": _digest(VALUE_LINK_PROMPT),
         "BLUEPRINT_ASKED_PROMPT": _digest(ASKED_PROMPT),
     }

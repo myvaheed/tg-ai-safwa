@@ -918,7 +918,8 @@ async def test_a_reminder_proposals_words_are_read_again_with_its_time(e2e_harne
     await type_words(services, message, "Ask what to finish.")
 
     assert len(provider.calls) == asked + 1
-    assert "Reminder text: Ask what to finish." in json.dumps(provider.calls[-1])
+    assert "Timing phrase: weekdays at 8:30" in json.dumps(provider.calls[-1])
+    assert "Ask what to finish." not in json.dumps(provider.calls[-1])
     values = advisor.reviews.proposal(outcome.proposal_id).changes[0].values
     assert values["instruction"] == "Ask what to finish."
 

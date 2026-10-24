@@ -27,6 +27,11 @@ from .conversation import conversation_note
 # A mini-session has one job and one terminal tool; it does not get the agent loop's budget.
 MINI_SESSION_REPAIR_ROUNDS = 3
 MINI_SESSION_MAX_TOOL_CALLS = 6
+# The line a session that must plan reads after its own prompt.
+PLAN_FIRST = (
+    "Before the call, write your plan in one to three short lines: what the user's words "
+    "say, and what you will call."
+)
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +90,7 @@ async def run_mini_session(
     max_repairs: int = MINI_SESSION_REPAIR_ROUNDS,
     reasoning_effort: str | None = None,
     conversation: str = "",
+    plan_required: bool = False,
 ) -> MiniSessionResult:
     """Run until one terminal tool validates, or give up and say why.
 
@@ -94,7 +100,11 @@ async def run_mini_session(
     `reasoning_effort` overrides the provider's own for every request of the session.
     A `conversation` is read before the context, in the block a routed subagent reads it
     in, so the session reads the owner's own words rather than a retelling of them.
+    With `plan_required` the words before a call are its plan, and a call with none goes
+    back as a repair: with reasoning off, they are all the model thinks before the call.
     """
+    if plan_required:
+        system_prompt = f"{system_prompt}\n{PLAN_FIRST}"
     with operation(
         "mini_session:" + ",".join(terminal.name for terminal in terminals),
         "CHAIN",
@@ -139,6 +149,28 @@ async def run_mini_session(
                 continue
 
             messages.append(turn.as_message())
+            if plan_required and not (turn.content or "").strip():
+                repairs += 1
+                for call in turn.tool_calls:
+                    _reply(
+                        messages,
+                        call,
+                        {
+                            "status": ToolResultStatus.ERROR.value,
+                            "code": "plan_required",
+                            "error": "The call came without a plan.",
+                            "hint": (
+                                "Write your plan in one to three short lines first, then "
+                                f"call one of: {', '.join(by_name)}."
+                            ),
+                            "retryable": True,
+                        },
+                    )
+                if repairs > max_repairs:
+                    raise MiniSessionError(
+                        f"The session called without a plan: {', '.join(by_name)}"
+                    )
+                continue
             for call in turn.tool_calls:
                 calls += 1
                 if max_tool_calls is not None and calls > max_tool_calls:
@@ -180,7 +212,9 @@ async def run_mini_session(
                             },
                         )
                         continue
-                    logger.info("MINI SESSION -> %s %s", call.name, payload)
+                    logger.info(
+                        "MINI SESSION -> %s %s | %s", call.name, payload, turn.content
+                    )
                     if span.is_recording():
                         values = payload.model_dump()
                         record_output(span, values)

@@ -1,10 +1,10 @@
 """Reminders on answers: the items they count, and what an answer makes of them.
 
-The items are Checks or Actions named by #id, all of one kind, as the subagent writes them:
-'Check #12', or 'Check #12 «Meditated?», Check #14'. Each is kept as its series, by the
-id the series keeps when any copy is deleted, so every copy counts, answered or open, and an
-item made later counts only as a copy of one of them. A group in words is the subagent's to
-list by #id before it sets the Reminder.
+The items are Checks or Actions named by #id, all of one kind, as the condition's own session
+writes them: 'Check #12', or 'Check #12 «Meditated?», Check #14'. Each is kept as its series,
+by the id the series keeps when any copy is deleted, so every copy counts, answered or open,
+and an item made later counts only as a copy of one of them. A group in words is that
+session's to list by #id, from the open items.
 
 What the items are is the items' to say, never the answer's: yes is a Check's Passed and an
 Action's Done alike, so an answer worded for the other kind cannot send the count elsewhere.
@@ -28,13 +28,11 @@ from .api import ANSWER_WORDS, Condition
 
 # How many of the series found the review screen names before "and N more".
 CONDITION_PREVIEW_TITLES = 3
-# One Check or one Action as the subagent writes it: 'Check #12', or 'Check #12 «Meditated?»'
+# One Check or one Action as the session writes it: 'Check #12', or 'Check #12 «Meditated?»'
 # with its title after the id.
 ITEM = re.compile(r"(check|action) ?#(\d+)(?: [«\"“][^»\"”]*[»\"”])?", re.IGNORECASE)
 # What may stand between two of them.
 BETWEEN = re.compile(r"(?:\s|,|;|&|\band\b|\bи\b)*", re.IGNORECASE)
-# A word that says what items are, which an #id needs beside it.
-ITEM_WORD = re.compile(r"\b(check|action)s?\b", re.IGNORECASE)
 # A Check's yes and no, as its answers are stored.
 OUTCOMES = {"yes": CheckOutcome.PASSED.value, "no": CheckOutcome.MISSED.value}
 NAME_BY_ID = "Name each item by #id, as 'Check #1, Check #2'."
@@ -57,17 +55,22 @@ def item_kinds(items: str) -> set[str]:
     return {match[1].lower() for match in ITEM.finditer(items)}
 
 
-async def items_series(session: AsyncSession, items: str) -> tuple[str, tuple[int, ...]]:
-    """What the items are, check or action, and the series of each; ConditionError for words
-    that are not Checks or Actions by #id, for both kinds, or for an #id that does not exist."""
+def named_items(items: str) -> tuple[str, list[int]]:
+    """What the items are, check or action, and their #ids; ConditionError for words that are
+    not Checks or Actions by #id, or for both kinds."""
     found = list(ITEM.finditer(items))
     if not found or not BETWEEN.fullmatch(ITEM.sub(" ", items)):
         raise ConditionError(NAME_BY_ID)
     kinds = item_kinds(items)
     if len(kinds) > 1:
         raise ConditionError(ONE_KIND)
-    kind = kinds.pop()
-    ids = [int(match[2]) for match in found]
+    return kinds.pop(), [int(match[2]) for match in found]
+
+
+async def items_series(session: AsyncSession, items: str) -> tuple[str, tuple[int, ...]]:
+    """What the items are, check or action, and the series of each; ConditionError as
+    `named_items` raises it, or for an #id that does not exist."""
+    kind, ids = named_items(items)
     model, series = _series(kind)
     roots = dict((await session.execute(select(model.id, series).where(model.id.in_(ids)))).all())
     for item_id in ids:
