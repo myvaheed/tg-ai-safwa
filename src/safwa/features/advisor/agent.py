@@ -12,6 +12,7 @@ from ...foundation.log_events import LOG_EVENTS_SHOWN
 from ...foundation.method import items
 from ..cards.api import ACTION, GOAL
 from ..checks.api import CHECK
+from ..tags.api import TAG
 from ..values.api import LINK, VALUE
 
 # Voice, language and citations are one block for every routed subagent: three copies of
@@ -30,8 +31,7 @@ Write in the user's language.
 # What each kind of item is, in one wording for the Advisor and every subagent that writes
 # them: two copies of a definition drift apart. Filled into `{items}`.
 ITEMS = f"""# Safwa items
-{items(VALUE, GOAL, ACTION, CHECK, LINK)}- Tag: a free label for finding things.
-- Request: a saved query over Cards and Checks the user reruns.
+{items(VALUE, GOAL, ACTION, CHECK, LINK, TAG)}- Request: a saved query over Cards and Checks the user reruns.
 - Reminder: words that come back at a time or on answers, not work.
 - A title ending in ` [✅2, 🔄#7]` is a finished repeat; #7 is the open one. ❌ in place of ✅: a Check answered Missed.
 - ` [✅2]` with no id: the series has ended. ` [📦]`: archived."""

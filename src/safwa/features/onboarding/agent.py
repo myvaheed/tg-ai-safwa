@@ -124,7 +124,7 @@ MANUAL = f"""# Safwa
 - After a Value is taken off an item or deleted, Safwa silently reads each Note that may still mention it. If one does, the Advisor proposes that Note without that part, to save or discard. Value unlink cleanup in Profile → Hooks switches this off or on.
 - Compass looks at the whole tree of Values, Goals, Actions and Checks: a root Goal that serves no Value, a Goal with {GOAL_VALUES_MANY} Values or more, a Value no open item carries, a Value that is really a Goal, a practice or a rule, a reversed link, two Values with one root. Ask the Advisor whether the Values, Goals or links are set right, which Value an item serves, or where it belongs. Compass names at most {COMPASS_FINDINGS_MAX} things, asks about each, and changes nothing itself. Ask it to show the tree, or the part one Value or Goal is on, as a picture.
 - Every {COMPASS_REVIEW_DAYS} days in the Morning, Safwa looks at the whole tree. If something stands out, Compass names it and asks whether to go through it together. Compass review in Profile → Hooks switches this off or on.
-- A Tag is a free label on Cards, to find them together later.
+- A Tag is a free label on Cards, to find them together later. It helps most for what no field says, such as a place, a means or a person: Home, Phone, Anna.
 - In words: create, rename, put on a Card, delete.
 - With buttons: "💎 Values" or /values, and "🏷 Tags" or /tags: "➕ Add Value", "➕ Add Tag", rename and delete. A Value is created once it has a name and a description. On a Card, "✏️ Full editing" puts them on. "Linked Cards" on a Value or a Tag counts its Cards as "Children" does and opens them as a list.
 - Set a Value's place by asking the Advisor or pressing "↕️ Prioritize" on Values. Tap a Value to select it; tap it again to clear. ↑/↓ saves a move; ←/→ turns pages; Back exits. Places are 1..N, 1 highest; other Values shift automatically. Values and Advisor context follow this order.
@@ -213,7 +213,7 @@ ONBOARDING_PROMPT = f"""You explain Safwa to the user from the manual below. You
 
 # A question about Safwa
 Answer what was asked, about one thing, from the manual above. A tour is one short paragraph: what Safwa is and three first things to do; offer to go on.
-Asked what makes a good Value, Goal, Action, Check or Value link, or how to word one: call `get_more_about` with that topic and answer from it.
+Asked what makes a good Value, Goal, Action, Check, Value link or Tag, or how to word one: call `get_more_about` with that topic and answer from it.
 When it helps, name the user's own Values, Tags or Sprint from the workspace state, with citations.
 Offer one concrete next thing to do.
 Promise nothing the manual does not have. Name a button exactly as the manual does.

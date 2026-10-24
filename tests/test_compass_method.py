@@ -15,6 +15,7 @@ from safwa.features.checks.api import CHECK
 from safwa.features.checks.check_review import CHECK_REVIEW_PROMPT
 from safwa.features.compass.agent import MORE_ABOUT, TOPICS
 from safwa.features.onboarding.agent import ONBOARDING_AGENT, ONBOARDING_PROMPT
+from safwa.features.tags.api import TAG
 from safwa.features.values.api import LINK, VALUE
 from safwa.features.values.link_review import VALUE_LINK_PROMPT
 from safwa.features.values.value_review import VALUE_REVIEW_PROMPT
@@ -53,7 +54,7 @@ def test_every_prompt_that_writes_items_reads_what_each_is_and_how_to_write_one(
     writers = [SYSTEM_PROMPT, routed_prompt(MUTATOR_AGENT)]
     writers += [routed_prompt(agent) for agent in AGENTS if "{items}" in agent.instructions]
     for prompt in writers:
-        for method in (VALUE, GOAL, ACTION, CHECK, LINK):
+        for method in (VALUE, GOAL, ACTION, CHECK, LINK, TAG):
             for line in (method.definition, *method.writing):
                 assert f"- {line}" in prompt
 
@@ -63,7 +64,7 @@ async def test_onboarding_reads_one_whole_part_of_the_method_when_asked():
     assert "call `get_more_about` with that topic and answer from it" in ONBOARDING_PROMPT
     assert ONBOARDING_AGENT.read_tools(None) == (MORE_ABOUT,)
     assert MORE_ABOUT.schema["function"]["parameters"]["properties"]["topic"]["enum"] == [
-        "values", "goals", "actions", "checks", "links",
+        "values", "goals", "actions", "checks", "links", "tags",
     ]
     for topic, method in TOPICS.items():
         answer = await MORE_ABOUT.run(
@@ -82,7 +83,22 @@ async def test_onboarding_reads_one_whole_part_of_the_method_when_asked():
 async def test_a_topic_it_does_not_know_is_refused_with_the_topics_it_does():
     """CMP-METHOD-001 — tests/brd/compass.feature"""
     answer = await MORE_ABOUT.run(
-        ToolCall(id="more", name="get_more_about", arguments_json='{"topic": "tags"}')
+        ToolCall(id="more", name="get_more_about", arguments_json='{"topic": "requests"}')
     )
     assert answer["status"] == "error"
-    assert answer["hint"] == "Retry with topic one of: values, goals, actions, checks, links."
+    assert answer["hint"] == "Retry with topic one of: values, goals, actions, checks, links, tags."
+
+
+async def test_the_tag_method_is_advice_that_no_check_reads():
+    """CMP-METHOD-001 — tests/brd/compass.feature"""
+    checks = (
+        VALUE_REVIEW_PROMPT, GOAL_REVIEW_PROMPT, ACTION_REVIEW_PROMPT, CHECK_REVIEW_PROMPT,
+        VALUE_LINK_PROMPT,
+    )
+    for line in TAG.criteria:
+        assert not any(line in prompt for prompt in checks)
+    text = (
+        await MORE_ABOUT.run(ToolCall(id="more", name="get_more_about", arguments_json='{"topic": "tags"}'))
+    )["text"]
+    assert "keep the Tag the user wants" in text
+    assert "How to write one" not in text

@@ -28,8 +28,10 @@ What a good Value, Goal, Action, Check and Value link are is written once, by th
 that owns each, as one `Method` on its `api.py`: Values and Value links in
 [values/api.py](../src/safwa/features/values/api.py), Goals and Actions in
 [cards/api.py](../src/safwa/features/cards/api.py), Checks in
-[checks/api.py](../src/safwa/features/checks/api.py). Each holds what the item is, the criteria a
-check reads it against, how to write one, and examples. The feature's check on a new item reads
+[checks/api.py](../src/safwa/features/checks/api.py), Tags in
+[tags/api.py](../src/safwa/features/tags/api.py). Each holds what the item is, the criteria a
+check reads it against, how to write one, and examples. The method for a Tag is advice: no check
+reads it, and a Tag the owner wants is kept. The feature's check on a new item reads
 its criteria and examples, the Advisor and every subagent that writes items read what each is
 and how to write one, and Compass reads the whole of one when asked: the onboarding subagent
 calls `get_more_about` for it.

@@ -26,6 +26,7 @@ from ..cards.api import ACTION, GOAL
 from ..cards.model import TERMINAL_STAGES, Card, CardKind
 from ..checks.api import CHECK
 from ..schedules.api import workspace_zone
+from ..tags.api import TAG
 from ..values.api import LINK, VALUE
 from ..values.model import Value
 from .charts import draw_sky
@@ -39,6 +40,7 @@ TOPICS: dict[str, Method] = {
     "actions": ACTION,
     "checks": CHECK,
     "links": LINK,
+    "tags": TAG,
 }
 
 MORE_ABOUT_TOOL: dict[str, Any] = {
@@ -46,7 +48,7 @@ MORE_ABOUT_TOOL: dict[str, Any] = {
     "function": {
         "name": "get_more_about",
         "description": (
-            "Read how Safwa words a good Value, Goal, Action, Check or Value link: "
+            "Read how Safwa words a good Value, Goal, Action, Check, Value link or Tag: "
             "what it is, its criteria, how to write one, and examples."
         ),
         "parameters": {

@@ -87,6 +87,6 @@ def explanation(method: Method) -> str:
         f"{method.definition}\n"
         f"A clear {method.name}:\n{bullets(method.criteria)}"
         f"{lines(method.leaves)}"
-        f"How to write one:\n{bullets(method.writing)}"
-        f"Examples:\n{bullets(examples)}"
+        + (f"How to write one:\n{bullets(method.writing)}" if method.writing else "")
+        + f"Examples:\n{bullets(examples)}"
     )
