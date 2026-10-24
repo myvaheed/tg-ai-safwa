@@ -7,7 +7,9 @@ words find a tracker named otherwise. The workspace holds four daily trackers an
 compared is the condition of the Reminder proposed, with the titles of the items it counts; a
 request too vague to set proposes no Reminder. The requests were written by someone who never
 read the prompts, so a pass is a reading, not a copy; a group in words is the subagent's to list.
-The subagent names the condition itself, so this is where its reading is measured.
+The subagent names the items and passes the owner's words, which the condition's own session
+reads, so this is where both are measured together; the session alone is measured by
+`tests/test_condition_phrases_live.py`.
 """
 
 from __future__ import annotations

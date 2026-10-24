@@ -2,7 +2,8 @@ Feature: Reminders
   A Reminder is some words and when they come due, and nothing else: a time, or a count of answers of
   Checks or Actions. Nobody builds a schedule by hand — not the owner and not Safwa. A time arrives as plain
   words, one short session turns those words into parameters, and the schedule is worked out from
-  them in code; a count of answers arrives as the few choices Safwa names. When one comes due,
+  them in code; a count of answers arrives as its items and plain words, which a short session of
+  its own reads. When one comes due,
   exactly one thing happens: the words are handed to Safwa as a
   request, and Safwa decides what to say.
 
@@ -213,8 +214,8 @@ Feature: Reminders
   Scenario: RM-COND-030 — A Reminder can come due on answers of Checks or Actions
     Given the owner asks for a word at every 3 Missed in a row of Check #12
     When Safwa proposes the Reminder
-    Then it names the condition itself, with no short session: the items, the answer, how many,
-      whether in a row and whether once
+    Then it names the items and passes the owner's words, and a short session reads from the words
+      the answer, how many, whether in a row and whether once; the items do not pass through it
     And the items are Checks or Actions by #id, such as "Check #12", "Check #12 «Sat straight?»" or
       "Action #3, Action #5", and code keeps the series of each, by the series id that stays when any
       copy is deleted
@@ -222,8 +223,9 @@ Feature: Reminders
       proposes the Reminder, and words that name no #id go back to Safwa by RM-COND-031
     And the answer is Passed, Missed, any answer of a Check, or Done of an Action, and only Passed and
       Missed count in a row
-    And Safwa names the answer only as yes, no or any; whether the items are Checks or Actions comes
-      from their words
+    And the short session names the answer only as yes, no or any; whether the items are Checks or
+      Actions comes from their words
+    And words that do not say how many, such as "a decent run", go back to Safwa to ask the owner
     And an #id with neither Check nor Action beside it, and Missed of Actions, go back to Safwa
     And the screen says "every 3 Missed in a row of Check #12", the items it counts by up to 3 titles
       and how many more (CONDITION_PREVIEW_TITLES = 3), then their count now, such as "0 Missed in a
@@ -351,7 +353,7 @@ Feature: Reminders
   Scenario: RM-COND-040 — A Reminder after N answers fires once
     Given the owner asks for a word after 30 Passed in a row of Check #7
     When Safwa proposes the Reminder
-    Then it names "after 30" as once, and "every 30" as at every multiple
+    Then the short session reads "after 30" as once, and "every 30" as at every multiple
     And the screen says "after 30 Passed in a row of Check #7", and what it counts now, by RM-COND-030
     When an answer brings the count to 30 itself
     Then its words go to Safwa as one request that says it is its last time, and the Reminder is

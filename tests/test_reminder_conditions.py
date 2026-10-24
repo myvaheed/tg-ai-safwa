@@ -22,10 +22,10 @@ from safwa.features.checks.use_cases import (
 )
 from safwa.features.reminders.agent import (
     NAME_THE_ID,
-    NO_MISSED,
-    REMINDER_AGENT_PROMPT,
+    REMINDER_CONDITION_PROMPT,
     REMINDER_TIME_FORMS,
     REMINDER_WHEN_PROMPT,
+    ConditionFields,
     ConditionInput,
     ReminderToolInput,
     unclear,
@@ -132,8 +132,8 @@ def test_after_n_reads_as_once():
     once = replace(of_check(12, "yes", 30), once=True)
     assert describe(on(once), tz=TZ) == "after 30 Passed in a row of Check #12"
     assert describe(on(replace(once, count=1, in_row=False)), tz=TZ) == "after 1 Passed of Check #12"
-    assert ConditionInput(items="Check #12", answer="yes", count=3).once is False
-    assert "count=40, once=true." in REMINDER_AGENT_PROMPT
+    assert ConditionFields(answer="yes", count=3).once is False
+    assert "count=40, once=true." in REMINDER_CONDITION_PROMPT
     assert schedule_from_payload(schedule_payload(on(once))) == on(once)
 
 
@@ -185,24 +185,24 @@ async def test_after_n_already_past_is_refused_with_the_count_now(sessions):
         assert await finds_text(session, after_two, ids) == "«Meditated?». 3 Passed in a row now."
 
 
-def test_safwa_names_the_answer_only_as_yes_no_or_any():
+def test_the_short_session_names_the_answer_only_as_yes_no_or_any():
     """RM-COND-030 — tests/brd/reminders.feature"""
-    ConditionInput(items="Check #12", answer="no", count=3, in_row=True)
-    ConditionInput(items="Check #1, Check #2", answer="yes", count=50)
+    ConditionFields(answer="no", count=3, in_row=True)
+    ConditionFields(answer="yes", count=50)
     with pytest.raises(ValidationError, match="in_row needs answer yes or no"):
-        ConditionInput(items="Check #12", answer="any", count=3, in_row=True)
-    # An id alone says neither what it is, and an Action is never Missed.
+        ConditionFields(answer="any", count=3, in_row=True)
+    # The subagent names only the items and the words.
+    ConditionInput(items="Check #1, Check #2", words="every 3 misses")
+    assert set(ConditionInput.model_fields) == {"items", "words"}
+    # An id alone says neither what it is.
     for items in ("#12", "#5 и #9"):
         with pytest.raises(ValidationError, match=re.escape(NAME_THE_ID)):
-            ConditionInput(items=items, answer="yes", count=3)
-    for items in ("Action #7", "Action #7 и Action #8"):
-        with pytest.raises(ValidationError, match=NO_MISSED):
-            ConditionInput(items=items, answer="no", count=3)
+            ConditionInput(items=items, words="every 3 misses")
 
 
 def test_a_reminder_is_set_by_a_time_or_by_a_condition():
     """RM-COND-030 — tests/brd/reminders.feature"""
-    condition = {"items": "Check #12", "answer": "no", "count": 3}
+    condition = {"items": "Check #12", "words": "every 3 misses"}
     ReminderToolInput(mode="create", instruction="Cheer me on.", condition=condition)
     ReminderToolInput(mode="create", instruction="Cheer me on.", when="every day at 8")
     ReminderToolInput(mode="update", id=4, condition=condition)

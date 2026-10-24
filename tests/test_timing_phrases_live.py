@@ -16,6 +16,7 @@ prompt's example.
 
 The setup session reads only a time: words that count answers come back unclear about answers,
 for the subagent to name as a `condition`; the reading of a condition is measured by
+`tests/test_condition_phrases_live.py`, and the whole way by
 `tests/e2e/test_series_goal_live.py`.
 """
 

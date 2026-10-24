@@ -772,8 +772,10 @@ the Cue row, exactly as for anything else Safwa says first.
   move left on the wrong moment and rolls on a repeat overdue past the grace (`RM-START-020`).
 - A Reminder on answers has no `next_fire_at`, so neither the tick nor the start ever
   touches it. Its `condition` holds the items in words, the series of each, the answer, the
-  count and whether in a row. The subagent names it in the `condition` of `reminder`, and the
-  `when` session reads only a time. Preparation keeps the series of each item (`items_series`)
+  count and whether in a row. The subagent names the items by #id in the `condition` of
+  `reminder` with the owner's words, and a short session of its own reads from the words what
+  it counts, never seeing the items; the `when` session reads only a time. Preparation keeps
+  the series of each item (`items_series`)
   and refuses a group in words, both kinds, or an #id that does not exist (`RM-COND-031`): the
   subagent lists a group by #id first. Every copy
   of each series counts, and an item made later does not (`RM-COND-033`). Preparation reads

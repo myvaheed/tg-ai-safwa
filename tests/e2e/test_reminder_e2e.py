@@ -25,6 +25,7 @@ from safwa.features.checks.use_cases import resolve_check
 from safwa.features.reminders.agent import (
     COUNTS_ANSWERS,
     NO_MISSED,
+    REMINDER_CONDITION_PROMPT,
     REMINDER_TIME_FORMS,
     UNREADABLE_WHEN,
 )
@@ -199,24 +200,32 @@ def unclear_script(*setup, when: str):
     ]
 
 
-def condition_call(items: str, answer: str = "no", count: int = 3, **extra) -> ProviderTurn:
-    """The subagent's `reminder` with the condition it names."""
-    condition = {"items": items, "answer": answer, "count": count, **extra}
+def condition_call(items: str, words: str = "every 3 misses") -> ProviderTurn:
+    """The subagent's `reminder` with the items it names and the owner's words."""
+    condition = {"items": items, "words": words}
     return turn(
         ("reminder", {"mode": "create", "instruction": "Cheer me on.", "condition": condition})
     )
 
 
+def condition_fields(answer: str = "no", count: int = 3, **extra) -> ProviderTurn:
+    """What the condition's own session reads from the words."""
+    return turn(("set_condition", {"answer": answer, "count": count, **extra}), prefix="condition")
+
+
 def condition_turns(items: str, answer: str = "no", count: int = 3, **extra) -> list[object]:
-    return [route_turn("reminder"), condition_call(items, answer, count, **extra), "I set that up for you."]
+    return [route_turn("reminder"), condition_call(items), condition_fields(answer, count, **extra)]
 
 
-def refused_condition_script(items: str, answer: str = "no", count: int = 3, **extra) -> list[object]:
-    """A Reminder on answers whose preparation refuses it, then asked about."""
+def refused_condition_script(
+    items: str, *read: ProviderTurn, words: str = "every 3 misses"
+) -> list[object]:
+    """A Reminder on answers whose preparation refuses it once its session reads `read`, then
+    asked about."""
     return [
         route_turn("reminder"),
-        condition_call(items, answer, count, **extra),
-        "Sure.",
+        condition_call(items, words),
+        *read,
         "Which do you mean?",
         "Which do you mean?",
     ]
@@ -232,8 +241,8 @@ async def test_rm_cond_030_a_condition_is_proposed_with_its_series_and_what_it_f
         _, live = await resolve_check(session, live.id, CheckOutcome.MISSED)
         await session.commit()
         named = live.id
-    # No setup session reads it: the subagent names the condition itself.
-    advisor, _provider = e2e_harness.advisor(condition_turns(f"Check #{named}", in_row=True))
+    # Its own session reads the words; the items stay with the subagent and code.
+    advisor, provider = e2e_harness.advisor(condition_turns(f"Check #{named}", in_row=True))
 
     outcome = await advisor.handle("cheer me on when I miss posture", source_message_id=1)
 
@@ -242,6 +251,12 @@ async def test_rm_cond_030_a_condition_is_proposed_with_its_series_and_what_it_f
     assert "condition" not in values
     assert values["schedule_text"] == f"every 3 Missed in a row of Check #{named}"
     assert values["finds"] == "«Sat straight?». 1 Missed in a row now."
+    [read] = [
+        call for call in provider.calls if call[0]["content"] == REMINDER_CONDITION_PROMPT
+    ]
+    told = "\n".join(str(message["content"]) for message in read[1:])
+    assert "Items: Checks" in told and "Words: every 3 misses" in told
+    assert f"#{named}" not in told
     async with e2e_harness.sessions() as session:
         (reminder_id,) = await approve_proposal(
             session, e2e_harness.reviews, PROPOSALS, outcome.proposal_id
@@ -334,7 +349,7 @@ async def test_rm_cond_034_a_count_one_series_never_reaches_is_refused(e2e_harne
         once = await create_check(session, title="Slept 8 hours?")
         await session.commit()
     advisor, provider = e2e_harness.advisor(
-        refused_condition_script(f"Check #{once.id}", in_row=True)
+        refused_condition_script(f"Check #{once.id}", condition_fields(in_row=True))
     )
 
     await advisor.handle("cheer me on after 3 misses", source_message_id=1)
@@ -357,23 +372,40 @@ async def test_rm_cond_030_missed_of_actions_goes_back_to_safwa(e2e_harness):
     advisor, provider = e2e_harness.advisor(
         [
             route_turn("reminder"),
-            condition_call(f"Action #{named}"),
+            condition_call(f"Action #{named}", "when I skip my run 3 times"),
+            condition_fields(),
             # A Run that does not repeat reaches 1 Done, never 3.
-            condition_call(f"Action #{named}", answer="yes", count=1),
-            "I set that up for you.",
+            condition_call(f"Action #{named}", "each run I finish"),
+            condition_fields(answer="yes", count=1),
         ]
     )
 
     outcome = await advisor.handle("cheer me on when I skip my run 3 times", source_message_id=1)
 
     assert outcome.kind is AIOutcomeKind.PROPOSAL
-    told = [
-        message["content"]
-        for call in provider.calls
-        for message in call
-        if message.get("role") == "tool" and NO_MISSED in message["content"]
-    ]
-    assert told and json.loads(told[0])["retryable"] is True
+    (told,) = refusals(provider, "condition_unclear")
+    assert told["error"] == NO_MISSED
+
+
+async def test_rm_cond_030_words_without_a_count_go_back_to_ask_the_owner(e2e_harness):
+    """RM-COND-030 — tests/brd/reminders.feature"""
+    async with e2e_harness.sessions() as session:
+        check = await create_check(session, title="Sat straight?", schedule="after completion")
+        await session.commit()
+    unclear = turn(
+        ("not_clear_enough", {"reason": "The words give no number."}), prefix="condition"
+    )
+    advisor, provider = e2e_harness.advisor(
+        refused_condition_script(f"Check #{check.id}", unclear, words="after a decent run")
+    )
+
+    await advisor.handle("cheer me on after a decent run", source_message_id=1)
+
+    (told,) = refusals(provider, "condition_unclear")
+    assert told["error"] == "The words give no number."
+    assert "ask them" in told["hint"]
+    async with e2e_harness.sessions() as session:
+        assert list(await session.scalars(select(Reminder))) == []
 
 
 async def test_rm_unclear_028_words_that_count_answers_go_back_to_be_a_condition(e2e_harness):
@@ -401,7 +433,7 @@ async def test_rm_unclear_028_words_that_count_answers_go_back_to_be_a_condition
                 prefix="setup",
             ),
             condition_call(f"Check #{named}"),
-            "I set that up for you.",
+            condition_fields(),
         ]
     )
 

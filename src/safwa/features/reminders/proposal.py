@@ -2,7 +2,8 @@
 
 Timing is resolved during preparation, before the proposal row exists, so the review
 screen shows a real schedule and Save applies exactly what the owner approved. A condition's
-items are kept there as their series and found, so the screen shows what it counts now.
+items are kept there as their series and found, so the screen shows what it counts now, and
+its words are read there by their own short session.
 
 The Reminder an item's Remind made is the item's to change: a change or a deletion of it goes
 back to the model with the item to use `remind` on.
@@ -33,7 +34,13 @@ from ...foundation.workspace import Workspace
 from ..cards.model import Card
 from ..checks.model import Check
 from ..schedules.api import item_type
-from .agent import ConditionInput, CountsAnswers, resolve_schedule
+from .agent import (
+    ConditionInput,
+    ConditionUnclear,
+    CountsAnswers,
+    read_condition,
+    resolve_schedule,
+)
 from .api import (
     Condition,
     Schedule,
@@ -84,7 +91,11 @@ class ReminderProposalHandler:
         tz = ZoneInfo(context.world.timezone)
         now = datetime.now(UTC)
         if wanted is not None:
-            condition = await _condition(context.session, ConditionInput.model_validate(wanted))
+            condition = await _condition(
+                context,
+                ConditionInput.model_validate(wanted),
+                str(prepared.get("instruction", "")),
+            )
             prepared["finds"] = await _finds(context.session, condition)
             schedule = Schedule(kind=ScheduleKind.CONDITION, condition=condition)
         else:
@@ -168,26 +179,39 @@ async def _remind_of(session: AsyncSession, reminder: Reminder) -> tuple[str, st
     return f"{kind} #{item.id}", item.title
 
 
-async def _condition(session: AsyncSession, wanted: ConditionInput) -> Condition:
+async def _condition(
+    context: PreparationContext, wanted: ConditionInput, instruction: str
+) -> Condition:
     """The condition the call names, its items kept as their series, or refused when they are
-    not Checks or Actions by #id that exist (RM-COND-031)."""
+    not Checks or Actions by #id that exist (RM-COND-031), or when its words do not say what
+    it counts (RM-COND-030)."""
     try:
-        kind, series = await items_series(session, wanted.items)
+        kind, series = await items_series(context.session, wanted.items)
     except ConditionError as error:
         raise ToolPreparationError(
             "condition_items",
             str(error),
             "Find each item's #id with query_data, then call reminder again.",
         ) from error
+    try:
+        fields = await read_condition(
+            context.provider, words=wanted.words, kind=kind, instruction=instruction
+        )
+    except ConditionUnclear as error:
+        raise ToolPreparationError(
+            "condition_unclear",
+            str(error),
+            "Pass the user's own words in words; if they never said it, ask them, then call "
+            "reminder again.",
+        ) from error
     return Condition(
         items=wanted.items,
         series=series,
         kind=kind,
-        # Done is an Action's only answer: no Missed to count, or to break a row.
-        answer="yes" if kind == "action" else wanted.answer,
-        count=wanted.count,
-        in_row=wanted.in_row and kind == "check",
-        once=wanted.once,
+        answer=fields.answer,
+        count=fields.count,
+        in_row=fields.in_row,
+        once=fields.once,
     )
 
 
