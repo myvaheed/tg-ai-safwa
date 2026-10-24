@@ -314,7 +314,8 @@ handler over the list the composition root built.
 
 **A mini session that reads the owner's words.** `run_mini_session(conversation=…)` puts the
 conversation before the session's context, under `CONVERSATION_SO_FAR`, in the block a routed
-subagent reads it in (`AG-SESSION-063`); the condition of a Reminder on answers reads it so.
+subagent reads it in (`AG-SESSION-063`); a Reminder's time and its condition on answers read
+it so.
 Three readers are older than that parameter and still build their own block, and each can move
 to it, keeping its own count of messages and changing its prompt's line about where the
 conversation is. `heavy_analyzer` joins it with `<Request from AI>` into one context;

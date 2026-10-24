@@ -27,6 +27,7 @@ from safwa.features.reminders.agent import (
     NO_MISSED,
     REMINDER_CONDITION_PROMPT,
     REMINDER_TIME_FORMS,
+    REMINDER_WHEN_PROMPT,
     UNREADABLE_WHEN,
 )
 from safwa.features.reminders.api import schedule_from_payload, schedule_of
@@ -118,7 +119,7 @@ async def test_discarding_the_proposal_leaves_no_reminder(e2e_harness):
 
 async def test_the_proposal_carries_the_resolved_schedule_not_the_words(e2e_harness):
     """RM-SCHEDULE-001 — tests/brd/reminders.feature"""
-    advisor, _provider = e2e_harness.advisor(
+    advisor, provider = e2e_harness.advisor(
         reminder_script(
             {"interval_minutes": 120},
             instruction="Check my posture — Check #5.",
@@ -133,6 +134,14 @@ async def test_the_proposal_carries_the_resolved_schedule_not_the_words(e2e_harn
     assert "when" not in values  # the free text does not survive into the proposal
     assert values["schedule"]["interval_minutes"] == 120
     assert values["schedule_text"] == "every 2 hours"
+    prompt = f"{REMINDER_WHEN_PROMPT}\n{PLAN_FIRST}"
+    read = next(call for call in provider.calls if call[0]["content"] == prompt)
+    told = "\n".join(str(message["content"]) for message in read[1:])
+    # The owner's own words as the reminder part read them, then the phrase that says which.
+    assert told.index(">nudge me about posture</User>") < told.index(
+        "Timing phrase: every couple of hours"
+    )
+    assert "Check my posture" not in told
 
 
 async def test_an_unresolvable_phrase_becomes_a_retryable_tool_error(e2e_harness):

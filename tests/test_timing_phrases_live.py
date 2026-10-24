@@ -14,8 +14,9 @@ forms anything, and `-k 1a` says whether the new ones are read. The `goal` cases
 by someone who never read the prompts, so a pass is a reading, not a copy; no case repeats a
 prompt's example.
 
-The setup session reads only a time: words that count answers come back unclear about answers,
-for the subagent to name as a `condition`; the reading of a condition is measured by
+The setup session reads only a time. The owner said only the phrase, so the conversation is one
+line of theirs and `when` is the phrase itself. Words that count answers come back unclear about
+answers, for the subagent to set `on_answers` instead; the reading of a condition is measured by
 `tests/test_condition_phrases_live.py`, and the whole way by
 `tests/e2e/test_series_goal_live.py`.
 """
@@ -35,6 +36,7 @@ from safwa.features.reminders.agent import CountsAnswers, resolve_schedule
 from safwa.features.reminders.api import Schedule, ScheduleError, schedule_from_payload
 from safwa.features.schedules.agent import ScheduleCompiler
 from safwa.qa import qa_provider_settings
+from tg_agent_shell.ai.conversation import conversation_block
 
 pytestmark = pytest.mark.live_provider
 
@@ -219,6 +221,7 @@ async def _reminder(provider, phrase: str) -> dict[str, Any]:
             when=phrase,
             now=NOW,
             tz=TZ,
+            conversation=conversation_block([{"role": "user", "content": phrase}]),
         )
     except CountsAnswers:
         return ANSWERS

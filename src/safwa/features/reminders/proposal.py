@@ -102,6 +102,7 @@ class ReminderProposalHandler:
                     when=when,
                     now=now,
                     tz=tz,
+                    conversation=context.conversation,
                 )
             except CountsAnswers as error:
                 raise ToolPreparationError(

@@ -783,8 +783,9 @@ the Cue row, exactly as for anything else Safwa says first.
   count and whether in a row. The subagent says only `on_answers` in `reminder`, and a short
   session of its own reads the conversation, then the same open items the subagent reads, and
   picks the items by #id and what it counts from the owner's words; an edit of the words by
-  hand reads nothing again. The `when` session reads only a time, and neither session reads
-  the Reminder's text. Items the session names that are not Checks or Actions by #id of the block,
+  hand reads nothing again. The `when` session reads the conversation as well, `when` saying
+  which time is this Reminder's, and reads only a time; neither session reads the Reminder's
+  text. Items the session names that are not Checks or Actions by #id of the block,
   or both kinds, go back to it as a repair (`RM-COND-031`), and preparation keeps the series
   of each item (`items_series`). Every copy
   of each series counts, and an item made later does not (`RM-COND-033`). Preparation reads

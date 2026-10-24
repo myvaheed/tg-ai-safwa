@@ -8,8 +8,9 @@ it makes. The workspace mutator keeps neither, so no time crowds its prompt, and
 has no tool that deletes anything else. The open items with a Schedule follow its dialogue,
 see `items`, so it names the owner's by meaning.
 
-A time arrives as the owner's words, and its shape is derived from which parameters the setup
-session sent back. A Reminder on answers of Checks or Actions arrives as `on_answers` alone:
+A time arrives as the owner's words: the setup session reads them in the conversation, `when`
+saying which time is this Reminder's, and its shape is derived from which parameters it sent
+back. A Reminder on answers of Checks or Actions arrives as `on_answers` alone:
 a short session of its own picks the items from the open items and reads what it counts
 from the owner's words in the conversation, and a count the words do not say goes back to
 the subagent to ask. Code checks the items it names and keeps the series of each.
@@ -242,6 +243,7 @@ REMINDER_AGENT = AgentSpec(
 )
 
 REMINDER_WHEN_PROMPT = f"""Read the clock time one Reminder fires at. End with one call: set_reminder_config or not_clear_enough.
+The user's words are in the conversation. Read the time from the user's own words; the timing phrase says which time.
 Clock time, set_reminder_config:
 'every day at 8', 'every morning at 8': days=[Mon, Tue, Wed, Thu, Fri, Sat, Sun], time=08:00.
 'every evening at 19': days=[Mon, Tue, Wed, Thu, Fri, Sat, Sun], time=19:00.
@@ -292,8 +294,11 @@ async def resolve_schedule(
     when: str,
     now: datetime,
     tz: ZoneInfo,
+    conversation: str = "",
 ) -> Schedule:
-    """Resolve a free-text time into a Schedule, or raise with what is unclear and the forms."""
+    """Resolve a free-text time into a Schedule, or raise with what is unclear and the forms.
+    The time is read from the owner's words in the `conversation` the call came from; `when`
+    says which of them, and is all there is on an edit by hand."""
     local = now.astimezone(tz)
     context = (
         f"Timing phrase: {when}\n"
@@ -345,6 +350,7 @@ async def resolve_schedule(
                 ),
             ),
             max_tool_calls=MINI_SESSION_MAX_TOOL_CALLS,
+            conversation=conversation,
             plan_required=True,
         )
     except MiniSessionError as error:

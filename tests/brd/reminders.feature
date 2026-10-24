@@ -16,6 +16,8 @@ Feature: Reminders
     Given Safwa proposes a Reminder at a time and says it in plain words
     When the proposal is put together
     Then a short session turns those words into parameters
+    And that session reads the time in the owner's own words in the conversation, by
+      AG-SESSION-063, and Safwa's words say which time is this Reminder's
     And that session writes its plan before its call, by AG-SESSION-064, and never reads the
       Reminder's own words
     And the schedule itself is worked out from those parameters in code
