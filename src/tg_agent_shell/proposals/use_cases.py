@@ -46,6 +46,7 @@ async def prepare_change(
     change: AgentChange,
     *,
     earlier: Mapping[str, Any] | None = None,
+    conversation: str = "",
 ) -> ProposalChange:
     """One validated mutation call, checked against live data and ready to be queued.
 
@@ -56,7 +57,9 @@ async def prepare_change(
     # Preparation may settle the call in place, so what Edit prepares again is a copy of
     # the call as it was made.
     source = change.model_copy(deep=True)
-    prepared = await preparer.prepare(session, change, earlier=earlier)
+    prepared = await preparer.prepare(
+        session, change, earlier=earlier, conversation=conversation
+    )
     return ProposalChange(
         entity=change.entity,
         action=change.action,

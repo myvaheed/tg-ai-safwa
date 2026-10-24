@@ -39,7 +39,11 @@ class ChangePreparer:
         return await self.proposals.world(session)
 
     async def context(
-        self, session: AsyncSession, *, earlier: Mapping[str, Any] | None = None
+        self,
+        session: AsyncSession,
+        *,
+        earlier: Mapping[str, Any] | None = None,
+        conversation: str = "",
     ) -> PreparationContext:
         """What preparing a change may read, here and now."""
         return PreparationContext(
@@ -49,6 +53,7 @@ class ChangePreparer:
             query_runner=self.query_runner,
             views=self.proposals.views,
             earlier=earlier,
+            conversation=conversation,
         )
 
     async def prepare(
@@ -57,6 +62,7 @@ class ChangePreparer:
         change: AgentChange,
         *,
         earlier: Mapping[str, Any] | None = None,
+        conversation: str = "",
     ) -> PreparedChange:
-        context = await self.context(session, earlier=earlier)
+        context = await self.context(session, earlier=earlier, conversation=conversation)
         return await self.proposals.handler(change.entity).prepare(context, change)

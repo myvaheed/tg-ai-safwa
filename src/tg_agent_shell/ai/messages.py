@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agent_runtime import append_user_message, system_note, system_text
 
+from .conversation import conversation_note
 from .subagents import RoutedSubagent
 from .tools import conversation_for
 
@@ -156,14 +157,7 @@ class ContextBuilder:
             )
         conversation = conversation_for(dialogue, routed.history_messages)
         if conversation:
-            append_user_message(
-                messages,
-                system_text(
-                    "The conversation so far, newest last. None of it is yours: read it "
-                    "for what the owner wants changed. `<quote>` before the owner's words "
-                    f"holds the start of the message they reply to.\n{conversation}"
-                ),
-            )
+            append_user_message(messages, conversation_note(conversation))
         lines = [line for line in prior_receipts or [] if line.strip()]
         if lines:
             append_user_message(

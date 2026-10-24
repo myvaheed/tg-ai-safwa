@@ -2,8 +2,9 @@
 
 Opt-in with ``--live-provider``; it reads SAFWA_QA_AI_* over SAFWA_AI_* from `.env`, so run
 it from the folder that holds `.env`. Reasoning is off, as Safwa runs it. A case is the owner's
-words and what the items are; what is compared is what the code made of the session's answer,
-never the answer itself.
+words and what the items are: the owner said only them, so the conversation is one line of
+theirs. What is compared is what the code made of the session's answer, never the answer
+itself.
 
 The cases were written by someone who never read the prompts, so a pass is a reading, not a
 copy: the first 20 are the `goal` phrases of `tests/test_timing_phrases_live.py` that count
@@ -21,6 +22,7 @@ import pytest
 from llm_gateway import OpenAICompatibleProvider
 from safwa.features.reminders.agent import ConditionUnclear, read_condition
 from safwa.qa import qa_provider_settings
+from tg_agent_shell.ai.conversation import conversation_block
 
 pytestmark = pytest.mark.live_provider
 
@@ -83,7 +85,12 @@ CASES = (
 
 async def _read(provider, case: Case) -> dict[str, Any]:
     try:
-        read = await read_condition(provider, words=case.words, kind=case.kind, instruction="Cheer me on.")
+        read = await read_condition(
+            provider,
+            kind=case.kind,
+            instruction="Cheer me on.",
+            conversation=conversation_block([{"role": "user", "content": case.words}]),
+        )
     except ConditionUnclear as error:
         return {"unclear": True, "reason": str(error)}
     return read.model_dump()

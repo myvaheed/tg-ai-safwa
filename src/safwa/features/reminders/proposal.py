@@ -3,7 +3,8 @@
 Timing is resolved during preparation, before the proposal row exists, so the review
 screen shows a real schedule and Save applies exactly what the owner approved. A condition's
 items are kept there as their series and found, so the screen shows what it counts now, and
-its words are read there by their own short session.
+its words are read there by their own short session, in the conversation the call came
+from.
 
 The Reminder an item's Remind made is the item's to change: a change or a deletion of it goes
 back to the model with the item to use `remind` on.
@@ -185,6 +186,13 @@ async def _condition(
     """The condition the call names, its items kept as their series, or refused when they are
     not Checks or Actions by #id that exist (RM-COND-031), or when its words do not say what
     it counts (RM-COND-030)."""
+    before = context.earlier and context.earlier.get("schedule")
+    if before:
+        # Only the words are edited by hand, and what the call counts was read from the call
+        # (PR-EDIT-034, RM-EDIT-038).
+        condition = schedule_from_payload(before).condition
+        if condition is not None:
+            return condition
     try:
         kind, series = await items_series(context.session, wanted.items)
     except ConditionError as error:
@@ -195,14 +203,16 @@ async def _condition(
         ) from error
     try:
         fields = await read_condition(
-            context.provider, words=wanted.words, kind=kind, instruction=instruction
+            context.provider,
+            kind=kind,
+            instruction=instruction,
+            conversation=context.conversation,
         )
     except ConditionUnclear as error:
         raise ToolPreparationError(
             "condition_unclear",
             str(error),
-            "Pass the user's own words in words; if they never said it, ask them, then call "
-            "reminder again.",
+            "Ask the user what is missing, then call reminder again.",
         ) from error
     return Condition(
         items=wanted.items,

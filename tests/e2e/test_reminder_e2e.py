@@ -200,9 +200,9 @@ def unclear_script(*setup, when: str):
     ]
 
 
-def condition_call(items: str, words: str = "every 3 misses") -> ProviderTurn:
-    """The subagent's `reminder` with the items it names and the owner's words."""
-    condition = {"items": items, "words": words}
+def condition_call(items: str) -> ProviderTurn:
+    """The subagent's `reminder` with the items it names."""
+    condition = {"items": items}
     return turn(
         ("reminder", {"mode": "create", "instruction": "Cheer me on.", "condition": condition})
     )
@@ -217,14 +217,12 @@ def condition_turns(items: str, answer: str = "no", count: int = 3, **extra) -> 
     return [route_turn("reminder"), condition_call(items), condition_fields(answer, count, **extra)]
 
 
-def refused_condition_script(
-    items: str, *read: ProviderTurn, words: str = "every 3 misses"
-) -> list[object]:
+def refused_condition_script(items: str, *read: ProviderTurn) -> list[object]:
     """A Reminder on answers whose preparation refuses it once its session reads `read`, then
     asked about."""
     return [
         route_turn("reminder"),
-        condition_call(items, words),
+        condition_call(items),
         *read,
         "Which do you mean?",
         "Which do you mean?",
@@ -255,8 +253,10 @@ async def test_rm_cond_030_a_condition_is_proposed_with_its_series_and_what_it_f
         call for call in provider.calls if call[0]["content"] == REMINDER_CONDITION_PROMPT
     ]
     told = "\n".join(str(message["content"]) for message in read[1:])
-    assert "Items: Checks" in told and "Words: every 3 misses" in told
+    assert "Items: Checks" in told and "Reminder text: Cheer me on." in told
     assert f"#{named}" not in told
+    # The owner's own words, in the conversation as the reminder part read it.
+    assert told.index(">cheer me on when I miss posture</User>") < told.index("Items: Checks")
     async with e2e_harness.sessions() as session:
         (reminder_id,) = await approve_proposal(
             session, e2e_harness.reviews, PROPOSALS, outcome.proposal_id
@@ -372,10 +372,10 @@ async def test_rm_cond_030_missed_of_actions_goes_back_to_safwa(e2e_harness):
     advisor, provider = e2e_harness.advisor(
         [
             route_turn("reminder"),
-            condition_call(f"Action #{named}", "when I skip my run 3 times"),
+            condition_call(f"Action #{named}"),
             condition_fields(),
             # A Run that does not repeat reaches 1 Done, never 3.
-            condition_call(f"Action #{named}", "each run I finish"),
+            condition_call(f"Action #{named}"),
             condition_fields(answer="yes", count=1),
         ]
     )
@@ -396,14 +396,14 @@ async def test_rm_cond_030_words_without_a_count_go_back_to_ask_the_owner(e2e_ha
         ("not_clear_enough", {"reason": "The words give no number."}), prefix="condition"
     )
     advisor, provider = e2e_harness.advisor(
-        refused_condition_script(f"Check #{check.id}", unclear, words="after a decent run")
+        refused_condition_script(f"Check #{check.id}", unclear)
     )
 
     await advisor.handle("cheer me on after a decent run", source_message_id=1)
 
     (told,) = refusals(provider, "condition_unclear")
     assert told["error"] == "The words give no number."
-    assert "ask them" in told["hint"]
+    assert "Ask the user" in told["hint"]
     async with e2e_harness.sessions() as session:
         assert list(await session.scalars(select(Reminder))) == []
 

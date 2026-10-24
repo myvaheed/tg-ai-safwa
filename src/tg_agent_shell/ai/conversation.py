@@ -8,7 +8,7 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from agent_runtime import SYSTEM_CLOSE, SYSTEM_OPEN, routed_answers
+from agent_runtime import SYSTEM_CLOSE, SYSTEM_OPEN, routed_answers, system_text
 from llm_gateway import standard_message
 
 # The reads whose rows are stale by the next turn. The call stays in the conversation and the
@@ -28,6 +28,13 @@ CONVERSATION_TAGS = {
     "Assistant": "Advisor",
     "Summary": "Summary",
 }
+# What heads the conversation for a reader that did not take part in it: a routed subagent,
+# and a short session that prepares its call.
+CONVERSATION_SO_FAR = (
+    "The conversation so far, newest last. None of it is yours: read it for what the owner "
+    "wants changed. `<quote>` before the owner's words holds the start of the message they "
+    "reply to."
+)
 _CONVERSATION_LINE = re.compile(
     r"^(?:\[(?P<stamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2})\] )?"
     r"(?:\[(?P<label>User|Assistant|Summary)\]: )?"
@@ -93,6 +100,12 @@ def last_exchanges(
     """The newest `count` exchanges: each of the owner's turns, and what answered it."""
     starts = [index for index, message in enumerate(dialogue) if message.get("role") == "user"]
     return dialogue[starts[-count] :] if len(starts) >= count else dialogue
+
+
+def conversation_note(conversation: str) -> str:
+    """A `conversation_block` as a block of the interface's, under the words that say what it
+    is."""
+    return system_text(f"{CONVERSATION_SO_FAR}\n{conversation}")
 
 
 def conversation_block(dialogue: Sequence[Mapping[str, Any]], last: int | None = None) -> str:

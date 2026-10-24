@@ -11,7 +11,7 @@ from schedule_helpers import create_card, create_check
 from sqlalchemy import select
 from test_diary_e2e import TODAY as DIARY_TODAY
 from test_diary_e2e import turn as diary_turn
-from test_reminder_e2e import reminder_script
+from test_reminder_e2e import condition_turns, reminder_script
 from test_reminder_e2e import turn as reminder_turn
 from test_subagent_e2e import diary_subagent
 from ui_harness import kind_of
@@ -869,6 +869,30 @@ async def test_a_day_put_up_for_approval_is_edited_before_it_is_saved(e2e_harnes
         e2e_harness, {"mode": "delete", "date": DIARY_TODAY}
     )
     assert "✏️ Edit" not in message.buttons()
+
+
+async def test_rm_edit_038_a_count_of_answers_is_not_read_again_with_new_words(e2e_harness):
+    """RM-EDIT-038 — tests/brd/reminders.feature"""
+    async with e2e_harness.sessions() as session:
+        check = await create_check(session, title="Sat straight?", schedule="after completion")
+        await session.commit()
+        named = check.id
+    advisor, provider = e2e_harness.advisor(condition_turns(f"Check #{named}"))
+    outcome = await advisor.handle("cheer me on at every 3 misses of posture")
+    services = review_services(e2e_harness, advisor)
+    message = QueueTestMessage()
+    await render_proposal(message, services, outcome.proposal_id)
+    await press(services, message, "✏️ Edit")
+    await press(services, message, "✏️ Text")
+    asked = len(provider.calls)
+
+    await type_words(services, message, "Tell me to sit straight.")
+
+    # What it counts was read from the call, which the owner left as it was (PR-EDIT-034).
+    assert len(provider.calls) == asked
+    values = advisor.reviews.proposal(outcome.proposal_id).changes[0].values
+    assert values["instruction"] == "Tell me to sit straight."
+    assert values["schedule_text"] == f"every 3 Missed of Check #{named}"
 
 
 async def test_a_reminder_proposals_words_are_read_again_with_its_time(e2e_harness):

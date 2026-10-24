@@ -100,6 +100,10 @@ class PreparationContext:
     # What the call's last preparation produced, when the owner set one of its values by
     # hand: what it read from a value left as it was need not be read again (PR-EDIT-034).
     earlier: Mapping[str, Any] | None = None
+    # The conversation as the session that made the call read it, for a short session of
+    # preparation to read the owner's own words in. Empty when the owner set the change
+    # going, by an edit or a switch (AG-SESSION-063).
+    conversation: str = ""
 
 
 @dataclass(frozen=True, slots=True)

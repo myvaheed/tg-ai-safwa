@@ -192,17 +192,17 @@ def test_the_short_session_names_the_answer_only_as_yes_no_or_any():
     with pytest.raises(ValidationError, match="in_row needs answer yes or no"):
         ConditionFields(answer="any", count=3, in_row=True)
     # The subagent names only the items and the words.
-    ConditionInput(items="Check #1, Check #2", words="every 3 misses")
-    assert set(ConditionInput.model_fields) == {"items", "words"}
+    ConditionInput(items="Check #1, Check #2")
+    assert set(ConditionInput.model_fields) == {"items"}
     # An id alone says neither what it is.
     for items in ("#12", "#5 и #9"):
         with pytest.raises(ValidationError, match=re.escape(NAME_THE_ID)):
-            ConditionInput(items=items, words="every 3 misses")
+            ConditionInput(items=items)
 
 
 def test_a_reminder_is_set_by_a_time_or_by_a_condition():
     """RM-COND-030 — tests/brd/reminders.feature"""
-    condition = {"items": "Check #12", "words": "every 3 misses"}
+    condition = {"items": "Check #12"}
     ReminderToolInput(mode="create", instruction="Cheer me on.", condition=condition)
     ReminderToolInput(mode="create", instruction="Cheer me on.", when="every day at 8")
     ReminderToolInput(mode="update", id=4, condition=condition)

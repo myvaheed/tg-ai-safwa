@@ -55,8 +55,10 @@ class Memos:
 
     def __init__(self) -> None:
         self.written: list[str] = []
+        self.conversations: list[str] = []
 
     async def prepare(self, context: Any, change: AgentChange) -> PreparedChange:
+        self.conversations.append(context.conversation)
         if change.values["text"] == "Refused":
             raise ToolPreparationError("invalid_value", "A memo cannot say Refused.", "Retry.")
         return PreparedChange(values={"text": change.values["text"]}, expected_version=None)
@@ -187,6 +189,17 @@ async def test_saving_the_switched_proposal_writes_the_other_call_and_answers_th
     assert switched["saved"] == "Keep the memo “Lunch”"
     assert "Kept a memo." in running.chat[-1]
     assert len(running.provider.requests) == 5
+
+
+async def test_ag_session_063_a_switched_call_is_prepared_with_no_conversation(
+    wallet_bot, monkeypatch
+):
+    """AG-SESSION-063 — tests/brd/tg_agent_shell/agents.feature"""
+    running, memos = await _proposed(wallet_bot, monkeypatch, _memo_of())
+
+    await press(running, "proposal_switch")
+
+    assert memos.conversations == [""]
 
 
 async def test_a_refused_switch_leaves_the_proposal_as_it_was(wallet_bot, monkeypatch):

@@ -263,7 +263,8 @@ Sources:
 one tag per author, so nothing it did not write reaches it in the `assistant` slot. Of the
 Advisor's calls only what `route` did comes along (`receipt_lines`): a read is how the Advisor
 answered, not what. It takes the newest `SUBAGENT_HISTORY_LAST_MESSAGES = 10` things said, or what
-its `AgentSpec` declares.
+its `AgentSpec` declares. A short session that prepares its call reads the same block before its
+own context (`AG-SESSION-063`).
 
 When the Advisor routes the second request of 2.3, `workspace_mutator` receives:
 

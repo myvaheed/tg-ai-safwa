@@ -903,7 +903,7 @@ Remind на 2 случая хуже в обоих проходах: «pills» и
 Итог: сессия читает дословные слова лучше сабагента (ask-01 и ask-06), но слова до неё не
 доходят. Батч не закоммичен.
 
-## Батч 12b — короткая сессия, которая видит разговор (план)
+## Батч 12b — короткая сессия, которая видит разговор (сделан, без `words`)
 
 Замер батча 12: сессия верно читает то, что ей дали, но сабагент дал обрывок — 5 из 6 провалов
 потока. Значит, сессии нужны слова владельца не из пересказа, а из самого разговора, как их
@@ -938,7 +938,8 @@ Shell, без имён Safwa:
 Safwa:
 - *read_condition* получает `conversation` и запускает сессию с ним. Контекст — как сейчас: вид
   items, `words`, текст Reminder.
-- Поле `words` и строка `words:` в промпте `reminder` остаются.
+- Поле `words` и строка `words:` в промпте `reminder` планировалось оставить; после замера они
+  убраны — вариант без `words` ниже.
 
 ### Сценарии (новый исход, нужен твой ок)
 
@@ -985,6 +986,172 @@ owner's words holds the start of the message they reply to.»
 
 - Выбор `reminder` вместо `remind` в Remind («pills», «report»): если останется в шаге 2,
   отдельно.
+
+### Сделано сверх плана
+
+- Правка Text руками у Reminder на ответах больше не читает условие заново: что он считает,
+  прочитано из вызова, а его владелец не менял (PR-EDIT-034, RM-EDIT-038). Батч 12 это нарушал —
+  сессия читала условие на каждой правке, а без разговора читала бы обрывок.
+- *REMINDER_CONDITION_PROMPT* добавлен в снимок промпта, как `SCHEDULE_PARSER_PROMPT`.
+
+### Замер на 35B, 2 прохода
+
+**Шаг 1, сессия на разговоре из фразы владельца:** 27 и 29 из 30 (батч 12: 25 и 25) — критерий
+выполнен. #id как счёт и лишний вопрос про «подряд» ушли. Осталось: «если пропущу #21 три дня
+подряд» дважды и «if I skip … five mornings in a row» раз прочитаны как `once=true`; «после 20
+выполнений #5 и #9 в сумме» раз — вопрос про `once`, вопреки строке «Never for in a row or once».
+
+**Шаг 2, сокращённый замер:**
+
+| | Батч 12 | Батч 12b |
+|---|---|---|
+| Фразы `goal` про время, из 4 | 3 и 4 | 4 и 4 |
+| Фразы `goal` про ответы дают `about=answers`, из 20 | 14 и 14 | 14 и 13 |
+| Поток цели серии, провалов из 16 | 3 и 3 | 3 и 3 |
+| ask-01, ask-06, ask-09, проходов из 6 | 4 | 6 |
+| Провалы потока из-за пересказа | 5 из 6 | 0 из 6 |
+| Remind на item, из 10 | 8 и 8 | 9 и 8 |
+| «📊 Also track», из 3 | 3 и 3 | 3 и 3 |
+
+Пересказ больше не ломает: `words` по-прежнему приходят обрывком — «30 times», «7 «да» подряд»
+без «один раз», «два дня подряд», — но сессия читает поля из слов владельца в разговоре, и все
+такие случаи проходят. Фразы `goal` читает сессия `when`, которую батч не трогал: 13 — шум.
+
+Критерий потока (не больше 3 провалов из 32) не выполнен — 6, как в батче 12, но другие:
+- **Выбор items** — 4, до сессии условия, сабагентом: «20 тренировок по спорту» и «50-я пробежка»
+  дважды получили Checks («Помедитировал?», Check #1) вместо Actions с тегом Sport; «Read 20
+  minutes 30 times» раз — 2 запроса не туда и ни одного вызова. В батче 12 таких было 1–2 за проход
+  на других фразах (ask-11, ask-12): сабагент тот же, батч его не менял.
+- **«Когда медитация и зарядка вместе наберут 50 раз»** — 2, сессия: раз — `not_clear_enough`,
+  «два разных Check в одном счёте» (сабагент после этого сдался), раз — `answer=any` вместо yes.
+  Что несколько items считаются одним счётом, промпт сессии не говорит.
+
+Remind: «pills» — во всех 4 проходах обоих батчей `reminder` с выдуманным «daily 09:00» вместо
+`remind`; «report» раз — `reminder` с посчитанным сабагентом временем. Это «Не входит» выше.
+
+Итог: пересказ как причина провала устранён; оставшиеся провалы — выбор items сабагентом и одна
+фраза про сумму двух Checks.
+
+### Вариант без `words`, замер на 35B, 2 прохода
+
+Сессия видит разговор, и `words` осталось только указателем, какая часть — этот Reminder. Указывает
+и текст Reminder, так что `words` убрано: у `condition` одно поле `items`, строки `words:` в
+промпте `reminder` нет, у сессии — «the Reminder text says which Reminder this is», подсказка при
+неясном условии — «Ask the user what is missing, then call reminder again.»
+
+| | 12b | Без `words` |
+|---|---|---|
+| Шаг 1, из 30 | 27 и 29 | 27 и 28 |
+| Фразы `goal` про время, из 4 | 4 и 4 | 4 и 3 |
+| Фразы `goal` про ответы дают `about=answers`, из 20 | 14 и 13 | 15 и 15 |
+| Поток цели серии, провалов из 16 | 3 и 3 | 1 и 2 |
+| Remind на item, из 10 | 9 и 8 | 9 и 9 |
+| «📊 Also track», из 3 | 3 и 3 | 3 и 3 |
+
+Критерий потока (не больше 3 из 32) выполнен впервые. Провалы потока:
+- «Whenever I stay up past 11 three nights in a row» раз — `answer=yes` вместо no. Check —
+  «Лёг до 23?», и что «засиделся» — это «нет» на него, видно только по его названию, а сессия
+  items не видит. В 12b это переводил сабагент в `words`: «три ночи подряд не лёг до 23:00».
+- «Медитация и зарядка вместе наберут 50 раз» раз — сессия сначала отказала («два Check в одном
+  счёте»), сабагент повторил вызов уже с одной «Помедитировал?».
+- «50-я пробежка» раз — Check вместо Action, как в 12b.
+
+Remind: только «pills», во всех проходах. Фразы `goal` читает сессия `when`, её вариант не трогал.
+
+## Батч 12c — Reminder на ответах целиком делает своя короткая сессия (план)
+
+После варианта без `words` сабагент `reminder` для условия выбирает только items, и ровно там
+остались провалы: Check вместо Action с тем же номером («50-я пробежка», «20 тренировок по
+спорту») — сабагент знает номер, но пишет не тот вид, а код молча берёт чужой item; и «засиделся
+после 11» на «Лёг до 23?» — «да» вместо «нет», потому что сессия не видит названий.
+
+### Решение
+
+У `reminder` три пути, и сабагент выбирает только путь:
+- `remind` — на время самого item, сразу;
+- `reminder` с `when` — на время, сразу;
+- `reminder` с *on_answers=true* — на ответы. Это как `route`: дальше всё делает короткая сессия
+  условия.
+
+Сессия условия видит разговор, как сабагент (12b), текст Reminder и тот же блок Open items, что
+у сабагента, — с #id, названиями, Schedule, Tags и Values. Она сама выбирает items и читает
+answer, count, in_row, once. У `condition` больше нет полей: ни `items`, ни `words`.
+
+Items сессии проверяет код, внутри сессии, как починку вызова: #id без Check или Action, Checks
+и Actions вместе, #id не из Open items — ошибка уходит ей же, и она называет их снова. Missed у
+Actions — как сейчас, обратно сабагенту.
+
+**Критерий успеха** — сокращённый замер на 35B, 2 прохода:
+- поток — не больше 2 провалов из 32;
+- «50-я пробежка», «20 тренировок по спорту», «stay up past 11», «медитация и зарядка вместе» —
+  все 8 запусков;
+- Remind не хуже 9 и 9, «Also track» 3 и 3;
+- шаг 1, сессия на 30 фразах с одним блоком Open items на всех: не меньше 27 из 30, сравниваются
+  поля, как раньше.
+
+### Код
+
+- `reminder`: поле `condition` заменяет *on_answers: bool*; `ConditionInput` удаляется.
+- *read_condition* получает Open items (`open_items` из `items.py`) и разговор, контекст —
+  «Open items: …» и «Reminder text: …». Терминал `set_condition` получает поле `items`;
+  проверка items — в его валидаторе, по #id того же блока.
+- Preparation: `items_series` и счёт сейчас — как были, по items сессии. Правка Text руками
+  условие не читает (как в 12b).
+- Shell не меняется.
+
+### Тексты на согласование
+
+**1. `reminder`.** Поле:
+
+```text
+on_answers: For a Reminder on answers of Checks or Actions, instead of when.
+```
+
+В промпте `# Which tool`: «On answers of Checks or Actions: `reminder` with on_answers=true.»
+Раздел `# condition` удаляется. В `# Find the item`: «For `remind`: pick the user's item from Open
+items by meaning, in any language.» Подсказка при `when_counts_answers`: «Call reminder again
+with on_answers=true instead of when.»
+
+**2. Промпт сессии условия** — новые строки отмечены `+`:
+
+```text
+  Read one Reminder on answers of Checks or Actions. End with one call: set_condition or not_clear_enough.
+  The user's words are in the conversation; the Reminder text says which Reminder this is. Read the fields from the user's own words.
++ items: every item it counts, from Open items, by #id: 'Check #12' or 'Action #3, Action #5'. Checks or Actions, never both.
++ A group, such as 'tagged Sport' or 'my Health checks': every Open item with that Tag or Value.
++ Several items: their answers count together.
+  #12 is an item's id, never a count.
+  answer: yes is Passed of a Check or Done of an Action; no is Missed of a Check; any is every answer.
++ Read the answer against the item's title: 'when I stay up past 11' on «Went to bed by 23?» is no.
+  count: … (без изменений до конца)
+  Not clear, not_clear_enough: no number, like 'a decent run' or 'серьёзная серия', or no Open item fits. Never for in a row or once: decide them from the words.
+```
+
+Зачем каждая: `items` и группа — их делала строка `reminder`, теперь это работа сессии; «count
+together» — «медитация и зарядка вместе» сессия дважды отказала как «два Check в одном счёте»;
+«against the item's title» — «засиделся» на «Лёг до 23?»; «no Open item fits» — сессия, не
+нашедшая item, спрашивает, а не выдумывает.
+
+**3. Сценарии** (меняются исходы):
+- **RM-COND-030:** Safwa говорит только, что Reminder — на ответах; items выбирает и всё
+  остальное читает короткая сессия, из разговора и open items RM-AGENT-041; группа в словах —
+  каждый open item с этим Tag или Value; слова без числа или без подходящего item — обратно
+  Safwa спросить владельца. Уходит «a group … is listed by #id by Safwa before it proposes».
+- **RM-COND-031:** items, которые назвала сессия, проверяются до экрана; не те — сессии же, чтобы
+  назвала снова, а не Safwa.
+- **RM-UNCLEAR-028:** слова на ответы уходят Safwa «to set it on answers», а не «to name them as a
+  condition».
+
+### Цена
+
+- Open items — до 50 строк — в каждом вызове сессии условия, только у Reminder на ответах.
+- Сабагенту меньше: нет раздела `# condition` и полей `items`, `words`.
+- Item без Schedule в условие не попадёт: в Open items его нет. Счёт ответов у него и так почти
+  не набирается — одна Check, одно Done.
+
+### Не входит
+
+- «pills» в Remind — отдельно.
 
 ## Тексты на согласование
 

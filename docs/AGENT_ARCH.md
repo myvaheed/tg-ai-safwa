@@ -582,7 +582,11 @@ flowchart LR
   asked for.
 - **Every mutation tool belongs to a subagent**, never to the Advisor. `workspace_mutator` owns the workspace,
   `reminder` owns the Reminders and the Remind on an item, `diary` owns the Diary. Preparation
-  runs where the change was authored.
+  runs where the change was authored. `PreparationContext.conversation` is the conversation as
+  the subagent that made the call read it, in its window, so a short session of preparation's
+  own reads the owner's words rather than the call's retelling of them (`AG-SESSION-063`):
+  `run_mini_session` puts it before the session's context, under `CONVERSATION_SO_FAR` as the
+  subagent's own block is. A change prepared again after an edit or a switch has none.
 - **A proposal screen decides with Save and Discard, and Edit sets by hand what a call names**
   (`PR-EDIT-033`). A feature's `ProposalContribution.editable` maps a call's values to the
   `EditableField`s its own item screen has, and the shell offers only the values the call names.
@@ -773,8 +777,10 @@ the Cue row, exactly as for anything else Safwa says first.
 - A Reminder on answers has no `next_fire_at`, so neither the tick nor the start ever
   touches it. Its `condition` holds the items in words, the series of each, the answer, the
   count and whether in a row. The subagent names the items by #id in the `condition` of
-  `reminder` with the owner's words, and a short session of its own reads from the words what
-  it counts, never seeing the items; the `when` session reads only a time. Preparation keeps
+  `reminder`, and a short session of its own reads what it counts from the owner's words in
+  the conversation, the Reminder's text saying which of them it counts; it is never handed
+  the items, and an edit of the words by hand reads nothing again.
+  The `when` session reads only a time. Preparation keeps
   the series of each item (`items_series`)
   and refuses a group in words, both kinds, or an #id that does not exist (`RM-COND-031`): the
   subagent lists a group by #id first. Every copy

@@ -2,8 +2,8 @@ Feature: Reminders
   A Reminder is some words and when they come due, and nothing else: a time, or a count of answers of
   Checks or Actions. Nobody builds a schedule by hand — not the owner and not Safwa. A time arrives as plain
   words, one short session turns those words into parameters, and the schedule is worked out from
-  them in code; a count of answers arrives as its items and plain words, which a short session of
-  its own reads. When one comes due,
+  them in code; a count of answers arrives as its items, and a short session of its own reads the
+  owner's words. When one comes due,
   exactly one thing happens: the words are handed to Safwa as a
   request, and Safwa decides what to say.
 
@@ -214,8 +214,10 @@ Feature: Reminders
   Scenario: RM-COND-030 — A Reminder can come due on answers of Checks or Actions
     Given the owner asks for a word at every 3 Missed in a row of Check #12
     When Safwa proposes the Reminder
-    Then it names the items and passes the owner's words, and a short session reads from the words
-      the answer, how many, whether in a row and whether once; the items do not pass through it
+    Then it names the items, and a short session reads the answer, how many, whether in a row and
+      whether once; the items do not pass through it
+    And the short session reads the owner's words in the conversation as the reminder part read it,
+      by AG-SESSION-063, and the Reminder's own words say which of them it counts
     And the items are Checks or Actions by #id, such as "Check #12", "Check #12 «Sat straight?»" or
       "Action #3, Action #5", and code keeps the series of each, by the series id that stays when any
       copy is deleted

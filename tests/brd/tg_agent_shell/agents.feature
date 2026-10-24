@@ -86,6 +86,12 @@ Feature: Agents — the session, the hand-over, and what comes back
     And it is read again at every step, so a value saved in the same request is seen
     And a block that is empty adds nothing
 
+  Scenario: AG-SESSION-063 — A short session that prepares a call reads the conversation as its caller did
+    Given a subagent's call is prepared by a short session of its feature's own
+    Then that session can read the conversation as the subagent read it: the same newest messages,
+      in the same block, before its own context
+    And a change prepared again after the owner's edit or switch gives it no conversation
+
   Scenario: AG-SESSION-009 — A restart ends every piece of work that was waiting
     Given work was paused on a screen, or was running when the process stopped
     When Safwa starts again

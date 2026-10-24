@@ -37,6 +37,7 @@ from ..ai.contracts import ToolResultStatus
 from ..ai.conversation import kept_turn
 from ..ai.outcome import AIOutcome, AIOutcomeKind, as_turn
 from ..ai.steps import announce, preparing_line
+from ..ai.subagents import SUBAGENT_HISTORY_LAST_MESSAGES
 from ..ai.tools import (
     REPAIR_EXHAUSTED,
     ToolAdapters,
@@ -185,6 +186,13 @@ class ProposalMaterializer:
         # In the order the model made the calls, which is the order the owner reviews them in.
         prepared: list[tuple[str, ProposalChange]] = []
         decided = _decided_calls(agent.messages)
+        # A call's own short sessions read the conversation as the session that made it
+        # read it (AG-SESSION-063).
+        routed = self.adapters.subagents.get(agent.kind)
+        conversation = conversation_for(
+            agent.dialogue,
+            routed.history_messages if routed else SUBAGENT_HISTORY_LAST_MESSAGES,
+        )
         async with self.sessions() as session:
             # Preparation writes nothing, so every call of the response is made against this
             # one revision.
@@ -197,7 +205,9 @@ class ProposalMaterializer:
                     logger.info("AI TOOL %s already %s", tool.call.name, decision.value)
                     continue
                 try:
-                    change = await prepare_change(session, self.preparer, tool.change)
+                    change = await prepare_change(
+                        session, self.preparer, tool.change, conversation=conversation
+                    )
                 except ToolPreparationError as error:
                     failed_call_ids.add(tool.call.id)
                     preparation_results[tool.call.id] = error.as_tool_result()

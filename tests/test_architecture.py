@@ -35,6 +35,7 @@ from safwa.bootstrap.modules import (
 from safwa.features.advisor.agent import ITEMS, PERSONA, TALK_PERSONA
 from safwa.features.blueprint.hooks import ASKED_PROMPT
 from safwa.features.compass.agent import MORE_ABOUT_TOOL, SHOW_CONSTELLATION_TOOL
+from safwa.features.reminders.agent import REMINDER_CONDITION_PROMPT
 from safwa.features.schedules.agent import (
     DEADLINE_PARSER_PROMPT,
     SCHEDULE_PARSER_PROMPT,
@@ -311,6 +312,7 @@ def test_rule_i_prompt_prefix_is_byte_stable(request):
         "HEAVY_ANALYZER_PROMPT": _digest(HELPERS["heavy_analyzer"].instructions),
         "SCHEDULE_PARSER_PROMPT": _digest(SCHEDULE_PARSER_PROMPT),
         "DEADLINE_PARSER_PROMPT": _digest(DEADLINE_PARSER_PROMPT),
+        "REMINDER_CONDITION_PROMPT": _digest(REMINDER_CONDITION_PROMPT),
         "VALUE_LINK_PROMPT": _digest(VALUE_LINK_PROMPT),
         "BLUEPRINT_ASKED_PROMPT": _digest(ASKED_PROMPT),
     }

@@ -17,10 +17,12 @@ from typing import Any
 from opentelemetry import trace
 from pydantic import BaseModel, ValidationError
 
+from agent_runtime import append_user_message
 from agent_runtime.tracing import operation, record_output, tool_span
 from llm_gateway import CompletionRequest, LlmProvider, ToolCall
 
 from .contracts import ToolResultStatus, tool_json_schema
+from .conversation import conversation_note
 
 # A mini-session has one job and one terminal tool; it does not get the agent loop's budget.
 MINI_SESSION_REPAIR_ROUNDS = 3
@@ -82,6 +84,7 @@ async def run_mini_session(
     max_tool_calls: int | None,
     max_repairs: int = MINI_SESSION_REPAIR_ROUNDS,
     reasoning_effort: str | None = None,
+    conversation: str = "",
 ) -> MiniSessionResult:
     """Run until one terminal tool validates, or give up and say why.
 
@@ -89,6 +92,8 @@ async def run_mini_session(
     validation — is fed back as a retryable tool result, the same shape the main loop uses,
     so the model repairs the call instead of the caller guessing what it meant.
     `reasoning_effort` overrides the provider's own for every request of the session.
+    A `conversation` is read before the context, in the block a routed subagent reads it
+    in, so the session reads the owner's own words rather than a retelling of them.
     """
     with operation(
         "mini_session:" + ",".join(terminal.name for terminal in terminals),
@@ -100,10 +105,10 @@ async def run_mini_session(
         tools = [spec.schema for spec in read_tools] + [
             terminal.schema() for terminal in terminals
         ]
-        messages: list[dict[str, Any]] = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": context},
-        ]
+        messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
+        if conversation:
+            append_user_message(messages, conversation_note(conversation))
+        append_user_message(messages, context)
         calls = 0
         repairs = 0
         while True:
