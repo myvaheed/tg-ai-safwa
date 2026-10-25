@@ -100,7 +100,7 @@ async def test_rm_agent_041_the_reminder_part_is_handed_its_items_and_reminders(
         marathon = await create_card(session, kind="goal", title="Марафон", **one_day)
         water = await create_reminder(
             session,
-            instruction="Remind the user\nto drink water.",
+            remind_text="Remind the user\nto drink water.",
             schedule=resolve(days=list(WEEKDAY_NAMES), clock="07:00", now=datetime.now(UTC), tz=TZ),
             tz=TZ,
         )

@@ -137,7 +137,7 @@ class ReminderProposalHandler:
                 raise DomainError("A new Reminder needs a schedule")
             reminder = await create_reminder(
                 session,
-                instruction=str(values.get("instruction", "")),
+                remind_text=str(values.get("remind_text", "")),
                 schedule=schedule_from_payload(payload),
                 tz=tz,
                 actor=ActorType.AI,
@@ -153,9 +153,9 @@ class ReminderProposalHandler:
         reminder = await session.get(Reminder, change.entity_id)
         if reminder is None or reminder.version != change.expected_version:
             raise StaleStateError("A Reminder changed; refresh this proposal")
-        if values.get("instruction"):
+        if values.get("remind_text"):
             await update_reminder_text(
-                session, reminder.id, str(values["instruction"]), actor=ActorType.AI
+                session, reminder.id, str(values["remind_text"]), actor=ActorType.AI
             )
         if payload is not None:
             await reschedule_reminder(
@@ -228,6 +228,6 @@ async def _finds(session: AsyncSession, condition: Condition) -> str:
 
 
 async def owner_reminders(session: AsyncSession) -> list[tuple[int, str]]:
-    """Every Reminder the owner set, by its instruction (PR-SIMILAR-030)."""
-    rows = await session.execute(select(Reminder.id, Reminder.instruction))
-    return [(reminder_id, instruction) for reminder_id, instruction in rows]
+    """Every Reminder the owner set, by its remind_text (PR-SIMILAR-030)."""
+    rows = await session.execute(select(Reminder.id, Reminder.remind_text))
+    return [(reminder_id, remind_text) for reminder_id, remind_text in rows]

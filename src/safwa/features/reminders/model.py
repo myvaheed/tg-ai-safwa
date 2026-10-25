@@ -26,10 +26,10 @@ class ScheduleKind(StrEnum):
 
 
 class Reminder(Base, TimestampMixin):
-    """A trigger the owner set: instruction text plus a schedule, and nothing else.
+    """A trigger the owner set: what to remind them of plus a schedule, and nothing else.
 
     Deletion is the only off switch; there is no `archived_at` and no `active` flag. The
-    subject is named inside `instruction` as `#id` text rather than by a foreign key, so
+    subject is named inside `remind_text` as `#id` text rather than by a foreign key, so
     one Reminder may concern any number of Safwa items of any type.
 
     A Reminder that Remind made from a Card's or Check's Schedule also names that item in
@@ -54,7 +54,7 @@ class Reminder(Base, TimestampMixin):
 
     __tablename__ = "reminders"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    instruction: Mapped[str] = mapped_column(Text)
+    remind_text: Mapped[str] = mapped_column(Text)
 
     schedule_kind: Mapped[str] = mapped_column(String(20))
     weekdays: Mapped[list[str]] = mapped_column(JSON, default=list)

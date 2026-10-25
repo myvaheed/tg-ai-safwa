@@ -167,7 +167,7 @@ async def test_the_session_reads_the_last_day_and_the_total():
 async def _add(sessions, schedule, *, due, fired=0) -> int:
     async with sessions() as session:
         reminder = Reminder(
-            instruction="Stretch.", next_fire_at=due, fired=fired, **schedule_columns(schedule)
+            remind_text="Stretch.", next_fire_at=due, fired=fired, **schedule_columns(schedule)
         )
         session.add(reminder)
         await session.commit()

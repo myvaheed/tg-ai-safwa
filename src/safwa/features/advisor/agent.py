@@ -171,7 +171,7 @@ Memory is what the retro analysis of each Sprint left. You cannot change it.
 
 # Reminders
 
-A Reminder is a trigger the user set: instruction text plus a schedule.
+A Reminder is a trigger the user set: what to remind them of, plus a schedule.
 Questions Safwa asks on its own are automatic reactions. The user switches them off in Profile.
 
 # Photos

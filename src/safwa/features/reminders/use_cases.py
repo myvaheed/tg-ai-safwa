@@ -44,7 +44,7 @@ REMINDER_CREATED = "reminder.created"
 async def create_reminder(
     session: AsyncSession,
     *,
-    instruction: str,
+    remind_text: str,
     schedule: Schedule,
     tz: ZoneInfo,
     actor: ActorType = ActorType.USER_UI,
@@ -53,11 +53,11 @@ async def create_reminder(
 ) -> Reminder:
     """Store the owner's Reminder and compute its first fire. The schedule arrives already
     resolved; an item is named when Remind on its Schedule made it."""
-    clean = instruction.strip()
+    clean = remind_text.strip()
     if not clean:
         raise DomainError("Reminder text cannot be empty")
     reminder = Reminder(
-        instruction=clean,
+        remind_text=clean,
         next_fire_at=_first_fire(await firing_schedule(session, schedule, item_type), tz),
         item_type=item_type,
         item_id=item_id,
@@ -72,15 +72,15 @@ async def create_reminder(
 
 
 async def update_reminder_text(
-    session: AsyncSession, reminder_id: int, instruction: str, *, actor: ActorType = ActorType.USER_UI
+    session: AsyncSession, reminder_id: int, remind_text: str, *, actor: ActorType = ActorType.USER_UI
 ) -> Reminder:
-    """Edit what a Reminder tells the advisor, and nothing about when it fires."""
+    """Edit what a Reminder reminds the owner of, and nothing about when it fires."""
     reminder = await _existing_reminder(session, reminder_id)
     before = snapshot(reminder)
-    clean = instruction.strip()
+    clean = remind_text.strip()
     if not clean:
         raise DomainError("Reminder text cannot be empty")
-    reminder.instruction = clean
+    reminder.remind_text = clean
     reminder.version += 1
     await _record(session, reminder, UPDATE, actor, before)
     await bump_workspace(session)
@@ -130,7 +130,7 @@ async def _record(
     before: dict[str, Any] | None = None,
 ) -> None:
     await record_log_event(
-        session, "reminder", reminder, reminder.instruction, operation, actor, before
+        session, "reminder", reminder, reminder.remind_text, operation, actor, before
     )
 
 

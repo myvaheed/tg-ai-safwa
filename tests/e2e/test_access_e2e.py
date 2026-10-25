@@ -88,7 +88,7 @@ async def test_locked_reminders_arrive_and_hooks_wait_until_entry(
         else:
             reminder = await create_reminder(
                 session,
-                instruction="Remind me to stretch.",
+                remind_text="Remind me to stretch.",
                 schedule=resolve(now=moment, tz=tz, interval_minutes=120),
                 tz=tz,
             )

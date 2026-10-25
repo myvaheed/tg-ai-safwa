@@ -23,6 +23,7 @@ Feature: One plain-language Schedule for Actions and Checks
     Given a Schedule proposed in words on an Action or a Check
     When the proposal is prepared
     Then the Scheduler reads it before the review screen opens, and the screen shows how it was read
+    And the Scheduler writes its plan before its call, by AG-SESSION-064
     And Save writes the Schedule with that reading, so the Action or Check can be finished at once
     And a changed Schedule starts a new revision, while earlier answers keep the revision they were made under
 
@@ -131,7 +132,7 @@ Feature: One plain-language Schedule for Actions and Checks
     And Remind opens its choices: "Off", "At the time", "15 minutes before", "1 hour before", "1 day before",
       "✏️ Other" and "↩️ Back", the one in force marked "✅"
     And a choice makes a Reminder that many minutes before each of the Schedule's moments, by SCH-REMIND-028,
-      with the words "Remind is on for Action #12 «Stretch». Remind the owner about it." (REMIND_TEXT),
+      with the words "Action #12 «Stretch»" (REMIND_TEXT),
       and the Schedule comes back with "🔔 Remind: 15 minutes before"
     And a choice on a Reminder already made changes only how long before it fires
     And Other takes the minutes typed, 0 to 1440 (REMIND_LEAD_MAX_MINUTES), and refuses any other value on the same editor
@@ -235,6 +236,8 @@ Feature: One plain-language Schedule for Actions and Checks
       remind only when it creates the item
     And Remind on an item whose Schedule has no clock still ahead goes back to the model,
       "Remind needs a Schedule with a time still ahead.", and nothing is proposed
+    And the reminder part is told only to ask the owner when it happens (REMIND_ASK_HINT), and a
+      new item's own tool also to send that time with remind (REMIND_TIME_HINT)
 
   Scenario: SCH-PERIOD-031 — An open instance is on the period it is in, and a closing counts for it
     Given an Action every day, and a Check every day at 20:00

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
+from agent_turns import PLAN
 
 from llm_gateway import CompletionTurn, ToolCall
 from safwa.features.cards.model import Card, CardStage
@@ -375,7 +376,7 @@ async def test_compiler_repairs_clock_arguments_without_asking_the_owner(session
     async def complete(request):
         calls.append(request)
         return CompletionTurn(
-            content="",
+            content=PLAN,
             tool_calls=[
                 ToolCall(
                     id=str(len(calls)),
@@ -622,7 +623,7 @@ def _answering(name, arguments):
     async def complete(request):
         requests.append(request)
         return CompletionTurn(
-            content="",
+            content=PLAN,
             tool_calls=[ToolCall(id="1", name=name, arguments_json=json.dumps(arguments))],
         )
 
@@ -683,6 +684,7 @@ async def test_a_proposed_schedule_is_read_before_its_proposal_is_saved(sessions
     from safwa.bootstrap.modules import PROPOSALS
     from safwa.features.cards.telegram.review import CardProposalPresenter
     from safwa.features.checks.telegram.review import CheckProposalPresenter
+    from tg_agent_shell.ai.mini import PLAN_FIRST
     from tg_agent_shell.proposals.api import ApplyContext, Effect, ProposalChange
     from tg_agent_shell.proposals.marks import field_line
     from tg_agent_shell.proposals.prepare import ChangePreparer
@@ -697,6 +699,7 @@ async def test_a_proposed_schedule_is_read_before_its_proposal_is_saved(sessions
         change = PROPOSALS.change_from_tool("action" if entity == "card" else entity, arguments)
         prepared = await ChangePreparer(provider, None, PROPOSALS).prepare(session, change)
         assert len(requests) == 1
+        assert requests[0].messages[0]["content"].endswith(PLAN_FIRST)
         assert prepared.values["schedule_rule"] == {"kind": "quota", "period": "day", "count": 1}
         proposal = ProposalChange(entity=entity, action=change.action, values=prepared.values)
         presenter = CardProposalPresenter() if entity == "card" else CheckProposalPresenter()
@@ -790,7 +793,7 @@ async def test_a_clock_alone_never_makes_a_one_time_appointment():
         calls.append(request)
         arguments = {"time": "20:00"} if len(calls) == 1 else {"days": every_day, "time": "20:00"}
         return CompletionTurn(
-            content="",
+            content=PLAN,
             tool_calls=[
                 ToolCall(
                     id=str(len(calls)),

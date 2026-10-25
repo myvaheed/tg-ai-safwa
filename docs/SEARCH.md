@@ -177,7 +177,7 @@ Safwa's choices sit in [modules.py](../src/safwa/bootstrap/modules.py):
   | `ai_values` | `value` | `values` | name, description |
   | `ai_tags` | `tag` | `tags` | name, description |
   | `ai_requests` | `request` | `saved_requests` | name, description |
-  | `ai_reminders` | `reminder` | `reminders` | instruction |
+  | `ai_reminders` | `reminder` | `reminders` | remind_text |
   | `ai_diary` | `diary` | `diary_entries` | body |
 
 - What the creating screen compares and which items are open: each feature's `SimilarItems`.

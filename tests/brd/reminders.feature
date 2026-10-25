@@ -114,6 +114,7 @@ Feature: Reminders
     Given a Reminder comes due
     When it goes off
     Then Safwa is given the words and the schedule as one request
+    And each Reminder's words follow "The user asked to be reminded of: "
     And Safwa reads the same conversation it would read for anything the owner said
     And what it says goes into the chat as something Safwa said unasked, by TG-KIND-002
     And nothing in between decides what the Reminder meant — that is Safwa's job

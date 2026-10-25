@@ -79,7 +79,7 @@ async def tracker_call(context: PreparationContext, change: ProposalChange) -> A
             context.provider,
             system_prompt=SET_TRACKER_PROMPT,
             context=(
-                f"Reminder: {change.values.get('instruction', '')}\n"
+                f"Reminder: {change.values.get('remind_text', '')}\n"
                 f"Values: {', '.join(names) or 'none'}"
             ),
             terminals=(TerminalTool("set_tracker", "The tracker.", KnownValues),),

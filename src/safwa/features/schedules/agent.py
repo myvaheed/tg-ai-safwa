@@ -58,6 +58,8 @@ from .api import (
 from .rules import END_OF_DAY, daily_executions, first_slot
 
 REMIND_TIME_HINT = "Ask the user when it happens, then send schedule with that time and remind."
+# Remind on an item already made is the reminder subagent's `remind`, which has no schedule.
+REMIND_ASK_HINT = "Ask the user when it happens."
 ACTION_LIMIT_QUESTION = (
     f"An Action can repeat at most {ACTION_DAILY_EXECUTIONS_MAX} times a day. "
     "Make it a Check instead, or choose fewer times."
@@ -279,6 +281,7 @@ class ScheduleCompiler:
                     ),
                 ),
                 max_tool_calls=MINI_SESSION_MAX_TOOL_CALLS,
+                plan_required=True,
             )
         except MiniSessionError:
             forms = DEADLINE_FORMS if deadline else SCHEDULE_FORMS
@@ -360,7 +363,8 @@ async def read_proposed_remind(
     else:
         ahead = item is not None and remind_timing(item, now) is not None
     if not ahead:
-        raise ToolPreparationError("remind_needs_time", REMIND_NEEDS_TIME, REMIND_TIME_HINT)
+        hint = REMIND_TIME_HINT if item is None or "schedule" in values else REMIND_ASK_HINT
+        raise ToolPreparationError("remind_needs_time", REMIND_NEEDS_TIME, hint)
 
 
 class ScheduledQuery(ToolInput):

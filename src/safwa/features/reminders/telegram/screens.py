@@ -53,7 +53,7 @@ TEXT_INSTRUCTION = (
 )
 # A Reminder proposal's words, asked for as its own Text asks for them (RM-EDIT-038).
 REMINDER_REVIEW_FIELDS = {
-    "instruction": EditableField(
+    "remind_text": EditableField(
         "✏️ Text",
         TEXT_TITLE,
         parse=required_text("Reminder text"),
@@ -71,7 +71,7 @@ async def reminder_title(session: AsyncSession, services: Any, reminder: Reminde
     words. The item is read through the screens catalogue, so this feature names none."""
     spec = services.screens.by_type.get(reminder.item_type) if reminder.item_type else None
     item = await session.get(spec.model, reminder.item_id) if spec is not None else None
-    words = item.title if item is not None else (reminder.instruction.strip().splitlines() or [""])[0]
+    words = item.title if item is not None else (reminder.remind_text.strip().splitlines() or [""])[0]
     return words if len(words) <= _TEXT_PREVIEW else words[: _TEXT_PREVIEW - 1].rstrip() + "…"
 
 
@@ -194,7 +194,7 @@ async def render_reminder_text_prompt(
         reminder = await session.get(Reminder, reminder_id)
         if reminder is None:
             raise DomainError("Reminder does not exist")
-        current = reminder.instruction
+        current = reminder.remind_text
     await render_text_input(
         message,
         services,
@@ -234,7 +234,7 @@ async def render_reminder_delete_prompt(
         message,
         services,
         f"<b>Delete this Reminder?</b>\n{html.escape(schedule)}\n"
-        f"{html.escape(reminder.instruction)}\n\n"
+        f"{html.escape(reminder.remind_text)}\n\n"
         "It stops firing immediately. There is no archive for a Reminder.",
         kind=MessageKind.APPROVAL,
         markup=InlineKeyboardMarkup(inline_keyboard=[[confirm], [leave]]),
@@ -262,7 +262,7 @@ def _detail_text(
     elif schedule.total or schedule.until:
         fired = f"{reminder.fired} of {schedule.total} fired. " if schedule.total else ""
         lines.append(f"{fired}Deletes itself after its last time.")
-    lines.extend(["", markdown_to_telegram_html(reminder.instruction), "", "<i>Timing is set through your advisor.</i>"])
+    lines.extend(["", markdown_to_telegram_html(reminder.remind_text), "", "<i>Timing is set through your advisor.</i>"])
     return "\n".join(lines)
 
 

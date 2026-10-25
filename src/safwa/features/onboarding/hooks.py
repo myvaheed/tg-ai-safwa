@@ -183,7 +183,7 @@ async def _line(
         )
     if item == "reminder":
         reminder = await session.get(Reminder, item_id)
-        return None if reminder is None else f'{verbs} a Reminder "{reminder.instruction}"'
+        return None if reminder is None else f'{verbs} a Reminder "{reminder.remind_text}"'
     if item == "diary":
         entry = await session.get(DiaryEntry, item_id)
         return (

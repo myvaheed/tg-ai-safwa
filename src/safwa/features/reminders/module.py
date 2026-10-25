@@ -29,7 +29,7 @@ MODULE = FeatureModule(
             tool=agent.REMINDER_TOOL,
             presenter=telegram.ReminderProposalPresenter(),
             editable=lambda _call: telegram.REMINDER_REVIEW_FIELDS,
-            similar=SimilarItems(field="instruction", open_items=proposal.owner_reminders),
+            similar=SimilarItems(field="remind_text", open_items=proposal.owner_reminders),
             switches=(tracker.TRACK_SWITCH,),
         ),
     ),

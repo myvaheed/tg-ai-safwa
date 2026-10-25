@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
-from advisor_e2e_helpers import create_manual_card, mutation_turn, route_turn, save
+from advisor_e2e_helpers import create_manual_card, mutation_turn, route_turn, save, schedule_turn
 from aiogram.exceptions import TelegramAPIError
 from review_e2e_helpers import (
     QueueTestCallback,
@@ -1430,16 +1430,7 @@ async def test_cd_hardtime_033_a_schedule_is_read_before_its_proposal_is_saved(e
                 )
             ),
             "Proposed the call.",
-            ProviderTurn(
-                content="",
-                tool_calls=(
-                    ProviderToolCall(
-                        id="setup-1",
-                        name="set_schedule_config",
-                        arguments_json=json.dumps({"days": ["Mon", "Wed"], "time": "09:00"}),
-                    ),
-                ),
-            ),
+            schedule_turn(days=["Mon", "Wed"], time="09:00"),
         ]
     )
 

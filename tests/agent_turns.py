@@ -54,7 +54,7 @@ def mutation_turn(
 def schedule_turn(terminal: str = "set_schedule_config", **arguments: object) -> ProviderTurn:
     """The Scheduler reading a proposed Schedule while its proposal is prepared."""
     return ProviderTurn(
-        content="",
+        content=PLAN,
         tool_calls=(
             ProviderToolCall(id="schedule", name=terminal, arguments_json=json.dumps(arguments)),
         ),

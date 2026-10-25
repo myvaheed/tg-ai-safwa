@@ -1672,6 +1672,163 @@ streak» и «whenever any check gets answered» прошли оба раза; �
 Владелец решил: Remind при создании остаётся, `about` откатан — `reason` снова первым в
 `ReminderUnclearInput`.
 
+## Батч 16 — план перед вызовом в разборе Schedule
+
+`ScheduleCompiler` — сессия, которая читает Schedule у Action и Check и Deadline у Goal, —
+пишет план перед вызовом, как сессии `when` и условия с 12d: `plan_required=True`, и к её
+промпту добавляется та же строка `PLAN_FIRST`. SCH-COMPILE-004 говорит это по AG-SESSION-064.
+
+**Критерий успеха** — 24 фразы Schedule из `test_timing_phrases_live.py`, 2 прохода на 35B, не
+меньше, чем без плана, в каждом проходе.
+
+### Замер на 35B, 2 прохода
+
+| | Без плана | С планом |
+|---|---|---|
+| Фразы Schedule, из 24 | 24 и 24 | 24 и 24 |
+| Время, с | 114 и 95 | 108 и 138 |
+
+Критерий выполнен. Набор на потолке, так что выигрыша он показать не может; время в пределах
+разброса проходов. Deadline своего набора фраз не имеет и отдельно не мерился.
+
+## Батч 17 — `remind_text` вместо `instruction`
+
+Владелец решил: текст Reminder — то, о чём пользователь просил напомнить, а не поручение
+Advisor. Имя — `remind_text` везде, где `instruction` значило текст Reminder: поле инструмента
+`reminder`, столбец `reminders.remind_text`, `ai_reminders.remind_text`, use cases, срабатывание,
+review, экраны, поиск, хук онбординга. Подписи экранов («✏️ Text») и подсказка редактора
+`instruction` у `EditableField` не меняются. Снимки: промпт и схема, таблица `reminders`.
+
+Тексты, согласованные владельцем:
+- строка Cue: «The user asked to be reminded of: {remind_text}» вместо «Text: …»;
+- поле `remind_text`: «What the user asked to be reminded of, in their own words. Name every item
+  it concerns: by #id when it is listed, otherwise by its title.»;
+- инструмент `reminder`: «Propose one Reminder: what to remind the user of, and when.»;
+- `REMIND_TEXT`: «{label} #{id} «{title}»», так что Cue говорит «The user asked to be reminded of:
+  Action #12 «Stretch»»;
+- Advisor: «A Reminder is a trigger the user set: what to remind them of, plus a schedule.»;
+- онбординг: «When it fires, Safwa reminds you of what you asked.»
+
+Сценарии: RM-FIRE-011 — слова каждого Reminder идут за «The user asked to be reminded of: »;
+SCH-REMIND-019 — литерал `REMIND_TEXT`; PR-SIMILAR-030 — «a Reminder's words».
+
+**Критерий успеха** — 2 прохода шага 2 на 35B: фразы `goal`, поток, Remind, «Also track» и новый
+item с Remind не хуже 15. Ответ Advisor на сработавший Reminder живой тест не мерит.
+
+### Замер на 35B, 2 прохода
+
+| | 15 | 17 |
+|---|---|---|
+| Фразы `goal`, из 24 | 23 и 22 | 23 и 20 |
+| Поток цели серии, провалов из 16 | 2 и 3 | 3 и 0 |
+| Remind на item, из 10 | 10 и 10 | 9 и 10 |
+| «📊 Also track», из 3 | 3 и 3 | 3 и 3 |
+| Новый item с Remind, из 8 | 5 и 7 | 7 и 7 |
+| Время шага 2, с | 427 и 410 | 386 и 325 |
+
+Критерий выполнен, кроме фраз `goal` во втором проходе. Их читает сессия `when`, которую батч не
+трогал: «если пропущу #21 три дня подряд», «21-day streak», «five mornings in a row» и «whenever any
+check gets answered» — `about=time`, как и раньше. Это разброс набора: 20–24 за проход.
+
+Поток второго прохода без провалов, как первые проходы 12e и 13. В первом:
+- «three nights in a row» — `when` вместо *on_answers*, как в 15;
+- «каждый раз, когда я отвечаю «нет» на зарядку» — сессия условия взяла два Check вместо одного;
+- «50-я пробежка» — не предложено ничего, как в 13 и 14.
+
+`remind_text` теперь чаще — слова владельца: «ask me what kept me up when I stay up past 11 three
+nights in a row», «ping me when it's time for my pills», «выпить стакан воды». Счёт в тексте
+остался в первом проходе в двух фразах, во втором в одной: «Check running tally of misses for
+«Read 20 minutes?»… On every 7th miss…» оба раза и «Проверь, сколько раз ты уже прочитал 20 минут».
+
+Фраза без времени — 0 из 2, как в 15. Владелец решил: после Save её ловят продолжение цепочки и
+request review, так что новое предложение без Remind допустимо.
+
+## Батч 18 — заголовок без «for `remind`» (откатан), подсказка для `remind` (оставлена)
+
+- Заголовок блока сабагента `reminder`: «Open items with a Schedule:» вместо «Open items with a
+  Schedule, for `remind`:». «Read 20 minutes 30 times» с 14 давала `nothing_to_do` («Cannot create a
+  count-based trigger») 4 раза из 4; заголовок говорил, что эти items — для `remind`.
+- Отказ `remind_needs_time` на `remind` уже созданного item — подсказка `REMIND_ASK_HINT`, «Ask the
+  user when it happens.»: у сабагента `reminder` нет `schedule`. Инструмент нового item получает
+  прежнюю `REMIND_TIME_HINT`. SCH-REMIND-029 говорит обе.
+
+**Критерий успеха** — 2 прохода шага 2 на 35B: «Read 20 minutes 30 times» проходит оба раза;
+остальное не хуже 17.
+
+### Замер на 35B, 2 прохода
+
+| | 17 | 18 |
+|---|---|---|
+| Фразы `goal`, из 24 | 23 и 20 | 21 и 21 |
+| Поток цели серии, провалов из 16 | 3 и 0 | 2 и 4 |
+| Remind на item, из 10 | 9 и 10 | 7 и 9 |
+| «📊 Also track», из 3 | 3 и 3 | 3 и 3 |
+| Новый item с Remind, из 8 | 7 и 7 | 6 и 6 |
+| Время шага 2, с | 386 и 325 | 327 и 422 |
+
+Критерий не выполнен. «Read 20 minutes 30 times» — снова `nothing_to_do` оба раза, и сабагент сам
+говорит причину: «reminders only work at scheduled times or on individual answers, not on
+totals». Во втором проходе так же «После каждых 10 пробежек» («Safwa не умеет считать количество
+выполнений») и «7 утр подряд». Дело не в заголовке: сабагент читает «On answers of Checks or
+Actions» в «# Which tool» как каждый ответ, а не их счёт.
+
+Remind хуже: «heads-up two hours ahead of Call mom» оба раза — `reminder` с посчитанным временем
+вместо `remind`, семья из 12 и 13b; «pills» и «the moment Растяжка starts» по разу. Без «for
+`remind`» сабагент реже берёт `remind` на item со Schedule.
+
+new-04 «Action 'Call mom' on Sunday at 19:00, remind me when it is time» оба раза ушла к сабагенту
+`reminder` — маршрут Advisor, как в первом проходе 15. Подсказку `REMIND_ASK_HINT` замер не задел:
+`remind_needs_time` пришёл только mutator, на фразе без времени.
+
+Владелец решил: заголовок откатан, «Open items with a Schedule, for `remind`:» снова; подсказка
+`REMIND_ASK_HINT` остаётся.
+
+## Батч 18b — счёт ответов в «# Which tool» (откатан)
+
+Строка `REMINDER_AGENT_PROMPT` в «# Which tool»:
+
+```text
+- On answers of Checks or Actions, each one or a count of them: `reminder` with on_answers=true.
+```
+
+вместо «- On answers of Checks or Actions: `reminder` with on_answers=true.» Сабагент читал её как
+каждый ответ по отдельности и отвечал `nothing_to_do` на счёт: «not on totals», «не умеет считать
+количество выполнений».
+
+**Критерий успеха** — 2 прохода шага 2 на 35B: «Read 20 minutes 30 times» проходит оба раза, в
+потоке ни одного `nothing_to_do` о счёте; Remind не хуже 17.
+
+### Замер на 35B, 2 прохода
+
+| | 17 | 18 | 18b |
+|---|---|---|---|
+| Фразы `goal`, из 24 | 23 и 20 | 21 и 21 | 21 и 21 |
+| Поток цели серии, провалов из 16 | 3 и 0 | 2 и 4 | 3 и 1 |
+| Remind на item, из 10 | 9 и 10 | 7 и 9 | 10 и 10 |
+| «📊 Also track», из 3 | 3 и 3 | 3 и 3 | 3 и 3 |
+| Новый item с Remind, из 8 | 7 и 7 | 6 и 6 | 5 и 7 |
+| «Read 20 minutes 30 times», проходов из 2 | 2 | 0 | 1 |
+| `nothing_to_do` о счёте за проход | 2 и 0 | 1 и 2 | 3 и 0 |
+| Время шага 2, с | 386 и 325 | 327 и 422 | 374 и 403 |
+
+Критерий не выполнен: «Read 20 minutes 30 times» прошла один раз из двух, и в первом проходе
+сабагент трижды ответил, что счёта нет: «current tools don't support count-based triggers», «only
+immediate reminders on single answers or scheduled times». За пять батчей эта фраза проходит от
+0 до 2 раз без связи с правками, и `nothing_to_do` о счёте — от 0 до 3 за проход: строка сдвига
+не дала. Remind с вернувшимся заголовком — 10 и 10.
+
+Остальные провалы до сабагента не доходят или его не касаются:
+- «ping me every time I've skipped my reading 7 times» оба раза — Advisor сам искал «reading»
+  через `query_data` и не отдал запрос;
+- «three nights in a row» — `when` вместо *on_answers*, затем `nothing_to_do`;
+- new-03 и new-04 в первом проходе, new-04 во втором — Advisor отдал их сабагенту `reminder`;
+- фраза без времени во втором проходе впервые прошла: mutator спросил время.
+
+Фразы `goal` читает сессия `when`; их 21 и 21 — тот же разброс.
+
+Владелец решил: строка откатана, снова «- On answers of Checks or Actions: `reminder` with
+on_answers=true.». В коммит идут 16, 17 и подсказка 18.
+
 ## Тексты на согласование
 
 Mutator не меняется: он передаёт слова владельца в `when` как есть.
@@ -1725,11 +1882,8 @@ Checks, ai_cards for Done of Actions.» (её говорит контекст с
 
 - Подстраховка `about=answers` в сессии `when`. Сабагент всё ещё иногда кладёт ответы в `when` (12d:
   «на 7 да подряд в проверках Здоровье»); с планом она ловит 18–19 таких фраз из 20.
-- Строка поля `instruction` «Name every item it concerns by #id». По ней Advisor при срабатывании
-  узнаёт item. С 12e этот текст не видит ни одна короткая сессия.
 - RM-EDIT-038: после правки Text время читается снова, хотя его слова не менялись. Убрать — изменение
   исхода сценария.
-- План перед вызовом в разборе Schedule (`ScheduleCompiler`): с планом его не мерили.
 - Три самодельных блока разговора — heavy analyzer, action review, request review — перевести на общий
   механизм; заметка в FEATURE_MODULES.
 

@@ -274,7 +274,7 @@ Feature: Proposals
     And an open item is a Card not Done and not archived, a Check not answered, any Value, Tag
       or Request, and a Reminder the owner set
     And the words compared are a Card's or a Check's title, a Value's, a Tag's or a Request's
-      name, and a Reminder's instruction
+      name, and a Reminder's words
     When nothing is that alike, or the proposal changes or deletes an item
     Then the screen has no such list
     When the text model has not finished loading, or fails

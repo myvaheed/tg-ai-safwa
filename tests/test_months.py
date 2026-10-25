@@ -154,7 +154,7 @@ async def test_startup_works_it_out_again_after_a_timezone_move(sessions):
     schedule = resolve(month_days=[15], clock="09:00", now=NOW, tz=TZ)
     async with sessions() as session:
         reminder = Reminder(
-            instruction="Pay the rent.",
+            remind_text="Pay the rent.",
             next_fire_at=next_fire(schedule, previous=None, now=NOW, tz=TZ),
             **schedule_columns(schedule),
         )
@@ -191,7 +191,7 @@ async def test_safwa_reads_days_of_the_month_in_ai_reminders(read_views):
     async with sessions() as session:
         await create_reminder(
             session,
-            instruction="Pay the bills.",
+            remind_text="Pay the bills.",
             schedule=resolve(month_days=[1, 15], clock="09:00", now=datetime.now(UTC), tz=TZ),
             tz=TZ,
         )

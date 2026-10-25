@@ -207,7 +207,7 @@ async def test_remind_stays_as_its_instance_moves_on_and_follows_the_answer(
         version = reminder.version
         await update_check_fields(session, check.id, {"title": "Took the evening pills?"})
         assert (reminder.version, reminder.next_fire_at) == (version + 1, day(1, 20))
-        assert "Took the evening pills?" in reminder.instruction
+        assert "Took the evening pills?" in reminder.remind_text
 
         now(day(1, 21))
         _, wednesday = await resolve_check(session, check.id, "passed")

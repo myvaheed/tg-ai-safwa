@@ -56,7 +56,7 @@ async def test_free_text_on_item_screens_renders_markdown(sessions, item_type):
         elif item_type == "reminder":
             item = await create_reminder(
                 session,
-                instruction=WORDS,
+                remind_text=WORDS,
                 tz=ZoneInfo("UTC"),
                 schedule=resolve(interval_minutes=120, now=datetime.now(UTC), tz=ZoneInfo("UTC")),
             )
@@ -66,7 +66,7 @@ async def test_free_text_on_item_screens_renders_markdown(sessions, item_type):
         item_id = item.id
         stored = getattr(
             item,
-            {"card": "note", "check": "note", "diary": "body", "reminder": "instruction"}.get(
+            {"card": "note", "check": "note", "diary": "body", "reminder": "remind_text"}.get(
                 item_type, "description"
             ),
         )

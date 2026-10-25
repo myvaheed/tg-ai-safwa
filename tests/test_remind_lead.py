@@ -29,6 +29,7 @@ from safwa.features.reminders.api import (
 from safwa.features.reminders.firing import Firing, format_cue, tick
 from safwa.features.reminders.model import Reminder, ScheduleKind
 from safwa.features.reminders.use_cases import create_reminder
+from safwa.features.schedules.agent import REMIND_ASK_HINT, REMIND_TIME_HINT
 from safwa.features.schedules.api import REMIND_NEEDS_TIME, entity_reminder
 from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.proposals.api import ApplyContext, Effect, ProposalChange, ToolPreparationError
@@ -106,15 +107,16 @@ async def test_a_lead_already_passed_fires_at_once_while_the_moment_is_ahead(ses
             ("Stretch", replace(daily, lead_minutes=60)),
             ("Walk", replace(daily, lead_minutes=past)),
         ):
-            await create_reminder(session, instruction=words, schedule=schedule, tz=TZ)
+            await create_reminder(session, remind_text=words, schedule=schedule, tz=TZ)
         await session.commit()
 
     assert await tick(sessions, tz=TZ, now=now) is True
     async with sessions() as session:
         [cue] = list(await session.scalars(select(Cue)))
-        assert "Text: Call" in cue.text and "Text: Stretch" in cue.text
+        assert "The user asked to be reminded of: Call" in cue.text
+        assert "The user asked to be reminded of: Stretch" in cue.text
         assert "Walk" not in cue.text and "Was due" not in cue.text
-        walk = await session.scalar(select(Reminder).where(Reminder.instruction == "Walk"))
+        walk = await session.scalar(select(Reminder).where(Reminder.remind_text == "Walk"))
         assert walk.next_fire_at == moment + timedelta(days=1) - timedelta(minutes=past)
 
 
@@ -125,7 +127,7 @@ def test_its_words_say_how_late_only_once_the_moment_has_passed() -> None:
     def cue(late: int, lead: int) -> str:
         due = now - timedelta(minutes=late)
         return format_cue(
-            [Firing(reminder_id=1, instruction="x", schedule="s", due_at=due, lead_minutes=lead)],
+            [Firing(reminder_id=1, remind_text="x", schedule="s", due_at=due, lead_minutes=lead)],
             now=now,
         )
 
@@ -141,7 +143,7 @@ async def test_safwa_reads_the_lead_in_ai_reminders(read_views) -> None:
         kind=ScheduleKind.ONCE, at_time=moment.astimezone(TZ).time(), anchor_at=moment, lead_minutes=45
     )
     async with sessions() as session:
-        await create_reminder(session, instruction="Call", schedule=once, tz=TZ)
+        await create_reminder(session, remind_text="Call", schedule=once, tz=TZ)
         await session.commit()
     (row,) = (await runner.run("SELECT lead_minutes FROM ai_reminders")).rows
     assert row["lead_minutes"] == 45
@@ -244,5 +246,16 @@ async def test_remind_without_a_clock_still_ahead_goes_back_to_the_model(session
         with pytest.raises(ToolPreparationError) as refusal:
             await ChangePreparer(None, None, PROPOSALS).prepare(session, change)
         result = refusal.value.as_tool_result()
-        assert (result["code"], result["error"]) == ("remind_needs_time", REMIND_NEEDS_TIME)
+        # The `remind` that set it has no schedule to send.
+        assert (result["code"], result["error"], result["hint"]) == (
+            "remind_needs_time",
+            REMIND_NEEDS_TIME,
+            REMIND_ASK_HINT,
+        )
         assert await session.scalar(select(func.count(Reminder.id))) == 0
+    # A new item's own tool does.
+    create = PROPOSALS.change_from_tool("action", {"mode": "create", "title": "Call", "remind": 0})
+    async with sessions() as session:
+        with pytest.raises(ToolPreparationError) as refusal:
+            await ChangePreparer(None, None, PROPOSALS).prepare(session, create)
+    assert refusal.value.as_tool_result()["hint"] == REMIND_TIME_HINT

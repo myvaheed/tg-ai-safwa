@@ -59,11 +59,11 @@ def _reminder(schedule, action: ChangeAction = ChangeAction.CREATE) -> ProposalC
         entity="reminder",
         action=action,
         values={
-            "instruction": WORDS,
+            "remind_text": WORDS,
             "schedule": schedule_payload(schedule),
             "schedule_text": describe(schedule, tz=TZ),
         },
-        source=AgentChange(entity="reminder", action=action, values={"instruction": WORDS}),
+        source=AgentChange(entity="reminder", action=action, values={"remind_text": WORDS}),
     )
 
 
@@ -99,7 +99,7 @@ def test_only_a_new_reminder_at_a_time_of_day_offers_it():
     assert not tracked(_reminder(resolve(interval_minutes=120, now=now, tz=TZ)))
     assert not tracked(_reminder(_every_morning(), ChangeAction.UPDATE))
     condition = ProposalChange(
-        entity="reminder", action=ChangeAction.CREATE, values={"instruction": WORDS}
+        entity="reminder", action=ChangeAction.CREATE, values={"remind_text": WORDS}
     )
     assert not tracked(condition)
 

@@ -54,7 +54,7 @@ class Firing:
     """One due Reminder, resolved and ready to be written into the Cue."""
 
     reminder_id: int
-    instruction: str
+    remind_text: str
     schedule: str
     due_at: datetime
     # The last fire of a repeat that ends; once written down the Reminder deletes itself.
@@ -110,7 +110,7 @@ async def prepare(
         firings.append(
             Firing(
                 reminder_id=reminder.id,
-                instruction=reminder.instruction,
+                remind_text=reminder.remind_text,
                 schedule=describe(schedule, tz=tz, now=now),
                 due_at=reminder.next_fire_at,
                 last=(schedule.total is not None and reminder.fired + 1 >= schedule.total)
@@ -195,7 +195,7 @@ async def fire_conditions(
         firings.append(
             Firing(
                 reminder_id=reminder.id,
-                instruction=reminder.instruction,
+                remind_text=reminder.remind_text,
                 schedule=f"{describe(schedule, tz=tz)}; {count}",
                 due_at=now,
                 last=condition.once,
@@ -225,7 +225,7 @@ def format_cue(firings: list[Firing], *, now: datetime) -> str:
     ]
     for position, firing in enumerate(firings, start=1):
         blocks.append(f"{position}. Reminder #{firing.reminder_id}")
-        blocks.append(f"   Text: {firing.instruction}")
+        blocks.append(f"   The user asked to be reminded of: {firing.remind_text}")
         blocks.append(f"   Schedule: {firing.schedule}")
         lateness = _lateness(firing, now=now)
         if lateness:

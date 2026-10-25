@@ -40,8 +40,8 @@ def _lines(values: Mapping[str, Any], when_field: str) -> list[str]:
     """The words and the time of a Reminder, as the owner reads them: never the stored
     schedule, which is parameters rather than words."""
     lines = []
-    if values.get("instruction"):
-        lines.append(f"Words: {result_value(values['instruction'])}")
+    if values.get("remind_text"):
+        lines.append(f"Words: {result_value(values['remind_text'])}")
     if values.get(when_field):
         lines.append(f"When: {result_value(values[when_field])}")
     return lines
@@ -68,7 +68,7 @@ class ReminderProposalPresenter:
             if change.entity_id is not None
             else None
         )
-        text = str(values.get("instruction") or (reminder.instruction if reminder else ""))
+        text = str(values.get("remind_text") or (reminder.remind_text if reminder else ""))
         head = f"Reminder “{result_value(text)}”" if text else f"Reminder #{change.entity_id}"
         verb = ACTION_VERBS.get(change.action, change.action.title())
         schedule = values.get("schedule_text")
@@ -94,7 +94,7 @@ class ReminderProposalPresenter:
 
         current = (
             {
-                "words": reminder.instruction,
+                "words": reminder.remind_text,
                 "when": describe(schedule_of(reminder), tz=tz, now=now),
                 "first": at(reminder.next_fire_at),
             }
@@ -108,7 +108,7 @@ class ReminderProposalPresenter:
             else None
         )
         proposed = {
-            "words": values.get("instruction") or current.get("words"),
+            "words": values.get("remind_text") or current.get("words"),
             "when": values.get("schedule_text") or current.get("when"),
             "first": at(next_fire(firing, previous=None, now=now, tz=tz))
             if firing is not None

@@ -118,7 +118,7 @@ async def test_a_schedule_with_a_clock_offers_remind_beside_edit(sessions) -> No
     await _press(message, services, "🔔 Remind: Off")
     await _press(message, services, "15 minutes before")
     [reminder] = await _reminders(sessions)
-    assert reminder.instruction == REMIND_TEXT.format(label="Action", id=ids["action"], title="Stretch")
+    assert reminder.remind_text == REMIND_TEXT.format(label="Action", id=ids["action"], title="Stretch")
     assert (reminder.item_type, reminder.item_id) == ("card", ids["action"])
     assert (reminder.schedule_kind, reminder.at_time, reminder.lead_minutes) == ("daily", time(20, 0), 15)
     assert reminder.next_fire_at == appointment - timedelta(minutes=15)
@@ -128,7 +128,7 @@ async def test_a_schedule_with_a_clock_offers_remind_beside_edit(sessions) -> No
     assert "✅ 15 minutes before" in button_texts(message.edits[-1][1])
     await _press(message, services, "1 hour before")
     [moved] = await _reminders(sessions)
-    assert (moved.id, moved.instruction, moved.lead_minutes) == (reminder.id, reminder.instruction, 60)
+    assert (moved.id, moved.remind_text, moved.lead_minutes) == (reminder.id, reminder.remind_text, 60)
     assert moved.next_fire_at == appointment - timedelta(hours=1)
 
     await _press(message, services, "🔔 Remind: 1 hour before")
@@ -208,7 +208,7 @@ async def test_remind_moves_to_the_next_instance_and_keeps_reminding_while_overd
         assert successor.period_start == card.period_start + timedelta(days=1)
         assert reminder.lead_minutes == 15
         assert reminder.next_fire_at == successor.period_start - timedelta(minutes=15)
-        assert reminder.instruction == REMIND_TEXT.format(
+        assert reminder.remind_text == REMIND_TEXT.format(
             label="Action", id=successor.id, title="Stretch"
         )
         due, reminder_id = reminder.next_fire_at, reminder.id
@@ -217,7 +217,7 @@ async def test_remind_moves_to_the_next_instance_and_keeps_reminding_while_overd
     assert await tick(sessions, tz=TZ, now=due) is True
     async with sessions() as session:
         [cue] = list(await session.scalars(select(Cue)))
-        assert f"Text: Remind is on for Action #{successor.id}" in cue.text
+        assert f"The user asked to be reminded of: Action #{successor.id}" in cue.text
         assert (await session.get(Reminder, reminder_id)).next_fire_at == due + timedelta(days=1)
         assert (await session.get(Card, successor.id)).completed_at is None
 
@@ -240,7 +240,7 @@ async def test_remind_follows_a_changed_schedule_and_title(sessions) -> None:
         assert reminder.next_fire_at == card.period_start - timedelta(minutes=15)
 
         await edit_card_text(session, card.id, "title", "Stretch well")
-        assert "«Stretch well»" in reminder.instruction
+        assert "«Stretch well»" in reminder.remind_text
 
         await edit_card_schedule(session, card.id, "five times a day", QUOTA)
         assert await entity_reminder(session, card) is None

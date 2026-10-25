@@ -25,7 +25,7 @@ async def test_reminder_text_requires_a_value_and_restores_its_view(sessions) ->
     async with sessions() as session:
         reminder = await create_reminder(
             session,
-            instruction="Take a walk.",
+            remind_text="Take a walk.",
             schedule=resolve(interval_minutes=120, now=datetime.now(UTC), tz=ZoneInfo("UTC")),
             tz=ZoneInfo("UTC"),
         )
@@ -64,13 +64,13 @@ async def test_the_reminders_screen_lists_opens_and_confirms_a_delete(sessions) 
     async with sessions() as session:
         soon = await create_reminder(
             session,
-            instruction="Take a walk.",
+            remind_text="Take a walk.",
             schedule=resolve(interval_minutes=120, now=datetime.now(UTC), tz=ZoneInfo("UTC")),
             tz=ZoneInfo("UTC"),
         )
         await create_reminder(
             session,
-            instruction="Review the launch plan.",
+            remind_text="Review the launch plan.",
             schedule=resolve(days=["Mon"], clock="08:30", now=datetime.now(UTC), tz=ZoneInfo("UTC")),
             tz=ZoneInfo("UTC"),
         )
@@ -121,7 +121,7 @@ async def test_a_reminder_remind_made_is_named_by_its_item(sessions) -> None:
         later = datetime.now(UTC) + timedelta(days=3)
         await create_reminder(
             session,
-            instruction=f"Remind is on for Action #{card.id} «Pull-ups». Remind the owner about it.",
+            remind_text=f"Action #{card.id} «Pull-ups»",
             schedule=resolve(
                 days=WEEKDAY_NAMES, clock="07:00", day=f"{later:%d.%m.%Y}", now=datetime.now(UTC),
                 tz=ZoneInfo("UTC"),
@@ -151,7 +151,7 @@ async def test_a_reminder_proposal_reads_as_its_words_and_its_times(sessions) ->
                     entity="reminder",
                     action=ChangeAction.CREATE,
                     values={
-                        "instruction": "Call mum.",
+                        "remind_text": "Call mum.",
                         "schedule": schedule_payload(schedule),
                         "schedule_text": "every day at 09:00",
                     },
@@ -159,7 +159,7 @@ async def test_a_reminder_proposal_reads_as_its_words_and_its_times(sessions) ->
             ],
         )
         existing = await create_reminder(
-            session, instruction="Call mum.", schedule=schedule, tz=ZoneInfo("UTC")
+            session, remind_text="Call mum.", schedule=schedule, tz=ZoneInfo("UTC")
         )
         await session.flush()
         edited = await ReminderProposalPresenter().screen(
@@ -169,7 +169,7 @@ async def test_a_reminder_proposal_reads_as_its_words_and_its_times(sessions) ->
                     entity="reminder",
                     action=ChangeAction.UPDATE,
                     entity_id=existing.id,
-                    values={"instruction": "Call dad."},
+                    values={"remind_text": "Call dad."},
                 )
             ],
         )

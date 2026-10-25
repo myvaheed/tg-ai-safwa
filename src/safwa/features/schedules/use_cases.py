@@ -64,7 +64,7 @@ async def set_remind(
         return
     await create_reminder(
         session,
-        instruction=remind_text(entity),
+        remind_text=remind_text(entity),
         schedule=timing,
         tz=tz,
         actor=actor,
@@ -93,7 +93,7 @@ async def follow_remind(
     if reminder.item_id != current.id:
         await move_reminder(session, reminder.id, current.id)
     text = remind_text(current)
-    if reminder.instruction != text:
+    if reminder.remind_text != text:
         await update_reminder_text(session, reminder.id, text, actor=actor)
     if schedule_of(reminder) != timing:
         await reschedule_reminder(

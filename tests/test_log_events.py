@@ -52,7 +52,7 @@ CREATED = {
     "value": {"name": "Walk", "description": "What matters to me"},
     "tag": {"name": "Walk"},
     "request": {"name": "Walk", "query_sql": QUERY},
-    "reminder": {"instruction": "Walk"},
+    "reminder": {"remind_text": "Walk"},
 }
 RENAMED = {
     "card": {"title": "Walk far"},
@@ -60,7 +60,7 @@ RENAMED = {
     "value": {"name": "Walk far"},
     "tag": {"name": "Walk far"},
     "request": {"name": "Walk far"},
-    "reminder": {"instruction": "Walk far"},
+    "reminder": {"remind_text": "Walk far"},
 }
 
 
@@ -85,7 +85,7 @@ async def _by_hand(session) -> dict[str, int]:
     request = await create_saved_request(session, "Walk", QUERY, views=ALLOWED_VIEWS)
     await update_saved_request(session, request.id, name="Walk far", views=ALLOWED_VIEWS)
     await delete_saved_request(session, request.id)
-    reminder = await create_reminder(session, instruction="Walk", schedule=_schedule(), tz=TZ)
+    reminder = await create_reminder(session, remind_text="Walk", schedule=_schedule(), tz=TZ)
     await update_reminder_text(session, reminder.id, "Walk far")
     await delete_reminder(session, reminder.id)
     return {

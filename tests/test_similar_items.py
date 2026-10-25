@@ -194,7 +194,7 @@ async def test_pr_similar_030_only_open_items_of_each_type_are_compared(sessions
         )
         mine = await create_reminder(
             session,
-            instruction="Take a walk.",
+            remind_text="Take a walk.",
             schedule=resolve(interval_minutes=120, now=now, tz=TZ),
             tz=TZ,
         )
@@ -214,7 +214,7 @@ async def test_pr_similar_030_only_open_items_of_each_type_are_compared(sessions
     fields = {entity: similar.field for entity, similar in PROPOSALS.similar.items()}
     assert fields == {
         "card": "title", "check": "title", "value": "name", "tag": "name", "request": "name",
-        "reminder": "instruction",
+        "reminder": "remind_text",
     }
 
 
@@ -225,7 +225,7 @@ async def test_pr_similar_030_a_reminder_is_named_whole_like_the_rest(sessions, 
     async with sessions() as session:
         await create_reminder(
             session,
-            instruction=words,
+            remind_text=words,
             schedule=resolve(interval_minutes=120, now=datetime.now(UTC), tz=TZ),
             tz=TZ,
         )
@@ -235,7 +235,7 @@ async def test_pr_similar_030_a_reminder_is_named_whole_like_the_rest(sessions, 
     text = await _create_screen(
         sessions,
         search,
-        _new("reminder", instruction="Go for a walk.", schedule_text="every 2 hours"),
+        _new("reminder", remind_text="Go for a walk.", schedule_text="every 2 hours"),
     )
 
     block = text.split(SIMILAR_HEADING)[1]

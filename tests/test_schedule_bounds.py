@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
+from agent_turns import PLAN
 from hook_helpers import changes_of
 
 from llm_gateway import CompletionTurn, ToolCall
@@ -48,7 +49,7 @@ def scripted(*arguments):
     async def complete(request):
         requests.append(request)
         return CompletionTurn(
-            content="",
+            content=PLAN,
             tool_calls=[
                 ToolCall(
                     id=str(len(requests)),

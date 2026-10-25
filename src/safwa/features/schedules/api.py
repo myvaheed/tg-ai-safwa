@@ -43,7 +43,7 @@ SCHEDULED_RANGE_DAYS_MAX = 93
 # More executions a day than this are a Check's to observe, not an Action's to do.
 ACTION_DAILY_EXECUTIONS_MAX = 5
 # The words of the Reminder that Remind makes; the Cue adds the Schedule it fires on.
-REMIND_TEXT = "Remind is on for {label} #{id} «{title}». Remind the owner about it."
+REMIND_TEXT = "{label} #{id} «{title}»"
 REMIND_NEEDS_TIME = "Remind needs a Schedule with a time still ahead."
 REMIND_LEAD_RANGE = f"Remind takes 0 to {REMIND_LEAD_MAX_MINUTES} minutes before its time."
 # The change a hook follows up on: an item's Schedule ran its total or reached its last day, so

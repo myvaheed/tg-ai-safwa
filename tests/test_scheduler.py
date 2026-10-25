@@ -32,11 +32,11 @@ TZ = ZoneInfo("Europe/Istanbul")
 NOW = datetime(2026, 8, 13, 9, 0, tzinfo=UTC)  # a Thursday
 
 
-async def make_reminder(sessions, *, instruction="Ping me.", due=NOW, **kwargs) -> int:
+async def make_reminder(sessions, *, remind_text="Ping me.", due=NOW, **kwargs) -> int:
     schedule = resolve(now=NOW, tz=TZ, **(kwargs or {"interval_minutes": 120}))
     async with sessions() as session:
         reminder = Reminder(
-            instruction=instruction, next_fire_at=due, **schedule_columns(schedule)
+            remind_text=remind_text, next_fire_at=due, **schedule_columns(schedule)
         )
         session.add(reminder)
         await session.commit()
@@ -205,7 +205,7 @@ async def test_a_repeat_advances_from_its_scheduled_moment_not_the_tick_that_too
 
 async def test_a_due_reminder_reaches_the_advisor_without_a_preflight_session(sessions):
     """RM-FIRE-011 — tests/brd/reminders.feature"""
-    reminder_id = await make_reminder(sessions, instruction="Review Card #88.")
+    reminder_id = await make_reminder(sessions, remind_text="Review Card #88.")
 
     await tick(sessions, tz=TZ, now=NOW)
 
@@ -219,7 +219,7 @@ async def test_a_due_reminder_reaches_the_advisor_without_a_preflight_session(se
 
 async def test_settle_advances_a_repeat(sessions):
     """RM-FIRE-013 — tests/brd/reminders.feature"""
-    reminder_id = await make_reminder(sessions, instruction="Review Card #88.")
+    reminder_id = await make_reminder(sessions, remind_text="Review Card #88.")
     async with sessions() as session:
         reminder = await session.get(Reminder, reminder_id)
         firings = await prepare(session, [reminder], now=NOW, tz=TZ)

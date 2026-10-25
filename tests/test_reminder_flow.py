@@ -54,7 +54,7 @@ async def test_create_reminder_computes_its_first_fire(sessions):
     schedule = resolve(days=["Mon"], clock="08:30", now=NOW, tz=TZ)
     async with sessions() as session:
         reminder = await create_reminder(
-            session, instruction="Review Card #88.", schedule=schedule, tz=TZ
+            session, remind_text="Review Card #88.", schedule=schedule, tz=TZ
         )
         await session.commit()
         assert reminder.next_fire_at > datetime.now(UTC)
@@ -66,7 +66,7 @@ async def test_create_reminder_rejects_empty_text(sessions):
     schedule = resolve(interval_minutes=120, now=NOW, tz=TZ)
     async with sessions() as session:
         with pytest.raises(DomainError, match="cannot be empty"):
-            await create_reminder(session, instruction="   ", schedule=schedule, tz=TZ)
+            await create_reminder(session, remind_text="   ", schedule=schedule, tz=TZ)
 
 
 async def test_editing_text_leaves_the_schedule_alone(sessions):
@@ -74,7 +74,7 @@ async def test_editing_text_leaves_the_schedule_alone(sessions):
     schedule = resolve(interval_minutes=120, now=NOW, tz=TZ)
     async with sessions() as session:
         reminder = await create_reminder(
-            session, instruction="Review Card #88.", schedule=schedule, tz=TZ
+            session, remind_text="Review Card #88.", schedule=schedule, tz=TZ
         )
         await session.commit()
         before = reminder.next_fire_at
@@ -93,7 +93,7 @@ async def test_rescheduling_replaces_every_schedule_column(sessions):
     async with sessions() as session:
         reminder = await create_reminder(
             session,
-            instruction="Ping.",
+            remind_text="Ping.",
             schedule=resolve(interval_minutes=120, now=NOW, tz=TZ),
             tz=TZ,
         )
@@ -113,7 +113,7 @@ async def test_deleting_a_reminder_removes_the_row(sessions):
     async with sessions() as session:
         reminder = await create_reminder(
             session,
-            instruction="Ping.",
+            remind_text="Ping.",
             schedule=resolve(interval_minutes=120, now=NOW, tz=TZ),
             tz=TZ,
         )
@@ -128,7 +128,7 @@ async def test_reminder_mutations_bump_the_workspace_revision(sessions):
         before = (await session.get(Workspace, 1)).revision
         await create_reminder(
             session,
-            instruction="Ping.",
+            remind_text="Ping.",
             schedule=resolve(interval_minutes=120, now=NOW, tz=TZ),
             tz=TZ,
         )
@@ -169,7 +169,7 @@ async def _add(sessions, *, due, **kwargs) -> int:
     schedule = resolve(now=NOW, tz=TZ, **kwargs)
     async with sessions() as session:
         reminder = Reminder(
-            instruction="Ping.", next_fire_at=due, **schedule_columns(schedule)
+            remind_text="Ping.", next_fire_at=due, **schedule_columns(schedule)
         )
         session.add(reminder)
         await session.commit()
@@ -246,7 +246,7 @@ async def test_reconcile_is_a_no_op_when_the_timezone_has_not_moved(sessions):
     async with sessions() as session:
         reminder = await create_reminder(
             session,
-            instruction="Ping.",
+            remind_text="Ping.",
             schedule=resolve(days=["Mon", "Wed"], clock="08:30", now=NOW, tz=TZ),
             tz=TZ,
         )
@@ -355,7 +355,7 @@ async def test_cancelling_background_work_stops_it_and_not_whoever_waits_for_it(
 def _firing(**kwargs) -> Firing:
     defaults = dict(
         reminder_id=7,
-        instruction="Ask me what to start with today.",
+        remind_text="Ask me what to start with today.",
         schedule="every weekday at 08:30",
         due_at=NOW,
     )
@@ -367,7 +367,7 @@ def test_one_firing_reads_as_one():
     text = format_cue([_firing()], now=NOW)
     assert text.startswith("1 Reminder triggered.")
     assert "Reminder #7" in text
-    assert "Ask me what to start with today." in text
+    assert "   The user asked to be reminded of: Ask me what to start with today." in text
 
 
 def test_a_batch_is_numbered():
@@ -383,7 +383,7 @@ def test_a_batch_is_numbered():
 
 def test_the_main_advisor_is_told_to_verify_named_items_first():
     """RM-FIRE-011 — tests/brd/reminders.feature"""
-    text = format_cue([_firing(instruction="Review Card #88.")], now=NOW)
+    text = format_cue([_firing(remind_text="Review Card #88.")], now=NOW)
     assert "check their current state with query_data" in text
     assert "it may no longer apply" in text
 
@@ -621,7 +621,7 @@ async def test_no_reminder_reaches_the_cacheable_board_context(sessions):
     async with sessions() as session:
         await create_reminder(
             session,
-            instruction="Review the launch plan — Card #88.",
+            remind_text="Review the launch plan — Card #88.",
             schedule=resolve(interval_minutes=120, now=NOW, tz=TZ),
             tz=TZ,
         )

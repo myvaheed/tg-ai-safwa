@@ -781,7 +781,7 @@ async def test_a_trackers_schedule_set_to_off_takes_its_remind_with_it(e2e_harne
     advisor, _provider = e2e_harness.advisor(
         [
             *reminder_script(
-                {"days": every_day, "time": "21:00"}, instruction="Go to bed.", when="every day at 21"
+                {"days": every_day, "time": "21:00"}, remind_text="Go to bed.", when="every day at 21"
             ),
             reminder_turn(("set_tracker", {"title": "In bed by 21?", "values": []}), prefix="tracker"),
         ]
@@ -891,7 +891,7 @@ async def test_rm_edit_038_a_count_of_answers_is_not_read_again_with_new_words(e
     # What it counts was read from the call, which the owner left as it was (PR-EDIT-034).
     assert len(provider.calls) == asked
     values = advisor.reviews.proposal(outcome.proposal_id).changes[0].values
-    assert values["instruction"] == "Tell me to sit straight."
+    assert values["remind_text"] == "Tell me to sit straight."
     assert values["schedule_text"] == f"every 3 Missed of Check #{named}"
 
 
@@ -900,7 +900,7 @@ async def test_a_reminder_proposals_words_are_read_again_with_its_time(e2e_harne
     config = {"days": ["Mon", "Tue", "Wed", "Thu", "Fri"], "time": "08:30"}
     advisor, provider = e2e_harness.advisor(
         [
-            *reminder_script(config, instruction="Ask what to start.", when="weekdays at 8:30"),
+            *reminder_script(config, remind_text="Ask what to start.", when="weekdays at 8:30"),
             reminder_turn(("set_reminder_config", config), prefix="again"),
             reminder_turn(("not_clear_enough", {"reason": "No hour.", "about": "time"}), prefix="no"),
         ]
@@ -921,7 +921,7 @@ async def test_a_reminder_proposals_words_are_read_again_with_its_time(e2e_harne
     assert "Timing phrase: weekdays at 8:30" in json.dumps(provider.calls[-1])
     assert "Ask what to finish." not in json.dumps(provider.calls[-1])
     values = advisor.reviews.proposal(outcome.proposal_id).changes[0].values
-    assert values["instruction"] == "Ask what to finish."
+    assert values["remind_text"] == "Ask what to finish."
 
     # The typed words redrew the review through the Bot API; Edit is drawn on it again.
     await render_proposal(message, services, outcome.proposal_id, editing=True)
@@ -929,4 +929,4 @@ async def test_a_reminder_proposals_words_are_read_again_with_its_time(e2e_harne
     await type_words(services, message, "Ask about tomorrow.")
     assert "No hour." in drawn(message)
     values = advisor.reviews.proposal(outcome.proposal_id).changes[0].values
-    assert values["instruction"] == "Ask what to finish."
+    assert values["remind_text"] == "Ask what to finish."

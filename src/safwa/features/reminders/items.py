@@ -2,7 +2,7 @@
 Reminders, the closest to the end of the conversation first.
 
 The subagent reads no view. It is handed the open items with a Schedule, which `remind`
-takes; the open ones without, which its `instruction` names; and the owner's Reminders, which
+takes; the open ones without, which its `remind_text` names; and the owner's Reminders, which
 a change or a deletion names. The condition's own session is handed more of the ones with a
 Schedule, the only ones a Reminder on answers counts. Both read them after their
 conversation and pick the owner's by meaning, in any language, which a search cannot do for
@@ -161,7 +161,7 @@ async def _reminders(session: AsyncSession, tz: ZoneInfo) -> list[tuple[Key, str
     return [
         (
             ("reminder", reminder.id),
-            f"- Reminder #{reminder.id} «{' '.join(reminder.instruction.split())}»; "
+            f"- Reminder #{reminder.id} «{' '.join(reminder.remind_text.split())}»; "
             f"{describe(schedule_of(reminder), tz=tz, now=now)}",
         )
         for reminder in reminders

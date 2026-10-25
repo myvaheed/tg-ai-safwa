@@ -90,13 +90,13 @@ class ConditionUnclearInput(ToolInput):
 
 
 class ReminderToolInput(RecordToolInput):
-    create_requires = ("instruction",)
+    create_requires = ("remind_text",)
 
     mode: Literal["create", "update", "delete"]
-    instruction: str | None = Field(
+    remind_text: str | None = Field(
         default=None,
         description=(
-            "What Safwa does when it fires, as a request to the Advisor. Name every item it "
+            "What the user asked to be reminded of, in their own words. Name every item it "
             "concerns: by #id when it is listed, otherwise by its title."
         ),
     )
@@ -168,10 +168,7 @@ class ReminderUnclearInput(ToolInput):
 REMINDER_TOOL = MutationToolSpec(
     name="reminder",
     input_model=ReminderToolInput,
-    description=(
-        "Propose one Reminder — instruction text plus timing. The text comes back as a request "
-        "when it fires."
-    ),
+    description="Propose one Reminder: what to remind the user of, and when.",
     to_change=entity_change("reminder"),
 )
 

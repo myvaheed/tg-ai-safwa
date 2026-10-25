@@ -56,14 +56,14 @@ TWO_WINDOWS = HoursProvider(windows=["22:00-08:00", "13:00-14:00"])
 async def _own_interval(session, *, start: datetime, next_fire: datetime) -> Reminder:
     """An interval Reminder of the owner's, every 2 hours from `start`, due at `next_fire`."""
     schedule = resolve(interval_minutes=120, now=start, tz=TZ)
-    reminder = Reminder(instruction="Drink water.", next_fire_at=next_fire, **schedule_columns(schedule))
+    reminder = Reminder(remind_text="Drink water.", next_fire_at=next_fire, **schedule_columns(schedule))
     session.add(reminder)
     await session.flush()
     return reminder
 
 
 async def _settled(session, reminder: Reminder, due: datetime) -> datetime:
-    firing = Firing(reminder.id, reminder.instruction, "every 2 hours", due)
+    firing = Firing(reminder.id, reminder.remind_text, "every 2 hours", due)
     await settle(session, [firing], now=due + timedelta(seconds=30), tz=TZ)
     return reminder.next_fire_at
 
@@ -208,7 +208,7 @@ async def test_a_reminder_at_a_clock_time_rings_inside_the_windows(sessions):
     async with sessions() as session:
         reminder = await create_reminder(
             session,
-            instruction="Lights out.",
+            remind_text="Lights out.",
             schedule=resolve(days=WEEKDAY_NAMES, clock="23:00", now=now, tz=TZ),
             tz=TZ,
         )
@@ -220,9 +220,9 @@ async def test_a_reminder_remind_made_rings_at_its_item_s_moments(sessions):
     now = datetime.now(UTC)
     schedule = resolve(interval_minutes=120, clock="23:00", now=now, tz=TZ)
     async with sessions() as session:
-        own = await create_reminder(session, instruction="Own.", schedule=schedule, tz=TZ)
+        own = await create_reminder(session, remind_text="Own.", schedule=schedule, tz=TZ)
         made = await create_reminder(
-            session, instruction="Made.", schedule=schedule, tz=TZ, item_type="check", item_id=1
+            session, remind_text="Made.", schedule=schedule, tz=TZ, item_type="check", item_id=1
         )
         assert f"{made.next_fire_at.astimezone(TZ):%H:%M}" == "23:00"
         assert f"{own.next_fire_at.astimezone(TZ):%H:%M}" == "08:00"
@@ -236,7 +236,7 @@ async def test_the_review_screen_of_an_interval_shows_don_t_disturb(sessions):
         return ProposalChange(
             entity="reminder",
             action=ChangeAction.CREATE,
-            values={"instruction": "Drink water.", "schedule": schedule_payload(schedule)},
+            values={"remind_text": "Drink water.", "schedule": schedule_payload(schedule)},
         )
 
     async with sessions() as session:

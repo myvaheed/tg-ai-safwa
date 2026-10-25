@@ -94,7 +94,7 @@ def on(condition: Condition) -> Schedule:
 
 async def condition_reminder(session, condition: Condition) -> Reminder:
     return await create_reminder(
-        session, instruction="Cheer the owner on.", schedule=on(condition), tz=TZ
+        session, remind_text="Cheer the owner on.", schedule=on(condition), tz=TZ
     )
 
 
@@ -197,14 +197,14 @@ def test_the_short_session_names_the_answer_only_as_yes_no_or_any():
 
 def test_a_reminder_is_set_by_a_time_or_by_a_condition():
     """RM-COND-030 — tests/brd/reminders.feature"""
-    ReminderToolInput(mode="create", instruction="Cheer me on.", on_answers=True)
-    ReminderToolInput(mode="create", instruction="Cheer me on.", when="every day at 8")
+    ReminderToolInput(mode="create", remind_text="Cheer me on.", on_answers=True)
+    ReminderToolInput(mode="create", remind_text="Cheer me on.", when="every day at 8")
     ReminderToolInput(mode="update", id=4, on_answers=True)
     with pytest.raises(ValidationError, match="needs when or on_answers"):
-        ReminderToolInput(mode="create", instruction="Cheer me on.")
+        ReminderToolInput(mode="create", remind_text="Cheer me on.")
     with pytest.raises(ValidationError, match="not both"):
         ReminderToolInput(
-            mode="create", instruction="Cheer me on.", when="every day at 8", on_answers=True
+            mode="create", remind_text="Cheer me on.", when="every day at 8", on_answers=True
         )
     # The setup session reads only a time.
     assert "set_condition" not in REMINDER_WHEN_PROMPT
@@ -251,7 +251,7 @@ async def test_the_review_screen_shows_what_it_counts_and_no_first_firing(sessio
                     entity="reminder",
                     action=ChangeAction.CREATE,
                     values={
-                        "instruction": "Cheer the owner on.",
+                        "remind_text": "Cheer the owner on.",
                         "schedule": schedule_payload(on(single)),
                         "schedule_text": describe(on(single), tz=TZ),
                         "finds": finds,
@@ -334,7 +334,7 @@ async def test_a_condition_fires_at_every_multiple_of_its_count(sessions):
     assert await answer(CheckOutcome.MISSED) == []
     assert await answer(CheckOutcome.MISSED) == []
     (first,) = await answer(CheckOutcome.MISSED)
-    assert "Text: Cheer the owner on." in first
+    assert "The user asked to be reminded of: Cheer the owner on." in first
     assert "in a row of Check #" in first
     assert "; 3 in a row now; 0 Passed and 3 Missed in all" in first
     # The Pending instance on top neither counted nor broke the run; a fourth and a fifth say
@@ -571,7 +571,7 @@ async def test_a_condition_is_listed_and_opened_like_any_other(sessions):
         reminder = await condition_reminder(session, of_check(check.id))
         await create_reminder(
             session,
-            instruction="Take a walk.",
+            remind_text="Take a walk.",
             schedule=resolve(interval_minutes=120, now=datetime.now(UTC), tz=TZ),
             tz=TZ,
         )

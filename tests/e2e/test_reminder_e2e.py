@@ -58,7 +58,7 @@ def turn(*calls: tuple[str, dict[str, object]], prefix: str = "t") -> ProviderTu
     )
 
 
-def reminder_script(config: dict[str, object], *, instruction: str, when: str):
+def reminder_script(config: dict[str, object], *, remind_text: str, when: str):
     """The provider calls in the order the advisor makes them.
 
     The setup mini-session runs during materialization, after the agent loop has already
@@ -66,7 +66,7 @@ def reminder_script(config: dict[str, object], *, instruction: str, when: str):
     """
     return [
         route_turn("reminder"),
-        turn(("reminder", {"mode": "create", "instruction": instruction, "when": when})),
+        turn(("reminder", {"mode": "create", "remind_text": remind_text, "when": when})),
         "I set that up for you.",
         turn(("set_reminder_config", config), prefix="setup"),
     ]
@@ -77,7 +77,7 @@ async def test_a_reminder_reaches_a_proposal_and_save_creates_the_row(e2e_harnes
     advisor, _provider = e2e_harness.advisor(
         reminder_script(
             {"days": ["Mon", "Tue", "Wed", "Thu", "Fri"], "time": "08:30"},
-            instruction="Ask me what to start with today.",
+            remind_text="Ask me what to start with today.",
             when="every weekday at 8:30am",
         )
     )
@@ -91,7 +91,7 @@ async def test_a_reminder_reaches_a_proposal_and_save_creates_the_row(e2e_harnes
 
     async with e2e_harness.sessions() as session:
         reminder = await session.get(Reminder, affected[0])
-        assert reminder.instruction == "Ask me what to start with today."
+        assert reminder.remind_text == "Ask me what to start with today."
         schedule = schedule_of(reminder)
         assert schedule.weekdays == ("Mon", "Tue", "Wed", "Thu", "Fri")
         assert f"{schedule.at_time:%H:%M}" == "08:30"
@@ -104,7 +104,7 @@ async def test_discarding_the_proposal_leaves_no_reminder(e2e_harness):
     advisor, _provider = e2e_harness.advisor(
         reminder_script(
             {"interval_minutes": 120},
-            instruction="Check my posture — Check #5.",
+            remind_text="Check my posture — Check #5.",
             when="every two hours",
         )
     )
@@ -122,7 +122,7 @@ async def test_the_proposal_carries_the_resolved_schedule_not_the_words(e2e_harn
     advisor, provider = e2e_harness.advisor(
         reminder_script(
             {"interval_minutes": 120},
-            instruction="Check my posture — Check #5.",
+            remind_text="Check my posture — Check #5.",
             when="every couple of hours",
         )
     )
@@ -153,7 +153,7 @@ async def test_an_unresolvable_phrase_becomes_a_retryable_tool_error(e2e_harness
             turn(
                 (
                     "reminder",
-                    {"mode": "create", "instruction": "Ask about Card #4.", "when": "sometimes"},
+                    {"mode": "create", "remind_text": "Ask about Card #4.", "when": "sometimes"},
                 )
             ),
             "Sure.",
@@ -201,7 +201,7 @@ def unclear_script(*setup, when: str):
     """A Reminder the setup session answers with `setup`, refused, then asked about."""
     return [
         route_turn("reminder"),
-        turn(("reminder", {"mode": "create", "instruction": "Cheer me on.", "when": when})),
+        turn(("reminder", {"mode": "create", "remind_text": "Cheer me on.", "when": when})),
         "Sure.",
         *setup,
         "When should it fire?",
@@ -211,7 +211,7 @@ def unclear_script(*setup, when: str):
 
 def condition_call() -> ProviderTurn:
     """The subagent's `reminder` on answers: the items are its own session's to pick."""
-    return turn(("reminder", {"mode": "create", "instruction": "Cheer me on.", "on_answers": True}))
+    return turn(("reminder", {"mode": "create", "remind_text": "Cheer me on.", "on_answers": True}))
 
 
 def condition_fields(items: str, answer: str = "no", count: int = 3, **extra) -> ProviderTurn:
@@ -448,7 +448,7 @@ async def test_rm_unclear_028_words_that_count_answers_go_back_to_be_a_condition
                     "reminder",
                     {
                         "mode": "create",
-                        "instruction": "Cheer me on.",
+                        "remind_text": "Cheer me on.",
                         "when": f"every 3 Missed of Check #{named}",
                     },
                 )
@@ -538,7 +538,7 @@ async def test_editing_a_reminder_without_when_never_touches_the_schedule(e2e_ha
     setup, _provider = e2e_harness.advisor(
         reminder_script(
             {"interval_minutes": 120},
-            instruction="Check my posture — Check #5.",
+            remind_text="Check my posture — Check #5.",
             when="every two hours",
         )
     )
@@ -559,7 +559,7 @@ async def test_editing_a_reminder_without_when_never_touches_the_schedule(e2e_ha
                     {
                         "mode": "update",
                         "id": reminder_id,
-                        "instruction": "Check my posture properly — Check #5.",
+                        "remind_text": "Check my posture properly — Check #5.",
                     },
                 )
             ),
@@ -573,7 +573,7 @@ async def test_editing_a_reminder_without_when_never_touches_the_schedule(e2e_ha
 
     async with e2e_harness.sessions() as session:
         reminder = await session.get(Reminder, reminder_id)
-        assert reminder.instruction == "Check my posture properly — Check #5."
+        assert reminder.remind_text == "Check my posture properly — Check #5."
         assert reminder.next_fire_at == before
         assert schedule_of(reminder).interval_minutes == 120
 
@@ -583,7 +583,7 @@ async def test_ai_reminders_view_is_readable(e2e_harness):
     advisor, _provider = e2e_harness.advisor(
         reminder_script(
             {"interval_minutes": 120},
-            instruction="Check my posture — Check #5.",
+            remind_text="Check my posture — Check #5.",
             when="every two hours",
         )
     )
@@ -594,7 +594,7 @@ async def test_ai_reminders_view_is_readable(e2e_harness):
 
     reader = advisor.adapters.query_runner
     result = await reader.run(
-        "SELECT id, instruction, schedule_kind, next_fire_at_local FROM ai_reminders"
+        "SELECT id, remind_text, schedule_kind, next_fire_at_local FROM ai_reminders"
     )
     rows = result.as_tool_result()
     assert rows and rows[0]["schedule_kind"] == "interval"
@@ -710,7 +710,7 @@ async def test_the_model_removes_a_reminder_with_one_save(e2e_harness):
     setup, _provider = e2e_harness.advisor(
         reminder_script(
             {"interval_minutes": 120},
-            instruction="Check my posture — Check #5.",
+            remind_text="Check my posture — Check #5.",
             when="every two hours",
         )
     )
