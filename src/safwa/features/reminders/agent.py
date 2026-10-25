@@ -41,6 +41,7 @@ from tg_agent_shell.telegram.manifest import AgentSpec
 
 from ...constants import (
     PROPOSING_FROM_CONTEXT,
+    REMIND_DESCRIPTION,
     REMIND_LEAD_MAX_MINUTES,
     WEEKDAY_NAMES,
 )
@@ -57,12 +58,6 @@ from .conditions import named_items
 from .items import listed_items, reminder_items
 
 NO_MISSED = "An Action has no Missed."
-
-REMIND_DESCRIPTION = (
-    "Remind the user at its time, 0, or this many minutes before it: "
-    "'remind me' is 0, 'remind me 25 minutes before' is 25, '3 hours before' is 180. "
-    "null turns it off."
-)
 
 
 class ConditionFields(ToolInput):
@@ -184,7 +179,9 @@ REMINDER_TOOL = MutationToolSpec(
 class RemindToolInput(ToolInput):
     item: Literal["action", "goal", "check"]
     id: PositiveInt
-    minutes_before: int | None = Field(ge=0, le=REMIND_LEAD_MAX_MINUTES, description=REMIND_DESCRIPTION)
+    minutes_before: int | None = Field(
+        ge=0, le=REMIND_LEAD_MAX_MINUTES, description=REMIND_DESCRIPTION + " null turns it off."
+    )
 
 
 def _remind_change(call: BaseModel) -> AgentChange:

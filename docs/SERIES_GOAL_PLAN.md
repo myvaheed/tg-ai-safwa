@@ -1595,6 +1595,83 @@ on Читать» проходит оба раза; шаг 1, Remind и «Also t
 - «Если забью на зарядку два дня подряд» (второй) — сессия `when` прочитала «два дня» как
   `in_minutes=2880`.
 
+## Батч 15 — Remind при создании item (сделан), `about` раньше `reason` (откатан)
+
+### Remind при создании
+
+Владелец вернул `remind` в mutator: новый item с Remind — одно предложение, а не второе после
+Save. Конфликт, из-за которого поле убрали в v9.234, был внутри одного скоупа: у mutator были и
+`reminder`, и `remind`. Теперь `reminder` у него нет.
+
+- Поле `remind` у `goal`, `action` и `check`, от 0 до `REMIND_LEAD_MAX_MINUTES`, только в
+  `mode=create`; другой режим отвечает «… does not accept: remind». Remind уже созданного item
+  по-прежнему ставит `remind` сабагента `reminder`.
+- Описание — `NEW_ITEM_REMIND_DESCRIPTION`: `REMIND_DESCRIPTION` из `constants.py` и «Only on
+  create.» У `remind` сабагента к `REMIND_DESCRIPTION` добавляется «null turns it off.», байт в байт
+  как было.
+- Подготовка, экран review и `set_remind` при создании остались с v9.234. Промпты mutator и Advisor
+  не меняются.
+- SCH-REMIND-029, RM-AGENT-041 и WS-SCOPE-001: новый item предлагается со своим Remind.
+- Живой замер в `test_remind_phrases_live.py`: 7 фраз new-01…new-07 через живого Advisor — шесть
+  из замера mutator до v9.234 и Goal без Remind — и фраза без времени, на которую Safwa спрашивает
+  время и ничего не предлагает.
+
+### `about` раньше `reason` (откатан)
+
+Улучшение фраз `goal` с подстраховкой `about=answers`. В 4 провалах 14b и в 7 провалах 13b план
+сессии называет условие («This is a condition based on the count of completed actions or
+checks»), а вызов — `about=time`. В вызове первым идёт `reason`: «No clock time specified…», и
+`about` следует за ним. Поле `about` встаёт перед `reason` в `ReminderUnclearInput`, и модель
+выбирает его сразу после плана. Новых токенов нет. Строки промпта не меняются: их перестановка в
+13b сделала хуже.
+
+**Критерий успеха** — 2 прохода на 35B, шаг 1 и шаг 2:
+- фразы `goal` не меньше 23 из 24 в каждом проходе, «sometime next week» остаётся `about=time`;
+- новые фразы не меньше 7 из 8 в каждом проходе, ни одного `remind` там, где о нём не просили;
+- шаг 1, поток, Remind и «Also track» не хуже 14b.
+
+### Замер на 35B, 2 прохода
+
+| | 14b | 15 |
+|---|---|---|
+| Шаг 1, из 30 | 29 и 29 | 28 и 29 |
+| Фразы `goal`, из 24 | 22 и 22 | 23 и 22 |
+| Поток цели серии, провалов из 16 | 1 и 2 | 2 и 3 |
+| Remind на item, из 10 | 10 и 10 | 10 и 10 |
+| «📊 Also track», из 3 | 3 и 3 | 3 и 3 |
+| Новый item с Remind, из 8 | — | 5 и 7 |
+| Время шага 2, с | 255 и 318 | 427 и 410, с 8 новыми фразами через живого Advisor |
+
+Критерий не выполнен: фразы `goal` во втором проходе 22, в потоке 2 и 3 провала, новые фразы —
+5 во втором проходе.
+
+**`about` раньше `reason`** — сдвига нет. Модель теперь пишет `about` первым, и всё равно `time`:
+«five mornings in a row» (первый проход), «после 20 выполнений #5 и #9 в сумме» (второй). Во
+втором `reason` сам говорит «specifies a count of executions (answers)». Вывод 13b подтвердился:
+`not_clear_enough` модель читает как «время неясно», и порядок полей этого не меняет. «21-day
+streak» и «whenever any check gets answered» прошли оба раза; «on the 20th at 8am» во втором
+проходе прочитана как каждое 20-е число, а не одно 20.10 — это `set_reminder_config`, не `about`.
+
+**Remind при создании.** Всё, что дошло до mutator, прочитано верно: 12 из 12, с Remind и без.
+- Маршрут: в первом проходе Advisor отдал сабагенту `reminder` две фразы без «добавь» или
+  «create» — «Цель «Отчёт сдан руководителю» к 25 ноября 18:00, напомни за 2 часа» (`nothing_to_do`,
+  Goal нет в Open items) и «Action 'Call mom' on Sunday at 19:00, remind me when it is time»
+  (Reminder «Call mom» на воскресенье 19:00 вместо Action).
+- Фраза без времени — 0 из 2. Mutator дважды послал `remind=0` без Schedule, получил
+  `remind_needs_time`, а третьим вызовом предложил Action без Remind и времени не спросил.
+
+Провалы потока — те же семьи, что раньше; до `about` доходят два:
+- «Read 20 minutes 30 times» — оба раза `nothing_to_do` («Cannot create a count-based trigger»),
+  как в 14 и 14b.
+- «Whenever I stay up past 11 three nights in a row» — оба раза `reminder` с `when` вместо
+  *on_answers*: в первом проходе сабагент сам написал «каждые 3 дня в 23:30», во втором сессия
+  `when` ответила `about=time`, и сабагент выдумал «каждый день в 23:30».
+- «Если забью на зарядку два дня подряд» (второй) — `when` «через 2 дня после пропуска зарядки»,
+  `about=time`, затем `nothing_to_do`.
+
+Владелец решил: Remind при создании остаётся, `about` откатан — `reason` снова первым в
+`ReminderUnclearInput`.
+
 ## Тексты на согласование
 
 Mutator не меняется: он передаёт слова владельца в `when` как есть.
@@ -1646,7 +1723,7 @@ Checks, ai_cards for Done of Actions.» (её говорит контекст с
 
 Владелец просил не забыть; что-то из этого, возможно, стоит убрать.
 
-- Подстраховка *counts_answers* (до 13c — `about=answers`) в сессии `when`. Сабагент всё ещё иногда кладёт ответы в `when` (12d:
+- Подстраховка `about=answers` в сессии `when`. Сабагент всё ещё иногда кладёт ответы в `when` (12d:
   «на 7 да подряд в проверках Здоровье»); с планом она ловит 18–19 таких фраз из 20.
 - Строка поля `instruction` «Name every item it concerns by #id». По ней Advisor при срабатывании
   узнаёт item. С 12e этот текст не видит ни одна короткая сессия.

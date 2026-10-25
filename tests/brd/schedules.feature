@@ -231,8 +231,8 @@ Feature: One plain-language Schedule for Actions and Checks
     Then the review screen shows Remind as "1 hour before"
     And Save turns Remind on 1 hour before each of its moments, by SCH-REMIND-028
     And Remind of 0 is at the time, and null turns Remind off
-    And the item's own tools have no remind: a new item asked for with Remind is proposed first,
-      and its Remind after Save
+    And a new item asked for with Remind is proposed with it by the item's own tool, which takes
+      remind only when it creates the item
     And Remind on an item whose Schedule has no clock still ahead goes back to the model,
       "Remind needs a Schedule with a time still ahead.", and nothing is proposed
 

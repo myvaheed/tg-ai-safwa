@@ -323,10 +323,11 @@ applies it. `read_proposed_remind` refuses one whose Schedule has no clock still
 `REMIND_NEEDS_TIME` as a retryable error the model asks the owner about. The review screen shows
 Remind, and Save calls `set_remind`. Like a Reminder's proposal, it always takes the review
 screen: no auto-approval rule names `remind` (`SCH-REMIND-029`). The `action`, `goal` and
-`check` tools have no `remind`, so a new item asked for with Remind is the workspace mutator's
-proposal first and the reminder subagent's after its Save (`RM-AGENT-041`). That subagent's
+`check` tools take `remind` only when they create the item, so a new item asked for with Remind
+is one proposal of the workspace mutator, and Remind on an item already made is the reminder
+subagent's (`RM-AGENT-041`). That subagent's
 prompt says a reminder of an item's own time is `remind` on that item, never a Reminder, which
-follows the item only as Remind does. Remind on a proposal still comes from 📊 Also track, whose
+follows the item only as Remind does. Remind on a proposal also comes from 📊 Also track, whose
 Check is at its time, and a Schedule set to off under Edit takes it with it.
 
 `test_remind_phrases_live.py` measured it with the mutator and the Scheduler live, while `remind`

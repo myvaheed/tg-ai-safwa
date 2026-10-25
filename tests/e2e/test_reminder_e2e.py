@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from advisor_e2e_helpers import PLAN, route_turn, save
 from schedule_helpers import create_card, create_check
-from sqlalchemy import func, select
+from sqlalchemy import select
 from ui_harness import spawn_timer
 
 from llm_gateway import CompletionTurn as ProviderTurn
@@ -769,39 +769,29 @@ async def test_rm_agent_041_the_reminder_part_picks_from_its_open_items(e2e_harn
     )
 
 
-async def test_rm_agent_041_a_new_item_and_its_remind_are_two_routes(e2e_harness):
+async def test_rm_agent_041_a_new_item_is_proposed_with_its_remind(e2e_harness):
     """RM-AGENT-041 — tests/brd/reminders.feature"""
     every_day = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    async with e2e_harness.sessions() as session:
-        card_id = (await session.scalar(select(func.max(Card.id))) or 0) + 1
     advisor, provider = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
-            turn(("action", {"mode": "create", "title": "Stretch", "schedule": "every day at 20:00"})),
+            turn(
+                (
+                    "action",
+                    {"mode": "create", "title": "Stretch", "schedule": "every day at 20:00", "remind": 30},
+                )
+            ),
             turn(("set_schedule_config", {"days": every_day, "time": "20:00"}), prefix="schedule"),
         ]
     )
 
     outcome = await advisor.handle("Add Stretch every day at 20:00 and remind me 30 minutes before")
-    assert [change.entity for change in advisor.reviews.proposal(outcome.proposal_id).changes] == [
-        "card"
-    ]
-    provider.responses.extend(
-        [
-            "Stretch is saved.",
-            route_turn("reminder"),
-            turn(("remind", {"item": "action", "id": card_id, "minutes_before": 30})),
-        ]
-    )
-    remind, _affected = await save(advisor, outcome.proposal_id)
-
-    [change] = advisor.reviews.proposal(remind.proposal_id).changes
-    assert (change.entity, change.entity_id, change.values) == ("card", card_id, {"remind": 30})
-    provider.responses.extend(["Remind is on.", "Stretch is set, with Remind 30 minutes before."])
-    answered, _affected = await save(advisor, remind.proposal_id)
+    [change] = advisor.reviews.proposal(outcome.proposal_id).changes
+    assert (change.entity, change.values["remind"]) == ("card", 30)
+    provider.responses.extend(["Stretch is saved, with Remind 30 minutes before.", "Done."])
+    answered, _affected = await save(advisor, outcome.proposal_id)
 
     assert answered.kind is AIOutcomeKind.ANSWER
     async with e2e_harness.sessions() as session:
-        card = await session.get(Card, card_id)
-        assert card.title == "Stretch"
+        card = await session.scalar(select(Card).where(Card.title == "Stretch"))
         assert (await entity_reminder(session, card)).lead_minutes == 30

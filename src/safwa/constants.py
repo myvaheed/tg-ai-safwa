@@ -21,6 +21,12 @@ NOTE_REPLACED_WHOLE = (
 )
 # How long before its moment Remind may fire.
 REMIND_LEAD_MAX_MINUTES = 24 * 60
+# Remind's minutes, as `remind` takes them and a new item's own tool does.
+REMIND_DESCRIPTION = (
+    "Remind the user at its time, 0, or this many minutes before it: "
+    "'remind me' is 0, 'remind me 25 minutes before' is 25, '3 hours before' is 180."
+)
+NEW_ITEM_REMIND_DESCRIPTION = REMIND_DESCRIPTION + " Only on create."
 # How a subagent that proposes changes goes through a turn, and how it reads the workspace.
 # The workspace mutator says both; the reminder subagent, handed what it needs and reading
 # nothing, says the turn without its first step. One wording: two copies drift.

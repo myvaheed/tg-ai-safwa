@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
+from pydantic import ValidationError
 from schedule_helpers import rule_for
 from sqlalchemy import func, select
 
@@ -188,9 +189,12 @@ async def test_safwa_turns_remind_on_with_the_remind_tool(sessions, item, entity
 
 
 @pytest.mark.parametrize("tool", ["goal", "action", "check"])
-def test_the_items_own_tools_have_no_remind(tool) -> None:
+def test_an_items_own_tool_takes_remind_only_when_it_creates_the_item(tool) -> None:
     """SCH-REMIND-029 — tests/brd/schedules.feature"""
-    assert "remind" not in PROPOSALS.tools[tool].input_model.model_fields
+    change = PROPOSALS.change_from_tool(tool, {"mode": "create", "title": "Stretch", "remind": 15})
+    assert change.values["remind"] == 15
+    with pytest.raises(ValidationError, match="update does not accept: remind"):
+        PROPOSALS.tools[tool].input_model.model_validate({"mode": "update", "id": 3, "remind": 15})
 
 
 async def test_remind_of_0_is_at_the_time_and_null_turns_it_off(sessions) -> None:

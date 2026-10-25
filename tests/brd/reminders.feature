@@ -377,8 +377,8 @@ Feature: Reminders
   Scenario: RM-AGENT-041 — Reminders and Remind are set by their own part of Safwa
     Given a request to set, change or delete a Reminder, at a time or on answers, or to turn Remind
       on or off for an Action, a Goal or a Check
-    Then it is handed to the reminder part, and the workspace part has no tool for a Reminder or
-      Remind
+    Then it is handed to the reminder part, and the workspace part has no tool for a Reminder, nor
+      for Remind on an item already made
     And the reminder part reads no view and searches nothing, and is not handed the state of the
       workspace
     And it is handed, each by #id, up to 10 open Checks, Actions and Goals that have a Schedule, with
@@ -396,5 +396,4 @@ Feature: Reminders
     Then it is refused with that item's id, to set the item's Remind instead
     When the request also asks for a new item, such as an Action every day at 20:00 with Remind 30
       minutes before
-    Then the workspace part proposes the item, and after its Save the reminder part proposes its
-      Remind
+    Then the workspace part proposes the item with its Remind, by SCH-REMIND-029

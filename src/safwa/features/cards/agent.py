@@ -11,7 +11,7 @@ from tg_agent_shell.ai.autoapproval import RELATIONSHIP_LINK, SCALAR_UPDATE, Aut
 from tg_agent_shell.ai.contracts import AgentChange, Reference, ToolInput
 from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
 
-from ...constants import NOTE_REPLACED_WHOLE
+from ...constants import NEW_ITEM_REMIND_DESCRIPTION, NOTE_REPLACED_WHOLE, REMIND_LEAD_MAX_MINUTES
 from .model import (
     CATEGORY_MEANINGS,
     ENERGY_MEANINGS,
@@ -51,6 +51,9 @@ def _validate_call(
         return
     if call.id is None:
         raise ValueError(f"{label} mode '{call.mode}' needs an id")
+    # Remind on a Card already made is the reminder subagent's `remind`.
+    if "remind" in supplied:
+        raise ValueError(f"{label} {call.mode} does not accept: remind")
     if call.mode == "update" and not supplied:
         raise ValueError(f"an updated {label} needs at least one proposed field")
     if call.mode == "update" and "parent" in supplied:
@@ -91,6 +94,9 @@ class GoalToolInput(ToolInput):
             "When it must be done, in the user's words: 'by 20 October'. Never invent a date. "
             "On update, null removes it."
         ),
+    )
+    remind: int | None = Field(
+        default=None, ge=0, le=REMIND_LEAD_MAX_MINUTES, description=NEW_ITEM_REMIND_DESCRIPTION
     )
     values: Reference | list[Reference] | None = Field(default=None, description=VALUES_DESCRIPTION)
     tags: Reference | list[Reference] | None = Field(default=None, description=TAGS_DESCRIPTION)
@@ -136,6 +142,9 @@ class ActionToolInput(ToolInput):
             "'three times a day', 'Tuesday at 15:00', 'after each completion'. "
             "Never invent a time. On update, null removes it."
         ),
+    )
+    remind: int | None = Field(
+        default=None, ge=0, le=REMIND_LEAD_MAX_MINUTES, description=NEW_ITEM_REMIND_DESCRIPTION
     )
     blocked_description: str | None = Field(
         default=None,

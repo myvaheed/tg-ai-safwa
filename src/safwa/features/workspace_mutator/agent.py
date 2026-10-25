@@ -1,9 +1,9 @@
 """The workspace mutator: the one session that proposes every change to the workspace.
 
 The workspace is what the owner keeps — Cards, Checks, Values, Tags and Requests. Reminders
-and the Remind on an item have their own subagent, so this one never names a time. This
-package is that subagent and nothing else: the roster lets it declare mutation tools the
-features that own those entities publish.
+and the Remind on an item already made have their own subagent; a new item is proposed with
+its Remind. This package is that subagent and nothing else: the roster lets it declare
+mutation tools the features that own those entities publish.
 """
 
 from __future__ import annotations

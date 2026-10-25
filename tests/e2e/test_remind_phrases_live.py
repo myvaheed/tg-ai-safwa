@@ -1,4 +1,4 @@
-"""How the configured model sets Remind on an item the owner names.
+"""How the configured model sets Remind on an item the owner names, and on a new one.
 
 Opt-in with ``--live-provider``, as `test_timing_phrases_live.py` is, and run from the folder
 that holds `.env` and `data/models`. Only the Advisor's hand-over to the reminder subagent is
@@ -6,6 +6,9 @@ scripted: the subagent is the live model, reasoning off, and its search reads th
 model. The workspace holds the seven items the phrases name. What is compared is the item and
 the minutes of the last `remind` call; none is a miss. The phrases were written by someone who
 never read the prompts, so a pass is a reading, not a copy.
+
+A new item asked for with Remind goes the whole way live, the Advisor too, over an empty
+workspace: what is compared is the `remind` of the last call of the item's own tool.
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ from llm_gateway import OpenAICompatibleProvider
 from safwa.bootstrap.modules import AI_VIEWS, PROPOSALS, TEXT_MODEL, WORD_FORMS
 from safwa.features.schedules.use_cases import set_remind
 from safwa.qa import qa_provider_settings
+from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
 from tg_agent_shell.search.index import SearchIndex
 from tg_agent_shell.search.words import FastEmbedEncoder
 
@@ -62,6 +66,28 @@ LEADS = (
 )
 
 
+@dataclass(frozen=True)
+class NewItem:
+    words: str
+    tool: str
+    minutes: int | None
+
+
+# The first six are the phrases the workspace mutator was measured on while `remind` was a
+# field of the item's own tool, before Reminders had their own subagent.
+NEW_ITEMS = (
+    NewItem("Добавь Action «Растяжка» каждый день в 20:00 и напомни за 30 минут", "action", 30),
+    NewItem("Create a Check 'Took pills?' every day at 9 and remind me 10 minutes before", "check", 10),
+    NewItem("Цель «Отчёт сдан руководителю» к 25 ноября 18:00, напомни за 2 часа", "goal", 120),
+    NewItem("Action 'Call mom' on Sunday at 19:00, remind me when it is time", "action", 0),
+    NewItem("Добавь Action «Йога» по вторникам и четвергам в 7:30, напомни за день", "action", 1440),
+    NewItem("Добавь Action «Читать» каждый день в 21:00", "action", None),
+    NewItem("Create a Goal 'Marathon' by 1 May 2027", "goal", None),
+)
+# Remind with no time to remind at: the owner is asked for one, and nothing is proposed.
+NO_TIME = "Создай Action «Позвонить в банк» и напомни мне о нём"
+
+
 @pytest.fixture(scope="session")
 def settings():
     # Read before the harness moves into the worktree, which holds no `.env`.
@@ -75,17 +101,19 @@ def encoder():
 
 
 class HandedOver:
-    """The Advisor's first turn routes to the reminder subagent; every later one is live."""
+    """The Advisor's first turn routes to `route`; every later one is live. With no `route`,
+    the Advisor's first turn is live as well."""
 
-    def __init__(self, live: OpenAICompatibleProvider) -> None:
+    def __init__(self, live: OpenAICompatibleProvider, route: str | None = "reminder") -> None:
         self.live = live
-        self.routed = False
+        self.route = route
+        self.routed = route is None
         self.tool_calls = []
 
     async def complete(self, request):
         if not self.routed:
             self.routed = True
-            return route_turn("reminder")
+            return route_turn(self.route)
         turn = await self.live.complete(replace(request, reasoning_effort=REASONING_EFFORT))
         self.tool_calls.extend(turn.tool_calls)
         for call in turn.tool_calls:
@@ -142,3 +170,32 @@ async def test_the_model_sets_remind(settings, encoder, e2e_harness, case) -> No
         expected.id,
         expected.values,
     )
+
+
+async def _ask_live(settings, e2e_harness, words: str) -> tuple[HandedOver, AIOutcome]:
+    provider = HandedOver(OpenAICompatibleProvider(settings), route=None)
+    try:
+        advisor, _ = e2e_harness.advisor([], provider_factory=lambda _: provider)
+        outcome = await advisor.handle(words)
+    finally:
+        await provider.aclose()
+    return provider, outcome
+
+
+@pytest.mark.parametrize(
+    "case", [pytest.param(case, id=f"new-{number:02d}") for number, case in enumerate(NEW_ITEMS, start=1)]
+)
+async def test_the_model_proposes_a_new_item_with_its_remind(settings, e2e_harness, case) -> None:
+    """SCH-REMIND-029 — tests/brd/schedules.feature"""
+    provider, _ = await _ask_live(settings, e2e_harness, case.words)
+    sent = [json.loads(call.arguments_json) for call in provider.tool_calls if call.name == case.tool]
+    print(f"{case.words!r} was read as {sent}")
+    assert sent, f"{case.words!r} made no {case.tool} call"
+    assert sent[-1].get("remind") == case.minutes
+
+
+async def test_the_model_asks_when_a_new_item_to_remind_of_has_no_time(settings, e2e_harness) -> None:
+    """SCH-REMIND-029 — tests/brd/schedules.feature"""
+    _, outcome = await _ask_live(settings, e2e_harness, NO_TIME)
+    print(f"{NO_TIME!r} came back as {outcome.kind}: {outcome.message!r}")
+    assert outcome.kind is AIOutcomeKind.ANSWER

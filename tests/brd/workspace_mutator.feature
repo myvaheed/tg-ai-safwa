@@ -12,7 +12,8 @@
     Or a request that would archive a Card or Check
     Then all of it is handed to the same part, however many kinds it touches
     And the Diary is not part of the workspace: a day is written by the part that owns days
-    And a Reminder and the Remind on an item are set by their own part, by RM-AGENT-041
+    And a Reminder, and the Remind on an item already made, are set by their own part, by
+      RM-AGENT-041; a new item is proposed with its Remind, by SCH-REMIND-029
     And every way Safwa has of changing anything belongs to the part that owns what it changes,
       so a way that reaches no part reaches nothing
 
