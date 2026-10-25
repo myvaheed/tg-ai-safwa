@@ -29,6 +29,12 @@ MARKER_FORMAT = (
     REPEAT_MARKER.replace("{ended}", "%s").replace("{index}", "%d").replace("{live}", "%s")
 )
 LIVE_FORMAT = REPEAT_LIVE.replace("{live_id}", "%d")
+# What those marks mean, in the one wording every prompt that writes items reads.
+MARKS_EXPLAINED = (
+    "- A title ending in ` [✅2, 🔄#7]` is a finished repeat; #7 is the open one. "
+    "❌ in place of ✅: a Check answered Missed.\n"
+    "- ` [✅2]` with no id: the series has ended. ` [📦]`: archived."
+)
 
 
 class RepeatSeries(Protocol):

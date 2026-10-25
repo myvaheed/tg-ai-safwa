@@ -34,7 +34,7 @@ check reads it against, how to write one, and examples. The method for a Tag is 
 reads it, and a Tag the owner wants is kept. The feature's check on a new item reads
 its criteria and examples, the Advisor and every subagent that writes items read what each is
 and how to write one, and Compass reads the whole of one when asked: the onboarding subagent
-calls `get_more_about` for it.
+calls `get_more_about` for it. Blueprint's prompt carries the whole of every one.
 
 The tree reads in two directions. Down it, a child moves its parent's result forward: that is
 how. Up to a Value, an item makes more of the Value in the owner's life: that is why. What a
@@ -65,12 +65,13 @@ it when asked, for the whole tree, one Value or one Goal's branch; the Dashboard
 
 Blueprint ([blueprint/agent.py](../src/safwa/features/blueprint/agent.py)) is where a new
 item is worked out before anything is proposed. The Advisor opens it with `sub("blueprint")`
-when the owner wants a new Value, Goal, habit tracker or Tag whose result, reason or steps are
-still open, and for a Goal whose result or completion criterion is unclear. It is a subsession:
-it asks one question at a time, reads each item's method with `get_more_about`, keeps to a
-Tag's only as advice, and changes nothing. The plan it agrees on comes back as one message,
-one line per item, and the workspace mutator proposes each line once the owner asks: a Card
-under a new Goal waits for that Goal's Save and takes its id.
+only when the owner asks to plan a new Value, Goal, habit tracker or Tag, or says yes when the
+Advisor offers to plan one; for a Goal whose result or completion criterion is unclear, the
+Advisor asks about it or makes that offer. It is a subsession: it asks one question at a time,
+holds each item to its method, keeps to a Tag's only as advice, and changes nothing. The plan
+it agrees on comes back as one message, one line per item, and asks whether to create it; the
+workspace mutator proposes each line once the owner says yes: a Card under a new Goal waits
+for that Goal's Save and takes its id.
 
 ## The Card tree, and what is derived
 

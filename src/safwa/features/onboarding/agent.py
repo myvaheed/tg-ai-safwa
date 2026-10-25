@@ -58,7 +58,7 @@ MANUAL = f"""# Safwa
 # Blueprint
 - To work out a new Value, a Goal with its Subgoals and Actions, a habit tracker or a Tag step by step, tell the Advisor. It opens "📐 Blueprint", a conversation of its own: Blueprint asks one thing at a time and holds each item to Safwa's method.
 - While it is open, every message goes to Blueprint, and Safwa says nothing on its own. /exit ends it without a plan.
-- Once the plan is agreed, the conversation leaves the chat and the plan comes back as one message. Say "Create", and the Advisor proposes each item on its own review screen.
+- Once the plan is agreed, the conversation leaves the chat and the plan comes back as one message. Say yes, and the Advisor proposes each item on its own review screen.
 
 # Cards
 - A Card is a Goal or an Action. A Card may stand under one Goal or several, its parents. A Goal with no parent is root-level; with a parent it is displayed as a Subgoal. An Action may stand under any Goals or alone and has no children.

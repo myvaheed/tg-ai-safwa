@@ -374,7 +374,7 @@ class ToolAdapters:
                 "status": ToolResultStatus.ERROR.value,
                 "code": "result_missing",
                 "error": "finish needs the result.",
-                "next": "Call finish again with the result in a few sentences.",
+                "next": "Call finish again with the result.",
                 "retryable": True,
             }
         return {"status": ToolResultStatus.OK.value, "result": result.strip()}

@@ -47,7 +47,7 @@ def plan(health: int) -> str:
     return (
         f"🎯 **{GOAL}** — new Goal · Note: {DONE} · Values: [Health](value:{health})\n"
         f"⭐️ **{ACTION}** — new Action, under **{GOAL}**\n"
-        'Say "Create" to create it.'
+        "Create it?"
     )
 
 
@@ -118,13 +118,12 @@ async def test_the_advisor_opens_blueprint_and_blueprint_answers_from_the_conver
         e2e_harness,
         [
             call("sub", {"name": "blueprint"}),
-            call("get_more_about", {"topic": "goals"}),
             CompletionTurn(content="Which Value does it serve?"),
             CompletionTurn(content="What result shows it is done?"),
         ],
     )
 
-    await chat.say("I want a goal about running")
+    await chat.say("Let's plan a goal about running")
     assert chat.drawn[-2:] == [f"{TITLE}\n{EXIT_HINT}", "Which Value does it serve?"]
     await chat.say("Health")
     assert chat.drawn[-1] == "What result shows it is done?"
@@ -132,13 +131,14 @@ async def test_the_advisor_opens_blueprint_and_blueprint_answers_from_the_conver
     async with e2e_harness.sessions() as session:
         assert (await current_subsession(session, OWNER_ID)).kind == "blueprint"
     assert "sub" in offered(provider, 0)
-    # Blueprint read the conversation it was opened from, in its own voice, and the method.
-    assert OPENED_FROM in said(provider, 1) and "I want a goal about running" in said(provider, 1)
+    # Blueprint read the conversation it was opened from, in its own voice, with the methods.
+    assert OPENED_FROM in said(provider, 1)
+    assert "Let's plan a goal about running" in said(provider, 1)
     assert "The Advisor handed this conversation to you." in said(provider, 1)
-    assert offered(provider, 1) == {"query_data", "get_more_about", "finish"}
-    assert "A clear Goal:" in said(provider, 2)
+    assert "A clear Goal:" in said(provider, 1)
+    assert offered(provider, 1) == {"query_data", "finish"}
     # Its second answer reads its own stretch; the Advisor read none of it.
-    assert '"role": "assistant", "content": "Which Value does it serve?"' in said(provider, 3)
+    assert '"role": "assistant", "content": "Which Value does it serve?"' in said(provider, 2)
 
 
 async def test_an_agreed_plan_comes_back_as_one_message_and_the_stretch_leaves(e2e_harness):
@@ -167,7 +167,7 @@ async def test_an_agreed_plan_comes_back_as_one_message_and_the_stretch_leaves(e
     assert stretch <= set(chat.message.bot.deleted)
     result = chat.drawn[-1]
     assert result.startswith(f"<b>{TITLE}</b>\n🎯 <b>{GOAL}</b>")
-    assert 'Say "Create" to create it.' in result or "Say &quot;Create&quot; to create it." in result
+    assert result.endswith("Create it?")
     # The conversation is the owner's first words and the plan, nothing of the talk.
     words = [entry.text for entry in await chat.services.history.recent(OWNER_ID)]
     assert words[0] == "I want a goal about running"
@@ -180,7 +180,7 @@ async def test_an_agreed_plan_comes_back_as_one_message_and_the_stretch_leaves(e
     assert GOAL in said(provider, 4) and "What should change?" not in said(provider, 4)
 
 
-async def test_create_after_a_plan_proposes_each_line_and_a_child_under_the_saved_goal(e2e_harness):
+async def test_yes_to_a_plan_proposes_each_line_and_a_child_under_the_saved_goal(e2e_harness):
     """BP-CREATE-005 — tests/brd/blueprint.feature"""
     health = await health_value(e2e_harness)
 
@@ -211,7 +211,7 @@ async def test_create_after_a_plan_proposes_each_line_and_a_child_under_the_save
 
     await chat.say("I want a goal about running")
     await chat.say("Health. That is the plan.")
-    await chat.say("Create")
+    await chat.say("Yes")
 
     # The workspace read the plan in the conversation, as the chat shows it: the bold is
     # gone and the link is a citation again. Nothing is saved before a Save.

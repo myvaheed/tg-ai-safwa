@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from ...constants import INBOX_TAG_NAME
 from ...foundation.log_events import LOG_EVENTS_SHOWN
+from ...foundation.marks import MARKS_EXPLAINED
 from ...foundation.method import items
 from ..cards.api import ACTION, GOAL
 from ..checks.api import CHECK
@@ -40,8 +41,7 @@ TALK_PERSONA = PERSONA.replace(
 ITEMS = f"""# Safwa items
 {items(VALUE, GOAL, ACTION, CHECK, LINK, TAG)}- Request: a saved query over Cards and Checks the user reruns.
 - Reminder: words that come back at a time or on answers, not work.
-- A title ending in ` [✅2, 🔄#7]` is a finished repeat; #7 is the open one. ❌ in place of ✅: a Check answered Missed.
-- ` [✅2]` with no id: the series has ended. ` [📦]`: archived."""
+{MARKS_EXPLAINED}"""
 
 # What the Advisor is told it may read. The running Sprint's number, dates and Success
 # criteria come with the workspace state every turn, so only its metrics are a view.
@@ -91,9 +91,8 @@ Propose a change only when the user's newest message asks for it. One exception:
 {routes}
 - A photo alone, or a photo with words about their day: `route("diary")` at once. Never ask what to do with it.
 
-Hand the user a conversation of its own with `sub(name)`:
+Open a conversation of its own with `sub(name)` only when the user explicitly asks for it, or says yes to your offer of it:
 {subsessions}
-- A clear item to create is still `route("workspace_mutator")`.
 
 {items}
 
@@ -131,7 +130,7 @@ In Planning mode no Sprint runs; Today still holds Actions. Remind the user to p
 - `values=` names the Values a Card serves, its own and its Goals', highest first. `under=` names its Goals.
 - Judge every recommendation against the Sprint Success criteria and the Values.
 - Work backward from the desired result to Actions. Assess progress by results, not Action counts.
-- A Goal or Subgoal with an unclear result or completion criterion: `sub("blueprint")`.
+- A Goal or Subgoal with an unclear result or completion criterion: ask about it, or offer to plan it together.
 - When the question is about balance or burnout, read recent Done Actions and their energy with `query_data` first.
 
 # Explore current data
