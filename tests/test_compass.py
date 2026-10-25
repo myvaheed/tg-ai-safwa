@@ -118,7 +118,7 @@ def test_the_advisor_routes_a_question_about_the_owners_own_tree_to_compass():
 async def test_each_step_compass_is_told_what_sql_finds(sessions):
     """CMP-ROUTE-002 — tests/brd/compass.feature"""
     context = SimpleNamespace(sessions=sessions)
-    assert await compass_now(context) == "Found without a model: nothing."
+    assert await compass_now(context, "") == "Found without a model: nothing."
     async with sessions() as session:
         await seed_inbox_tag(session)
         inbox_id = await session.scalar(select(Tag.id).where(Tag.name == INBOX_TAG_NAME))
@@ -147,7 +147,7 @@ async def test_each_step_compass_is_told_what_sql_finds(sessions):
         session.add(CheckValue(check_id=open_check.id, value_id=order))
         await session.commit()
         ids = (everything.id, earn.id, calm, freedom, joy)
-    assert await compass_now(context) == "\n".join([
+    assert await compass_now(context, "") == "\n".join([
         "Found without a model:",
         f"- [Everything](card:{ids[0]}): a Goal carrying {GOAL_VALUES_MANY} Values.",
         f"- [Earn $20k](card:{ids[1]}): a root Goal that serves no Value.",

@@ -289,7 +289,7 @@ def _diary_read_tools(context: AgentContext) -> tuple[ReadToolSpec, ...]:
     )
 
 
-async def _diary_now(context: AgentContext) -> str:
+async def _diary_now(context: AgentContext, _conversation: str) -> str:
     # Enough to be told what to change about the day it just proposed; the day itself it
     # reads with `read_day` and `read_conversation`.
     return diary_clock(context.timezone)

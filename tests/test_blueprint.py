@@ -163,7 +163,7 @@ async def test_blueprint_is_told_every_value_and_tag_whole_and_effort_only_while
         calls = await create_tag(session, "Calls")
         await session.commit()
 
-    told = await blueprint_now(_context(sessions))
+    told = await blueprint_now(_context(sessions), "")
 
     # The state cuts a description short; this block carries the whole of it, on one line.
     assert (
@@ -183,7 +183,7 @@ async def test_blueprint_offers_effort_by_its_rungs_while_effort_points_are_on(
     sessions, effort_on
 ):
     """BP-STEP-002 — tests/brd/blueprint.feature"""
-    told = await blueprint_now(_context(sessions))
+    told = await blueprint_now(_context(sessions), "")
     told = told[told.index("# Effort"):]
     assert told == EFFORT
     assert told.startswith("# Effort\nEffort Points are on: for each Action, also offer its Effort")

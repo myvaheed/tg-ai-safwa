@@ -68,7 +68,7 @@ def diary_routed(history: StubDayReader, timezone: str = "Europe/Istanbul") -> R
     )
 
 
-async def _now(timezone: str) -> str:
+async def _now(timezone: str, _conversation: str) -> str:
     return diary_clock(timezone)
 
 

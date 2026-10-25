@@ -319,9 +319,11 @@ A routed subagent's context is the same order under its own prompt: prompt → w
 `<Conversation>` → this turn's receipts → its own current values. Those are `AgentSpec.current`,
 an async read the feature writes — the Diary's day and hour, the Sprint as it stands, the Profile's
 fields — and it is read again at every step, so a value a Save wrote in the same request is the one
-the next step sees (`AG-SESSION-051`). An empty block adds nothing, so a value told only while a
-switch is on, such as Blueprint's Effort, costs nothing while it is off. Putting them in the
-prompt would break the byte-stable prefix.
+the next step sees (`AG-SESSION-051`). Each read is given the `<Conversation>` the subagent reads:
+the reminder subagent, which reads no view, is handed its open items and the owner's Reminders the
+closest to that conversation's end first (`RM-AGENT-041`). An empty block adds nothing, so a value
+told only while a switch is on, such as Blueprint's Effort, costs nothing while it is off. Putting
+them in the prompt would break the byte-stable prefix.
 
 ## `route` — one turn handed to a subagent
 
@@ -781,8 +783,8 @@ the Cue row, exactly as for anything else Safwa says first.
 - A Reminder on answers has no `next_fire_at`, so neither the tick nor the start ever
   touches it. Its `condition` holds the items in words, the series of each, the answer, the
   count and whether in a row. The subagent says only `on_answers` in `reminder`, and a short
-  session of its own reads the conversation, then the same open items the subagent reads, and
-  picks the items by #id and what it counts from the owner's words; an edit of the words by
+  session of its own reads the conversation, then up to 50 open items with a Schedule ordered
+  by that conversation as the subagent's are, and picks the items by #id and what it counts from the owner's words; an edit of the words by
   hand reads nothing again. The `when` session reads the conversation as well, `when` saying
   which time is this Reminder's, and reads only a time; neither session reads the Reminder's
   text. Items the session names that are not Checks or Actions by #id of the block,

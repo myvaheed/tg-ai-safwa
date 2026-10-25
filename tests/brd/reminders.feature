@@ -221,7 +221,9 @@ Feature: Reminders
     Then it says only that the Reminder is on answers, and a short session of its own picks the items
       and reads the answer, how many, whether in a row and whether once
     And the short session reads the owner's words in the conversation as the reminder part read it,
-      by AG-SESSION-063, then the open items of RM-AGENT-041, and never the Reminder's own words
+      by AG-SESSION-063, then up to 50 open Checks, Actions and Goals that have a Schedule
+      (OPEN_ITEMS_MAX = 50), the closest to that conversation first as in RM-AGENT-041, and never
+      the Reminder's own words
     And the short session writes its plan before its call, by AG-SESSION-064
     And the items are Checks or Actions by #id, such as "Check #12", "Check #12 «Sat straight?»" or
       "Action #3, Action #5", and code keeps the series of each, by the series id that stays when any
@@ -377,10 +379,16 @@ Feature: Reminders
       on or off for an Action, a Goal or a Check
     Then it is handed to the reminder part, and the workspace part has no tool for a Reminder or
       Remind
-    And the reminder part reads the Reminders, Checks, Cards, Tags and Values, and is not handed the
-      state of the workspace
-    And it is handed the open Checks, Actions and Goals that have a Schedule, each by #id with its
-      Schedule, Tags and Values, up to 50 (OPEN_ITEMS_MAX = 50), and finds any other with search
+    And the reminder part reads no view and searches nothing, and is not handed the state of the
+      workspace
+    And it is handed, each by #id, up to 10 open Checks, Actions and Goals that have a Schedule, with
+      their Schedule, their Remind when it is on and how long before, and their Tags and Values,
+      for Remind (SUBAGENT_ITEMS_MAX = 10); up to 10 that have none, with their Tags and Values; and
+      the owner's Reminders, with when each fires, but none that Remind made
+    And each list puts first what is closest, by words and by meaning, to the end of the
+      conversation it reads: its newest 512 tokens (RANKED_BY_TOKENS = 512), by AG-SEARCH-058, and
+      the rest after in their own order
+    And the words of a Reminder it proposes name a listed item by #id and any other by its title
     And it proposes a Reminder by RM-WRITE-008 and Remind by SCH-REMIND-029, and deletes a
       Reminder with the same tool that proposes one
     And it has no tool that creates, archives or deletes a Check or an Action

@@ -15,8 +15,8 @@ by someone who never read the prompts, so a pass is a reading, not a copy; no ca
 prompt's example.
 
 The setup session reads only a time. The owner said only the phrase, so the conversation is one
-line of theirs and `when` is the phrase itself. Words that count answers come back as
-`counts_answers`, for the subagent to set `on_answers` instead; the reading of a condition is measured by
+line of theirs and `when` is the phrase itself. Words that count answers come back unclear about
+answers, for the subagent to set `on_answers` instead; the reading of a condition is measured by
 `tests/test_condition_phrases_live.py`, and the whole way by
 `tests/e2e/test_series_goal_live.py`.
 """

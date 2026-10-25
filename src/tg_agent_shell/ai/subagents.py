@@ -42,8 +42,8 @@ class RoutedSubagent:
     # It answers questions as well as doing work, so its first step may be words.
     answers_questions: bool = False
     # Its own current values, read again at every step and put after the dialogue, never
-    # into the cached prefix.
-    current: Callable[[], Awaitable[str]] | None = field(default=None)
+    # into the cached prefix. They are read with the conversation it reads.
+    current: Callable[[str], Awaitable[str]] | None = field(default=None)
     # The item types its `open` may put on the screen. Declaring none withholds the tool.
     opens: tuple[str, ...] = ()
     # What the chat calls a subsession with it, icon first. None for a subagent `route`

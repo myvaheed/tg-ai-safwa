@@ -365,7 +365,7 @@ def _retro_read_tools(context: AgentContext) -> tuple[ReadToolSpec, ...]:
 _MARK = {True: "met", False: "not met", None: "not marked"}
 
 
-async def retro_now(context: AgentContext) -> str:
+async def retro_now(context: AgentContext, _conversation: str) -> str:
     """The newest Sprints that ended, and the one running, for this step."""
     async with context.sessions() as session:
         workspace = await require_workspace(session)

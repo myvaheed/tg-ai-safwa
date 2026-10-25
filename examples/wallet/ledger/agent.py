@@ -96,7 +96,7 @@ def bookkeeper_clock(timezone: str) -> str:
     return f"Today is {now.date().isoformat()}, local time now {now:%H:%M}, timezone {timezone}"
 
 
-async def _now(context: AgentContext) -> str:
+async def _now(context: AgentContext, _conversation: str) -> str:
     return bookkeeper_clock(context.timezone)
 
 

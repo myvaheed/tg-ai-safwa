@@ -5,8 +5,8 @@ setup session that turns a free-text ``when`` into the parameters of a clock tim
 makes, changes or deletes a Reminder; `remind` turns on the Remind of an Action, a Goal or a
 Check, a change the feature owning that item applies, and is the one way to change the Reminder
 it makes. The workspace mutator keeps neither, so no time crowds its prompt, and the subagent
-has no tool that deletes anything else. The open items with a Schedule follow its dialogue,
-see `items`, so it names the owner's by meaning.
+has no tool that deletes anything else, and reads no view: the open items and the owner's
+Reminders follow its dialogue, see `items`, so it names the owner's by meaning.
 
 A time arrives as the owner's words: the setup session reads them in the conversation, `when`
 saying which time is this Reminder's, and its shape is derived from which parameters it sent
@@ -40,8 +40,7 @@ from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
 from tg_agent_shell.telegram.manifest import AgentSpec
 
 from ...constants import (
-    PROPOSING_TURN,
-    READING_THE_WORKSPACE,
+    PROPOSING_FROM_CONTEXT,
     REMIND_LEAD_MAX_MINUTES,
     WEEKDAY_NAMES,
 )
@@ -103,7 +102,7 @@ class ReminderToolInput(RecordToolInput):
         default=None,
         description=(
             "What Safwa does when it fires, as a request to the Advisor. Name every item it "
-            "concerns by #id."
+            "concerns: by #id when it is listed, otherwise by its title."
         ),
     )
     when: str | None = Field(
@@ -165,11 +164,10 @@ class ReminderConfigInput(ToolInput):
 
 class ReminderUnclearInput(ToolInput):
     reason: str = Field(description="What is missing or unclear, in one short sentence.")
-
-
-# Words that count answers, which `on_answers` reads instead: the call alone says so.
-class CountsAnswersInput(ToolInput):
-    pass
+    about: Literal["time", "answers"] | None = Field(
+        default=None,
+        description="time when the phrase means a clock time, answers when it counts answers.",
+    )
 
 
 REMINDER_TOOL = MutationToolSpec(
@@ -211,7 +209,7 @@ REMINDER_AGENT_PROMPT = f"""You keep the user's Reminders and the Remind on thei
 
 {{items}}
 
-{PROPOSING_TURN}
+{PROPOSING_FROM_CONTEXT}
 
 # Which tool
 - At an Action's, a Goal's or a Check's own time, or before it: `remind` on that item.
@@ -224,10 +222,7 @@ REMINDER_AGENT_PROMPT = f"""You keep the user's Reminders and the Remind on thei
 - The user's own words for the time, in their language. Never invent a date or an hour.
 
 # Find the item
-- For `remind`: pick the user's item from Open items by meaning, in any language.
-- Not in Open items: find it with `search`.
-
-{READING_THE_WORKSPACE}"""
+- Pick the user's item from Open items, and a Reminder from Reminders, by meaning, in any language."""
 
 REMINDER_AGENT = AgentSpec(
     name="reminder",
@@ -236,14 +231,13 @@ REMINDER_AGENT = AgentSpec(
         '"tell me when …", or Remind before an Action, a Goal or a Check.'
     ),
     instructions=REMINDER_AGENT_PROMPT,
-    # The Reminders, and the items a Remind or a count of answers names. No Sprint and no
-    # workspace state: what it decides is when, never what the work is.
-    views=("ai_reminders", "ai_checks", "ai_cards", "ai_tags", "ai_values"),
+    # No view, no Sprint and no workspace state: the items and Reminders it names are its
+    # current values, and what it decides is when, never what the work is.
     mutation_tools=("reminder", "remind"),
     current=reminder_items,
 )
 
-REMINDER_WHEN_PROMPT = f"""Read the clock time one Reminder fires at. End with one call: set_reminder_config, counts_answers or not_clear_enough.
+REMINDER_WHEN_PROMPT = f"""Read the clock time one Reminder fires at. End with one call: set_reminder_config or not_clear_enough.
 The user's words are in the conversation. Read the time from the user's own words; the timing phrase says which time.
 Clock time, set_reminder_config:
 'every day at 8', 'every morning at 8': days=[Mon, Tue, Wed, Thu, Fri, Sat, Sun], time=08:00.
@@ -263,9 +257,9 @@ Clock time, set_reminder_config:
 'every day at 9, 10 times': days=[Mon, Tue, Wed, Thu, Fri, Sat, Sun], time=09:00, limit=10.
 {BOUNDS_LINES}
 Resolve relative dates against the current time. Never invent a time.
-Counts answers of Checks or Actions, like 'every 3 Missed of Check #12': counts_answers.
 Not clear, not_clear_enough:
-No clock time, like 'every morning', 'soon', 'twice a week', 'once a month'.
+No clock time, like 'every morning', 'soon', 'twice a week', 'once a month': about=time.
+Counts answers of Checks or Actions, like 'every 3 Missed of Check #12': about=answers.
 reason: what is missing, in one short sentence."""
 
 # The forms the owner is shown when the words cannot be scheduled.
@@ -345,11 +339,6 @@ async def resolve_schedule(
                     model=ResolvedConfig,
                 ),
                 TerminalTool(
-                    name="counts_answers",
-                    description="The words count answers of Checks or Actions, not a time.",
-                    model=CountsAnswersInput,
-                ),
-                TerminalTool(
                     name="not_clear_enough",
                     description="The phrase does not say when; say what is missing.",
                     model=ReminderUnclearInput,
@@ -361,9 +350,9 @@ async def resolve_schedule(
         )
     except MiniSessionError as error:
         raise unclear(refusals[-1] if refusals else UNREADABLE_WHEN) from error
-    if result.name == "counts_answers":
-        raise CountsAnswers(COUNTS_ANSWERS)
     if result.name == "not_clear_enough":
+        if result.payload.about == "answers":
+            raise CountsAnswers(COUNTS_ANSWERS)
         raise unclear(result.payload.reason)
     return result.payload._schedule
 

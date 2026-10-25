@@ -130,7 +130,9 @@ class ContextBuilder:
                 messages, system_text(f"Current workspace state:\n{context.state}")
             )
         _extend_with(messages, dialogue)
-        if talk.current is not None and (now := await talk.current()):
+        if talk.current is not None and (
+            now := await talk.current(conversation_for(dialogue, talk.history_messages))
+        ):
             append_user_message(messages, system_text(now))
         append_user_message(messages, system_text(context.clock))
         return messages
@@ -163,7 +165,7 @@ class ContextBuilder:
             append_user_message(
                 messages, system_text(PRIOR_RECEIPTS + "\n" + "\n".join(lines))
             )
-        if routed.current is not None and (now := await routed.current()):
+        if routed.current is not None and (now := await routed.current(conversation)):
             append_user_message(messages, system_text(now))
         return messages
 

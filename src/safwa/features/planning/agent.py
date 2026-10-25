@@ -52,7 +52,7 @@ Call nothing_to_do with one sentence why when the request is:
 - moving Actions."""
 
 
-async def sprint_now(context: AgentContext) -> str:
+async def sprint_now(context: AgentContext, _conversation: str) -> str:
     """The Sprint as it stands, for this step: the running one, or what starting one today
     would be."""
     async with context.sessions() as session:

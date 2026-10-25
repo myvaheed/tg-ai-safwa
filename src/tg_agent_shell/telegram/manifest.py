@@ -77,8 +77,9 @@ class AgentSpec:
     workspace_state: bool = False
     read_tools: Callable[[AgentContext], tuple[ReadToolSpec, ...]] | None = None
     # Its own current values, read again at every step: they follow the dialogue, so the
-    # prompt above it stays byte-stable. Empty, and nothing is added.
-    current: Callable[[AgentContext], Awaitable[str]] | None = None
+    # prompt above it stays byte-stable. Each read is given the conversation the subagent
+    # reads, so they can be ordered by what it is about. Empty, and nothing is added.
+    current: Callable[[AgentContext, str], Awaitable[str]] | None = None
     # The item types it may put on the screen with `open`; none, and it is not handed the tool.
     opens: tuple[str, ...] = ()
     # How many of the conversation's newest messages it reads.

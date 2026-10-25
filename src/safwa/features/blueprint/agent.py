@@ -103,7 +103,7 @@ Effort is how the user carries on after one execution in their usual state, not 
 {EFFORT_SCALE}"""
 
 
-async def blueprint_now(context: AgentContext) -> str:
+async def blueprint_now(context: AgentContext, _conversation: str) -> str:
     """Every Value and Tag with the whole of its description, which the workspace state
     cuts short, and Effort only while Effort Points are on."""
     async with context.sessions() as session:

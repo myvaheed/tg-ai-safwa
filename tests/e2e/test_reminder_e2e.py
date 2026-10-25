@@ -32,7 +32,7 @@ from safwa.features.reminders.agent import (
 )
 from safwa.features.reminders.api import schedule_from_payload, schedule_of
 from safwa.features.reminders.conditions import NAME_BY_ID, ONE_KIND
-from safwa.features.reminders.items import OPEN_ITEMS
+from safwa.features.reminders.items import OPEN_ITEMS, SCHEDULED
 from safwa.features.reminders.model import Reminder
 from safwa.features.schedules.api import entity_reminder
 from telegram_llm import ChatHost, DialogueMessage
@@ -454,7 +454,10 @@ async def test_rm_unclear_028_words_that_count_answers_go_back_to_be_a_condition
                 )
             ),
             "Sure.",
-            turn(("counts_answers", {}), prefix="setup"),
+            turn(
+                ("not_clear_enough", {"reason": "It counts Missed.", "about": "answers"}),
+                prefix="setup",
+            ),
             condition_call(),
             condition_fields(f"Check #{named}"),
         ]
@@ -477,7 +480,7 @@ async def test_rm_unclear_028_words_that_meant_a_time_get_the_time_forms(e2e_har
     advisor, provider = e2e_harness.advisor(
         unclear_script(
             turn(
-                ("not_clear_enough", {"reason": "No hour was given."}),
+                ("not_clear_enough", {"reason": "No hour was given.", "about": "time"}),
                 prefix="setup",
             ),
             when="next Thursday",
@@ -762,7 +765,7 @@ async def test_rm_agent_041_the_reminder_part_picks_from_its_open_items(e2e_harn
     # The Advisor's request has no such block; the subagent's has it before its first step.
     assert not any(line in str(message["content"]) for message in provider.calls[0])
     assert any(
-        f"{OPEN_ITEMS}\n{line}" in str(message["content"]) for message in provider.calls[1]
+        f"{SCHEDULED}\n{line}" in str(message["content"]) for message in provider.calls[1]
     )
 
 

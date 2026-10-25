@@ -85,6 +85,8 @@ Feature: Agents — the session, the hand-over, and what comes back
     Then that block comes after the conversation, never inside the part of the prompt that stays the same
     And it is read again at every step, so a value saved in the same request is seen
     And a block that is empty adds nothing
+    And each read is given the conversation the subagent reads, so the block can put first what that
+      conversation is about
 
   Scenario: AG-SESSION-063 — A short session that prepares a call reads the conversation as its caller did
     Given a subagent's call is prepared by a short session of its feature's own

@@ -434,7 +434,7 @@ async def test_rule_i_neither_the_clock_nor_a_receipt_reaches_a_routed_prefix():
     # alone: the conversation, what this turn already saved, and its own current values all
     # follow it.
     def subagent(clock: str) -> RoutedSubagent:
-        async def current() -> str:
+        async def current(_conversation: str) -> str:
             return clock
 
         return RoutedSubagent(

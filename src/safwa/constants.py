@@ -22,13 +22,26 @@ NOTE_REPLACED_WHOLE = (
 # How long before its moment Remind may fire.
 REMIND_LEAD_MAX_MINUTES = 24 * 60
 # How a subagent that proposes changes goes through a turn, and how it reads the workspace.
-# The workspace mutator and the reminder subagent say both in one wording: two copies drift.
-PROPOSING_TURN = """# How a turn goes
-1. Read what you need with `query_data`. Never in the same response as a mutation tool.
-2. With the mutation tools, in the same response: one line of text naming what you will change.
-3. After the review: one short sentence naming what was saved. The interface prints the Saved/Discarded/Failed receipt itself.
-The user may override your proposal; what they saved is their choice. It takes priority. Never undo or redo it on your own.
+# The workspace mutator says both; the reminder subagent, handed what it needs and reading
+# nothing, says the turn without its first step. One wording: two copies drift.
+_PROPOSED = (
+    "With the mutation tools, in the same response: one line of text naming what you will change.",
+    "After the review: one short sentence naming what was saved. The interface prints the Saved/Discarded/Failed receipt itself.",
+)
+_PROPOSING_RULES = """The user may override your proposal; what they saved is their choice. It takes priority. Never undo or redo it on your own.
 Nothing to change, or the request is not yours: call nothing_to_do with the reason."""
+
+
+def _turn(*steps: str) -> str:
+    numbered = "\n".join(f"{number}. {step}" for number, step in enumerate(steps, start=1))
+    return f"# How a turn goes\n{numbered}\n{_PROPOSING_RULES}"
+
+
+PROPOSING_TURN = _turn(
+    "Read what you need with `query_data`. Never in the same response as a mutation tool.",
+    *_PROPOSED,
+)
+PROPOSING_FROM_CONTEXT = _turn(*_PROPOSED)
 READING_THE_WORKSPACE = """# Read the data
 `query_data` runs one read-only `SELECT` or `WITH ... SELECT` over these views only.
 Every value listed under a view is the lowercase code stored in that column.

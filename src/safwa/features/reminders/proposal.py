@@ -189,7 +189,9 @@ async def _condition(context: PreparationContext) -> Condition:
     try:
         fields = await read_condition(
             context.provider,
-            open_items=await open_items(context.session),
+            open_items=await open_items(
+                context.session, context.query_runner.search, context.conversation
+            ),
             conversation=context.conversation,
         )
     except ConditionUnclear as error:

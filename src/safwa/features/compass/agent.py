@@ -223,7 +223,7 @@ None still holds: say so in one line.
 {{views}}"""
 
 
-async def compass_now(context: AgentContext) -> str:
+async def compass_now(context: AgentContext, _conversation: str) -> str:
     """What SQL finds in the tree, for this step."""
     async with context.sessions() as session:
         found = plain_findings(await read_tree(session))

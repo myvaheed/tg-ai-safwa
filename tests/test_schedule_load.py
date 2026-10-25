@@ -66,7 +66,7 @@ async def test_the_next_sprints_length_weights_the_plan_and_its_ui(sessions, eff
         load = await plan_load(session, [card])
         assert (load.actions, load.effort, load.counts) == (3, 15, {card.id: 3})
         await session.commit()
-    assert "Planned: 3 Actions" in await sprint_now(SimpleNamespace(sessions=sessions))
+    assert "Planned: 3 Actions" in await sprint_now(SimpleNamespace(sessions=sessions), "")
     services = services_for(sessions)
     message = FakeMessage(100, bot_message=False)
     await render_sprint(message, services)

@@ -1448,13 +1448,13 @@ Since there is no clock time specified … » — и всё равно `about=ti
 вместо `remind`; «Also track» — после Save Check сабагент снова вызвал `reminder` и `remind`, как раз
 во втором проходе 13.
 
-## Батч 13c — счёт ответов как свой исход сессии `when`
+## Батч 13c — счёт ответов как свой исход сессии `when` (откатан в 14b)
 
 13b показал: пока «это счёт ответов» — поле `about` внутри `not_clear_enough`, модель решает «нет
 часа, значит неясно» и ставит `about=time`, даже когда план называет условие. Теперь это третий
 исход, наравне с двумя другими; 13b откатан целиком.
 
-- Terminal tool `counts_answers` без полей: «The words count answers of Checks or Actions, not a
+- Terminal tool *counts_answers* без полей: «The words count answers of Checks or Actions, not a
   time.» Код делает то же, что делал на `about=answers`: `CountsAnswers`, и сабагент получает
   `when_counts_answers`.
 - У `not_clear_enough` нет поля `about`: он значит только «время неясно».
@@ -1470,6 +1470,130 @@ reason: what is missing, in one short sentence.
 ```
 
 Владелец решил закоммитить без живого замера.
+
+## Батч 14 — сабагент reminder без `query_data`, items по близости к разговору
+
+В 13 и 13b половина провалов потока — сабагент гонял SQL по кругу на Reminder на ответах и так и не
+вызвал tool: «7 «да» подряд» — 7 одинаковых `SELECT … WHERE card_id IN (1, 2)` с 0 строк, «20
+тренировок» — 15 запросов. Искать ему нечего: на ответах items выбирает сессия условия, для `remind`
+item уже в Open items. Владелец решил: у сабагента нет ни одного view, а нужное ему лежит в
+контексте, ближайшее к разговору первым.
+
+| Кто | Что видит | Что пишет |
+|---|---|---|
+| сабагент `reminder` | без `views` и `query_data`; до 10 Open items со Schedule, до 10 без Schedule, Reminders владельца | `remind`; `reminder` с `instruction` и `when`; `reminder` с `on_answers=true`; удаление |
+| сессия `when` | разговор и `when` | время |
+| сессия условия | разговор и до 50 Open items со Schedule | items и поля условия |
+
+`when` и `instruction` пишет сабагент: так «X и Y за 10 минут» — два `remind` в одном ответе, а «в 8
+зарядка, в 20 чтение» — два `reminder`.
+
+- **Сортировка.** Запрос к индексу поиска — конец разговора, который читает сабагент: последние 10
+  сообщений, 512 токенов с конца (*RANKED_BY_TOKENS*), по словам и по смыслу, как `relevance`
+  (AG-SEARCH-058). Embedder `google/embeddinggemma-300m` берёт до 2048 токенов. Ближайшие первыми,
+  остальные следом по id. Без индекса — по id, как сейчас. Сессия условия ранжирует тем же
+  разговором, который читает при подготовке.
+- **Shell.** `AgentSpec.current` получает разговор, который читает сабагент: `current(context,
+  conversation)`. Остальные `current` его не читают.
+- **Блок сабагента** — три секции: «Open items with a Schedule, for `remind`:» (*SUBAGENT_ITEMS_MAX*
+  = 10), «Open items without a Schedule:» (10), «Reminders:» — все Reminders владельца без тех, что
+  сделал Remind, строкой `- Reminder #3 «Drink water»; every day at 07:00`.
+- **Блок сессии условия** — «Open items:», до 50 со Schedule (`OPEN_ITEMS_MAX`); строки «And N
+  more: find them with `search`» больше нет.
+- **Промпт `reminder`:** нет раздела `READING_THE_WORKSPACE` и первого шага `PROPOSING_TURN` («Read
+  what you need with `query_data`»); раздел «# Find the item»:
+
+```text
+# Find the item
+- Pick the user's item from Open items, and a Reminder from Reminders, by meaning, in any language.
+- Nothing there fits a `remind`, a change or a deletion: call nothing_to_do and say so.
+```
+
+- **Поле `instruction`:** «What Safwa does when it fires, as a request to the Advisor. Name every
+  item it concerns: by #id when it is listed, otherwise by its title.»
+- **Сценарии:** RM-AGENT-041 — сабагент не читает views и получает три секции по близости;
+  RM-COND-030 — у сессии условия свой блок до 50, по близости; AG-SESSION-051 — `current` читают с
+  разговором сабагента.
+
+**Критерий успеха** — 2 прохода на 35B, шаг 1 и шаг 2: в потоке ни одного провала от SQL по кругу
+и не больше 1 провала за проход; шаг 1, фразы `goal`, Remind и «Also track» не хуже 13.
+
+### Замер на 35B, 2 прохода (с 13c, который отдельно не мерили)
+
+| | 13 | 14 |
+|---|---|---|
+| Шаг 1, из 30 | 28 и 29 | 29 и 28 |
+| Фразы `goal`, из 24 | 22 и 22 | 17 и 20 |
+| Поток цели серии, провалов из 16 | 0 и 2 | 2 и 3 |
+| Remind на item, из 10 | 9 и 9 | 8 и 9 |
+| «📊 Also track», из 3 | 3 и 2 | 2 и 3 |
+
+Критерий не выполнен. SQL по кругу ушёл совсем: у сабагента нет `query_data`, и ни один провал
+потока не от поиска.
+
+**Фразы `goal` — это 13c.** Сессия `when` ни разу не вызвала *counts_answers*: все 11 провалов —
+`not_clear_enough`, хотя план называет условие («describes a condition based on missed tasks, not
+a specific clock time»). С `about` внутри `not_clear_enough` было 22 и 22; отдельный исход модель не
+выбирает вовсе.
+
+**Новые провалы от 14:**
+- `nothing_to_do` по строке «Nothing there fits a `remind`, a change or a deletion»: «Remind me
+  every evening at 21:00 to read for 20 minutes» — «No existing Action or Check named 'read for 20
+  minutes' … to attach a reminder to»; «Read 20 minutes 30 times» и «После каждых 10 пробежек» —
+  «Cannot create milestone-based reminders».
+- «Turn off the reminder on Читать» оба раза: «No reminder exists on «Читать»». Reminder, который
+  сделал Remind, в блок Reminders не входит, а строка Action не говорит, что Remind включён.
+
+Остальное — как раньше: «50-я пробежка» Advisor оба раза отдал mutator; «pills» — выдуманные 09:00;
+«stay up past 11» — сессия `when` сказала «неясно», и сабагент придумал 23:15.
+
+Ранжирование работало (у потока и Remind живой индекс поиска), но ничего не обрезало: в фикстуре
+меньше 10 items в каждой секции, так что от него этот замер не зависит.
+
+## Батч 14b — откат 13c, без строки про `nothing_to_do`, Remind в строке item
+
+- 13c откатан: `not_clear_enough` снова с `about`, `about=answers`, промпт сессии `when` как в
+  v9.243.
+- Из «# Find the item» промпта `reminder` ушла строка «Nothing there fits a `remind`, a change or a
+  deletion: call nothing_to_do and say so.» Общее правило «Nothing to change, or the request is not
+  yours: call nothing_to_do» в «# How a turn goes» осталось.
+- Строка item со Schedule в блоке сабагента говорит его Remind: `; remind: 15 minutes before` или
+  `; remind: at its time`. В блоке сессии условия Remind нет.
+
+**Критерий успеха** — 2 прохода на 35B, шаг 1 и шаг 2: фразы `goal` не хуже 13 (22 и 22); в потоке
+ни одного `nothing_to_do` вместо `reminder` и не больше 1 провала за проход; «Turn off the reminder
+on Читать» проходит оба раза; шаг 1, Remind и «Also track» не хуже 13.
+
+### Замер на 35B, 2 прохода
+
+| | 13 | 14 (с 13c) | 14b |
+|---|---|---|---|
+| Шаг 1, из 30 | 28 и 29 | 29 и 28 | 29 и 29 |
+| Фразы `goal`, из 24 | 22 и 22 | 17 и 20 | 22 и 22 |
+| Поток цели серии, провалов из 16 | 0 и 2 | 2 и 3 | 1 и 2 |
+| Remind на item, из 10 | 9 и 9 | 8 и 9 | 10 и 10 |
+| «📊 Also track», из 3 | 3 и 2 | 2 и 3 | 3 и 3 |
+| Время шага 2, с | 444 и 387 | 346 и 520 | 255 и 318 |
+
+Лучший замер серии, но критерий формально не выполнен: во втором проходе потока 2 провала, и один
+из них — `nothing_to_do`.
+
+- Remind впервые 10 и 10: «Turn off the reminder on Читать» прошла оба раза — строка Action теперь
+  говорит, что Remind включён. «pills» тоже прошла оба раза.
+- SQL по кругу нет: у сабагента нет `query_data`. Шаг 2 стал быстрее на треть.
+- Фразы `goal` вернулись к 22 и 22 с откатом 13c; провалы — те же фразы, что и раньше
+  («21-day streak», «five mornings in a row», «whenever any check gets answered», «20 выполнений
+  #5 и #9»).
+
+Провалы потока:
+- «Read 20 minutes 30 times» (второй проход) — `nothing_to_do`: «Cannot track completion count for
+  «Read 20 minutes?» (check:3)». Так же в 14, и в 14 — «После каждых 10 пробежек». До 14 эта фраза
+  проходила. Возможная причина — заголовок «Open items with a Schedule, for `remind`:»: он говорит,
+  что items — для `remind`, а не для счёта ответов.
+- «20 тренировок по спорту, всех вместе» (первый) — сессия условия не дала принятого вызова за все
+  попытки, сабагент переспросил.
+- «Если забью на зарядку два дня подряд» (второй) — сессия `when` прочитала «два дня» как
+  `in_minutes=2880`.
 
 ## Тексты на согласование
 
@@ -1522,7 +1646,7 @@ Checks, ai_cards for Done of Actions.» (её говорит контекст с
 
 Владелец просил не забыть; что-то из этого, возможно, стоит убрать.
 
-- Подстраховка `counts_answers` (до 13c — `about=answers`) в сессии `when`. Сабагент всё ещё иногда кладёт ответы в `when` (12d:
+- Подстраховка *counts_answers* (до 13c — `about=answers`) в сессии `when`. Сабагент всё ещё иногда кладёт ответы в `when` (12d:
   «на 7 да подряд в проверках Здоровье»); с планом она ловит 18–19 таких фраз из 20.
 - Строка поля `instruction` «Name every item it concerns by #id». По ней Advisor при срабатывании
   узнаёт item. С 12e этот текст не видит ни одна короткая сессия.

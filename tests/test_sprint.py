@@ -469,7 +469,7 @@ async def test_pl_ask_026_the_sprint_is_read_as_it_stands(sessions, effort_on):
         await set_sprint_capacity(session, 20)
         await session.commit()
 
-    planning = await sprint_now(context)
+    planning = await sprint_now(context, "")
     async with sessions() as session:
         planning_state = (await workspace_context(session)).state
 
@@ -494,7 +494,7 @@ async def test_pl_ask_026_the_sprint_is_read_as_it_stands(sessions, effort_on):
         sprint.planned_end_date = sprint.planned_start_date + timedelta(days=13)
         await session.commit()
 
-    running = await sprint_now(context)
+    running = await sprint_now(context, "")
     async with sessions() as session:
         running_state = (await workspace_context(session)).state
 

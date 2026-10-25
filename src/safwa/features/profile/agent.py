@@ -55,7 +55,7 @@ def _shown(profile: UserProfile, field: ProfileField) -> str:
     return str(value) if value not in (None, "") else "empty"
 
 
-async def profile_now(context: AgentContext) -> str:
+async def profile_now(context: AgentContext, _conversation: str) -> str:
     """Every Profile field as it is, the timezone, and each reaction's switch."""
     async with context.sessions() as session:
         profile = await session.get(UserProfile, 1)
