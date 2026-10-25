@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     ai_send_temperature: bool | None = None
     ai_cache_breakpoints: bool | None = None
     ai_reasoning_effort: str | None = None
+    # Identifiers replaced by placeholders before a request leaves (docs/SECURITY.md). Left
+    # unset it is on for every ai_provider but local.
+    ai_pseudonymize: bool | None = None
     # query_data result caps. A capped result is returned with a notice telling the
     # model to narrow the query, so raise these only if the model has context to spare.
     ai_query_row_limit: int = Field(default=DEFAULT_ROW_LIMIT, gt=0)
@@ -125,6 +128,12 @@ class Settings(BaseSettings):
             reasoning_effort=self.ai_reasoning_effort,
             default_headers=AI_ATTRIBUTION_HEADERS,
         )
+
+    @property
+    def pseudonymize(self) -> bool:
+        if self.ai_pseudonymize is not None:
+            return self.ai_pseudonymize
+        return self.ai_provider != "local"
 
     @property
     def asr_enabled(self) -> bool:

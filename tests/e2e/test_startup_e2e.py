@@ -164,6 +164,23 @@ async def test_full_startup_reaches_polling_and_cleans_up(tmp_path: Path, monkey
         connection.close()
 
 
+async def test_ag_privacy_068_a_finder_that_cannot_load_stops_the_start(
+    tmp_path: Path, monkeypatch
+):
+    """AG-PRIVACY-068 — tests/brd/tg_agent_shell/agents.feature"""
+    database, settings = _prepared_startup(tmp_path, monkeypatch)
+
+    def unloadable(*_args, **_kwargs):
+        raise OSError("the model could not be downloaded")
+
+    monkeypatch.setattr(safwa_main.HorizonPiiFinder, "load", unloadable)
+
+    with pytest.raises(OSError, match="could not be downloaded"):
+        await safwa_main.run(settings.model_copy(update={"ai_pseudonymize": True}), database)
+    assert FakeProvider.instances == []
+    assert FakeDispatcher.instances == []
+
+
 async def test_an_existing_workspace_receives_inbox_once_and_deleted_requests_stay_deleted(
     tmp_path: Path, monkeypatch
 ):

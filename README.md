@@ -34,6 +34,12 @@ SAFWA_AI_API_KEY=sk-or-v1-...
 SAFWA_AI_MODEL=openai/gpt-5.6-luna
 ```
 
+A provider that is not on this computer reads names, phone numbers, emails, document numbers and
+keys as placeholders such as `[PERSON_1]`; the answer comes back with the real words. The first
+start with it downloads a 290 MB model into `data/models/`, and a discrete graphics card runs it
+when there is one. What is hidden and what is not, and `SAFWA_AI_PSEUDONYMIZE` to turn it off or
+on, is [docs/SECURITY.md](docs/SECURITY.md).
+
 Every value a row derives (`SAFWA_AI_BASE_URL`, `SAFWA_AI_MAX_RETRIES`,
 `SAFWA_AI_SEND_TEMPERATURE`, `SAFWA_AI_CACHE_BREAKPOINTS`) can still be set explicitly, and
 `SAFWA_AI_REASONING_EFFORT` sets the model's effort; Safwa is tuned with it "none", reasoning off, since a step the owner waits 5-10 seconds for is no use. Which models are known to work, and what

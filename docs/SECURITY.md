@@ -48,9 +48,66 @@ answers to a spying program are the two under "Stronger protection".
 - `.env` holds the Telegram bot token and the AI API key in plain text. Protecting them is a
   separate, later step.
 - Messages the bot sent are also kept by Telegram on its servers.
-- Whatever Safwa sends to the AI provider is read by that provider. With LM Studio that stays on
-  your computer; with OpenRouter it does not.
+- Whatever Safwa sends to the AI provider is read by that provider, with the identifiers in it
+  replaced by placeholders when the provider is not on this computer: see "What the AI provider
+  reads".
 - `data/models/` is a public model download and holds nothing of yours.
+
+## What the AI provider reads
+
+Safwa answers through an AI model. With LM Studio, or any server on this computer
+(`SAFWA_AI_PROVIDER=local`), what Safwa sends it never leaves the computer. With OpenRouter it
+goes to OpenRouter and to the company behind the model, and both can read it.
+
+So before a request leaves for a provider that is not on this computer, Safwa looks through it for
+identifiers — who someone is, how to reach them, what opens an account — and sends a placeholder
+in the place of each:
+
+```text
+you write              Позвони Ольге Смирновой на +7 916 123-45-67
+the provider reads     Позвони [PERSON_1] на [PHONE_1]
+you read back          Напомню позвонить Ольге Смирновой в пятницу.
+```
+
+The answer comes back with the real words in it again, and so does whatever Safwa saves on your
+workspace. A placeholder stands for one spelling: "Ольге" and "Ольги" are two of them, so the model
+may take them for two people.
+
+**Hidden:** names, phone numbers, emails, card and bank account numbers, passport, ИНН and СНИЛС
+numbers, street addresses and postcodes, usernames, links, passwords and keys, car numbers, IP
+addresses, ages, dates of birth, and organizations when they are found.
+
+**Not hidden:**
+
+- cities, countries and dates: places and dates are what advice is made of. A date just after
+  "родил…", "рожд…" or "д.р." is a date of birth, and is hidden.
+- most organizations: in Russian text, Яндекс, Сбербанк or МТС are found less than one time in
+  ten.
+- about one name in ten, most often a first name alone in another case: "Сашей", "Лены".
+- what you write that is not an identifier: your Diary, your Values, your goals. Hiding them
+  would leave nothing to advise on.
+- photos, which go as they are; and your voice, which goes to the speech service you chose if it is
+  not on this computer.
+- Safwa's own instructions to the model.
+
+So this narrows what a provider learns about who is in your life; it does not make a remote
+provider private. Only a model on this computer does that.
+
+**How fast.** With a discrete graphics card, a few milliseconds for a message: 4 ms on an RTX 5090,
+13 ms on an RTX 4000. On the processor alone, about 25 ms for a short message and 1.5 seconds for
+a long read. A built-in graphics card is never used: it is slower than the processor. Safwa takes
+2 to 3 seconds longer to start, and the first start with this on downloads 290 MB into
+`data/models/`.
+
+**Off or on.** `SAFWA_AI_PSEUDONYMIZE=false` sends everything as written; `true` hides
+identifiers from a model on this computer too. Left unset, it follows `SAFWA_AI_PROVIDER`.
+
+**When it fails.** A request is never sent as written because the search for identifiers failed:
+the step fails instead. Safwa does not start without the finder, and the error names
+`HorizonPiiFinder`. On a first start that is usually the download: connect and start again. If it
+says something about `onnxruntime`, an environment that once held both `onnxruntime` and
+`onnxruntime-windowsml` lost files of the one they share:
+`uv sync --reinstall-package onnxruntime-windowsml`.
 
 ## How it works
 
@@ -329,6 +386,21 @@ Both are settings of Windows, not of Safwa, and both work with everything above.
   asks where it came from; asking for the passphrase is the application's, and the example bot
   asks its own.
 - **Nothing hides the key in memory**, for the reasons in "Why the key is not hidden in memory".
+- **The PII finder.** `PseudonymizingProvider` in
+  [pseudonymize.py](../src/llm_gateway/pseudonymize.py) wraps the provider in the composition
+  root, and `HorizonPiiFinder` in [horizon.py](../src/llm_gateway/horizon.py) finds what it
+  hides; how the two work is [LLM_GATEWAY.md](LLM_GATEWAY.md). The model is
+  Horizon-Labs/pii-redactor-small (Apache-2.0), a ModernBERT token classifier at a pinned
+  commit, in its int8 ONNX file. On Windows `onnxruntime-windowsml` takes the place of
+  `onnxruntime` — the same module, with DirectML in it, through `override-dependencies` in
+  `pyproject.toml` — and elsewhere the processor-only `onnxruntime` stays. Measured on
+  2026-10-25 against 830 identifiers in 20,000 tokens of Russian text written in Safwa's words:
+  phones, emails, cards, accounts, passports, ИНН, postcodes, ages, car numbers and keys all
+  but a few; names 0.92–0.94 in texts of 100 to 500 tokens, 0.86 in one long one; organizations
+  under 0.06; dates of birth all of them with `BIRTH_WORDS` and none without, since the model
+  calls them DATE; no word of Safwa's own hidden. The graphics card finds exactly what the
+  processor finds. `uv run pytest tests/test_horizon.py --pii-model` downloads the model and
+  checks both.
 - **Tests** open every database with `TEST_KEY` from `tests/database_key.py` and never prompt; the
   tests of the key file and the pair lower `SCRYPT_N`, because what they check is the file and
   the order, not the cost of a try. `held_elsewhere` there holds a database from a second process,

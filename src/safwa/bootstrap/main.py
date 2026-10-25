@@ -11,7 +11,8 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from llm_gateway import OpenAICompatibleProvider
+from llm_gateway import LlmProvider, OpenAICompatibleProvider, PseudonymizingProvider
+from llm_gateway.horizon import HorizonPiiFinder
 from telegram_llm import ChatHost
 from tg_agent_shell.access.manager import AccessManager
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views
@@ -67,10 +68,12 @@ from ..security import held, unlock
 from .modules import (
     AI_VIEWS,
     ALLOWED_VIEWS,
+    BIRTH_WORDS,
     FEATURE_CALLBACK_ACTIONS,
     FEATURE_COMMANDS,
     FEATURE_START_LINKS,
     FEATURE_TEXT_INPUTS,
+    PII_KEPT,
     REGISTRY,
     SCREENS,
     SYSTEM_PROMPT,
@@ -189,7 +192,20 @@ async def run(settings: Settings, database_file: DatabaseFile) -> None:
             await seed_inbox_request(session, views=ALLOWED_VIEWS)
         await session.commit()
 
-    provider = OpenAICompatibleProvider(settings.ai_config())
+    finder = None
+    if settings.pseudonymize:
+        # Loaded before anything can reach the provider: a finder that cannot load stops
+        # the start rather than let a request leave as written (AG-PRIVACY-068).
+        finder = await asyncio.to_thread(
+            HorizonPiiFinder.load,
+            settings.data_dir / "models",
+            kept=PII_KEPT,
+            birth_words=BIRTH_WORDS,
+        )
+        logger.info("PII finder runs on %s", finder.device)
+    provider: LlmProvider = OpenAICompatibleProvider(settings.ai_config())
+    if finder is not None:
+        provider = PseudonymizingProvider(provider, finder)
     tracing = None
     if settings.phoenix_enabled:
         from phoenix.otel import register

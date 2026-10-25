@@ -1,18 +1,27 @@
-"""The configured provider, for real: a tool loop, the loop read back as kept, and one photo.
+"""The configured provider, for real: a tool loop, the loop read back as kept, one photo, and
+an answer made of placeholders.
 
-Opt-in with ``--live-provider``; it reads SAFWA_AI_* from `.env` and costs a few requests.
-Run it once for every row of `PRESETS` you mean to use, before trusting it.
+Opt-in with ``--live-provider``; it reads SAFWA_AI_* from `.env` and costs a few requests. The
+placeholders also need ``--pii-model``, which downloads the PII finder's model. Run it once for
+every row of `PRESETS` you mean to use, before trusting it.
 """
 
 from __future__ import annotations
 
 import io
 import json
+from pathlib import Path
 
 import pytest
 
-from llm_gateway import CompletionRequest, OpenAICompatibleProvider, standard_message
-from safwa.bootstrap.modules import PROPOSALS
+from llm_gateway import (
+    CompletionRequest,
+    OpenAICompatibleProvider,
+    PseudonymizingProvider,
+    standard_message,
+)
+from llm_gateway.horizon import HorizonPiiFinder
+from safwa.bootstrap.modules import BIRTH_WORDS, PII_KEPT, PROPOSALS
 from safwa.config import Settings
 from tg_agent_shell.media.library import image_part
 
@@ -101,3 +110,50 @@ async def test_the_configured_provider_loops_reads_its_kept_turn_and_sees_a_phot
         assert words.content.strip(), "The model returned no words for the photo."
     finally:
         await provider.aclose()
+
+
+class Recording:
+    """The configured provider, keeping what was sent to it."""
+
+    def __init__(self, inner: OpenAICompatibleProvider) -> None:
+        self.inner = inner
+        self.sent: list[CompletionRequest] = []
+
+    async def complete(self, request: CompletionRequest):
+        self.sent.append(request)
+        return await self.inner.complete(request)
+
+    async def aclose(self) -> None:
+        await self.inner.aclose()
+
+
+@pytest.mark.pii_model
+async def test_the_configured_model_keeps_the_placeholders_and_the_owner_reads_the_words():
+    """AG-PRIVACY-064 — tests/brd/tg_agent_shell/agents.feature"""
+    recording = Recording(OpenAICompatibleProvider(Settings().ai_config()))
+    finder = HorizonPiiFinder.load(
+        Path(__file__).parents[1] / "data" / "models", kept=PII_KEPT, birth_words=BIRTH_WORDS
+    )
+    provider = PseudonymizingProvider(recording, finder)
+    request = "Позвонить Ольге Смирновой по номеру +7 916 123-45-67 до пятницы."
+    try:
+        turn = await provider.complete(
+            CompletionRequest(
+                (
+                    {
+                        "role": "system",
+                        "content": "Повтори просьбу одной фразой. Имена и номера пиши как в ней.",
+                    },
+                    {"role": "user", "content": request},
+                ),
+                reasoning_effort="none",
+            )
+        )
+    finally:
+        await provider.aclose()
+
+    assert recording.sent[0].messages[1]["content"] == (
+        "Позвонить [PERSON_1] по номеру [PHONE_1] до пятницы."
+    )
+    assert "[PERSON_" not in turn.content and "[PHONE_" not in turn.content, turn.content
+    assert "+7 916 123-45-67" in turn.content, turn.content
