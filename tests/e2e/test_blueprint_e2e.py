@@ -155,9 +155,13 @@ async def test_the_advisor_opens_blueprint_and_blueprint_answers_from_the_conver
     assert '"role": "assistant", "content": "Which Value does it serve?"' in said(provider, 2)
 
 
-async def test_blueprint_reads_the_open_goals_and_is_told_effort_only_while_it_is_on(e2e_harness):
+async def test_blueprint_is_told_values_whole_reads_the_open_goals_and_effort_only_while_on(
+    e2e_harness,
+):
     """BP-STEP-002 — tests/brd/blueprint.feature"""
+    whole = "I read before sleep every night. " * 6
     async with e2e_harness.sessions() as session:
+        learning = await create_value(session, "Learning", whole)
         books = await create_card(session, kind="goal", title="Read 12 books")
         await create_card(session, kind="goal", title="A book a month", parent_ids={books.id})
         swim = await create_card(session, kind="goal", title="Learn to swim")
@@ -181,6 +185,8 @@ async def test_blueprint_reads_the_open_goals_and_is_told_effort_only_while_it_i
     )
 
     await chat.say("Let's plan Actions for reading")
+    # The whole description, which the workspace state cuts short.
+    assert f"- [Learning](value:{learning.id}): {whole.strip()}" in said(provider, 1)
     # Off, the block is not read; only the views and the state still name the column.
     assert "# Effort" not in said(provider, 1)
     async with e2e_harness.sessions() as session:

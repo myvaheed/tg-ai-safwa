@@ -26,6 +26,9 @@ from safwa.features.blueprint.hooks import (
 )
 from safwa.features.cards.model import CATEGORY_MEANINGS, EFFORT_RUNGS, ENERGY_MEANINGS
 from safwa.features.compass.agent import TOPICS
+from safwa.features.tags.use_cases import create_tag
+from safwa.features.values.use_cases import create_value
+from safwa.features.workspace_mutator.state import CONTEXT_DESCRIPTION_MAX_CHARS
 from safwa.foundation.marks import MARKS_EXPLAINED
 from safwa.foundation.method import explanation
 from tg_agent_shell.ai.contracts import FINISH_TOOL
@@ -64,12 +67,15 @@ def test_blueprint_asks_one_thing_at_a_time_from_the_owners_words_and_changes_no
     for line in (
         "- One question per message, in one or two sentences.",
         "- Build every item from the user's words. Never invent a target, a number, a date or a time.",
-        "2. Why: which Value it serves. Offer the user's Values from the workspace state by name. "
-        "None fits: work out a new Value.",
+        "2. Why: which Value it serves. Offer the user's Values by name. None fits: work out a "
+        "new Value.",
         "5. Ask once whether the new Actions should also stand under an existing Goal or "
         f"Subgoal. Yes: read the open ones with `{OPEN_GOALS}`, and offer for each Action the "
         "ones it moves forward.",
-        "6. For each Action, offer its Categories and Energy, and ask whether they fit.",
+        "6. For each Goal, Subgoal and Action, offer any other of the user's Values it clearly "
+        "serves, by the Value link method. A Value of a Goal above it is already its own: do not "
+        "offer it again.",
+        "7. For each Action, offer its Categories and Energy, and ask whether they fit.",
         "Only an Action carries them, and each may hold several.",
     ):
         assert line in BLUEPRINT_PROMPT
@@ -82,7 +88,9 @@ def test_blueprint_asks_one_thing_at_a_time_from_the_owners_words_and_changes_no
     assert BLUEPRINT_AGENT.current is blueprint_now
     assert BLUEPRINT_AGENT.mutation_tools == ()
     assert BLUEPRINT_AGENT.workspace_state
-    assert BLUEPRINT_AGENT.views == ("ai_cards", "ai_values", "ai_tags")
+    # Every Value and Tag is told after the conversation, so only a Goal is read.
+    assert BLUEPRINT_AGENT.views == ("ai_cards",)
+    assert "Find an existing Goal the user names with `query_data`" in BLUEPRINT_PROMPT
     # A title it reads may carry a repeat's or an archive's mark, told in the Advisor's words.
     assert MARKS_EXPLAINED in BLUEPRINT_PROMPT and MARKS_EXPLAINED in ITEMS
     # Its reads are filled in once, so the prompt names every view it may read.
@@ -98,7 +106,7 @@ def test_blueprint_holds_the_whole_of_each_method_and_speaks_in_safwas_voice():
     assert "get_more_about" not in BLUEPRINT_PROMPT
     for line in (
         "- Hold every item to its method. When a point does not hold, say which and ask about it.",
-        "8. A Tag when the user wants one. Its method is advice: suggest it, and keep the Tag the user wants.",
+        "9. A Tag when the user wants one. Its method is advice: suggest it, and keep the Tag the user wants.",
     ):
         assert line in BLUEPRINT_PROMPT
     assert routed_prompt(BLUEPRINT).startswith(TALK_PERSONA)
@@ -122,8 +130,8 @@ def test_the_plan_is_written_one_line_per_item_ending_with_whether_to_create_it(
         "- A Card under Goals says under and each of their titles. A Check on a Card says on and "
         "that Card's title.",
         "- The last line asks, in the user's language, whether to create it.",
-        "10. The user agrees: call `finish` alone with the plan as agreed.",
-        "11. The user wants to stop: call `finish` alone with what was agreed so far.",
+        "11. The user agrees: call `finish` alone with the plan as agreed.",
+        "12. The user wants to stop: call `finish` alone with what was agreed so far.",
         "· Categories: Rest · Energy: Physical",
     ):
         assert line in BLUEPRINT_PROMPT
@@ -144,9 +152,31 @@ def _context(sessions) -> AgentContext:
     )
 
 
-async def test_blueprint_is_told_effort_only_while_effort_points_are_on(sessions):
+async def test_blueprint_is_told_every_value_and_tag_whole_and_effort_only_while_on(sessions):
     """BP-STEP-002 — tests/brd/blueprint.feature"""
-    assert await blueprint_now(_context(sessions)) == ""
+    long = "I want to keep up with my kids.\n" + "I sleep 7 hours and walk every day. " * 5
+    assert len(long) > CONTEXT_DESCRIPTION_MAX_CHARS
+    async with sessions() as session:
+        health = await create_value(session, "Health", long)
+        freedom = await create_value(session, "Freedom", "More choices.")
+        home = await create_tag(session, "Home", "Things done at home.")
+        calls = await create_tag(session, "Calls")
+        await session.commit()
+
+    told = await blueprint_now(_context(sessions))
+
+    # The state cuts a description short; this block carries the whole of it, on one line.
+    assert (
+        "# The user's Values, highest first\n"
+        f"- [Health](value:{health.id}): {' '.join(long.split())}\n"
+        f"- [Freedom](value:{freedom.id}): More choices."
+    ) in told
+    assert (
+        "# The user's Tags\n"
+        f"- [Calls](tag:{calls.id})\n"
+        f"- [Home](tag:{home.id}): Things done at home."
+    ) in told
+    assert "# Effort" not in told
 
 
 async def test_blueprint_offers_effort_by_its_rungs_while_effort_points_are_on(
@@ -154,6 +184,7 @@ async def test_blueprint_offers_effort_by_its_rungs_while_effort_points_are_on(
 ):
     """BP-STEP-002 — tests/brd/blueprint.feature"""
     told = await blueprint_now(_context(sessions))
+    told = told[told.index("# Effort"):]
     assert told == EFFORT
     assert told.startswith("# Effort\nEffort Points are on: for each Action, also offer its Effort")
     for points, meaning in EFFORT_RUNGS.items():

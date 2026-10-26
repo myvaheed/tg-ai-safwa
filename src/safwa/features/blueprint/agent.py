@@ -7,6 +7,8 @@ one line per item, and the workspace mutator proposes each line from there.
 
 from __future__ import annotations
 
+from sqlalchemy import select
+
 from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec
 
 from ...foundation.marks import MARKS_EXPLAINED
@@ -16,7 +18,10 @@ from ..cards.model import CATEGORY_MEANINGS, EFFORT_RUNGS, ENERGY_MEANINGS, Card
 from ..checks.api import CHECK
 from ..profile.api import effort_tracking_on
 from ..tags.api import TAG
+from ..tags.model import Tag
 from ..values.api import LINK, VALUE
+from ..values.model import Value
+from ..workspace_mutator.state import citation
 
 # The whole of each method, criteria and examples included: holding items to them is all
 # this agent does, so it is not left to a read the model may skip.
@@ -50,16 +55,17 @@ Only an Action carries them, and each may hold several.
 
 # The steps
 1. From the conversation you were opened from, say in one sentence what you will work out, then ask the first question.
-2. Why: which Value it serves. Offer the user's Values from the workspace state by name. None fits: work out a new Value.
+2. Why: which Value it serves. Offer the user's Values by name. None fits: work out a new Value.
 3. What: a Goal is one result with an observable Done. Two results, or a long way to it: Subgoals under it.
 4. How: Actions that fit in one day, under the Goal or Subgoal they move forward.
 5. Ask once whether the new Actions should also stand under an existing Goal or Subgoal. Yes: read the open ones with `{OPEN_GOALS}`, and offer for each Action the ones it moves forward.
-6. For each Action, offer its Categories and Energy, and ask whether they fit.
-7. A habit to mark yes or no: a repeating Check, its tracker. Work to plan in Today: a repeating Action.
-8. A Tag when the user wants one. Its method is advice: suggest it, and keep the Tag the user wants.
-9. Show the whole plan, as below, and ask what to change.
-10. The user agrees: call `finish` alone with the plan as agreed.
-11. The user wants to stop: call `finish` alone with what was agreed so far.
+6. For each Goal, Subgoal and Action, offer any other of the user's Values it clearly serves, by the Value link method. A Value of a Goal above it is already its own: do not offer it again.
+7. For each Action, offer its Categories and Energy, and ask whether they fit.
+8. A habit to mark yes or no: a repeating Check, its tracker. Work to plan in Today: a repeating Action.
+9. A Tag when the user wants one. Its method is advice: suggest it, and keep the Tag the user wants.
+10. Show the whole plan, as below, and ask what to change.
+11. The user agrees: call `finish` alone with the plan as agreed.
+12. The user wants to stop: call `finish` alone with what was agreed so far.
 
 # The plan
 - One line per item, each parent before its children.
@@ -81,7 +87,7 @@ Example:
 Create it?
 
 # Read the data
-Find an existing Value, Goal or Tag the user names with `query_data`: one read-only `SELECT` over these views only.
+Find an existing Goal the user names with `query_data`: one read-only `SELECT` over these views only.
 Every value listed under a view is the lowercase code stored in that column.
 {MARKS_EXPLAINED}
 
@@ -98,10 +104,27 @@ Effort is how the user carries on after one execution in their usual state, not 
 
 
 async def blueprint_now(context: AgentContext) -> str:
-    """Effort, for this step, only while Effort Points are on."""
+    """Every Value and Tag with the whole of its description, which the workspace state
+    cuts short, and Effort only while Effort Points are on."""
     async with context.sessions() as session:
+        values = list(await session.scalars(select(Value).order_by(Value.order)))
+        tags = list(await session.scalars(select(Tag).order_by(Tag.name)))
         on = await effort_tracking_on(session)
-    return EFFORT if on else ""
+    blocks = (
+        _listed("# The user's Values, highest first", "value", values),
+        _listed("# The user's Tags", "tag", tags),
+        EFFORT if on else "",
+    )
+    return "\n\n".join(block for block in blocks if block)
+
+
+def _listed(heading: str, kind: str, items: list[Value] | list[Tag]) -> str:
+    """Each item as its citation and its description on one line; nothing with none."""
+    lines = []
+    for item in items:
+        about = " ".join(item.description.split())
+        lines.append(f"- {citation(item.name, kind, item.id)}" + (f": {about}" if about else ""))
+    return "\n".join([heading, *lines]) if lines else ""
 
 
 BLUEPRINT_AGENT = AgentSpec(
@@ -112,9 +135,8 @@ BLUEPRINT_AGENT = AgentSpec(
         "a habit tracker or a Tag."
     ),
     instructions=BLUEPRINT_PROMPT,
-    # What a plan's existing items are found in. The workspace state already lists every
-    # Value and Tag; the views find a Goal it does not.
-    views=("ai_cards", "ai_values", "ai_tags"),
+    # Every Value and Tag is told after the conversation; the view finds a Goal.
+    views=("ai_cards",),
     workspace_state=True,
     current=blueprint_now,
 )

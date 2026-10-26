@@ -15,6 +15,8 @@ Feature: Blueprint
     Given Blueprint is open
     Then each of its messages asks one question
     And it asks which Value the item serves, offering the owner's Values by name, and works out a new one when none fits
+    And it is told every Value, highest first, and every Tag, each with its whole description, after the conversation
+    And for each Goal, Subgoal and Action it offers the owner's other Values it clearly serves, by the Value link method, never one a Goal above it already carries
     And a target, a number, a date or a time the owner did not say is never in the plan
     And it asks once whether the new Actions should also stand under an existing Goal or Subgoal; on yes it reads the open ones, neither Done nor archived, and offers each Action the ones it moves forward
     And it offers each Action its Categories and Energy, and its Effort only while Effort Points are on, told after the conversation by AG-SESSION-051

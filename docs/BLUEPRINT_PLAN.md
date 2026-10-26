@@ -162,6 +162,12 @@
     условия на `[📦]` в запросе нет. Шаг 6: Categories и Energy каждому Action;
   - Effort — блок `EFFORT` из `blueprint_now`, только пока Effort Points включены: в промпте
     о нём ни слова. Пустой `current` shell больше не добавляет (AG-SESSION-051).
+- Values и Tags, согласовано 26.10, v9.245:
+  - шаг 6: каждой Goal, Subgoal и Action предложить другие Values, которым она явно служит,
+    по методу Value link; Value Goal выше уже её, и её не предлагать;
+  - `blueprint_now` даёт все Values по порядку и все Tags с описаниями целиком: состояние
+    режет их до `CONTEXT_DESCRIPTION_MAX_CHARS`;
+  - `views` — только `ai_cards`: Value и Tag искать запросом больше незачем.
 
 ---
 
