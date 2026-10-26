@@ -33,6 +33,7 @@ from safwa.features.reminders.conditions import found_ids
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.use_cases import create_value
 from safwa.qa import qa_provider_settings
+from tg_agent_shell.ai.runs import AgentRun
 from tg_agent_shell.search.index import SearchIndex
 from tg_agent_shell.search.words import FastEmbedEncoder
 
@@ -228,6 +229,10 @@ async def test_the_model_sets_a_reminder_on_answers(settings, encoder, e2e_harne
     print(f"{case.words!r}: said {outcome.message!r}")
     if case.expected == ASKS:
         assert not reminders, f"{case.words!r} proposed {[r.values for r in reminders]}"
+        # The reminder subagent asks what counts; the Advisor answering instead is no pass.
+        async with e2e_harness.sessions() as session:
+            routed = await session.scalar(select(AgentRun.id).where(AgentRun.kind == "reminder"))
+        assert routed is not None, f"{case.words!r} was never handed to the reminder subagent"
         return
     assert reminders, f"{case.words!r} proposed {[c.entity for c in changes]}"
     condition = schedule_from_payload(reminders[-1].values["schedule"]).condition

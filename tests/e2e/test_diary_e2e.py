@@ -459,7 +459,10 @@ async def test_di_recall_028_a_conversation_question_is_answered_without_a_propo
         steps = list(await session.scalars(select(AgentStep).order_by(AgentStep.id)))
     assert [step.kind for step in steps] == ["route", "read", "forward"]
     # Routing is chosen by the model; the scripted boundary checks the assembled instructions.
-    assert 'Questions about what we talked about today, yesterday or on a named day: `route("diary")`' in SYSTEM_PROMPT
+    assert (
+        '`route("diary")` — questions about what the user and Safwa talked about today, '
+        "yesterday or on a named day"
+    ) in SYSTEM_PROMPT
 
 
 async def test_di_open_010_advisor_opens_day_without_routing(e2e_harness):

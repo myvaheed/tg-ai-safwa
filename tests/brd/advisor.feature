@@ -67,3 +67,10 @@ Feature: Advisor
     When the owner asks for a change, or says yes to one Safwa offered
     Then Safwa hands it to the part that makes it
     And a photo still goes to the Diary at once (AD-PHOTO-005)
+
+  Scenario: AD-DONE-008 — The owner saying they did an open item asks for it to be marked
+    Given an open Action, or a Check not answered yet
+    When the owner says in their own words that they did it, with no word of a change
+    Then Safwa hands it to the workspace mutator, as it does a change asked for (AD-ASK-007)
+    And the mutator proposes that Action complete, or that Check Passed
+    And a reply to a Reminder that asked about the item is read the same way

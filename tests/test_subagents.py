@@ -115,6 +115,14 @@ def test_ad_ask_007_a_change_is_routed_only_when_the_owner_asks() -> None:
     assert '`route("diary")` at once' in rules
 
 
+def test_saying_an_open_item_was_done_asks_for_it_to_be_marked() -> None:
+    """AD-DONE-008 — tests/brd/advisor.feature"""
+    rules = SYSTEM_PROMPT.split("# Routing", 1)[1].split("\n# ", 1)[0]
+    assert '"I did …" about an open Action or Check' in rules
+    mutator = routed_prompt(next(agent for agent in AGENTS if agent.name == "workspace_mutator"))
+    assert '"I did …" about an open Action: complete it; about a Check: passed.' in mutator
+
+
 def test_the_diary_is_written_only_by_its_subagent() -> None:
     """AG-ROUTE-001 — tests/brd/tg_agent_shell/agents.feature"""
     root_tools = (QUERY_TOOL, open_tool(SCREENS), ROUTE_TOOL)

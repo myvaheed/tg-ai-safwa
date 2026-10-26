@@ -1936,6 +1936,88 @@ words are in the conversation. Read the fields from the user's own words.». RM-
 один больше, фразы `goal` на два меньше в сессии, которую оба батча не меняли. Отказ сабагента о
 счёте ушёл в обоих: значит, дело было в bool, а не в указателе для сессии.
 
+## Батч 20 — Advisor передаёт сабагенту, а не ищет сам; «я сделал» — это изменение
+
+В замерах 18b–19b Advisor дважды сам читал данные вместо `route`:
+- «Let me know when I'm doing well with my health habits.» — 6 из 6 прогонов без `route`: от 1 до 10
+  `query_data` и ответ как на вопрос о статусе, дважды до заглушки «There was nothing to say about
+  that». Тест проходил: ASKS проверял только, что Reminder не предложен;
+- «ping me … skipped my reading 7 times» — 3 из 6: `LIKE '%reading%'` не находит «Read 20 minutes?»,
+  и Advisor предлагает создать Check сам.
+
+Владелец добавил: на «я сделал то-то» о сегодняшнем Action или трекере Safwa отвечает «молодец» и
+ничего не отмечает.
+
+Убрано и изменено, ничего не добавлено, кроме строки «я сделал» у Mutator.
+
+**Тексты Advisor:**
+1. «You read; you never write. A subagent finds the items itself and changes them.»
+2. «- Asks: to create, update, remove or remind; "I did …" about an open Action or Check; or "yes" to
+   a change you offered.»
+3. Вместо «Use `query_data` whenever the supplied context is insufficient: …» — «Use `query_data`
+   only to answer the user.» и «Find an item the user describes in other words with `search`.»,
+   дословно строка Mutator.
+4. Убрана строка Diary о `route("diary")` для вопросов о разговоре: её говорит описание маршрута.
+5. Из Diary убрано «Cite a day as …»: пример есть в строке цитат `# Your answer`.
+6. Checks: «- Ask the user how an unanswered one went.»
+7. Из Reminders убрано определение Reminder: оно есть в «Safwa items».
+8. Из Sprint убрано «Judge the plan and every proposal against those criteria.»: то же говорит
+   Advice.
+10. Пример `[words](media:N)` перенесён в строку цитат `# Your answer`, «Cite a photo as …» убрано.
+
+Пункты 9 (`schedule` в Agile structure) и 11 (шкала Effort) владелец оставил.
+
+**Текст Mutator**, в `# Proposing`: «- "I did …" about an open Action: complete it; about a Check:
+passed.»
+
+**Сценарий:** новый AD-DONE-008 — слова владельца, что он сделал открытый Action или Check, — просьба
+отметить его, и ответ на Reminder, который спросил о нём, тоже.
+
+**Тесты:**
+- ASKS строже: сабагент `reminder` должен быть вызван, а Reminder — не предложен;
+- новый живой `tests/e2e/test_done_words_live.py`: шесть фраз «я сделал» на русском и английском
+  об Action и Check, одна — ответ на Reminder; ждём `complete` или `passed` того самого item;
+- `test_diary_e2e` проверяет строку маршрута `route("diary")` вместо убранной строки Diary.
+
+**Критерий успеха** — на 35B, 2 прохода шага 2 и «я сделал»:
+- поток цели серии без провалов, «health habits» и «reading» оба раза доходят до `reminder`;
+- в потоке ни одного `query_data` Advisor до `route`;
+- «я сделал» — 6 из 6 в обоих проходах;
+- Remind на item, «Also track» и новый item не хуже 19b.
+
+### Замер на 35B, 2 прохода
+
+| | 19b | 20 |
+|---|---|---|
+| Фразы `goal`, из 24 | 22 и 21 | 22 и 22 |
+| Поток цели серии, провалов из 16 | 0 и 0, ASKS мягче | 2 и 1 |
+| «health habits» доходит до `reminder`, из 2 | 0, не проверялось | 0 |
+| «reading» доходит до `reminder`, из 2 | 2 | 2 |
+| `query_data` Advisor до `route` в потоке, за проход | 8 и 1 | 1 и 1 |
+| Remind на item, из 10 | 10 и 10 | 10 и 10 |
+| «📊 Also track», из 3 | 3 и 3 | 3 и 3 |
+| Новый item с Remind, из 8 | 7 и 8 | 7 и 7 |
+| «Я сделал», из 6 | — | 4 и 4 |
+| Время шага 2, с | 335 и 327 | 400 и 391, с «я сделал» |
+
+Критерий не выполнен.
+
+Провалы:
+- поток — «Let me know when I'm doing well with my health habits.» оба раза: Advisor читает один раз и
+  обещает сообщить сам, `reminder` не вызван. Во всех шести прогонах 18b–19b было так же, мягкий ASKS
+  этого не видел; «Tell me when I've managed Read 20 minutes 30 times» в первом проходе — сессия
+  условия прочла *every* вместо *once*, Advisor её не касается;
+- «я сделал» — оба раза Checks, названные иначе: «Помедитировал утром минут десять.» о
+  «Помедитировал?» и «I read for 20 minutes tonight.» о «Read 20 minutes?». В первом проходе Advisor
+  на медитацию ответил сам; в остальных Mutator искал `LIKE '%медитация%'` и `LIKE '%read%'` по
+  `ai_cards`, ничего не нашёл и предложил новый Action, раз — Tag «Inbox»; `search` он передал один
+  раз, но без `relevance` в SQL;
+- фразы `goal` — сессия `when`, батч её не трогал; новый item — фраза без времени, принятый риск.
+
+Что сработало: «reading» доходит до `reminder` без чтения, чтение Advisor в потоке — только в фразе
+«health habits»; «я сделал» об Action из Today, о повторяющемся Action и ответ на Reminder о трекере —
+2 из 2 каждый. Два провала «я сделал» — поиск item по смыслу, то, что даёт блок близких items.
+
 ## Тексты на согласование
 
 Mutator не меняется: он передаёт слова владельца в `when` как есть.
