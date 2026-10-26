@@ -223,9 +223,9 @@ Feature: Reminders
       short session of its own picks the items and reads the answer, how many, whether in a row and
       whether once
     And the short session reads the owner's words in the conversation as the reminder part read it,
-      by AG-SESSION-063, the counting phrase saying which of them are this Reminder's, then up to 50
-      open Checks, Actions and Goals that have a Schedule (OPEN_ITEMS_MAX = 50), the closest to that
-      conversation first as in RM-AGENT-041, and never the Reminder's own words
+      by AG-SESSION-063, then up to 50 open Checks, Actions and Goals that have a Schedule
+      (OPEN_ITEMS_MAX = 50), the closest to that conversation first as in RM-AGENT-041, and never
+      the Reminder's own words or the words Safwa said it on answers in
     And the short session writes its plan before its call, by AG-SESSION-064
     And the items are Checks or Actions by #id, such as "Check #12", "Check #12 «Sat straight?»" or
       "Action #3, Action #5", and code keeps the series of each, by the series id that stays when any

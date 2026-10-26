@@ -92,7 +92,7 @@ class ReminderProposalHandler:
         tz = ZoneInfo(context.world.timezone)
         now = datetime.now(UTC)
         if on_answers:
-            condition = await _condition(context, on_answers)
+            condition = await _condition(context)
             prepared["finds"] = await _finds(context.session, condition)
             schedule = Schedule(kind=ScheduleKind.CONDITION, condition=condition)
         else:
@@ -176,10 +176,9 @@ async def _remind_of(session: AsyncSession, reminder: Reminder) -> tuple[str, st
     return f"{kind} #{item.id}", item.title
 
 
-async def _condition(context: PreparationContext, phrase: str) -> Condition:
-    """The condition its own session reads, `phrase` saying which of the owner's words are
-    this Reminder's, its items kept as their series, or refused when the owner's words do not
-    say what it counts (RM-COND-030)."""
+async def _condition(context: PreparationContext) -> Condition:
+    """The condition its own session reads, its items kept as their series, or refused when
+    the owner's words do not say what it counts (RM-COND-030)."""
     before = context.earlier and context.earlier.get("schedule")
     if before:
         # Only the words are edited by hand, and what the call counts was read from the call
@@ -190,7 +189,6 @@ async def _condition(context: PreparationContext, phrase: str) -> Condition:
     try:
         fields = await read_condition(
             context.provider,
-            phrase=phrase,
             open_items=await open_items(
                 context.session, context.query_runner.search, context.conversation
             ),

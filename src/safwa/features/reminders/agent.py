@@ -11,10 +11,10 @@ Reminders follow its dialogue, see `items`, so it names the owner's by meaning.
 A time arrives as the owner's words: the setup session reads them in the conversation, `when`
 saying which time is this Reminder's, and its shape is derived from which parameters it sent
 back. A Reminder on answers of Checks or Actions arrives as `on_answers`, the owner's words
-for what it counts: a short session of its own picks the items from the open items and reads
-what it counts from the owner's words in the conversation, `on_answers` saying which are this
-Reminder's, and a count the words do not say goes back to the subagent to ask. Code checks
-the items it names and keeps the series of each.
+for what it counts, which no short session reads: a short session of its own picks the items
+from the open items and reads what it counts from the owner's words in the conversation,
+and a count the words do not say goes back to the subagent to ask. Code checks the items it
+names and keeps the series of each.
 
 Every way the words fail to become a time ends in one :class:`ScheduleError`: what is unclear,
 then the forms that work, so the owner always hears both. Words that count answers are no time:
@@ -360,7 +360,7 @@ async def resolve_schedule(
 
 
 REMINDER_CONDITION_PROMPT = """Read one Reminder on answers of Checks or Actions. End with one call: set_condition or not_clear_enough.
-The user's words are in the conversation. Read the fields from the user's own words; the counting phrase says which words are this Reminder's.
+The user's words are in the conversation. Read the fields from the user's own words.
 items: every item it counts, from Open items, by #id: 'Check #12' or 'Action #3, Action #5'. Checks or Actions, never both.
 A group, such as 'tagged Sport' or 'my Health checks': every Open item with that Tag or Value.
 Several items: their answers count together.
@@ -392,14 +392,12 @@ class ConditionUnclear(ValueError):
 async def read_condition(
     provider: LlmProvider,
     *,
-    phrase: str,
     open_items: str,
     conversation: str = "",
 ) -> ConditionFields:
     """The items of `open_items` the owner's words count answers of, and how, or
     ConditionUnclear with what they do not say. The words are read in the `conversation` the
-    call came from, `phrase` saying which are this Reminder's. Items the block does not list
-    go back to the session to name again.
+    call came from. Items the block does not list go back to the session to name again.
     """
     listed = listed_items(open_items)
 
@@ -416,7 +414,7 @@ async def read_condition(
         result = await run_mini_session(
             provider,
             system_prompt=REMINDER_CONDITION_PROMPT,
-            context=f"Counting phrase: {phrase}\n{open_items}",
+            context=open_items,
             terminals=(
                 TerminalTool(
                     name="set_condition",

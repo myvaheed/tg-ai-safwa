@@ -209,7 +209,7 @@ def unclear_script(*setup, when: str):
     ]
 
 
-def condition_call(on_answers: str = "when I miss posture") -> ProviderTurn:
+def condition_call(on_answers: str = "every miss of posture") -> ProviderTurn:
     """The subagent's `reminder` on answers, in the owner's words: the items are its own
     session's to pick."""
     return turn(
@@ -268,12 +268,11 @@ async def test_rm_cond_030_a_condition_is_proposed_with_its_series_and_what_it_f
     assert values["finds"] == "«Sat straight?». 1 Missed in a row now."
     [read] = condition_reads(provider)
     told = "\n".join(str(message["content"]) for message in read[1:])
-    # The owner's own words as the reminder part read them, the call's words saying which,
-    # then the open items it read.
+    # The owner's own words as the reminder part read them, then the open items it read.
     words = told.index(">cheer me on when I miss posture</User>")
-    phrase = told.index(f"Counting phrase: when I miss posture\n{OPEN_ITEMS}")
     listed = told.index(f"- Check #{named} «Sat straight?»; schedule: after completion")
-    assert words < phrase < listed
+    assert words < told.index(OPEN_ITEMS) < listed
+    assert "every miss of posture" not in told
     assert "Cheer me on." not in told
     async with e2e_harness.sessions() as session:
         (reminder_id,) = await approve_proposal(

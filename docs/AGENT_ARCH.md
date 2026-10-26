@@ -783,8 +783,8 @@ the Cue row, exactly as for anything else Safwa says first.
 - A Reminder on answers has no `next_fire_at`, so neither the tick nor the start ever
   touches it. Its `condition` holds the items in words, the series of each, the answer, the
   count and whether in a row. The subagent says `on_answers` in `reminder`, the owner's words
-  for what it counts, and a short session of its own reads the conversation, `on_answers`
-  saying which words are this Reminder's, then up to 50 open items with a Schedule ordered
+  for what it counts, which no short session reads; a short session of its own reads the
+  conversation, then up to 50 open items with a Schedule ordered
   by that conversation as the subagent's are, and picks the items by #id and what it counts from the owner's words; an edit of the words by
   hand reads nothing again. The `when` session reads the conversation as well, `when` saying
   which time is this Reminder's, and reads only a time; neither session reads the Reminder's
