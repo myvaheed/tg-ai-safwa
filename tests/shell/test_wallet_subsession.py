@@ -150,7 +150,7 @@ def offered(running: Running, request: int) -> list[str]:
 
 
 async def test_a_subsession_answers_until_it_finishes_and_leaves_one_result(wallet_bot):
-    """AG-SUB-064 — tests/brd/tg_agent_shell/agents.feature"""
+    """AG-SUB-072 — tests/brd/tg_agent_shell/agents.feature"""
     running = await started(
         wallet_bot,
         sub_turn("coach"),
@@ -193,7 +193,7 @@ async def test_a_subsession_answers_until_it_finishes_and_leaves_one_result(wall
 
 
 async def test_finish_shares_its_response_with_nothing(wallet_bot):
-    """AG-SUB-064 — tests/brd/tg_agent_shell/agents.feature"""
+    """AG-SUB-072 — tests/brd/tg_agent_shell/agents.feature"""
     running = await started(
         wallet_bot,
         sub_turn("coach"),
@@ -221,7 +221,7 @@ async def test_finish_shares_its_response_with_nothing(wallet_bot):
 async def test_a_subsession_s_proposal_is_decided_and_its_agent_finishes_after(
     wallet_bot, action, written, result
 ):
-    """AG-SUB-065 — tests/brd/tg_agent_shell/agents.feature"""
+    """AG-SUB-073 — tests/brd/tg_agent_shell/agents.feature"""
     ids = await seeded(wallet_bot)
     running = await started(
         wallet_bot,
@@ -250,7 +250,7 @@ async def test_a_subsession_s_proposal_is_decided_and_its_agent_finishes_after(
 async def test_words_over_a_subsession_s_review_end_its_request_and_the_subsession_goes_on(
     wallet_bot,
 ):
-    """AG-SUB-065 — tests/brd/tg_agent_shell/agents.feature"""
+    """AG-SUB-073 — tests/brd/tg_agent_shell/agents.feature"""
     ids = await seeded(wallet_bot)
     running = await started(
         wallet_bot,
@@ -277,7 +277,7 @@ async def test_words_over_a_subsession_s_review_end_its_request_and_the_subsessi
 async def test_a_subsession_s_review_out_of_time_ends_its_request_and_not_the_subsession(
     wallet_bot,
 ):
-    """AG-SUB-065 — tests/brd/tg_agent_shell/agents.feature"""
+    """AG-SUB-073 — tests/brd/tg_agent_shell/agents.feature"""
     ids = await seeded(wallet_bot)
     running = await started(
         wallet_bot,
@@ -300,7 +300,7 @@ async def test_a_subsession_s_review_out_of_time_ends_its_request_and_not_the_su
 
 
 async def test_cancelling_the_answer_after_a_save_keeps_the_save_and_the_subsession(wallet_bot):
-    """AG-SUB-065 — tests/brd/tg_agent_shell/agents.feature"""
+    """AG-SUB-073 — tests/brd/tg_agent_shell/agents.feature"""
     ids = await seeded(wallet_bot)
     running = await started(
         wallet_bot,
@@ -459,7 +459,7 @@ async def test_a_subsession_whose_agent_is_gone_ends_at_the_next_message(wallet_
 
 
 async def test_work_nobody_asked_for_waits_while_a_subsession_is_open(wallet_bot):
-    """AG-SUB-066 — tests/brd/tg_agent_shell/agents.feature"""
+    """AG-SUB-074 — tests/brd/tg_agent_shell/agents.feature"""
     running = await talk_opened(wallet_bot, finish_turn(RESULT))
     assert not await chat_is_free(running.services)
 
@@ -469,7 +469,7 @@ async def test_work_nobody_asked_for_waits_while_a_subsession_is_open(wallet_bot
 
 
 async def test_the_work_around_a_turn_is_the_conversation_s_alone(wallet_bot, monkeypatch):
-    """AG-SUB-066 — tests/brd/tg_agent_shell/agents.feature"""
+    """AG-SUB-074 — tests/brd/tg_agent_shell/agents.feature"""
     ran: list[str] = []
 
     async def before(*_):

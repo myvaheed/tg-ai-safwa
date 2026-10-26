@@ -16,6 +16,7 @@ from .openai_compatible import (
 )
 from .presets import DEFAULT_PRESET, PRESETS, preset_config
 from .provider import LlmProvider
+from .pseudonymize import PiiFinder, PseudonymizingProvider, Span
 from .testing import ScriptedProvider
 
 __all__ = [
@@ -28,7 +29,10 @@ __all__ = [
     "OpenAICompatibleConfig",
     "OpenAICompatibleError",
     "OpenAICompatibleProvider",
+    "PiiFinder",
+    "PseudonymizingProvider",
     "ScriptedProvider",
+    "Span",
     "ToolCall",
     "Usage",
     "create_openai_client",

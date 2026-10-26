@@ -12,6 +12,8 @@ cacheable prefix stays byte-identical across turns.
 
 from __future__ import annotations
 
+import re
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.ai.sql import view_catalogue
@@ -227,6 +229,12 @@ TEXT_MODEL = TextModel(
     text_prompt="title: none | text: ",
 )
 WORD_FORMS = SnowballWordForms({"cyrillic": "russian", "latin": "english"})
+
+# What the PII finder leaves in a request to a remote provider: places and dates are what
+# advice is made of (docs/SECURITY.md).
+PII_KEPT = frozenset({"LOCATION", "DATE"})
+# A date just after one of these is a date of birth, and is hidden (AG-PRIVACY-066).
+BIRTH_WORDS = re.compile(r"рожд|родил|д\.\s?р\.", re.IGNORECASE)
 
 # What each part of the application reads off the registry, under the names it reads them
 # by. The registry is one object; these are the views of it that are actually used.

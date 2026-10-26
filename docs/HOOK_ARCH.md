@@ -58,7 +58,7 @@
   ReviewTool — там же: review с моделью читает то, что вернула проверка, и даёт слова или
   None. Слова — отказ, как у RefuseTool, но без помощника; None, ошибка проверки или review —
   вызов исполняется: это проверка работы модели, и выключателя в Профиле у неё нет
-  ([AG-HOOK-063](../tests/brd/tg_agent_shell/agents.feature)). Вызов `sub` проходит через
+  ([AG-HOOK-071](../tests/brd/tg_agent_shell/agents.feature)). Вызов `sub` проходит через
   BeforeTool, как и чтения. Потребитель — blueprint.asked в
   [blueprint/hooks.py](../src/safwa/features/blueprint/hooks.py): Blueprint открывается, только
   когда владелец просил планировать.

@@ -36,6 +36,44 @@ Another endpoint or gateway that speaks the API is one more row, and its line in
 - **A call id is one every endpoint takes back**: letters, digits, `_` and `-`, at most 40.  An
   id outside that, or one a response repeats, is replaced when the response is read.
 
+## Placeholders for identifiers
+
+`PseudonymizingProvider(inner, finder)` is an `LlmProvider` around another one. Before a request
+leaves, what its `PiiFinder` finds in the request's texts goes as placeholders; when the answer
+comes back, the placeholders are the words again. `HorizonPiiFinder` in
+[horizon.py](../src/llm_gateway/horizon.py) is the finder Safwa composes; an application with
+another model, or with rules of its own, brings its own `find`. What it hides for the owner, and
+what it misses, is [SECURITY.md](SECURITY.md).
+
+- **What is looked through:** a message's `content`, each text part of it, and every string in
+  the arguments of its calls. A `system` message, an image, a tool's description and whatever a
+  provider put in `extensions` go as they are.
+- **A placeholder is the kind and a number,** `[PERSON_1]`, numbered by kind in the order its spelling first appears over
+  the request's messages, one per spelling. A spelling with a letter in it is replaced wherever
+  it recurs in the request as a whole word, also where the finder missed it: that is what hides
+  a name in the answer restored on the step before. Digits alone are replaced only where found,
+  since an age recurs as a date or a count.
+- **Nothing is kept between requests** but the spans found in each text, for
+  `FOUND_TEXTS_KEPT` texts. The placeholders are a function of the request, and a session's
+  transcript only grows, so they keep their numbers from step to step and the cached prefix of
+  the prompt stays cached.
+- **Back:** a placeholder the request carried is replaced in `content`, and in `arguments_json`
+  escaped for JSON, so a tool saves the real words. One it did not carry stays as written.
+  `extensions` stay too: they go back to the same provider on the next step, where the numbers
+  are the same.
+- **It fails closed.** A finder that raises fails `complete` before the inner provider is
+  called.
+
+`HorizonPiiFinder.load` downloads the model once into the directory it is given and opens it
+on the discrete graphics card `discrete_gpu` picks from `get_ep_devices` — the one the system
+ranks first for high performance — through DirectML, or on the processor without one. On the
+card a session has one fixed shape, a window of `WINDOW` tokens padded to its length: DirectML
+then compiles the graph whole, instead of launching each of its operators on its own. A text
+longer than a window is read in windows overlapping by `OVERLAP`, one at a time, under a lock,
+since DirectML runs one call on a session at a time. `decode` grows each tagged span to its
+whole words, makes a DATE within `BIRTH_CONTEXT_CHARS` after the application's birth words a
+DATE_OF_BIRTH, and drops the kinds the application keeps.
+
 ## Models
 
 As of September 2026.  What says run passed a live tool loop, the loop read back as kept, and

@@ -55,6 +55,14 @@ def test_an_explicit_value_beats_the_provider_default():
     assert config.cache_breakpoints is False
 
 
+def test_ag_privacy_069_hiding_follows_the_provider_unless_the_owner_sets_it():
+    """AG-PRIVACY-069 — tests/brd/tg_agent_shell/agents.feature"""
+    assert _settings().pseudonymize is False
+    assert _settings(ai_provider="openrouter").pseudonymize is True
+    assert _settings(ai_provider="openrouter", ai_pseudonymize=False).pseudonymize is False
+    assert _settings(ai_pseudonymize=True).pseudonymize is True
+
+
 def test_an_unknown_provider_is_refused_with_the_known_ones():
     with pytest.raises(ValidationError, match="local, openrouter"):
         _settings(ai_provider="acme")

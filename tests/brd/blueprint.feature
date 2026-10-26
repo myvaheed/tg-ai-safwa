@@ -45,7 +45,7 @@ Feature: Blueprint
 
   Scenario: BP-ASKED-006 — Blueprint opens only once a check finds the owner asked to plan
     Given the Advisor calls sub("blueprint")
-    Then one review reads the newest things said in the conversation, by AG-HOOK-063, with no tools and reasoning_effort "none"
+    Then one review reads the newest things said in the conversation, by AG-HOOK-071, with no tools and reasoning_effort "none"
     And it is told to answer "asked" when the owner's newest message asks to plan, work out or think through an item together, or says yes to an offer to plan it, and "not asked" otherwise
     When it answers "not asked"
     Then Blueprint does not open, and the Advisor is told the owner did not ask to plan and to do what they asked

@@ -16,7 +16,7 @@ Feature: Agents — the session, the hand-over, and what comes back
     When the owner instead asks a question
     Then that same part answers it from its own reading, or hands it to a subagent whose purpose
       includes that question, without asking for a change
-    When a conversation with an agent is open, by AG-SUB-064
+    When a conversation with an agent is open, by AG-SUB-072
     Then that agent answers in the chat instead, and proposes a change only with the tools its
       declaration gives it
 
@@ -57,7 +57,7 @@ Feature: Agents — the session, the hand-over, and what comes back
     Then its words went back to the part answering in the chat, and reach the chat only through
       the message that part writes: forwarded as they are, or not at all, by AG-RECEIPT-044
     And that part writes the single message the owner reads, keeping the links to any item named
-    And while a conversation with an agent is open, that agent writes it, by AG-SUB-064
+    And while a conversation with an agent is open, that agent writes it, by AG-SUB-072
     And a subagent's read tool may send pictures to the chat itself, with no words or buttons of
       their own
 
@@ -504,7 +504,7 @@ Feature: Agents — the session, the hand-over, and what comes back
     And the hook is the owner's to switch: while it is off, neither its condition nor its work runs
     And on application start its work runs before the first message, queues what it found without calling the Advisor, and a failure stops startup
 
-  Scenario: AG-HOOK-063 — A check may refuse a call of the root's after one review reads it
+  Scenario: AG-HOOK-071 — A check may refuse a call of the root's after one review reads it
     Given a hook that reviews a call of the root's before it runs
     Then it reads the call, its arguments and the newest things said in the conversation
     When its review answers with words
@@ -516,7 +516,7 @@ Feature: Agents — the session, the hand-over, and what comes back
     And `sub` is a call such a hook may watch, and `route` is not
     And the owner has no switch for it: it checks the model's own work
 
-  Scenario: AG-SUB-064 — An agent may be handed the owner's next messages, and answers each until it finishes
+  Scenario: AG-SUB-072 — An agent may be handed the owner's next messages, and answers each until it finishes
     Given an agent is declared with a title of its own
     When Safwa calls `sub` with its name, alone in its step
     Then the chat shows the title and how to end the conversation with /exit, and that agent
@@ -534,7 +534,7 @@ Feature: Agents — the session, the hand-over, and what comes back
       from, under the title
     And the model is not asked again for that result
 
-  Scenario: AG-SUB-065 — A screen inside the conversation ends a request of it, never the conversation
+  Scenario: AG-SUB-073 — A screen inside the conversation ends a request of it, never the conversation
     Given the agent of an open conversation proposes a change
     Then its review is decided as Safwa's are, and the decision goes on with the same request
     When the owner types over the screen, the review runs out of time, or /cancel stops the answer
@@ -542,7 +542,7 @@ Feature: Agents — the session, the hand-over, and what comes back
     Then that request ends, and the conversation stays open for the owner's next message
     And what was saved stays saved
 
-  Scenario: AG-SUB-066 — While a conversation with an agent is open, nothing runs around it unasked
+  Scenario: AG-SUB-074 — While a conversation with an agent is open, nothing runs around it unasked
     Given a conversation with an agent is open
     Then nothing Safwa says or does in the chat unasked happens until it ends, by AG-TURN-015
     And the work before and after a turn runs only around turns of the conversation it was
@@ -609,3 +609,55 @@ Feature: Agents — the session, the hand-over, and what comes back
     Given every searchable text and its vector are in the database file
     When a reader's SQL names the index
     Then the read is refused
+
+  Scenario: AG-PRIVACY-063 — The AI provider reads placeholders where the owner's identifiers were
+    Given the AI provider is not on this computer
+    When a request to it carries a person's name, a phone number, an email, a card or account
+      number, a document or tax number, a street address, a username, a link, a password, a key,
+      or another kind the finder knows
+    Then the provider receives a placeholder in its place, such as [PERSON_1] or [PHONE_1]
+    And placeholders are numbered by kind in the order they first appear in the request
+    And each spelling has its own placeholder: "Анне" and "Анны" are [PERSON_1] and [PERSON_2]
+
+  Scenario: AG-PRIVACY-064 — The owner and the tools get the real words back
+    Given the provider answers with placeholders it was sent
+    When the answer arrives
+    Then the owner reads the real words in place of each placeholder
+    And a tool it asks to save something saves the real words
+    And a placeholder the request did not send stays as written
+
+  Scenario: AG-PRIVACY-065 — A name found once is hidden wherever it recurs in the request
+    Given a spelling was hidden in one message of the request
+    When the same spelling recurs as a whole word in another message, where it was not found
+    Then it is hidden there too, under the same placeholder
+    But a value made only of digits, such as an age, is hidden only where it was found
+
+  Scenario: AG-PRIVACY-066 — Places and dates go as written, except a date of birth
+    Given a message names a city, a country or a date
+    Then the provider reads them as written
+    But a date within 40 characters after "рожд", "родил" or "д.р." is hidden as a date of birth
+      (BIRTH_CONTEXT_CHARS = 40)
+
+  Scenario: AG-PRIVACY-067 — Safwa's own instructions and photos go as they are
+    Given a request carries Safwa's instructions to the model, or a photo
+    Then the provider receives them unchanged
+
+  Scenario: AG-PRIVACY-068 — When identifiers cannot be looked for, nothing is sent
+    Given looking for identifiers fails
+    When Safwa would ask the provider
+    Then the request is not sent, and the step fails as a call that came back with an error
+      does, by AG-TURN-053
+    And at start, a finder that cannot be loaded stops Safwa before the first message
+
+  Scenario: AG-PRIVACY-069 — Hiding follows where the AI provider is, and the owner may override it
+    Given the owner has not set SAFWA_AI_PSEUDONYMIZE
+    Then identifiers are hidden for every provider except the one on this computer (local)
+    When the owner sets it to true or false
+    Then that is what happens, whatever the provider
+
+  Scenario: AG-PRIVACY-070 — Identifiers are looked for on the computer's own graphics card when it has one
+    Given the computer has a discrete graphics card
+    Then identifiers are looked for on the one the system names first for high performance
+    And they are the same identifiers the processor finds
+    Given the computer has only a built-in graphics card, or none
+    Then they are looked for on the processor

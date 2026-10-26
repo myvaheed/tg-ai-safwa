@@ -15,8 +15,12 @@ dependencies = [
   "cryptography>=46,<47",
   "fastembed>=0.7,<1",
   "greenlet>=3.0,<4",
+  "huggingface-hub>=1.27,<2",
   "matplotlib>=3.9,<4",
   "numpy>=2.0,<3",
+  "onnxruntime>=1.28,<2; sys_platform != 'win32'",
+  # The same runtime with DirectML in it, so a Windows graphics card runs the PII finder.
+  "onnxruntime-windowsml>=1.30,<2; sys_platform == 'win32'",
   "openai>=1.70,<3",
   "openinference-instrumentation-openai>=0.1,<1",
   "pydantic>=2.10,<3",
@@ -25,6 +29,7 @@ dependencies = [
   "SQLAlchemy>=2.0,<3",
   "sqlcipher3-wheels>=0.5.7,<1",
   "Telethon>=1.44,<2",
+  "tokenizers>=0.23,<1",
   "tzdata>=2025.2",
 ]
 
@@ -54,6 +59,11 @@ safwa-backup = "safwa.security:backup_main"
 safwa-restore = "safwa.security:restore_main"
 safwa-key = "safwa.security:key_main"
 
+[tool.uv]
+# fastembed and faster-whisper ask for `onnxruntime`; on Windows `onnxruntime-windowsml`
+# installs the same module, and the two cannot sit in one environment.
+override-dependencies = ["onnxruntime>=1.28,<2; sys_platform != 'win32'"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/safwa", "src/llm_gateway", "src/agent_runtime", "src/telegram_llm", "src/tg_agent_shell"]
 
@@ -65,6 +75,7 @@ markers = [
   "e2e: isolated end-to-end tests using real SQLite and mocked remote boundaries",
   "live_telegram: opt-in live integration tests against the dedicated Safwa-QA bot",
   "live_provider: opt-in requests to the LLM provider SAFWA_AI_* configures",
+  "pii_model: opt-in tests that download the PII finder's model into data/models and run it",
 ]
 
 [tool.ruff]

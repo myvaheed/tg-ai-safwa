@@ -28,6 +28,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="run tests that send requests to the provider SAFWA_AI_* configures",
     )
     parser.addoption(
+        "--pii-model",
+        action="store_true",
+        default=False,
+        help="run tests that download the PII finder's model and run it",
+    )
+    parser.addoption(
         "--brd",
         default=None,
         metavar="SCENARIO_ID",
@@ -57,7 +63,11 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         config.hook.pytest_deselected(items=[i for i in items if i not in selected])
         items[:] = selected
 
-    for marker, flag in (("live_telegram", "--live-telegram"), ("live_provider", "--live-provider")):
+    for marker, flag in (
+        ("live_telegram", "--live-telegram"),
+        ("live_provider", "--live-provider"),
+        ("pii_model", "--pii-model"),
+    ):
         if config.getoption(flag):
             continue
         skip = pytest.mark.skip(reason=f"requires explicit {flag} opt-in")

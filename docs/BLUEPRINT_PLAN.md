@@ -82,7 +82,7 @@
 | 1 | Метод Tag как совет: `TAG`, строка `ITEMS` из метода, тема `tags` в `get_more_about`, onboarding — сделан, v9.241 | 0 |
 | 2 | Blueprint: пакет, промпт, persona, строки Advisor, тексты shell, onboarding, сценарии, e2e — сделан, v9.242 | 1 |
 | 2A | Вход по явной просьбе: блок `sub` у Advisor, строка в «# Advice», `purpose`; Methods целиком в промпте Blueprint без `get_more_about`; последняя строка плана — вопрос; onboarding; `next` у `finish` — сделан, v9.243 | 2 |
-| 2B | Проверка перед `sub`: реакция *ReviewTool* на BeforeTool с `conversation`, хук `blueprint.asked`, сценарии AG-HOOK-063 и BP-ASKED-006; метки и Effort в Blueprint — сделан, v9.244 | 2A |
+| 2B | Проверка перед `sub`: реакция *ReviewTool* на BeforeTool с `conversation`, хук `blueprint.asked`, сценарии AG-HOOK-071 и BP-ASKED-006; метки и Effort в Blueprint — сделан, v9.244 | 2A |
 | 3 | Живой замер на 35B — не нужен, по слову владельца 26.10 | — |
 | 4 | Проект подсессий переходит в постоянные документы и сценарии shell, проект удаляется — сделан, v9.246 | 2 |
 
@@ -350,7 +350,7 @@ BLUEPRINT_AGENT = AgentSpec(
 - **CMP-METHOD-001** (сделано в батче 1): метод Tag в общем ряду, как совет, который не читает ни одна проверка.
 - **AD-ASK-007:** открыть Blueprint — не изменение, поэтому это не просьба об изменении.
 
-Батч 4 сделан: сценарии shell AG-SUB-064…AG-SUB-066 и TG-SUB-034…TG-SUB-038 — их цитируют
+Батч 4 сделан: сценарии shell AG-SUB-072…AG-SUB-074 и TG-SUB-034…TG-SUB-038 — их цитируют
 тесты подсессий, которые прежде не цитировали ничего, и новый тест хуков хода; поправки
 AG-ROUTE-001, AG-RECEIPT-006 и TG-CLEAR-032. Из проекта в AGENT_ARCH.md перешло, почему это не
 долгий `route`, в LLM_HISTORY.md — что отрезок разделяет переписку, а не данные; проект удалён.

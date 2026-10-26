@@ -212,7 +212,7 @@ async def test_ag_hook_036_a_refusal_stands_where_its_helper_cannot_be_granted()
 
 
 async def test_a_refusal_written_for_the_root_never_reaches_a_subsession_s_agent() -> None:
-    """AG-SUB-064 — tests/brd/tg_agent_shell/agents.feature"""
+    """AG-SUB-072 — tests/brd/tg_agent_shell/agents.feature"""
     # It starts a session of its own, as the root does, and has no helper to be pointed at.
     ran: list[str] = []
 
@@ -270,7 +270,7 @@ def _reviewing(review, evaluate=_every_call, *, policy=None) -> ToolAdapters:
 
 
 async def test_ag_hook_063_a_review_that_answers_refuses_the_call_with_its_words() -> None:
-    """AG-HOOK-063 — tests/brd/tg_agent_shell/agents.feature"""
+    """AG-HOOK-071 — tests/brd/tg_agent_shell/agents.feature"""
     ran: list[str] = []
     read = []
 
@@ -297,7 +297,7 @@ async def test_ag_hook_063_a_review_that_answers_refuses_the_call_with_its_words
 
 
 async def test_ag_hook_063_a_review_with_nothing_to_say_lets_the_call_run() -> None:
-    """AG-HOOK-063 — tests/brd/tg_agent_shell/agents.feature"""
+    """AG-HOOK-071 — tests/brd/tg_agent_shell/agents.feature"""
     ran: list[str] = []
 
     async def review(event, provider):
@@ -311,7 +311,7 @@ async def test_ag_hook_063_a_review_with_nothing_to_say_lets_the_call_run() -> N
 async def test_ag_hook_063_a_check_or_review_that_fails_lets_the_call_run_and_is_logged(
     caplog,
 ) -> None:
-    """AG-HOOK-063 — tests/brd/tg_agent_shell/agents.feature"""
+    """AG-HOOK-071 — tests/brd/tg_agent_shell/agents.feature"""
 
     async def broken_review(event, provider):
         raise RuntimeError("model down")
@@ -336,7 +336,7 @@ async def test_ag_hook_063_a_check_or_review_that_fails_lets_the_call_run_and_is
 
 
 async def test_ag_hook_063_sub_may_be_reviewed_and_route_may_not_and_no_switch_stops_it() -> None:
-    """AG-HOOK-063 — tests/brd/tg_agent_shell/agents.feature"""
+    """AG-HOOK-071 — tests/brd/tg_agent_shell/agents.feature"""
 
     async def refuse(event, provider):
         return "Not asked."
