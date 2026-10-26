@@ -18,6 +18,7 @@ from tg_agent_shell.ai.contracts import ToolResultStatus
 from tg_agent_shell.ai.mini import ReadToolSpec
 from tg_agent_shell.ai.subagents import RoutedSubagent
 from tg_agent_shell.ai.tools import (
+    WATCHED_TOOLS,
     AgentSession,
     HelperPort,
     ToolAdapters,
@@ -25,11 +26,13 @@ from tg_agent_shell.ai.tools import (
 )
 from tg_agent_shell.foundation.screens import ScreenCatalogue
 from tg_agent_shell.hooks.contracts import (
+    BeforeTool,
     HookSpec,
     OfferTool,
     OnAfterTool,
     OnBeforeTool,
     RefuseTool,
+    ReviewTool,
 )
 from tg_agent_shell.hooks.registry import HookRegistry
 
@@ -238,3 +241,119 @@ async def test_a_switched_off_refusal_lets_the_call_run() -> None:
 
     assert ran == ["read_thing"] and outcome.succeeded
     assert not session.offered_helpers
+
+
+# A provider is only handed on to the review here; nothing calls it.
+PROVIDER = object()
+
+
+async def _every_call(event):
+    return (event,)
+
+
+def _review_spec(review, evaluate=_every_call, *, tool: str = "read_thing") -> HookSpec:
+    return HookSpec(
+        name="review", owner="test", on=(OnBeforeTool(tool=tool),),
+        evaluate=evaluate, effect=ReviewTool(review),
+        title="Review", description="Reviews a call before it runs.",
+    )
+
+
+def _reviewing(review, evaluate=_every_call, *, policy=None) -> ToolAdapters:
+    hooks = HookRegistry.of(
+        (_review_spec(review, evaluate),),
+        owners=frozenset({"test"}), tools=frozenset({"read_thing"}),
+        **({"policy": policy} if policy is not None else {}),
+    )
+    return _adapters(hooks=hooks, provider=PROVIDER)
+
+
+async def test_ag_hook_063_a_review_that_answers_refuses_the_call_with_its_words() -> None:
+    """AG-HOOK-063 — tests/brd/tg_agent_shell/agents.feature"""
+    ran: list[str] = []
+    read = []
+
+    async def review(event, provider):
+        read.append((event, provider))
+        return "Not this one. Answer in words."
+
+    session = _helped_session(ran)
+    session.dialogue = [{"role": "user", "content": "Plan it with me."}]
+    outcome = await _reviewing(review).run(session, READ)
+
+    assert ran == [] and not outcome.succeeded
+    assert outcome.result == {
+        "status": ToolResultStatus.ERROR.value,
+        "code": "refused",
+        "notice": "Not this one. Answer in words.",
+    }
+    ((event, provider),) = read
+    assert provider is PROVIDER
+    assert (event.tool, event.arguments_json) == ("read_thing", "{}")
+    assert "Plan it with me." in event.conversation
+    # A refusal on review grants no helper.
+    assert not session.offered_helpers
+
+
+async def test_ag_hook_063_a_review_with_nothing_to_say_lets_the_call_run() -> None:
+    """AG-HOOK-063 — tests/brd/tg_agent_shell/agents.feature"""
+    ran: list[str] = []
+
+    async def review(event, provider):
+        return None
+
+    outcome = await _reviewing(review).run(_session(ran), READ)
+
+    assert ran == ["read_thing"] and outcome.succeeded
+
+
+async def test_ag_hook_063_a_check_or_review_that_fails_lets_the_call_run_and_is_logged(
+    caplog,
+) -> None:
+    """AG-HOOK-063 — tests/brd/tg_agent_shell/agents.feature"""
+
+    async def broken_review(event, provider):
+        raise RuntimeError("model down")
+
+    async def broken_check(event):
+        raise RuntimeError("cannot tell")
+
+    async def never(event, provider):
+        raise AssertionError("a check that failed is never reviewed")
+
+    for adapters, reason in (
+        (_reviewing(broken_review), "model down"),
+        (_reviewing(never, broken_check), "cannot tell"),
+    ):
+        ran: list[str] = []
+        caplog.clear()
+        outcome = await adapters.run(_session(ran), READ)
+
+        assert ran == ["read_thing"] and outcome.succeeded
+        assert "The hook review failed; the read_thing call runs" in caplog.text
+        assert reason in caplog.text
+
+
+async def test_ag_hook_063_sub_may_be_reviewed_and_route_may_not_and_no_switch_stops_it() -> None:
+    """AG-HOOK-063 — tests/brd/tg_agent_shell/agents.feature"""
+
+    async def refuse(event, provider):
+        return "Not asked."
+
+    hooks = HookRegistry.of(
+        (_review_spec(refuse, tool="sub"),), owners=frozenset({"test"}), tools=WATCHED_TOOLS
+    )
+    assert hooks.listens(BeforeTool)
+    with pytest.raises(RuntimeError, match="unavailable tool boundary: route"):
+        HookRegistry.of(
+            (_review_spec(refuse, tool="route"),), owners=frozenset({"test"}), tools=WATCHED_TOOLS
+        )
+
+    # The owner's switches do not reach it: it checks the model's own work.
+    async def everything_off(session, name):
+        return False
+
+    ran: list[str] = []
+    assert not _review_spec(refuse).agent_related
+    outcome = await _reviewing(refuse, policy=everything_off).run(_session(ran), READ)
+    assert ran == [] and outcome.result["notice"] == "Not asked."

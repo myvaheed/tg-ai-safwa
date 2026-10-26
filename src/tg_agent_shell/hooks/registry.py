@@ -38,6 +38,7 @@ from .contracts import (
     OnTick,
     RefuseTool,
     ReturnProposals,
+    ReviewTool,
     Run,
     RunAndAdvise,
     SaveProposal,
@@ -120,7 +121,7 @@ class HookRegistry:
                         if tool not in tools:
                             raise RuntimeError(f"Hook {spec.name} names an unavailable tool boundary: {tool}")
                         event_type = AfterTool
-                    case OnBeforeTool(tool=tool, agent="root"), RefuseTool():
+                    case OnBeforeTool(tool=tool, agent="root"), RefuseTool() | ReviewTool():
                         if tool not in tools:
                             raise RuntimeError(f"Hook {spec.name} names an unavailable tool boundary: {tool}")
                         event_type = BeforeTool

@@ -33,6 +33,7 @@ from safwa.bootstrap.modules import (
     SYSTEM_PROMPT,
 )
 from safwa.features.advisor.agent import ITEMS, PERSONA, TALK_PERSONA
+from safwa.features.blueprint.hooks import ASKED_PROMPT
 from safwa.features.compass.agent import MORE_ABOUT_TOOL, SHOW_CONSTELLATION_TOOL
 from safwa.features.schedules.agent import (
     DEADLINE_PARSER_PROMPT,
@@ -311,6 +312,7 @@ def test_rule_i_prompt_prefix_is_byte_stable(request):
         "SCHEDULE_PARSER_PROMPT": _digest(SCHEDULE_PARSER_PROMPT),
         "DEADLINE_PARSER_PROMPT": _digest(DEADLINE_PARSER_PROMPT),
         "VALUE_LINK_PROMPT": _digest(VALUE_LINK_PROMPT),
+        "BLUEPRINT_ASKED_PROMPT": _digest(ASKED_PROMPT),
     }
     # The instructions as assembled, not as written: `{views}` is filled in at import
     # time, so the raw constant is not what any subagent reads.
@@ -447,6 +449,12 @@ async def test_rule_i_neither_the_clock_nor_a_receipt_reaches_a_routed_prefix():
     assert "23:41" not in json.dumps(later[0])
     assert "Saved Card #4." not in json.dumps(later[0])
     assert early[-1] != later[-1]
+    # An empty block adds nothing: what is read is what no block gives.
+    none = RoutedSubagent(name="cards", prompt="Save what the owner asked for.")
+    assert await builder.routed(subagent(""), dialogue, []) == await builder.routed(
+        none, dialogue, []
+    )
+    assert await builder.talk(subagent(""), dialogue) == await builder.talk(none, dialogue)
 
 
 # ------------------------------------------------------ Rule J: the schema is stable

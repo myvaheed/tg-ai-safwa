@@ -1,4 +1,5 @@
 {
+  "BLUEPRINT_ASKED_PROMPT": "2257874f33c3c5c2",
   "DEADLINE_PARSER_PROMPT": "4c84fc35723603a6",
   "HEAVY_ANALYZER_PROMPT": "68e02d4ed9b00bb8",
   "ITEMS": "d64b0da0fe17acc1",
@@ -7,7 +8,7 @@
   "SYSTEM_PROMPT": "65db6fab3d00a7ff",
   "TALK_PERSONA": "ff02c55b63e10100",
   "VALUE_LINK_PROMPT": "0985bd208f934e9a",
-  "agent:blueprint": "1b48426b2af06636",
+  "agent:blueprint": "02dffb23eb2a74fc",
   "agent:compass": "ec9d5c7115f6b8cd",
   "agent:diary": "f6bc04a4ad879ed2",
   "agent:onboarding": "a6ce43355afadbbe",

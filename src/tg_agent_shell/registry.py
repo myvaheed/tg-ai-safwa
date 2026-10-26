@@ -25,7 +25,7 @@ from .ai.messages import Memory, StateBlocks
 from .ai.mini import ReadToolSpec
 from .ai.sql import ReadOnlyQueryRunner, SqlView, view_catalogue
 from .ai.subagents import RoutedSubagent
-from .ai.tools import IMMEDIATE_TOOLS, HelperPort
+from .ai.tools import WATCHED_TOOLS, HelperPort
 from .foundation.screens import ScreenCatalogue, ScreenSpec
 from .hooks.contracts import HookPolicy, HookSpec, every_switch_on
 from .hooks.registry import HookRegistry
@@ -140,7 +140,7 @@ class Registry:
                 hooks,
                 owners=frozenset(module.name for module in modules),
                 helpers=frozenset(helpers),
-                tools=IMMEDIATE_TOOLS,
+                tools=WATCHED_TOOLS,
                 policy=hook_policy,
             ),
         )

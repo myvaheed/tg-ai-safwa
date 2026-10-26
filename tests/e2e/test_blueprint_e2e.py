@@ -12,18 +12,25 @@ from collections.abc import Awaitable, Callable
 import pytest
 from agent_turns import mutation_turn, route_turn
 from review_e2e_helpers import on_screen, resolve_queued_proposal
+from schedule_helpers import create_card
 from sqlalchemy import select
 from telegram_fakes import QueueTestMessage
 from ui_harness import history_source, services_for
 
 from conftest import ScriptedProvider
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
+from safwa.features.blueprint.agent import EFFORT, OPEN_GOALS
+from safwa.features.blueprint.hooks import BLUEPRINT_ASKED_HOOK
 from safwa.features.cards.model import Card, CardParent
+from safwa.features.cards.use_cases import archive_subtree, finish_action, finish_card
+from safwa.features.profile.model import ProfileField
+from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.values.model import CardValue
 from safwa.features.values.use_cases import create_value
 from tg_agent_shell.ai.messages import OPENED_FROM
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.history import Subsession, current_subsession
+from tg_agent_shell.proposals.hooks import PLAN_HOOK
 from tg_agent_shell.telegram.dialogue import run_dialogue_turn
 from tg_agent_shell.telegram.subsessions import EXIT_HINT
 
@@ -82,7 +89,12 @@ class Chat:
         await run_dialogue_turn(self.message, self.services, text, self.message.message_id)
 
 
-async def started(e2e_harness, responses: list[CompletionTurn | Callable[[], Awaitable]]):
+async def started(
+    e2e_harness,
+    responses: list[CompletionTurn | Callable[[], Awaitable]],
+    *,
+    asked: bool = False,
+):
     history = history_source(e2e_harness.sessions)
     advisor, provider = e2e_harness.advisor(
         responses,
@@ -91,6 +103,8 @@ async def started(e2e_harness, responses: list[CompletionTurn | Callable[[], Awa
             e2e_harness.subagent("blueprint", history=history),
         ),
         provider_factory=LaterProvider,
+        # The review before Blueprint opens answers in the script only where a test plays it.
+        checks=(PLAN_HOOK, BLUEPRINT_ASKED_HOOK) if asked else None,
     )
     services = services_for(e2e_harness.sessions, root=advisor)
     services.history = history
@@ -139,6 +153,49 @@ async def test_the_advisor_opens_blueprint_and_blueprint_answers_from_the_conver
     assert offered(provider, 1) == {"query_data", "finish"}
     # Its second answer reads its own stretch; the Advisor read none of it.
     assert '"role": "assistant", "content": "Which Value does it serve?"' in said(provider, 2)
+
+
+async def test_blueprint_reads_the_open_goals_and_is_told_effort_only_while_it_is_on(e2e_harness):
+    """BP-STEP-002 — tests/brd/blueprint.feature"""
+    async with e2e_harness.sessions() as session:
+        books = await create_card(session, kind="goal", title="Read 12 books")
+        await create_card(session, kind="goal", title="A book a month", parent_ids={books.id})
+        swim = await create_card(session, kind="goal", title="Learn to swim")
+        shed = await create_card(session, kind="goal", title="Sort the shed")
+        for goal in (swim, shed):
+            step = await create_card(
+                session, kind="action", title="Step", effort_points=1, parent_ids={goal.id}
+            )
+            await finish_action(session, step.id)
+            await finish_card(session, goal.id)
+        await archive_subtree(session, shed.id)
+        await session.commit()
+    chat, provider = await started(
+        e2e_harness,
+        [
+            call("sub", {"name": "blueprint"}),
+            CompletionTurn(content="Should they also stand under an existing Goal?"),
+            call("query_data", {"sql": OPEN_GOALS}),
+            CompletionTurn(content="Under A book a month?"),
+        ],
+    )
+
+    await chat.say("Let's plan Actions for reading")
+    # Off, the block is not read; only the views and the state still name the column.
+    assert "# Effort" not in said(provider, 1)
+    async with e2e_harness.sessions() as session:
+        await set_profile_field(session, ProfileField.EFFORT_TRACKING, True)
+        await session.commit()
+    await chat.say("Yes")
+
+    # On, the block follows its stretch, after the prompt that stays the same.
+    assert json.dumps(EFFORT, ensure_ascii=False)[1:-1] in said(provider, 2)
+    assert provider.calls[2][0] == provider.calls[1][0]
+    read = next(message for message in provider.calls[3] if message["role"] == "tool")
+    found = str(read["content"])
+    assert "Read 12 books" in found and "A book a month" in found
+    assert "Learn to swim" not in found and "Sort the shed" not in found
+    assert chat.drawn[-1] == "Under A book a month?"
 
 
 async def test_an_agreed_plan_comes_back_as_one_message_and_the_stretch_leaves(e2e_harness):
@@ -246,3 +303,51 @@ async def test_yes_to_a_plan_proposes_each_line_and_a_child_under_the_saved_goal
     assert parents == [goal.id]
     assert values == [health]
     assert chat.drawn[-1].endswith("Both are created.")
+
+
+async def test_blueprint_the_owner_did_not_ask_for_stays_shut_and_the_advisor_does_what_was_asked(
+    e2e_harness,
+):
+    """BP-ASKED-006 — tests/brd/blueprint.feature"""
+    chat, provider = await started(
+        e2e_harness,
+        [
+            call("sub", {"name": "blueprint"}),
+            CompletionTurn(content="not asked"),
+            CompletionTurn(content="Which Value should it serve?"),
+        ],
+        asked=True,
+    )
+
+    await chat.say("Create a goal: run a half marathon")
+
+    async with e2e_harness.sessions() as session:
+        assert await current_subsession(session, OWNER_ID) is None
+    assert f"{TITLE}\n{EXIT_HINT}" not in chat.drawn
+    assert chat.drawn[-1] == "Which Value should it serve?"
+    # One review read the conversation, with no tools; the Advisor read its refusal.
+    assert "You check one call before it runs" in said(provider, 1)
+    assert "Create a goal: run a half marathon" in said(provider, 1)
+    assert provider.options[1]["tools"] in (None, [], ())
+    assert "The user did not ask to plan." in said(provider, 2)
+
+
+async def test_blueprint_the_owner_asked_for_opens_after_the_review(e2e_harness):
+    """BP-ASKED-006 — tests/brd/blueprint.feature"""
+    chat, provider = await started(
+        e2e_harness,
+        [
+            call("sub", {"name": "blueprint"}),
+            CompletionTurn(content="asked"),
+            CompletionTurn(content="Which Value does it serve?"),
+        ],
+        asked=True,
+    )
+
+    await chat.say("Let's plan a goal about running")
+
+    assert chat.drawn[-2:] == [f"{TITLE}\n{EXIT_HINT}", "Which Value does it serve?"]
+    async with e2e_harness.sessions() as session:
+        assert (await current_subsession(session, OWNER_ID)).kind == "blueprint"
+    assert "You check one call before it runs" in said(provider, 1)
+    assert "The Advisor handed this conversation to you." in said(provider, 2)

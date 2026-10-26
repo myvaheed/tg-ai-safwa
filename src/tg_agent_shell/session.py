@@ -135,6 +135,7 @@ class RootSession:
             subagents=self.subagents,
             hooks=hooks,
             read_tools=read_tools,
+            provider=provider,
         )
         self.context = ContextBuilder(
             sessions,

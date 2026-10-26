@@ -31,6 +31,7 @@ from ..features.advisor.agent import (
     SYSTEM_PROMPT_TEMPLATE,
     TALK_PERSONA,
 )
+from ..features.blueprint.module import BLUEPRINT_ASKED_HOOK
 from ..features.blueprint.module import MODULE as BLUEPRINT
 from ..features.cards.module import (
     ACTION_REVIEW_HOOK,
@@ -198,6 +199,7 @@ HOOKS = (
     *((REQUEST_REVIEW_HOOK,) if featuretoggles.REQUEST_REVIEW else ()),
     *((DIARY_READ_HOOK,) if featuretoggles.DAY_READ_REQUIRED else ()),
     *((AUTOAPPROVAL_HOOK,) if featuretoggles.AUTOAPPROVAL else ()),
+    *((BLUEPRINT_ASKED_HOOK,) if featuretoggles.BLUEPRINT_ASKED else ()),
 )
 
 # The log of changes is written by every feature that keeps an item, so it is Safwa's own

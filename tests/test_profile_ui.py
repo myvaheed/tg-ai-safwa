@@ -11,6 +11,7 @@ from ui_harness import FakeCallback, FakeMessage, button_texts, services_for
 
 from safwa import featuretoggles
 from safwa.bootstrap.modules import HOOKS, REGISTRY
+from safwa.features.blueprint.module import BLUEPRINT_ASKED_HOOK
 from safwa.features.heavy_analyzer.module import HEAVY_ANALYZER_HOOK
 from safwa.features.profile.api import TODAY_OVERLOAD, hook_switched_on, set_hook_switch
 from safwa.features.profile.model import EVENING_TIME_DEFAULT, ProfileField, UserProfile
@@ -222,7 +223,7 @@ async def test_ps_hooks_015_a_reaction_with_a_switch_is_turned_off_and_on_in_the
     # A complex read the offer would answer, to read the switch through the registry.
     complex_read = BeforeTool(
         run_id=1, agent="root", agent_kind="advisor", tool="query_data", call_id="q1",
-        arguments_json='{"sql": "SELECT stage FROM ai_cards GROUP BY stage"}',
+        arguments_json='{"sql": "SELECT stage FROM ai_cards GROUP BY stage"}', conversation="",
     )
     assert len([item async for item in REGISTRY.hooks.evaluate(complex_read, sessions)]) == 1
 
@@ -272,6 +273,7 @@ async def test_ps_hooks_015_a_check_on_the_models_work_is_on_or_off_in_the_featu
     assert (PLAN_HOOK in HOOKS) is featuretoggles.PLAN_REQUIRED
     assert (REQUEST_REVIEW_HOOK in HOOKS) is featuretoggles.REQUEST_REVIEW
     assert (AUTOAPPROVAL_HOOK in HOOKS) is featuretoggles.AUTOAPPROVAL
+    assert (BLUEPRINT_ASKED_HOOK in HOOKS) is featuretoggles.BLUEPRINT_ASKED
     services = services_for(sessions)
     services.hooks = REGISTRY.hooks
     message = FakeMessage(941, bot_message=True, answer_as_new=True)
@@ -280,7 +282,7 @@ async def test_ps_hooks_015_a_check_on_the_models_work_is_on_or_off_in_the_featu
 
     rendered, markup = message.edits[-1]
     rendered, markup = await _press(message, services, markup, "🔔 Hooks")
-    for check in (PLAN_HOOK, REQUEST_REVIEW_HOOK, AUTOAPPROVAL_HOOK):
+    for check in (PLAN_HOOK, REQUEST_REVIEW_HOOK, AUTOAPPROVAL_HOOK, BLUEPRINT_ASKED_HOOK):
         assert not check.agent_related
         assert check.title not in rendered
         assert not any(check.title in label for label in button_texts(markup))

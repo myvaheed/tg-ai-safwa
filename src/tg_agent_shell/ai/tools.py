@@ -35,14 +35,14 @@ from agent_runtime import (
     json_safe,
     log_preview,
 )
-from llm_gateway import ToolCall
+from llm_gateway import LlmProvider, ToolCall
 
 from ..foundation.errors import failure_reason
 from ..foundation.screens import ScreenCatalogue
 from ..hooks.contracts import AfterTool as AfterToolEvent
 from ..hooks.contracts import BeforeTool as BeforeToolEvent
-from ..hooks.contracts import OfferTool, RefuseTool
-from ..hooks.registry import HookRegistry
+from ..hooks.contracts import OfferTool, RefuseTool, ReviewTool
+from ..hooks.registry import HookEvaluation, HookRegistry
 from .contracts import (
     CALL_HELPER_TOOL,
     FINISH_TOOL,
@@ -66,6 +66,7 @@ from .contracts import (
 from .conversation import conversation_block
 from .mini import ReadToolSpec
 from .sql import QueryRead, ReadOnlyQueryRunner, read_query
+from .steps import announce, checking_line
 from .subagents import SUBAGENT_HISTORY_LAST_MESSAGES, RoutedSubagent
 
 logger = logging.getLogger(__name__)
@@ -97,6 +98,10 @@ IMMEDIATE_TOOLS = frozenset({"query_data", "open", "call_helper"})
 
 # The calls that end a session to open a subsession, and to close it with its result.
 SUBSESSION_TOOLS = frozenset({"sub", "finish"})
+
+# The calls a hook may watch: the ones the adapters answer. `route`, `forward` and
+# `nothing_to_do` the runtime answers before they are reached.
+WATCHED_TOOLS = IMMEDIATE_TOOLS | SUBSESSION_TOOLS
 
 
 def query_read_tool(query_runner: ReadOnlyQueryRunner) -> ReadToolSpec:
@@ -131,6 +136,29 @@ def conversation_for(
     """The newest `last` things said in the conversation, as data, for anyone who is not
     its assistant."""
     return conversation_block(dialogue, last)
+
+
+async def reviewed(
+    checked: HookEvaluation, provider: LlmProvider | None, *, failed: str
+) -> str | None:
+    """The words a check's review gives for what the check returned, or None.
+
+    Every review reads the model's own work, so one that cannot decide lets it through: a
+    check or a review that fails is logged with `failed` and counts as no answer.
+    """
+    error = checked.error
+    if error is None and checked.payloads:
+        await announce(checking_line(checked.spec.title))
+        try:
+            for payload in checked.payloads:
+                words = await checked.spec.effect.review(payload, provider)
+                if words and words.strip():
+                    return words
+        except Exception as failure:
+            error = failure
+    if error is not None:
+        logger.error(failed, checked.spec.name, error)
+    return None
 
 
 def add_notice(rows: list[dict[str, Any]], text: str) -> None:
@@ -188,8 +216,11 @@ class ToolAdapters:
         subagents: Mapping[str, RoutedSubagent] | None = None,
         hooks: HookRegistry | None = None,
         read_tools: tuple[ReadToolSpec, ...] = (),
+        provider: LlmProvider | None = None,
     ) -> None:
         self.sessions = sessions
+        # What a hook's review reads a call by.
+        self.provider = provider
         self.query_runner = query_runner
         self.proposals = proposals
         # What `open` may put on the screen, and how its deep link is written.
@@ -275,6 +306,8 @@ class ToolAdapters:
         A RefuseTool hook that answers refuses the call: the tool does not run, its notice is
         what the model reads in its place, and its helper is granted. A check that fails ends
         the turn rather than being stepped over, because a refusal that failed is not a pass.
+        A ReviewTool hook whose review answers refuses it the same way, with no helper; one
+        that fails lets the call run.
         `route`, `forward` and `nothing_to_do` are not seen here at all — the runtime answers
         them before the adapters are reached.
         """
@@ -478,7 +511,7 @@ class ToolAdapters:
         return "root"
 
     async def _refuse(self, agent: AgentSession, call: ToolCall) -> dict[str, Any] | None:
-        """The first RefuseTool hook with a notice: the call's result, with its helper granted."""
+        """The first hook that refuses the call: its words are the call's result."""
         if not self.hooks.listens(BeforeToolEvent):
             return None
         event = BeforeToolEvent(
@@ -488,8 +521,22 @@ class ToolAdapters:
             tool=call.name,
             call_id=call.id,
             arguments_json=call.arguments_json,
+            conversation=conversation_for(agent.dialogue),
         )
         async for checked in self.hooks.evaluate(event, self.sessions):
+            if isinstance(checked.spec.effect, ReviewTool):
+                words = await reviewed(
+                    checked,
+                    self.provider,
+                    failed=f"The hook %s failed; the {call.name} call runs: %s",
+                )
+                if words is not None:
+                    return {
+                        "status": ToolResultStatus.ERROR.value,
+                        "code": "refused",
+                        "notice": words,
+                    }
+                continue
             if checked.error is not None:
                 # A refusal that failed is not a pass: the turn ends, the call does not run.
                 raise WatcherFailed(

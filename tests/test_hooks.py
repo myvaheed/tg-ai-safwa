@@ -31,6 +31,7 @@ from tg_agent_shell.hooks.contracts import (
     OnCommitted,
     OnTick,
     RefuseTool,
+    ReviewTool,
     Run,
     Tick,
 )
@@ -47,6 +48,10 @@ async def operation(payload, context):
 
 async def subject(event):
     return (event.subject_id,)
+
+
+async def no_verdict(payload, provider):
+    return None
 
 
 async def words(session, items):
@@ -118,6 +123,10 @@ def switched(*names_off):
         (replace(SPEC, on=(OnBeforeTool("absent"),), effect=RefuseTool("reader")), "unavailable tool boundary"),
         (replace(SPEC, on=(OnBeforeTool("query_data", agent="subagent"),), effect=RefuseTool("reader")), "incompatible"),
         (replace(SPEC, on=(OnAfterTool("query_data"),), effect=RefuseTool("reader")), "incompatible"),
+        (replace(SPEC, on=(OnBeforeTool("absent"),), effect=ReviewTool(no_verdict)), "unavailable tool boundary"),
+        (replace(SPEC, on=(OnBeforeTool("query_data", agent="subagent"),), effect=ReviewTool(no_verdict)), "incompatible"),
+        (replace(SPEC, on=(OnAfterTool("query_data"),), effect=ReviewTool(no_verdict)), "incompatible"),
+        (replace(SPEC, on=(OnBeforeTurn(),), effect=ReviewTool(no_verdict)), "incompatible"),
         (replace(SPEC, on=(OnCommitted("thing.changed"),)), "incompatible"),
         (replace(SPEC, on=(OnCommitted(" "),), effect=Advise(words)), "incompatible"),
         (replace(SPEC, on=(OnBeforeTurn(),)), "incompatible"),
@@ -354,7 +363,7 @@ async def test_ag_hook_036_a_refusal_before_a_call_is_registered_and_read_only_b
     assert refusal.agent_related and hooks.agent_related == (refusal, SPEC)
     before = BeforeTool(
         run_id=1, agent="root", agent_kind="advisor", tool="query_data", call_id="q1",
-        arguments_json=EVENT.arguments_json,
+        arguments_json=EVENT.arguments_json, conversation="",
     )
     checked = [item async for item in hooks.evaluate(before, NO_SESSIONS)]
     assert [item.spec.name for item in checked] == ["reader.refusal"]

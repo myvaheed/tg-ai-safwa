@@ -15,8 +15,8 @@ A hook whose effect reaches the agent — a helper offered to its session, a cal
 request handed to the Advisor — is the owner's to turn off; whether it is on is the application's policy,
 read where the hook is about to work. A hook that only runs work of its own is always on, unless it
 names another hook as its switch: then it is on exactly when that one is. A check on the
-model's own work — a response sent back, an answer held, a proposal saved unseen — has no
-switch either: the application registers it or leaves it out.
+model's own work — a response sent back, a call refused on review, an answer held, a
+proposal saved unseen — has no switch either: the application registers it or leaves it out.
 """
 
 from __future__ import annotations
@@ -74,6 +74,8 @@ class BeforeTool:
     tool: str
     call_id: str
     arguments_json: str
+    # The newest things said, as data: what a review reads the call against.
+    conversation: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -323,6 +325,15 @@ class RefuseTool:
 
 
 @dataclass(frozen=True, slots=True)
+class ReviewTool[Payload]:
+    """Before a tool runs: `review` reads what the check returned, with the model to read it
+    by, and gives words or None. Words refuse the call: it does not run, and the words are
+    what the model reads as its result. None, or a check or a review that fails, runs it."""
+
+    review: Callable[[Payload, LlmProvider], Awaitable[str | None]]
+
+
+@dataclass(frozen=True, slots=True)
 class Shown:
     """A request that carries a block its feature wrote. The block opens the message the
     Advisor writes, as it is; the Advisor reads `request`, and is told the block was shown."""
@@ -414,13 +425,14 @@ class HookSpec[Event, Payload]:
     ]
     evaluate: Callable[[Event], Awaitable[Sequence[Payload]]]
     # OfferTool, RefuseTool and ReturnProposals checks return the words the model reads. Run
-    # checks return operation data, HoldAnswer and SaveProposal checks what their review
-    # reads. Advise checks return the items the request will be about, RunAndAdvise checks
-    # what its run reads.
+    # checks return operation data, ReviewTool, HoldAnswer and SaveProposal checks what their
+    # review reads. Advise checks return the items the request will be about, RunAndAdvise
+    # checks what its run reads.
     effect: (
         Run[Payload]
         | OfferTool
         | RefuseTool
+        | ReviewTool[Payload]
         | Advise[Payload]
         | RunAndAdvise[Payload, Any]
         | ReturnProposals

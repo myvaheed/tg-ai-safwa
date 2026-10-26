@@ -120,7 +120,7 @@ def test_arguments_that_are_not_a_read_are_left_to_the_runner() -> None:
     for raw in ("not json", '{"query": "SELECT 1"}', '{"sql": 5}'):
         event = BeforeTool(
             run_id=1, agent="root", agent_kind="advisor", tool="query_data", call_id="q1",
-            arguments_json=raw,
+            arguments_json=raw, conversation="",
         )
         assert asyncio.run(complex_read(event)) == ()
 
@@ -128,7 +128,7 @@ def test_arguments_that_are_not_a_read_are_left_to_the_runner() -> None:
 def about_to_read(sql: str) -> BeforeTool:
     return BeforeTool(
         run_id=1, agent="root", agent_kind="advisor", tool="query_data", call_id="q1",
-        arguments_json=json.dumps({"sql": sql}),
+        arguments_json=json.dumps({"sql": sql}), conversation="",
     )
 
 

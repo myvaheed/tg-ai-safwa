@@ -81,8 +81,8 @@
 | 0 | Слияние main в ветку, весь набор зелёный — сделано, v9.240 | — |
 | 1 | Метод Tag как совет: `TAG`, строка `ITEMS` из метода, тема `tags` в `get_more_about`, onboarding — сделан, v9.241 | 0 |
 | 2 | Blueprint: пакет, промпт, persona, строки Advisor, тексты shell, onboarding, сценарии, e2e — сделан, v9.242 | 1 |
-| 2A | Вход по явной просьбе: блок `sub` у Advisor, строка в «# Advice», `purpose`; Methods целиком в промпте Blueprint без `get_more_about`; последняя строка плана — вопрос; onboarding; `next` у `finish` | 2 |
-| 2B | Проверка перед `sub`: реакция *ReviewTool* на BeforeTool с `conversation`, хук *blueprint.asked*, сценарии AG-HOOK и BP | 2A |
+| 2A | Вход по явной просьбе: блок `sub` у Advisor, строка в «# Advice», `purpose`; Methods целиком в промпте Blueprint без `get_more_about`; последняя строка плана — вопрос; onboarding; `next` у `finish` — сделан, v9.243 | 2 |
+| 2B | Проверка перед `sub`: реакция *ReviewTool* на BeforeTool с `conversation`, хук `blueprint.asked`, сценарии AG-HOOK-063 и BP-ASKED-006; метки и Effort в Blueprint — сделан, v9.244 | 2A |
 | 3 | Живой замер на 35B, 2 прохода; 9B — когда результат устроит | 2B |
 | 4 | Проект подсессий переходит в постоянные документы и сценарии shell, SUBSESSIONS_DESIGN.md удаляется | 2 |
 
@@ -129,13 +129,18 @@
   и «# Read the data» Blueprint. «…say which and ask about it.» вместо «…as its examples do»:
   `explanation()` показывает вердикт примера без вопроса.
 
-## Батч 2B — предложено
+## Батч 2B — сделано
 
-- Shell: реакция *ReviewTool(review)* на BeforeTool. `review(payload, provider)` даёт слова или
+- Shell: реакция `ReviewTool(review)` на BeforeTool. `review(payload, provider)` даёт слова или
   None: слова — отказ, вызов не исполнен, они его результат; None или ошибка review — вызов
   исполняется. `BeforeTool` получает `conversation`; `ToolAdapters` — provider; реестр
   принимает `sub` и `finish`. `route` — отдельно и по замеру: его отвечает agent_runtime.
-- Safwa: хук *blueprint.asked* на `OnBeforeTool(tool="sub")`, только для `blueprint`.
+- Safwa: хук `blueprint.asked` на `OnBeforeTool(tool="sub")`, только для `blueprint`.
+- Общий `reviewed()` в ai/tools.py читает review и для `ReviewTool`, и для `HoldAnswer` и
+  `SaveProposal`. Строка «Checking: Asked to plan.» — шаг хода, как у других review.
+- `BLUEPRINT_ASKED` в featuretoggles.py, как у других проверок работы модели (PS-HOOKS-015).
+- `ASKED_PROMPT` в снимке промпта; в e2e проверка выключена, как и прочие проверки модели,
+  и включается тестом BP-ASKED-006.
 - Промпт проверки:
   ```
   You check one call before it runs: the Advisor wants to open Blueprint, a conversation that plans new items with the user step by step.
@@ -149,6 +154,14 @@
   ```
 - Отказ Advisor: `The user did not ask to plan. Do what they asked: `route("workspace_mutator")`
   to create or change an item, or answer in words.`
+- Метки Action, согласовано 26.10:
+  - раздел «# Action labels» в промпте: Categories и Energy словами `CATEGORY_MEANINGS` и
+    `ENERGY_MEANINGS`; поля плана — Note, Deadline, Schedule, Categories, Energy, Values, Tags;
+  - шаг 5: один вопрос, встать ли новым Actions ещё под существующую Goal или Subgoal; на да —
+    `OPEN_GOALS`, открытые Goals из `ai_cards`. Архивной Card бывает только Done, так что
+    условия на `[📦]` в запросе нет. Шаг 6: Categories и Energy каждому Action;
+  - Effort — блок `EFFORT` из `blueprint_now`, только пока Effort Points включены: в промпте
+    о нём ни слова. Пустой `current` shell больше не добавляет (AG-SESSION-051).
 
 ---
 
@@ -331,7 +344,7 @@ BLUEPRINT_AGENT = AgentSpec(
 - **CMP-METHOD-001** (сделано в батче 1): метод Tag в общем ряду, как совет, который не читает ни одна проверка.
 - **AD-ASK-007:** открыть Blueprint — не изменение, поэтому это не просьба об изменении.
 
-Сценарии shell (AG-…-063+, TG-…-034+) и поправки AG-ROUTE-001, AG-RECEIPT-006,
+Сценарии shell (AG-…-064+, TG-…-034+) и поправки AG-ROUTE-001, AG-RECEIPT-006,
 TG-CLEAR-032 — в батче 4, вместе с переходом проекта в документы.
 
 ## Тесты

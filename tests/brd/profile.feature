@@ -73,9 +73,9 @@ Feature: Profile
     And one that runs work of its own, such as the automatic Summary, is not in the list and is always on
     And one that follows another reaction's switch is not in the list either: it is on and off
       with that one, by AG-HOOK-043
-    And a check on the model's own work — one that sends a subagent's calls back, holds an
-      answer or saves a proposal unseen — is not on the screen: it is on or off in the feature
-      toggles
+    And a check on the model's own work — one that sends a subagent's calls back, refuses a
+      call on review, holds an answer or saves a proposal unseen — is not on the screen: it is
+      on or off in the feature toggles
     When the owner chooses a reaction
     Then its own screen shows its description, current state and switch
     And Back returns to Hooks, whose Back returns to Profile

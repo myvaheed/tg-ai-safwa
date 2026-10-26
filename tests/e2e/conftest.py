@@ -25,12 +25,13 @@ from safwa.bootstrap.modules import (
     routed_prompt,
 )
 from safwa.features.advisor.agent import ADVISOR_ROW_LIMITS, ADVISOR_VIEWS
+from safwa.features.blueprint.hooks import BLUEPRINT_ASKED_HOOK
 from safwa.features.memory.use_cases import MemoryReader
 from safwa.features.schedules.agent import scheduled_tool
 from safwa.features.workspace_mutator.state import workspace_context
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner
 from tg_agent_shell.ai.subagents import RoutedSubagent
-from tg_agent_shell.ai.tools import IMMEDIATE_TOOLS, HelperPort
+from tg_agent_shell.ai.tools import WATCHED_TOOLS, HelperPort
 from tg_agent_shell.foundation.database import Database
 from tg_agent_shell.hooks.contracts import HookSpec
 from tg_agent_shell.hooks.registry import HookRegistry
@@ -50,14 +51,14 @@ def registry_with(checks: tuple[HookSpec, ...]) -> Registry:
     The feature toggles decide them for the running bot; a test decides them for itself,
     because a script would otherwise answer a review in every turn it plays.
     """
-    model_checks = (PLAN_HOOK, REQUEST_REVIEW_HOOK, AUTOAPPROVAL_HOOK)
+    model_checks = (PLAN_HOOK, REQUEST_REVIEW_HOOK, AUTOAPPROVAL_HOOK, BLUEPRINT_ASKED_HOOK)
     return replace(
         REGISTRY,
         hooks=HookRegistry.of(
             (*(spec for spec in HOOKS if spec not in model_checks), *checks),
             owners=frozenset(module.name for module in MODULES),
             helpers=frozenset(HELPERS),
-            tools=IMMEDIATE_TOOLS,
+            tools=WATCHED_TOOLS,
             policy=REGISTRY.hooks.policy,
         ),
     )

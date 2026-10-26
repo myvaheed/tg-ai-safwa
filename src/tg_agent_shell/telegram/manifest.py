@@ -77,7 +77,7 @@ class AgentSpec:
     workspace_state: bool = False
     read_tools: Callable[[AgentContext], tuple[ReadToolSpec, ...]] | None = None
     # Its own current values, read again at every step: they follow the dialogue, so the
-    # prompt above it stays byte-stable.
+    # prompt above it stays byte-stable. Empty, and nothing is added.
     current: Callable[[AgentContext], Awaitable[str]] | None = None
     # The item types it may put on the screen with `open`; none, and it is not handed the tool.
     opens: tuple[str, ...] = ()

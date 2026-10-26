@@ -67,8 +67,13 @@ Blueprint ([blueprint/agent.py](../src/safwa/features/blueprint/agent.py)) is wh
 item is worked out before anything is proposed. The Advisor opens it with `sub("blueprint")`
 only when the owner asks to plan a new Value, Goal, habit tracker or Tag, or says yes when the
 Advisor offers to plan one; for a Goal whose result or completion criterion is unclear, the
-Advisor asks about it or makes that offer. It is a subsession: it asks one question at a time,
-holds each item to its method, keeps to a Tag's only as advice, and changes nothing. The plan
+Advisor asks about it or makes that offer. Before it opens, the hook `blueprint.asked` reads
+the conversation once; when the owner did not ask to plan, the Advisor is told to do what they
+asked instead. It is a subsession: it asks one question at a time,
+holds each item to its method, keeps to a Tag's only as advice, and changes nothing. It asks
+once whether new Actions should also stand under an existing Goal or Subgoal, and on yes reads
+the open ones; it offers each Action its Categories and Energy, and its Effort only while
+Effort Points are on, a block read after the conversation. The plan
 it agrees on comes back as one message, one line per item, and asks whether to create it; the
 workspace mutator proposes each line once the owner says yes: a Card under a new Goal waits
 for that Goal's Save and takes its id.

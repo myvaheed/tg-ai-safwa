@@ -80,6 +80,7 @@ Feature: Agents — the session, the hand-over, and what comes back
     Given a subagent declares a block of its own current values
     Then that block comes after the conversation, never inside the part of the prompt that stays the same
     And it is read again at every step, so a value saved in the same request is seen
+    And a block that is empty adds nothing
 
   Scenario: AG-SESSION-009 — A restart ends every piece of work that was waiting
     Given work was paused on a screen, or was running when the process stopped
@@ -498,6 +499,18 @@ Feature: Agents — the session, the hand-over, and what comes back
     And work that fails leaves no request, and its failure is logged
     And the hook is the owner's to switch: while it is off, neither its condition nor its work runs
     And on application start its work runs before the first message, queues what it found without calling the Advisor, and a failure stops startup
+
+  Scenario: AG-HOOK-063 — A check may refuse a call of the root's after one review reads it
+    Given a hook that reviews a call of the root's before it runs
+    Then it reads the call, its arguments and the newest things said in the conversation
+    When its review answers with words
+    Then the call does not run, and those words are what the model reads as the call's result
+    When its review answers nothing
+    Then the call runs
+    When the check or its review fails
+    Then the call runs, and the failure is logged with the hook's name
+    And `sub` is a call such a hook may watch, and `route` is not
+    And the owner has no switch for it: it checks the model's own work
 
   Scenario: AG-OPEN-052 — A subagent opens only the kinds of screen it declared
     Given a subagent declares that it may open one kind of screen

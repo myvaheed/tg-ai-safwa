@@ -85,7 +85,7 @@ A hook whose effect reaches the agent — `OfferTool`, `RefuseTool` or `Advise`,
 `agent_related` — is the owner's to turn off in the Profile, and `HookRegistry` asks the
 application's policy — `hook_switched_on`, read live — before running its condition or wording
 its request; a hook that runs work of its own, `Run`, is always on, and so is a check on the
-model's own work, `ReturnProposals`, `HoldAnswer` or `SaveProposal`, which Safwa registers or
+model's own work, `ReturnProposals`, `ReviewTool`, `HoldAnswer` or `SaveProposal`, which Safwa registers or
 leaves out by `featuretoggles.py`. The tool adapter emits `BeforeTool` before a call and
 `AfterTool` after it; the materializer emits `BeforeProposals` before a subagent response's calls
 are prepared, `BeforeReview` before a proposal's screen is drawn and `AfterRequest` before the
@@ -319,8 +319,9 @@ A routed subagent's context is the same order under its own prompt: prompt → w
 `<Conversation>` → this turn's receipts → its own current values. Those are `AgentSpec.current`,
 an async read the feature writes — the Diary's day and hour, the Sprint as it stands, the Profile's
 fields — and it is read again at every step, so a value a Save wrote in the same request is the one
-the next step sees (`AG-SESSION-051`). Putting them in the prompt would break the byte-stable
-prefix.
+the next step sees (`AG-SESSION-051`). An empty block adds nothing, so a value told only while a
+switch is on, such as Blueprint's Effort, costs nothing while it is off. Putting them in the
+prompt would break the byte-stable prefix.
 
 ## `route` — one turn handed to a subagent
 

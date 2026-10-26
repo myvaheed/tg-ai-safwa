@@ -16,6 +16,8 @@ Feature: Blueprint
     Then each of its messages asks one question
     And it asks which Value the item serves, offering the owner's Values by name, and works out a new one when none fits
     And a target, a number, a date or a time the owner did not say is never in the plan
+    And it asks once whether the new Actions should also stand under an existing Goal or Subgoal; on yes it reads the open ones, neither Done nor archived, and offers each Action the ones it moves forward
+    And it offers each Action its Categories and Energy, and its Effort only while Effort Points are on, told after the conversation by AG-SESSION-051
     And it reads the workspace and has no tool that changes anything
 
   Scenario: BP-METHOD-003 — Blueprint holds each item to the method its feature words
@@ -29,7 +31,7 @@ Feature: Blueprint
     Given the owner agrees to the plan, or wants to stop
     Then Blueprint ends the conversation with the plan as agreed, or with what was agreed so far
     And the conversation's stretch leaves the chat, and one message headed "📐 Blueprint" holds the plan
-    And the plan has one line per item, each parent before its children: its mark, its title, new or a link to the existing item, the Goal it stands under or the Card it is on, and its Note, Deadline, Schedule, Values and Tags
+    And the plan has one line per item, each parent before its children: its mark, its title, new or a link to the existing item, the Goals it stands under or the Card it is on, and its Note, Deadline, Schedule, Categories, Energy, Values and Tags, and Effort while Effort Points are on
     And its last line asks, in the owner's language, whether to create it
 
   Scenario: BP-CREATE-005 — Yes to a plan proposes each of its items
@@ -38,3 +40,12 @@ Feature: Blueprint
     Then the Advisor hands it to the workspace, and each new item of the plan comes on its own review screen
     And a Card under a new Goal of the plan is proposed once that Goal is saved, under that Goal's id
     And nothing of the plan is saved before the owner saves its screen
+
+  Scenario: BP-ASKED-006 — Blueprint opens only once a check finds the owner asked to plan
+    Given the Advisor calls sub("blueprint")
+    Then one review reads the newest things said in the conversation, by AG-HOOK-063, with no tools and reasoning_effort "none"
+    And it is told to answer "asked" when the owner's newest message asks to plan, work out or think through an item together, or says yes to an offer to plan it, and "not asked" otherwise
+    When it answers "not asked"
+    Then Blueprint does not open, and the Advisor is told the owner did not ask to plan and to do what they asked
+    When it answers "asked", a line that is neither, or fails
+    Then Blueprint opens

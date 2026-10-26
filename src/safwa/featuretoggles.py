@@ -18,3 +18,6 @@ DAY_READ_REQUIRED = True
 # Before a proposal's screen is drawn, one model call reads it against the owner's words and
 # saves it unseen when it is exactly what they asked for (PR-AUTO-024).
 AUTOAPPROVAL = True
+# Before Blueprint opens, one model call reads the conversation for whether the owner asked
+# to plan (BP-ASKED-006).
+BLUEPRINT_ASKED = True

@@ -36,13 +36,14 @@ from llm_gateway import LlmProvider
 from ..ai.contracts import ToolResultStatus
 from ..ai.conversation import kept_turn
 from ..ai.outcome import AIOutcome, AIOutcomeKind, as_turn
-from ..ai.steps import announce, checking_line, preparing_line
+from ..ai.steps import announce, preparing_line
 from ..ai.tools import (
     REPAIR_EXHAUSTED,
     ToolAdapters,
     WatcherFailed,
     conversation_for,
     response_text,
+    reviewed,
 )
 from ..foundation.errors import DomainError
 from ..hooks.contracts import (
@@ -387,19 +388,10 @@ class ProposalMaterializer:
         A check that fails is logged with `failed` and counts as no answer.
         """
         async for checked in self.adapters.hooks.evaluate(event, self.sessions):
-            effect = checked.spec.effect
-            error = checked.error
-            if error is None and isinstance(effect, effect_type) and checked.payloads:
-                await announce(checking_line(checked.spec.title))
-                try:
-                    for payload in checked.payloads:
-                        words = await effect.review(payload, self.provider)
-                        if words and words.strip():
-                            return words
-                except Exception as failure:
-                    error = failure
-            if error is not None:
-                logger.error(failed, checked.spec.name, error)
+            if isinstance(checked.spec.effect, effect_type):
+                words = await reviewed(checked, self.provider, failed=failed)
+                if words is not None:
+                    return words
         return None
 
     async def before_review(self, outcome: AIOutcome) -> AIOutcome:
