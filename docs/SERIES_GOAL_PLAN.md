@@ -1829,6 +1829,74 @@ immediate reminders on single answers or scheduled times». За пять бат
 Владелец решил: строка откатана, снова «- On answers of Checks or Actions: `reminder` with
 on_answers=true.». В коммит идут 16, 17 и подсказка 18.
 
+## Батч 19 — `on_answers` словами владельца, указателем для сессии условия
+
+`on_answers` был bool: у инструмента нет места для счёта, и сабагент отвечал `nothing_to_do` —
+«current tools don't support count-based triggers». Теперь это строка со словами владельца о том,
+что считать, вместо `when`. Сессия условия получает её, как сессия `when` свой `when`: указатель,
+какие слова в разговоре — этот Reminder; поля она читает из слов владельца.
+
+Что было: в 12b указатель *words* уже был, и обрывки вроде «30 times» не ломали, потому что сессия
+читала разговор; вариант без него оказался не хуже, и *words* убрали. В 12e из сессий ушёл текст
+Reminder, и два Reminder на ответах в одном сообщении сессия условия не различала. Отличие батча:
+строка заменяет bool, цель — отказы сабагента, а указатель заодно различает два Reminder.
+
+### Тексты (согласованы)
+
+1. Поле `on_answers`, `str | None`: «For a Reminder on answers of Checks or Actions: the user's own
+   words for what it counts, in their language, instead of when.»
+2. «# Which tool»: «- On answers of Checks or Actions: `reminder` with on_answers.»
+3. Подсказка `when_counts_answers`: «Call reminder again with the same words in on_answers instead of
+   when.»
+4. Вторая строка `REMINDER_CONDITION_PROMPT`: «The user's words are in the conversation. Read the
+   fields from the user's own words; the counting phrase says which words are this Reminder's.»
+
+Контекст сессии условия — «Counting phrase: …», затем Open items, как «Timing phrase: …» у `when`.
+
+### Код
+
+- `read_condition(provider, *, phrase, open_items, conversation)`; `listed_items` по-прежнему из
+  `open_items`.
+- `proposal._condition(context, phrase)`; `on_answers` — строка без пробелов по краям; правка
+  руками условие не читает (RM-EDIT-038).
+- Проверка вызова: новый Reminder без `when` и без непустого `on_answers` — ошибка, как раньше.
+- RM-COND-030 и RM-UNCLEAR-028 переписаны под слова владельца; исходы те же.
+
+**Критерий успеха** — 2 прохода на 35B: шаг 1 не меньше 27 из 30 в каждом; шаг 2 — «Read 20
+minutes 30 times» оба раза, ни одного `nothing_to_do` о счёте, фразы `goal`, поток, Remind,
+«Also track» и новый item не хуже 18b.
+
+### Замер на 35B, 2 прохода
+
+| | 18b | 19 |
+|---|---|---|
+| Шаг 1, из 30 | 28 и 29, в 15 | 28 и 30 |
+| Фразы `goal`, из 24 | 21 и 21 | 22 и 23 |
+| Поток цели серии, провалов из 16 | 3 и 1 | 1 и 0 |
+| Remind на item, из 10 | 10 и 10 | 10 и 10 |
+| «📊 Also track», из 3 | 3 и 3 | 3 и 3 |
+| Новый item с Remind, из 8 | 5 и 7 | 7 и 8 |
+| «Read 20 minutes 30 times», проходов из 2 | 1 | 2 |
+| `nothing_to_do` о счёте за проход | 3 и 0 | 0 и 0 |
+| Время шага 2, с | 374 и 403 | 270 и 313 |
+
+Критерий выполнен. `nothing_to_do` не было ни одного, ни о счёте, ни о чём другом. «three nights in
+a row» оба раза пришла в `on_answers`, а не в `when`, и прошла.
+
+Провалы:
+- шаг 1 — «a dozen Reading actions» и «75 workout actions» в первом проходе: сессия не уверена,
+  какие items считать, и спрашивает; «a dozen Reading actions» падала и раньше;
+- поток — «ping me every time I've skipped my reading 7 times» в первом проходе: Advisor сам искал
+  через `query_data`, как в 18b; во втором проходе она прошла;
+- фразы `goal` — три фразы сессии `when`, которую батч не трогал: две про ответы с `about=time`, и
+  «on the 20th at 8am» как месячная;
+- новый item — фраза без времени в первом проходе, принятый риск.
+
+Что сабагент пишет в `on_answers`: чаще слова владельца или их кусок, но бывает и пересказ с #id
+(«Check #3 «Read 20 minutes?» is answered Yes for the 30th time»), одно название Check («Лёг до
+23?», пять вызовов подряд) и даже текст ответа («Ничего, завтра наверстаешь…»). Сессия
+условия всё равно читает поля из слов владельца в разговоре, и такие потоки прошли.
+
 ## Тексты на согласование
 
 Mutator не меняется: он передаёт слова владельца в `when` как есть.

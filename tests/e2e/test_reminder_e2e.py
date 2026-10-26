@@ -209,9 +209,12 @@ def unclear_script(*setup, when: str):
     ]
 
 
-def condition_call() -> ProviderTurn:
-    """The subagent's `reminder` on answers: the items are its own session's to pick."""
-    return turn(("reminder", {"mode": "create", "remind_text": "Cheer me on.", "on_answers": True}))
+def condition_call(on_answers: str = "when I miss posture") -> ProviderTurn:
+    """The subagent's `reminder` on answers, in the owner's words: the items are its own
+    session's to pick."""
+    return turn(
+        ("reminder", {"mode": "create", "remind_text": "Cheer me on.", "on_answers": on_answers})
+    )
 
 
 def condition_fields(items: str, answer: str = "no", count: int = 3, **extra) -> ProviderTurn:
@@ -252,7 +255,8 @@ async def test_rm_cond_030_a_condition_is_proposed_with_its_series_and_what_it_f
         _, live = await resolve_check(session, live.id, CheckOutcome.MISSED)
         await session.commit()
         named = live.id
-    # Its own session picks the items and reads the words; the subagent says only on answers.
+    # Its own session picks the items and reads the words; the subagent says on answers, in the
+    # owner's words.
     advisor, provider = e2e_harness.advisor(condition_turns(f"Check #{named}", in_row=True))
 
     outcome = await advisor.handle("cheer me on when I miss posture", source_message_id=1)
@@ -264,10 +268,12 @@ async def test_rm_cond_030_a_condition_is_proposed_with_its_series_and_what_it_f
     assert values["finds"] == "«Sat straight?». 1 Missed in a row now."
     [read] = condition_reads(provider)
     told = "\n".join(str(message["content"]) for message in read[1:])
-    # The owner's own words as the reminder part read them, then the open items it read.
+    # The owner's own words as the reminder part read them, the call's words saying which,
+    # then the open items it read.
     words = told.index(">cheer me on when I miss posture</User>")
+    phrase = told.index(f"Counting phrase: when I miss posture\n{OPEN_ITEMS}")
     listed = told.index(f"- Check #{named} «Sat straight?»; schedule: after completion")
-    assert words < told.index(OPEN_ITEMS) < listed
+    assert words < phrase < listed
     assert "Cheer me on." not in told
     async with e2e_harness.sessions() as session:
         (reminder_id,) = await approve_proposal(
@@ -467,7 +473,7 @@ async def test_rm_unclear_028_words_that_count_answers_go_back_to_be_a_condition
 
     (told,) = refusals(provider, "when_counts_answers")
     assert told["error"] == COUNTS_ANSWERS
-    assert "on_answers=true" in told["hint"]
+    assert "in on_answers instead of when" in told["hint"]
     # No forms: the owner is not asked to say it again.
     assert not any(form in told["error"] for form in REMINDER_TIME_FORMS)
     assert outcome.kind is AIOutcomeKind.PROPOSAL

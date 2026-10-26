@@ -2,7 +2,8 @@
 
 Opt-in with ``--live-provider``; it reads SAFWA_QA_AI_* over SAFWA_AI_* from `.env`, so run
 it from the folder that holds `.env`. Reasoning is off, as Safwa runs it. A case is the owner's
-words: the owner said only them, so the conversation is one line of theirs, and every case
+words: the owner said only them, so the conversation is one line of theirs and the counting phrase
+is them, and every case
 reads the same Open items. What is compared is what the code made of the session's answer,
 never the answer itself.
 
@@ -148,6 +149,7 @@ async def _read(provider, case: Case) -> dict[str, Any]:
     try:
         read = await read_condition(
             provider,
+            phrase=case.words,
             open_items=OPEN,
             conversation=conversation_block([{"role": "user", "content": case.words}]),
         )

@@ -10,10 +10,11 @@ Reminders follow its dialogue, see `items`, so it names the owner's by meaning.
 
 A time arrives as the owner's words: the setup session reads them in the conversation, `when`
 saying which time is this Reminder's, and its shape is derived from which parameters it sent
-back. A Reminder on answers of Checks or Actions arrives as `on_answers` alone:
-a short session of its own picks the items from the open items and reads what it counts
-from the owner's words in the conversation, and a count the words do not say goes back to
-the subagent to ask. Code checks the items it names and keeps the series of each.
+back. A Reminder on answers of Checks or Actions arrives as `on_answers`, the owner's words
+for what it counts: a short session of its own picks the items from the open items and reads
+what it counts from the owner's words in the conversation, `on_answers` saying which are this
+Reminder's, and a count the words do not say goes back to the subagent to ask. Code checks
+the items it names and keeps the series of each.
 
 Every way the words fail to become a time ends in one :class:`ScheduleError`: what is unclear,
 then the forms that work, so the owner always hears both. Words that count answers are no time:
@@ -107,9 +108,12 @@ class ReminderToolInput(RecordToolInput):
             "answers, and on update to leave the schedule untouched."
         ),
     )
-    on_answers: bool = Field(
-        default=False,
-        description="For a Reminder on answers of Checks or Actions, instead of when.",
+    on_answers: str | None = Field(
+        default=None,
+        description=(
+            "For a Reminder on answers of Checks or Actions: the user's own words for what it "
+            "counts, in their language, instead of when."
+        ),
     )
 
     @model_validator(mode="after")
@@ -120,7 +124,11 @@ class ReminderToolInput(RecordToolInput):
             return self
         if self.when and self.on_answers:
             raise ValueError("set when or on_answers, not both")
-        if self.mode == "create" and not (self.when or "").strip() and not self.on_answers:
+        if (
+            self.mode == "create"
+            and not (self.when or "").strip()
+            and not (self.on_answers or "").strip()
+        ):
             raise ValueError("a new Reminder needs when or on_answers")
         return super().validate_target()
 
@@ -208,7 +216,7 @@ REMINDER_AGENT_PROMPT = f"""You keep the user's Reminders and the Remind on thei
 # Which tool
 - At an Action's, a Goal's or a Check's own time, or before it: `remind` on that item.
 - At any other time: `reminder` with when.
-- On answers of Checks or Actions: `reminder` with on_answers=true.
+- On answers of Checks or Actions: `reminder` with on_answers.
 - To delete a Reminder: `reminder` with mode=delete and its id.
 - The Morning and Evening times are Profile fields, not Reminders.
 
@@ -352,7 +360,7 @@ async def resolve_schedule(
 
 
 REMINDER_CONDITION_PROMPT = """Read one Reminder on answers of Checks or Actions. End with one call: set_condition or not_clear_enough.
-The user's words are in the conversation. Read the fields from the user's own words.
+The user's words are in the conversation. Read the fields from the user's own words; the counting phrase says which words are this Reminder's.
 items: every item it counts, from Open items, by #id: 'Check #12' or 'Action #3, Action #5'. Checks or Actions, never both.
 A group, such as 'tagged Sport' or 'my Health checks': every Open item with that Tag or Value.
 Several items: their answers count together.
@@ -384,12 +392,14 @@ class ConditionUnclear(ValueError):
 async def read_condition(
     provider: LlmProvider,
     *,
+    phrase: str,
     open_items: str,
     conversation: str = "",
 ) -> ConditionFields:
     """The items of `open_items` the owner's words count answers of, and how, or
     ConditionUnclear with what they do not say. The words are read in the `conversation` the
-    call came from. Items the block does not list go back to the session to name again.
+    call came from, `phrase` saying which are this Reminder's. Items the block does not list
+    go back to the session to name again.
     """
     listed = listed_items(open_items)
 
@@ -406,7 +416,7 @@ async def read_condition(
         result = await run_mini_session(
             provider,
             system_prompt=REMINDER_CONDITION_PROMPT,
-            context=open_items,
+            context=f"Counting phrase: {phrase}\n{open_items}",
             terminals=(
                 TerminalTool(
                     name="set_condition",

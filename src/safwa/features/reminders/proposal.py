@@ -86,13 +86,13 @@ class ReminderProposalHandler:
         the forms that work; a condition's items or count it cannot keep become one too."""
         prepared = dict(values)
         when = str(prepared.pop("when", "") or "").strip()
-        on_answers = bool(prepared.pop("on_answers", False))
+        on_answers = str(prepared.pop("on_answers", "") or "").strip()
         if not when and not on_answers:
             return prepared  # an edit with no timing leaves the schedule alone
         tz = ZoneInfo(context.world.timezone)
         now = datetime.now(UTC)
         if on_answers:
-            condition = await _condition(context)
+            condition = await _condition(context, on_answers)
             prepared["finds"] = await _finds(context.session, condition)
             schedule = Schedule(kind=ScheduleKind.CONDITION, condition=condition)
         else:
@@ -108,7 +108,7 @@ class ReminderProposalHandler:
                 raise ToolPreparationError(
                     "when_counts_answers",
                     str(error),
-                    "Call reminder again with on_answers=true instead of when.",
+                    "Call reminder again with the same words in on_answers instead of when.",
                 ) from error
             except ScheduleError as error:
                 raise ToolPreparationError(
@@ -176,9 +176,10 @@ async def _remind_of(session: AsyncSession, reminder: Reminder) -> tuple[str, st
     return f"{kind} #{item.id}", item.title
 
 
-async def _condition(context: PreparationContext) -> Condition:
-    """The condition its own session reads, its items kept as their series, or refused when
-    the owner's words do not say what it counts (RM-COND-030)."""
+async def _condition(context: PreparationContext, phrase: str) -> Condition:
+    """The condition its own session reads, `phrase` saying which of the owner's words are
+    this Reminder's, its items kept as their series, or refused when the owner's words do not
+    say what it counts (RM-COND-030)."""
     before = context.earlier and context.earlier.get("schedule")
     if before:
         # Only the words are edited by hand, and what the call counts was read from the call
@@ -189,6 +190,7 @@ async def _condition(context: PreparationContext) -> Condition:
     try:
         fields = await read_condition(
             context.provider,
+            phrase=phrase,
             open_items=await open_items(
                 context.session, context.query_runner.search, context.conversation
             ),

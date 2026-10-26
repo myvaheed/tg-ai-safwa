@@ -197,14 +197,18 @@ def test_the_short_session_names_the_answer_only_as_yes_no_or_any():
 
 def test_a_reminder_is_set_by_a_time_or_by_a_condition():
     """RM-COND-030 — tests/brd/reminders.feature"""
-    ReminderToolInput(mode="create", remind_text="Cheer me on.", on_answers=True)
+    ReminderToolInput(mode="create", remind_text="Cheer me on.", on_answers="every 3 misses")
     ReminderToolInput(mode="create", remind_text="Cheer me on.", when="every day at 8")
-    ReminderToolInput(mode="update", id=4, on_answers=True)
-    with pytest.raises(ValidationError, match="needs when or on_answers"):
-        ReminderToolInput(mode="create", remind_text="Cheer me on.")
+    ReminderToolInput(mode="update", id=4, on_answers="every 3 misses")
+    for missing in ({}, {"on_answers": " "}):
+        with pytest.raises(ValidationError, match="needs when or on_answers"):
+            ReminderToolInput(mode="create", remind_text="Cheer me on.", **missing)
     with pytest.raises(ValidationError, match="not both"):
         ReminderToolInput(
-            mode="create", remind_text="Cheer me on.", when="every day at 8", on_answers=True
+            mode="create",
+            remind_text="Cheer me on.",
+            when="every day at 8",
+            on_answers="every 3 misses",
         )
     # The setup session reads only a time.
     assert "set_condition" not in REMINDER_WHEN_PROMPT

@@ -213,18 +213,19 @@ Feature: Reminders
       "tomorrow at 15:00", "on Thursday at 10:00", "every weekday at 8:00", "every 2 hours"
       (REMINDER_TIME_FORMS), as it is when the short session could not read them at all
     And words that count answers of Checks or Actions go back to Safwa without forms, to set the
-      Reminder on answers by RM-COND-030
+      Reminder on answers with those words by RM-COND-030
     And Safwa tells the owner, and tries again with the owner's answer, by RM-SCHEDULE-002
 
   Scenario: RM-COND-030 — A Reminder can come due on answers of Checks or Actions
     Given the owner asks for a word at every 3 Missed in a row of Check #12
     When Safwa proposes the Reminder
-    Then it says only that the Reminder is on answers, and a short session of its own picks the items
-      and reads the answer, how many, whether in a row and whether once
+    Then it says that the Reminder is on answers, in the owner's own words for what it counts, and a
+      short session of its own picks the items and reads the answer, how many, whether in a row and
+      whether once
     And the short session reads the owner's words in the conversation as the reminder part read it,
-      by AG-SESSION-063, then up to 50 open Checks, Actions and Goals that have a Schedule
-      (OPEN_ITEMS_MAX = 50), the closest to that conversation first as in RM-AGENT-041, and never
-      the Reminder's own words
+      by AG-SESSION-063, the counting phrase saying which of them are this Reminder's, then up to 50
+      open Checks, Actions and Goals that have a Schedule (OPEN_ITEMS_MAX = 50), the closest to that
+      conversation first as in RM-AGENT-041, and never the Reminder's own words
     And the short session writes its plan before its call, by AG-SESSION-064
     And the items are Checks or Actions by #id, such as "Check #12", "Check #12 «Sat straight?»" or
       "Action #3, Action #5", and code keeps the series of each, by the series id that stays when any
