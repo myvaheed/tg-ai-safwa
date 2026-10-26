@@ -10,9 +10,11 @@ from __future__ import annotations
 import json
 import re
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from typing import get_args
 
 import pytest
+from schedule_helpers import rule_for
 
 from safwa.bootstrap.modules import (
     AGENTS,
@@ -23,7 +25,9 @@ from safwa.bootstrap.modules import (
     SYSTEM_PROMPT,
 )
 from safwa.features.advisor.agent import ADVISOR_VIEWS
-from safwa.features.cards.use_cases import create_card
+from safwa.features.cards.use_cases import create_card, finish_action
+from safwa.features.checks.model import CheckOutcome
+from safwa.features.checks.use_cases import create_check, resolve_check
 from safwa.features.diary.agent import DIARY_AGENT
 from safwa.features.onboarding.agent import ONBOARDING_AGENT
 from safwa.features.planning.use_cases import start_sprint
@@ -32,10 +36,13 @@ from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.use_cases import create_value
+from safwa.features.workspace_mutator import state
 from safwa.features.workspace_mutator.agent import MUTATOR_AGENT
 from safwa.features.workspace_mutator.remove import ARCHIVABLE, RemoveToolInput
 from safwa.features.workspace_mutator.state import (
+    CLOSE_ITEMS,
     CONTEXT_DESCRIPTION_MAX_CHARS,
+    close_items,
     workspace_context,
 )
 from tg_agent_shell.ai.messages import ContextBuilder, StateBlocks
@@ -233,3 +240,65 @@ def test_a_prompt_names_no_view_the_database_does_not_have(reader: str):
     assert named <= ALLOWED_VIEWS
     # A reader that declares no view is told of none.
     assert bool(named) == bool(views)
+
+
+class _Closeness:
+    """A search index that finds the items it is given."""
+
+    def __init__(self, scores: dict[tuple[str, int], float]) -> None:
+        self.scores = scores
+
+    async def relevance(self, search, views):
+        return self.scores
+
+
+def _searched(sessions, scores: dict[tuple[str, int], float] | None):
+    ranking = _Closeness(scores) if scores is not None else None
+    return SimpleNamespace(sessions=sessions, query_runner=SimpleNamespace(search=ranking))
+
+
+async def test_ws_context_013_the_open_items_the_owner_is_talking_about(sessions, monkeypatch):
+    """WS-CONTEXT-013 — tests/brd/workspace_mutator.feature"""
+    async with sessions() as session:
+        milk = await create_check(session, title="Milk")
+        market = await create_card(session, kind="action", title="Go to the market", check_ids={milk.id})
+        run = await create_card(
+            session, kind="action", title="Run", schedule="daily 07:00",
+            schedule_rule=await rule_for(session, "daily 07:00"),
+        )
+        goal = await create_card(
+            session, kind="goal", title="Ship v2", schedule="by 20 October 2099",
+            schedule_rule={"kind": "deadline", "date": "2099-10-20", "time": None},
+        )
+        done = await create_card(session, kind="action", title="Call the bank")
+        answered = await create_check(session, title="Slept well?")
+        health = await create_value(session, "Health", "Body and sleep.")
+        await session.commit()
+    async with sessions() as session:
+        await finish_action(session, done.id)
+        await resolve_check(session, answered.id, CheckOutcome.PASSED)
+        await session.commit()
+    closeness = {
+        ("card", done.id): 0.99,
+        ("check", answered.id): 0.98,
+        ("value", health.id): 0.97,
+        ("check", milk.id): 0.9,
+        ("card", market.id): 0.7,
+        ("card", goal.id): 0.6,
+        ("card", run.id): 0.5,
+    }
+    said = "<User>milk from the market</User>"
+    listed = [
+        f"- [Milk](check:{milk.id}) Check; on [Go to the market](card:{market.id})",
+        f"- [Go to the market](card:{market.id}) Action",
+        f"- [Ship v2](card:{goal.id}) Goal; deadline: by 20 October 2099",
+        f"- [Run](card:{run.id}) Action; schedule: daily 07:00",
+    ]
+
+    assert await close_items(_searched(sessions, closeness), said) == "\n".join([CLOSE_ITEMS, *listed])
+    monkeypatch.setattr(state, "CLOSE_ITEMS_MAX", 2)
+    assert await close_items(_searched(sessions, closeness), said) == "\n".join([CLOSE_ITEMS, *listed[:2]])
+    # None close, or no index to ask: nothing is added.
+    assert await close_items(_searched(sessions, {}), said) == ""
+    assert await close_items(_searched(sessions, None), said) == ""
+    assert MUTATOR_AGENT.current is close_items

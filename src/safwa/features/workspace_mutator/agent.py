@@ -11,6 +11,7 @@ from __future__ import annotations
 from tg_agent_shell.telegram.manifest import AgentSpec
 
 from ...constants import INBOX_TAG_NAME, PROPOSING_TURN, READING_THE_WORKSPACE
+from .state import close_items
 
 MUTATOR_TOOLS = ("goal", "action", "check", "value", "tag", "request", "remove")
 
@@ -53,4 +54,6 @@ MUTATOR_AGENT = AgentSpec(
     ),
     mutation_tools=MUTATOR_TOOLS,
     workspace_state=True,
+    # The open items the owner is talking about, so the one meant needs no read.
+    current=close_items,
 )

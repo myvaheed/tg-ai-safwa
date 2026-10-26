@@ -20,7 +20,6 @@ from safwa.features.reminders.api import resolve
 from safwa.features.reminders.items import (
     NO_OPEN_ITEMS,
     OPEN_ITEMS,
-    RANKED_BY_TOKENS,
     REMINDERS,
     SCHEDULED,
     UNSCHEDULED,
@@ -33,6 +32,7 @@ from safwa.features.schedules.use_cases import set_remind
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.use_cases import create_value
 from safwa.features.workspace_mutator.agent import MUTATOR_AGENT
+from safwa.foundation.closeness import RANKED_BY_TOKENS
 from safwa.foundation.tokens import estimate_tokens
 from tg_agent_shell.proposals.api import ChangeAction, ToolPreparationError
 from tg_agent_shell.proposals.prepare import ChangePreparer

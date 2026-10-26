@@ -19,7 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.ai.messages import StateBlocks
 from tg_agent_shell.foundation.clock import utcnow
+from tg_agent_shell.telegram.manifest import AgentContext
 
+from ...foundation.closeness import closeness_to, closest
 from ...foundation.workspace import Workspace
 from ..cards.api import (
     Card,
@@ -30,7 +32,7 @@ from ..cards.api import (
     served_values,
     tree_level,
 )
-from ..cards.model import CardKind, Priority, effort_label
+from ..cards.model import CardCheck, CardKind, Priority, effort_label
 from ..checks.model import Check
 from ..planning.api import (
     capacity_effort_points,
@@ -265,3 +267,71 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
         state="\n".join(lines),
         clock=f"Current local time: {local_now:%Y-%m-%d %H:%M} ({timezone})",
     )
+
+
+# How many open items the mutator is handed by what the conversation is about. The Advisor
+# is handed none: given them, it checks them itself instead of handing the change over.
+CLOSE_ITEMS_MAX = 10
+CLOSE_ITEMS = "Open items close to what the user said, closest first:"
+_CLOSE_VIEWS = ("ai_cards", "ai_checks")
+
+
+async def close_items(context: AgentContext, conversation: str) -> str:
+    """Up to CLOSE_ITEMS_MAX open Goals, Actions and Checks close to the end of the
+    `conversation` by words or by meaning, the closest first; none close, and nothing. Values
+    and Tags are not among them: the workspace state lists them whole."""
+    closeness = await closeness_to(context.query_runner.search, conversation, _CLOSE_VIEWS)
+    found = {kind: [item_id for each, item_id in closeness if each == kind] for kind in ("card", "check")}
+    if not closeness:
+        return ""
+    async with context.sessions() as session:
+        checks = list(
+            await session.scalars(
+                select(Check).where(
+                    Check.id.in_(found["check"]), Check.archived_at.is_(None), Check.outcome.is_(None)
+                )
+            )
+        )
+        on = {
+            check_id: citation(" ".join(title.split()), "card", card_id)
+            for check_id, card_id, title in await session.execute(
+                select(CardCheck.check_id, Card.id, Card.title)
+                .join(Card, Card.id == CardCheck.card_id)
+                .where(CardCheck.check_id.in_([check.id for check in checks]))
+            )
+        }
+        cards = list(
+            await session.scalars(
+                select(Card).where(
+                    Card.id.in_(found["card"]),
+                    Card.archived_at.is_(None),
+                    Card.effective_stage != CardStage.DONE.value,
+                )
+            )
+        )
+    lines = [
+        (
+            ("check", check.id),
+            "; ".join(
+                [f"- {citation(' '.join(check.title.split()), 'check', check.id)} Check"]
+                + ([f"schedule: {check.schedule}"] if check.schedule else [])
+                + ([f"on {on[check.id]}"] if check.id in on else [])
+            ),
+        )
+        for check in checks
+    ] + [
+        (
+            ("card", card.id),
+            "; ".join(
+                [f"- {citation(' '.join(card.title.split()), 'card', card.id)} {card.kind.title()}"]
+                + (
+                    [("deadline" if card.kind == CardKind.GOAL.value else "schedule") + f": {card.schedule}"]
+                    if card.schedule
+                    else []
+                )
+            ),
+        )
+        for card in cards
+    ]
+    shown = closest(lines, closeness, CLOSE_ITEMS_MAX)
+    return "\n".join([CLOSE_ITEMS, *shown]) if shown else ""

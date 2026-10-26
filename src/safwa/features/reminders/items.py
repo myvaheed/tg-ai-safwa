@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from collections.abc import Collection, Mapping
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tg_agent_shell.ai.sql import Ranking
 from tg_agent_shell.telegram.manifest import AgentContext
 
-from ...foundation.tokens import TOKEN_CHARS_ESTIMATE
+from ...foundation.closeness import Key, closeness_to, closest
 from ..cards.model import Card, CardKind
 from ..checks.model import Check
 from ..schedules.api import item_type
@@ -40,8 +40,6 @@ from .views import AI_REMINDERS
 # How many items each block of the subagent lists, and the condition's session's one.
 SUBAGENT_ITEMS_MAX = 10
 OPEN_ITEMS_MAX = 50
-# How much of the conversation's end orders them; the text model reads up to 2048 tokens.
-RANKED_BY_TOKENS = 512
 OPEN_ITEMS = "Open items:"
 NO_OPEN_ITEMS = "Open items: none."
 SCHEDULED = "Open items with a Schedule, for `remind`:"
@@ -50,10 +48,6 @@ REMINDERS = "Reminders:"
 _ITEM_VIEWS = ("ai_checks", "ai_cards")
 # A Check or an Action as a line of the block begins.
 _LISTED = re.compile(r"^- (Check|Action) #(\d+) ", re.MULTILINE)
-# Who said each line of the conversation, which is no word of what it is about.
-_TAG = re.compile(r"</?[A-Za-z]+>")
-
-Key = tuple[str, int]
 
 
 async def _names(session: AsyncSession, query: Any) -> dict[int, list[str]]:
@@ -168,16 +162,6 @@ async def _reminders(session: AsyncSession, tz: ZoneInfo) -> list[tuple[Key, str
     ]
 
 
-async def _closeness(
-    ranking: Ranking | None, conversation: str, views: Collection[str]
-) -> Mapping[Key, float]:
-    """How close each item is to the conversation's newest RANKED_BY_TOKENS tokens."""
-    words = _TAG.sub(" ", conversation)[-int(RANKED_BY_TOKENS * TOKEN_CHARS_ESTIMATE) :].strip()
-    if ranking is None or not words:
-        return {}
-    return await ranking.relevance(words, views)
-
-
 async def _leads(session: AsyncSession) -> dict[Key, int]:
     """The items with Remind on, and how many minutes before their time it fires."""
     rows = await session.execute(
@@ -186,12 +170,6 @@ async def _leads(session: AsyncSession) -> dict[Key, int]:
         )
     )
     return {(kind, item_id): lead for kind, item_id, lead in rows}
-
-
-def _closest(lines: list[tuple[Key, str]], closeness: Mapping[Key, float], most: int) -> list[str]:
-    """The `most` lines, the closest first and the rest in their own order after."""
-    ordered = sorted(lines, key=lambda line: (line[0] not in closeness, -closeness.get(line[0], 0.0)))
-    return [line for _key, line in ordered[:most]]
 
 
 def _block(header: str, lines: list[str]) -> str:
@@ -206,8 +184,8 @@ async def open_items(
     lines = await _items(session, scheduled=True)
     if not lines:
         return NO_OPEN_ITEMS
-    closeness = await _closeness(ranking, conversation, _ITEM_VIEWS)
-    return "\n".join([OPEN_ITEMS, *_closest(lines, closeness, OPEN_ITEMS_MAX)])
+    closeness = await closeness_to(ranking, conversation, _ITEM_VIEWS)
+    return "\n".join([OPEN_ITEMS, *closest(lines, closeness, OPEN_ITEMS_MAX)])
 
 
 def listed_items(block: str) -> set[tuple[str, int]]:
@@ -219,7 +197,7 @@ async def reminder_items(context: AgentContext, conversation: str) -> str:
     """The subagent's blocks: up to SUBAGENT_ITEMS_MAX open items with a Schedule, with their
     Remind, and as many without, then the owner's Reminders, each the closest to its
     `conversation` first."""
-    closeness = await _closeness(
+    closeness = await closeness_to(
         context.query_runner.search, conversation, (*_ITEM_VIEWS, AI_REMINDERS.name)
     )
     async with context.sessions() as session:
@@ -228,8 +206,8 @@ async def reminder_items(context: AgentContext, conversation: str) -> str:
         reminders = await _reminders(session, ZoneInfo(context.timezone))
     return "\n\n".join(
         [
-            _block(SCHEDULED, _closest(scheduled, closeness, SUBAGENT_ITEMS_MAX)),
-            _block(UNSCHEDULED, _closest(unscheduled, closeness, SUBAGENT_ITEMS_MAX)),
-            _block(REMINDERS, _closest(reminders, closeness, len(reminders))),
+            _block(SCHEDULED, closest(scheduled, closeness, SUBAGENT_ITEMS_MAX)),
+            _block(UNSCHEDULED, closest(unscheduled, closeness, SUBAGENT_ITEMS_MAX)),
+            _block(REMINDERS, closest(reminders, closeness, len(reminders))),
         ]
     )

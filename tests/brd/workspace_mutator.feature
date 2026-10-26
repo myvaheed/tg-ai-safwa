@@ -115,3 +115,12 @@
     And a count of zero is left out, so a Value nothing open serves carries no count
     And it reads Today Actions, then Goals to consider, then Backlog Actions to consider, then the Actions still in Sprint, to review
     And each of the last three is the first 10 in the focus order, which reads no stage while no Sprint runs
+
+  Scenario: WS-CONTEXT-013 — The part that changes the workspace is handed the open items the owner is talking about
+    Given open Goals, Actions and Checks
+    Then at every step, after the conversation, the workspace mutator reads up to 10 of them close
+      to its end by words or by meaning, the closest first (CLOSE_ITEMS_MAX = 10)
+    And each is its link, as the state writes one (WS-CONTEXT-006), then Goal, Action or Check, an
+      Action's or a Check's Schedule, a Goal's deadline, and the Card a Check hangs on
+    And a Done Card, an answered Check, an archived item, a Value and a Tag are never among them
+    And when none is close, nothing is added
