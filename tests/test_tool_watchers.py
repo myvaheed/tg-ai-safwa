@@ -212,6 +212,7 @@ async def test_ag_hook_036_a_refusal_stands_where_its_helper_cannot_be_granted()
 
 
 async def test_a_refusal_written_for_the_root_never_reaches_a_subsession_s_agent() -> None:
+    """AG-SUB-064 — tests/brd/tg_agent_shell/agents.feature"""
     # It starts a session of its own, as the root does, and has no helper to be pointed at.
     ran: list[str] = []
 

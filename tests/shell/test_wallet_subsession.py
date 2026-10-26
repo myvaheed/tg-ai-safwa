@@ -38,7 +38,7 @@ from tg_agent_shell.ai.messages import OPENED_FROM
 from tg_agent_shell.cues.runtime import chat_is_free
 from tg_agent_shell.history import Subsession, close_subsession, current_subsession
 from tg_agent_shell.registry import Registry
-from tg_agent_shell.telegram import callback_token_handler, expire_review
+from tg_agent_shell.telegram import callback_token_handler, dialogue, expire_review
 from tg_agent_shell.telegram.commands import command_cancel
 from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.model import CallbackToken
@@ -150,6 +150,7 @@ def offered(running: Running, request: int) -> list[str]:
 
 
 async def test_a_subsession_answers_until_it_finishes_and_leaves_one_result(wallet_bot):
+    """AG-SUB-064 — tests/brd/tg_agent_shell/agents.feature"""
     running = await started(
         wallet_bot,
         sub_turn("coach"),
@@ -192,6 +193,7 @@ async def test_a_subsession_answers_until_it_finishes_and_leaves_one_result(wall
 
 
 async def test_finish_shares_its_response_with_nothing(wallet_bot):
+    """AG-SUB-064 — tests/brd/tg_agent_shell/agents.feature"""
     running = await started(
         wallet_bot,
         sub_turn("coach"),
@@ -219,6 +221,7 @@ async def test_finish_shares_its_response_with_nothing(wallet_bot):
 async def test_a_subsession_s_proposal_is_decided_and_its_agent_finishes_after(
     wallet_bot, action, written, result
 ):
+    """AG-SUB-065 — tests/brd/tg_agent_shell/agents.feature"""
     ids = await seeded(wallet_bot)
     running = await started(
         wallet_bot,
@@ -247,6 +250,7 @@ async def test_a_subsession_s_proposal_is_decided_and_its_agent_finishes_after(
 async def test_words_over_a_subsession_s_review_end_its_request_and_the_subsession_goes_on(
     wallet_bot,
 ):
+    """AG-SUB-065 — tests/brd/tg_agent_shell/agents.feature"""
     ids = await seeded(wallet_bot)
     running = await started(
         wallet_bot,
@@ -273,6 +277,7 @@ async def test_words_over_a_subsession_s_review_end_its_request_and_the_subsessi
 async def test_a_subsession_s_review_out_of_time_ends_its_request_and_not_the_subsession(
     wallet_bot,
 ):
+    """AG-SUB-065 — tests/brd/tg_agent_shell/agents.feature"""
     ids = await seeded(wallet_bot)
     running = await started(
         wallet_bot,
@@ -295,6 +300,7 @@ async def test_a_subsession_s_review_out_of_time_ends_its_request_and_not_the_su
 
 
 async def test_cancelling_the_answer_after_a_save_keeps_the_save_and_the_subsession(wallet_bot):
+    """AG-SUB-065 — tests/brd/tg_agent_shell/agents.feature"""
     ids = await seeded(wallet_bot)
     running = await started(
         wallet_bot,
@@ -347,6 +353,7 @@ async def command(running: Running, handler) -> None:
 
 
 async def test_exit_ends_the_subsession_without_a_result(wallet_bot):
+    """TG-SUB-036 — tests/brd/tg_agent_shell/telegram_history.feature"""
     running = await talk_opened(wallet_bot)
 
     await command(running, command_exit)
@@ -362,6 +369,7 @@ async def test_exit_ends_the_subsession_without_a_result(wallet_bot):
 
 
 async def test_exit_is_published_only_where_an_agent_opens_a_subsession(wallet_bot):
+    """TG-SUB-036 — tests/brd/tg_agent_shell/telegram_history.feature"""
     running = await wallet_bot.start()
     assert "exit" in [screen.command for screen in running.services.commands]
     plain = Registry.of(
@@ -375,6 +383,7 @@ async def test_exit_is_published_only_where_an_agent_opens_a_subsession(wallet_b
 
 
 async def test_a_clear_ends_the_open_subsession_first(wallet_bot):
+    """TG-SUB-036 — tests/brd/tg_agent_shell/telegram_history.feature"""
     running = await talk_opened(wallet_bot, CompletionTurn(content="Hello again."))
 
     async def no_word(session):
@@ -394,6 +403,7 @@ async def test_a_clear_ends_the_open_subsession_first(wallet_bot):
 async def test_a_result_that_never_reached_the_chat_is_delivered_once_at_the_next_turn(
     wallet_bot,
 ):
+    """TG-SUB-037 — tests/brd/tg_agent_shell/telegram_history.feature"""
     running = await talk_opened(
         wallet_bot, CompletionTurn(content="Noted."), CompletionTurn(content="Fine.")
     )
@@ -414,6 +424,7 @@ async def test_a_result_that_never_reached_the_chat_is_delivered_once_at_the_nex
 
 
 async def test_a_stretch_telegram_refuses_to_delete_stays_out_of_the_conversation(wallet_bot):
+    """TG-SUB-034 — tests/brd/tg_agent_shell/telegram_history.feature"""
     running = await talk_opened(
         wallet_bot, finish_turn(RESULT), CompletionTurn(content="Noted."), CompletionTurn(content="Fine.")
     )
@@ -435,6 +446,7 @@ async def test_a_stretch_telegram_refuses_to_delete_stays_out_of_the_conversatio
 
 
 async def test_a_subsession_whose_agent_is_gone_ends_at_the_next_message(wallet_bot):
+    """TG-SUB-036 — tests/brd/tg_agent_shell/telegram_history.feature"""
     running = await talk_opened(wallet_bot, CompletionTurn(content="Hello."))
     # Started again without the feature that declared it.
     del running.root.talks["coach"]
@@ -447,6 +459,7 @@ async def test_a_subsession_whose_agent_is_gone_ends_at_the_next_message(wallet_
 
 
 async def test_work_nobody_asked_for_waits_while_a_subsession_is_open(wallet_bot):
+    """AG-SUB-066 — tests/brd/tg_agent_shell/agents.feature"""
     running = await talk_opened(wallet_bot, finish_turn(RESULT))
     assert not await chat_is_free(running.services)
 
@@ -455,7 +468,30 @@ async def test_work_nobody_asked_for_waits_while_a_subsession_is_open(wallet_bot
     assert await chat_is_free(running.services)
 
 
+async def test_the_work_around_a_turn_is_the_conversation_s_alone(wallet_bot, monkeypatch):
+    """AG-SUB-066 — tests/brd/tg_agent_shell/agents.feature"""
+    ran: list[str] = []
+
+    async def before(*_):
+        ran.append("before")
+
+    async def after(*_):
+        ran.append("after")
+
+    monkeypatch.setattr(dialogue, "run_before_turn", before)
+    monkeypatch.setattr(dialogue, "run_after_turn", after)
+    running = await talk_opened(wallet_bot, finish_turn(RESULT), CompletionTurn(content="Noted."))
+    # The turn that opened it has nothing after it.
+    assert ran == ["before"]
+
+    await say(running, "Food, 300 a month")
+    assert ran == ["before"]
+    await say(running, "Thanks")
+    assert ran == ["before", "before", "after"]
+
+
 async def test_locking_and_opening_the_chat_leave_the_subsession_to_go_on(wallet_bot):
+    """TG-SUB-038 — tests/brd/tg_agent_shell/telegram_history.feature"""
     running = await talk_opened(wallet_bot, CompletionTurn(content="How much a month?"))
     verifier = hash_secret_word("🔑")
 

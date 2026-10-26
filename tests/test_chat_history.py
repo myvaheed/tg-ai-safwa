@@ -807,6 +807,7 @@ async def close(sessions, subsession_id: int, result: str) -> bool:
 
 
 async def test_a_subsession_s_stretch_is_never_the_conversation(sessions) -> None:
+    """TG-SUB-034 — tests/brd/tg_agent_shell/telegram_history.feature"""
     chat_id, now = 800, datetime.now(UTC)
     source = history_source(sessions)
     await keep(sessions, chat_id, 10, "Let us work on the Goal.", MessageKind.DIALOGUE_USER, now)
@@ -839,6 +840,7 @@ async def test_a_subsession_s_stretch_is_never_the_conversation(sessions) -> Non
 async def test_a_long_subsession_crowds_nothing_out_of_the_conversation(
     sessions, monkeypatch
 ) -> None:
+    """TG-SUB-034 — tests/brd/tg_agent_shell/telegram_history.feature"""
     # The scan reads this many messages at most, so a stretch longer than it would leave the
     # conversation empty if it were dropped after the read rather than inside the query.
     monkeypatch.setattr("telegram_llm.window.SCAN_LIMIT", 4)
@@ -856,6 +858,7 @@ async def test_a_long_subsession_crowds_nothing_out_of_the_conversation(
 
 
 async def test_an_open_subsession_keeps_its_stretch_through_a_clear(sessions) -> None:
+    """TG-SUB-038 — tests/brd/tg_agent_shell/telegram_history.feature"""
     chat_id, now = 802, datetime.now(UTC)
     source = history_source(sessions)
     await keep(sessions, chat_id, 30, "Let us talk.", MessageKind.DIALOGUE_USER, now)
@@ -873,6 +876,7 @@ async def test_an_open_subsession_keeps_its_stretch_through_a_clear(sessions) ->
 
 
 async def test_a_chat_has_one_open_subsession_and_its_first_closing_decides(sessions) -> None:
+    """TG-SUB-035 — tests/brd/tg_agent_shell/telegram_history.feature"""
     chat_id, now = 803, datetime.now(UTC)
     await keep(sessions, chat_id, 40, "Let us talk.", MessageKind.DIALOGUE_USER, now)
     talk = await subsession(sessions, chat_id)

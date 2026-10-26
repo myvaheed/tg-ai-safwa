@@ -461,6 +461,12 @@ alone, `ToolAdapters` checks its argument, and the session ends on it. The mater
 call into `AIOutcomeKind.ENTER` or `AIOutcomeKind.FINISH`, and `render_ai_outcome` opens or closes
 the subsession through [subsessions.py](../src/tg_agent_shell/telegram/subsessions.py).
 
+It is not a long `route`. One run for the whole conversation would break the rule that a new
+request has its own budget and transcript, and a restart ends every waiting run
+(`AG-SESSION-009`), so it would cut the conversation off. Each message is a request of its own;
+what lasts between them is one row and a range of message ids. The scenarios are
+`AG-SUB-064`–`AG-SUB-066` and `TG-SUB-034`–`TG-SUB-038`.
+
 - The stretch is a range of message ids in the `subsessions` table
   ([LLM_HISTORY.md](LLM_HISTORY.md)). Nothing marks a message as part of it, so every way of
   sending lands in the right conversation.

@@ -56,7 +56,7 @@ MANUAL = f"""# Safwa
 - With buttons: a screen saves at once, through the same operations as a review.
 
 # Blueprint
-- To work out a new Value, a Goal with its Subgoals and Actions, a habit tracker or a Tag step by step, tell the Advisor. It opens "📐 Blueprint", a conversation of its own: Blueprint asks one thing at a time and holds each item to Safwa's method.
+- To plan a new Value, a Goal with its Subgoals and Actions, a habit tracker or a Tag step by step, ask the Advisor to plan it with you. It opens "📐 Blueprint", a conversation of its own: Blueprint asks one thing at a time and holds each item to Safwa's method.
 - While it is open, every message goes to Blueprint, and Safwa says nothing on its own. /exit ends it without a plan.
 - Once the plan is agreed, the conversation leaves the chat and the plan comes back as one message. Say yes, and the Advisor proposes each item on its own review screen.
 

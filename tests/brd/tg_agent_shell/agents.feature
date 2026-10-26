@@ -16,6 +16,9 @@ Feature: Agents — the session, the hand-over, and what comes back
     When the owner instead asks a question
     Then that same part answers it from its own reading, or hands it to a subagent whose purpose
       includes that question, without asking for a change
+    When a conversation with an agent is open, by AG-SUB-064
+    Then that agent answers in the chat instead, and proposes a change only with the tools its
+      declaration gives it
 
   Scenario: AG-ROUTE-040 — The hand-over carries a name, never a retelling
     Given the owner wrote a request in their own words
@@ -54,6 +57,7 @@ Feature: Agents — the session, the hand-over, and what comes back
     Then its words went back to the part answering in the chat, and reach the chat only through
       the message that part writes: forwarded as they are, or not at all, by AG-RECEIPT-044
     And that part writes the single message the owner reads, keeping the links to any item named
+    And while a conversation with an agent is open, that agent writes it, by AG-SUB-064
     And a subagent's read tool may send pictures to the chat itself, with no words or buttons of
       their own
 
@@ -511,6 +515,38 @@ Feature: Agents — the session, the hand-over, and what comes back
     Then the call runs, and the failure is logged with the hook's name
     And `sub` is a call such a hook may watch, and `route` is not
     And the owner has no switch for it: it checks the model's own work
+
+  Scenario: AG-SUB-064 — An agent may be handed the owner's next messages, and answers each until it finishes
+    Given an agent is declared with a title of its own
+    When Safwa calls `sub` with its name, alone in its step
+    Then the chat shows the title and how to end the conversation with /exit, and that agent
+      answers first, in the same turn
+    And each message of the owner's after that is a new request of that agent's, with a budget of
+      its own, and Safwa answers none of them
+    And it reads the conversation it was opened from as data, by AG-ROUTE-002, then its own
+      messages in their own roles
+    And it is offered `finish`, and never `route`, `sub`, `forward` or `nothing_to_do`
+    And a check written for Safwa's own calls does not reach its calls
+    When it calls `finish` with another call in the same step
+    Then nothing in that step runs, it is told to call `finish` alone, and the conversation goes on
+    When it calls `finish` alone with a result
+    Then the conversation ends, and the result is one message of the conversation it was opened
+      from, under the title
+    And the model is not asked again for that result
+
+  Scenario: AG-SUB-065 — A screen inside the conversation ends a request of it, never the conversation
+    Given the agent of an open conversation proposes a change
+    Then its review is decided as Safwa's are, and the decision goes on with the same request
+    When the owner types over the screen, the review runs out of time, or /cancel stops the answer
+      after a Save
+    Then that request ends, and the conversation stays open for the owner's next message
+    And what was saved stays saved
+
+  Scenario: AG-SUB-066 — While a conversation with an agent is open, nothing runs around it unasked
+    Given a conversation with an agent is open
+    Then nothing Safwa says or does in the chat unasked happens until it ends, by AG-TURN-015
+    And the work before and after a turn runs only around turns of the conversation it was
+      opened from, and the turn that opened it has nothing after it
 
   Scenario: AG-OPEN-052 — A subagent opens only the kinds of screen it declared
     Given a subagent declares that it may open one kind of screen

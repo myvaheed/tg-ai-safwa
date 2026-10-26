@@ -262,3 +262,47 @@
     Then it begins with the first message the newest clear left in the chat, or after the clear when it left none
     And nothing said before that is read
     And an application that never clears has nothing taken out and nothing started over
+    When the owner asks for the clear while a conversation with an agent is open
+    Then that conversation is ended first, by TG-SUB-036
+
+  Scenario: TG-SUB-034 — A conversation with an agent is a stretch of the chat that the conversation never reads
+    Given a conversation with an agent opens after the chat's newest message
+    Then every message after it, from both sides, is that conversation's until it ends, and
+      nothing is written on a message to say so
+    And no reader of the conversation reads a message of it: the window and a day read back alike,
+      however long it is
+    And an edited message stays in the conversation it was said in
+    And the result stands in the conversation in its place, newer than all of it
+    When it ends
+    Then its messages are taken out of the chat
+    But a message Telegram refuses to delete stays in the chat, and out of the conversation
+
+  Scenario: TG-SUB-035 — One conversation with an agent at a time, and the first ending decides
+    Given a conversation with an agent is open in the chat
+    Then no second one opens in that chat
+    And when two endings come at once, the first decides and the other changes nothing
+    And once it has ended, the chat is free for the next one
+
+  Scenario: TG-SUB-036 — /exit ends the conversation with an agent without a result
+    Given a conversation with an agent is open
+    When the owner sends /exit
+    Then it ends, the agent is not asked, and the conversation reads "The conversation was ended
+      without a result." in its place (EXIT_RESULT)
+    And /exit with none open says "No conversation with an agent is open." (NOTHING_TO_EXIT)
+    And only an application with an agent that has a title offers /exit
+    When the owner asks for the chat to be cleared
+    Then it ends as /exit ends it, before the clear, and is not read again
+    When its agent is no longer declared
+    Then the owner's next message ends it as /exit ends it, and Safwa answers that message
+
+  Scenario: TG-SUB-037 — A result that never reached the chat is delivered once, before anything is read
+    Given a conversation with an agent ended, and the process stopped before its result was sent
+    When the owner writes next
+    Then the result is sent first, once, and Safwa reads it with the owner's words
+    And no message of the conversation that ended is read
+
+  Scenario: TG-SUB-038 — Locking the chat leaves an open conversation with an agent to go on
+    Given a conversation with an agent is open
+    When the chat is locked and opened again with the secret word
+    Then the conversation is still open, and the owner's next message goes on with it
+    And its agent still reads every message of it, though the clears that came with the lock took them out of the chat

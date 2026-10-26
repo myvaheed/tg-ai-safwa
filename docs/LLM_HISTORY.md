@@ -60,7 +60,8 @@ out inside the query, before the scan's limit and the budget. The stretch is rea
 so keeps all of it through a clear. A message belongs to a stretch by its id, so nothing is written
 on it to say so, and an edit leaves it where it was said. Its agent reads the stretch in its own
 roles; the conversation reads, in its place, the result it closed with: a `MessageKind.EVENT`
-newer than the whole stretch ([AGENT_ARCH.md](AGENT_ARCH.md)).
+newer than the whole stretch ([AGENT_ARCH.md](AGENT_ARCH.md), `TG-SUB-034`). It keeps the talk
+apart, not the data: what was saved inside is read like anything else saved.
 
 What each kind is to the conversation is said once, in the window's vocabulary: the owner's words,
 Safwa's answers and Cues, and `MessageKind.EVENT` — a line the interface wrote about what happened:

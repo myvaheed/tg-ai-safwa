@@ -1,6 +1,6 @@
 # План: Blueprint — подсессия, где Цель, Value, трекер и Tag прорабатываются по шагам
 
-Дата: 24 октября 2026. Ветка claude/subsessions-design-review-e10cdc, main влит в v9.240. Основание: [проект подсессий](SUBSESSIONS_DESIGN.md), пакет 6, и просьба
+Дата: 24 октября 2026. Ветка claude/subsessions-design-review-e10cdc, main влит в v9.240. Основание: подсессии ([AGENT_ARCH.md](AGENT_ARCH.md)) и просьба
 владельца 24.10.2026.
 
 Оформление как в других планах: моноширинным шрифтом — только имена, которые уже есть в
@@ -83,8 +83,8 @@
 | 2 | Blueprint: пакет, промпт, persona, строки Advisor, тексты shell, onboarding, сценарии, e2e — сделан, v9.242 | 1 |
 | 2A | Вход по явной просьбе: блок `sub` у Advisor, строка в «# Advice», `purpose`; Methods целиком в промпте Blueprint без `get_more_about`; последняя строка плана — вопрос; onboarding; `next` у `finish` — сделан, v9.243 | 2 |
 | 2B | Проверка перед `sub`: реакция *ReviewTool* на BeforeTool с `conversation`, хук `blueprint.asked`, сценарии AG-HOOK-063 и BP-ASKED-006; метки и Effort в Blueprint — сделан, v9.244 | 2A |
-| 3 | Живой замер на 35B, 2 прохода; 9B — когда результат устроит | 2B |
-| 4 | Проект подсессий переходит в постоянные документы и сценарии shell, SUBSESSIONS_DESIGN.md удаляется | 2 |
+| 3 | Живой замер на 35B — не нужен, по слову владельца 26.10 | — |
+| 4 | Проект подсессий переходит в постоянные документы и сценарии shell, проект удаляется — сделан, v9.246 | 2 |
 
 Каждый батч — отдельный коммит `vX.Y …`, только когда владелец попросит.
 
@@ -327,7 +327,7 @@ BLUEPRINT_AGENT = AgentSpec(
 
 ```
 # Blueprint
-- To work out a new Value, a Goal with its Subgoals and Actions, a habit tracker or a Tag step by step, tell the Advisor. It opens "📐 Blueprint", a conversation of its own: Blueprint asks one thing at a time and holds each item to Safwa's method.
+- To plan a new Value, a Goal with its Subgoals and Actions, a habit tracker or a Tag step by step, ask the Advisor to plan it with you. It opens "📐 Blueprint", a conversation of its own: Blueprint asks one thing at a time and holds each item to Safwa's method.
 - While it is open, every message goes to Blueprint, and Safwa says nothing on its own. /exit ends it without a plan.
 - Once the plan is agreed, the conversation leaves the chat and the plan comes back as one message. Say "Create", and the Advisor proposes each item on its own review screen.
 ```
@@ -350,8 +350,10 @@ BLUEPRINT_AGENT = AgentSpec(
 - **CMP-METHOD-001** (сделано в батче 1): метод Tag в общем ряду, как совет, который не читает ни одна проверка.
 - **AD-ASK-007:** открыть Blueprint — не изменение, поэтому это не просьба об изменении.
 
-Сценарии shell (AG-…-064+, TG-…-034+) и поправки AG-ROUTE-001, AG-RECEIPT-006,
-TG-CLEAR-032 — в батче 4, вместе с переходом проекта в документы.
+Батч 4 сделан: сценарии shell AG-SUB-064…AG-SUB-066 и TG-SUB-034…TG-SUB-038 — их цитируют
+тесты подсессий, которые прежде не цитировали ничего, и новый тест хуков хода; поправки
+AG-ROUTE-001, AG-RECEIPT-006 и TG-CLEAR-032. Из проекта в AGENT_ARCH.md перешло, почему это не
+долгий `route`, в LLM_HISTORY.md — что отрезок разделяет переписку, а не данные; проект удалён.
 
 ## Тесты
 
@@ -369,7 +371,7 @@ TG-CLEAR-032 — в батче 4, вместе с переходом проек�
   - внутри — Edit поля на экране, если Blueprint что-то предлагает. Сейчас у Blueprint mutation
     tools нет, поэтому Edit проверяется на экранах Mutator после «Создай».
 
-## Живой замер (батч 3)
+## Живой замер (батч 3) — не нужен, по слову владельца 26.10
 
 Qwen3.6 35B, 2 прохода, opt-in `--live-provider`, QA-конфигурация.
 
