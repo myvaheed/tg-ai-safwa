@@ -708,6 +708,9 @@ async def finish_action(
     if card.kind != CardKind.ACTION.value:
         raise DomainError("Only Actions are finished directly")
     if CardStage(card.effective_stage) in TERMINAL_STAGES:
+        if tracked_mins is not None:
+            await update_card_fields(session, card.id, {"tracked_mins": tracked_mins}, actor=actor)
+            return OperationResult(card_ids=[card.id])
         raise DomainError("Action is already terminal")
     validate_tracked_mins(tracked_mins)
     # Asked before anything is written, so a refusal leaves the Action where it was.

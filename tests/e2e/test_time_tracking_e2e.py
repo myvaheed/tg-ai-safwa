@@ -40,8 +40,9 @@ async def _open_gate() -> bool:
     return True
 
 
+@pytest.mark.parametrize("mode", ["update", "complete"])
 async def test_cd_time_041_an_action_done_by_hand_is_asked_about_and_the_answer_is_saved(
-    e2e_harness,
+    e2e_harness, mode,
 ):
     """CD-TIME-041 — tests/brd/cards.feature"""
     sink = bind_committed(e2e_harness.sessions, REGISTRY.hooks)
@@ -98,7 +99,7 @@ async def test_cd_time_041_an_action_done_by_hand_is_asked_about_and_the_answer_
     advisor, _provider = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
-            mutation_turn(("action", {"mode": "update", "id": second_id, "tracked_mins": 90})),
+            mutation_turn(("action", {"mode": mode, "id": second_id, "tracked_mins": 90})),
             "Recorded an hour and a half.",
         ]
     )
