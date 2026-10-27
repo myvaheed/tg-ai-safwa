@@ -62,7 +62,7 @@ from ..features.compass.module import MODULE as COMPASS
 from ..features.diagnostics.module import MODULE as DIAGNOSTICS
 from ..features.diary.module import DIARY_HOOK, DIARY_READ_HOOK
 from ..features.diary.module import MODULE as DIARY
-from ..features.heavy_analyzer.module import HEAVY_ANALYZER_HOOK
+from ..features.heavy_analyzer.module import HEAVY_ANALYZER_HOOK, words_hook
 from ..features.heavy_analyzer.module import MODULE as HEAVY_ANALYZER
 from ..features.home.module import HOME_HOOK
 from ..features.home.module import MODULE as HOME
@@ -138,6 +138,9 @@ MODULES: tuple[FeatureModule, ...] = (
     ONBOARDING,
 )
 
+# Which columns are words is what each view gives the search index.
+WORDS_HOOK = words_hook(tuple(view for module in MODULES for view in module.views))
+
 
 async def _world(session: AsyncSession) -> World:
     """Safwa's answer to what a proposal is made against: the workspace row."""
@@ -153,6 +156,8 @@ async def _world(session: AsyncSession) -> World:
 # dashboard and memory, whose work waits for the model.
 HOOKS = (
     SUMMARY_HOOK,
+    # Before the helper's offer: words in a read are for search, however the read is written.
+    *((WORDS_HOOK,) if featuretoggles.WORDS_BY_SEARCH else ()),
     HEAVY_ANALYZER_HOOK,
     BLOCKER_HOOK,
     TIME_TRACKING_REMINDER_HOOK,

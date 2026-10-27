@@ -514,7 +514,8 @@ flowchart LR
   suspension).
 - Which read needs one is the feature's own hook: `complex_read` reads the call before it
   runs, using `is_complex_read` and `OFFER`. `RefuseTool` does not run the read: the notice is
-  the whole result, and the named helper is granted. The grant names the helper, so `call_helper`
+  the whole result, and the named helper is granted; one that names none grants nothing, as
+  the refusal of a read that matches words with LIKE (`like_on_words`, AD-READ-009). The grant names the helper, so `call_helper`
   runs only a helper this session was offered, and it belongs to that session alone. `HelperSpec`
   holds the helper's capability independently of the offer.
 - Arguments that are not a read at all offer nothing: the runner refuses them with the `hint`

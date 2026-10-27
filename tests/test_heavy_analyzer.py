@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from llm_gateway import CompletionRequest, CompletionTurn, ToolCall
-from safwa.bootstrap.modules import AGENTS, HELPERS, SCREENS, SYSTEM_PROMPT
+from safwa.bootstrap.modules import AGENTS, HELPERS, HOOKS, SCREENS, SYSTEM_PROMPT, WORDS_HOOK
 from safwa.features.heavy_analyzer import agent as heavy_analyzer
 from safwa.features.heavy_analyzer.hooks import HEAVY_ANALYZER_HOOK, complex_read
 from tg_agent_shell.ai.contracts import (
@@ -130,6 +130,48 @@ def about_to_read(sql: str) -> BeforeTool:
         run_id=1, agent="root", agent_kind="advisor", tool="query_data", call_id="q1",
         arguments_json=json.dumps({"sql": sql}), conversation="",
     )
+
+
+@pytest.mark.parametrize(
+    ("sql", "view", "column"),
+    [
+        ("SELECT id, title FROM ai_checks WHERE title LIKE '%зарядка%'", "ai_checks", "title"),
+        ("SELECT c.id FROM ai_cards c WHERE c.note NOT LIKE '%run%'", "ai_cards", "title"),
+        ("SELECT id FROM ai_tags WHERE name like 'sport%'", "ai_tags", "name"),
+        ("SELECT id FROM ai_diary WHERE body LIKE '%море%'", "ai_diary", "body"),
+        ("SELECT id FROM ai_reminders WHERE remind_text LIKE '%вода%'", "ai_reminders", "remind_text"),
+    ],
+)
+def test_ad_read_009_a_read_matching_words_with_like_is_sent_to_search(sql, view, column) -> None:
+    """AD-READ-009 — tests/brd/advisor.feature"""
+    assert isinstance(WORDS_HOOK.effect, RefuseTool) and WORDS_HOOK.effect.helper is None
+    # It checks the model's own work, so the owner has no switch for it.
+    assert not WORDS_HOOK.agent_related
+    # The root's reads alone: a subagent's are run as they are.
+    assert WORDS_HOOK.on == (OnBeforeTool(tool="query_data", agent="root"),)
+    hooks = [hook.name for hook in HOOKS]
+    assert hooks.index(WORDS_HOOK.name) < hooks.index(HEAVY_ANALYZER_HOOK.name)
+    (notice,) = asyncio.run(WORDS_HOOK.evaluate(about_to_read(sql)))
+    lines = notice.splitlines()
+    assert lines[0] == "LIKE misses other forms of a word."
+    assert '{"search": "<the user\'s words>", ' in lines[1]
+    assert f'"sql": "SELECT id, {column} FROM {view} WHERE relevance IS NOT NULL' in lines[1]
+    assert lines[2].startswith("To create, update, remove or remind, call route: ")
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT id FROM ai_checks WHERE direct_values LIKE '%Здоровье%'",
+        "SELECT id FROM ai_cards WHERE ',' || parent_ids || ',' LIKE '%,5,%'",
+        "SELECT id FROM ai_cards WHERE schedule LIKE '%daily%'",
+        "SELECT id FROM ai_cards WHERE title = 'title LIKE x'",
+        "SELECT id FROM ai_cards WHERE title = 'Run'",
+    ],
+)
+def test_ad_read_009_a_list_or_a_schedule_is_still_matched_with_like(sql) -> None:
+    """AD-READ-009 — tests/brd/advisor.feature"""
+    assert asyncio.run(WORDS_HOOK.evaluate(about_to_read(sql))) == ()
 
 
 # ------------------------------------------------------------------ what it hands back

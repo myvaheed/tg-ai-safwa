@@ -74,3 +74,16 @@ Feature: Advisor
     Then Safwa hands it to the workspace mutator, as it does a change asked for (AD-ASK-007)
     And the mutator proposes that Action complete, or that Check Passed
     And a reply to a Reminder that asked about the item is read the same way
+
+  Scenario: AD-READ-009 — Safwa finds words with search, and hands a change over without looking
+    Given the Advisor is answering the owner
+    When it reads a view's words with LIKE: a title, a note, a name, a description, a Diary day's
+      words or a Reminder's words
+    Then the read is not run, and what it reads back says LIKE misses other forms of a word
+    And it shows the same read with the owner's words in search, over that view
+    And it says a change, a new item, a removal or a Reminder goes to the subagent with route,
+      which reads the conversation and finds the items itself
+    But a list a view keeps in one column, such as its Values or its Goals, and its Schedule are
+      still matched with LIKE, as the view's block says
+    And a subagent's reads are run as they are
+    And the owner has no switch for it: it checks the model's own work

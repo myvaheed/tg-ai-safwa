@@ -21,3 +21,6 @@ AUTOAPPROVAL = True
 # Before Blueprint opens, one model call reads the conversation for whether the owner asked
 # to plan (BP-ASKED-006).
 BLUEPRINT_ASKED = True
+# A read of the Advisor's that matches words with LIKE is not run: it is told to search for
+# them, or to hand the request over (AD-READ-009).
+WORDS_BY_SEARCH = True

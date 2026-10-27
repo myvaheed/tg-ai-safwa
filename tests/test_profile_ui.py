@@ -10,7 +10,7 @@ from sqlalchemy import select
 from ui_harness import FakeCallback, FakeMessage, button_texts, services_for
 
 from safwa import featuretoggles
-from safwa.bootstrap.modules import HOOKS, REGISTRY
+from safwa.bootstrap.modules import HOOKS, REGISTRY, WORDS_HOOK
 from safwa.features.blueprint.module import BLUEPRINT_ASKED_HOOK
 from safwa.features.heavy_analyzer.module import HEAVY_ANALYZER_HOOK
 from safwa.features.profile.api import TODAY_OVERLOAD, hook_switched_on, set_hook_switch
@@ -225,7 +225,9 @@ async def test_ps_hooks_015_a_reaction_with_a_switch_is_turned_off_and_on_in_the
         run_id=1, agent="root", agent_kind="advisor", tool="query_data", call_id="q1",
         arguments_json='{"sql": "SELECT stage FROM ai_cards GROUP BY stage"}', conversation="",
     )
-    assert len([item async for item in REGISTRY.hooks.evaluate(complex_read, sessions)]) == 1
+    assert [
+        item.spec.name async for item in REGISTRY.hooks.evaluate(complex_read, sessions)
+    ] == [WORDS_HOOK.name, HEAVY_ANALYZER_HOOK.name]
 
     async def press(markup) -> tuple[str, object]:
         button = next(
@@ -246,7 +248,10 @@ async def test_ps_hooks_015_a_reaction_with_a_switch_is_turned_off_and_on_in_the
     assert "Helper offer switched off." in rendered
     assert "🔕 Helper offer: off" in button_texts(markup)
     # The same process reads the switch live, and a fresh session reads what was stored.
-    assert not [item async for item in REGISTRY.hooks.evaluate(complex_read, sessions)]
+    # The words check is on the model's own work, and the owner has no switch for it.
+    assert [
+        item.spec.name async for item in REGISTRY.hooks.evaluate(complex_read, sessions)
+    ] == [WORDS_HOOK.name]
     async with sessions() as session:
         assert await hook_switched_on(session, HEAVY_ANALYZER_HOOK.name) is False
         assert await hook_switched_on(session, SUMMARY_HOOK.name) is True

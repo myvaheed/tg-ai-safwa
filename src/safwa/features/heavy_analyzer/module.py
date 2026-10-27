@@ -6,6 +6,7 @@ from tg_agent_shell.telegram.manifest import FeatureModule, HelperSpec
 
 from .agent import NAME, PROMPT_TEMPLATE, VIEWS, build
 from .hooks import HEAVY_ANALYZER_HOOK as HEAVY_ANALYZER_HOOK
+from .hooks import words_hook as words_hook
 
 MODULE = FeatureModule(
     name=NAME,

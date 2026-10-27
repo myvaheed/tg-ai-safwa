@@ -104,7 +104,11 @@ class HookRegistry:
                 raise RuntimeError(f"Hook {spec.name} has an unknown owner: {spec.owner}")
             if not spec.on or len(set(spec.on)) != len(spec.on):
                 raise RuntimeError(f"Hook {spec.name} needs distinct subscriptions")
-            if isinstance(spec.effect, OfferTool | RefuseTool) and spec.effect.helper not in helpers:
+            if (
+                isinstance(spec.effect, OfferTool | RefuseTool)
+                and spec.effect.helper is not None
+                and spec.effect.helper not in helpers
+            ):
                 raise RuntimeError(f"Hook {spec.name} names an unknown helper: {spec.effect.helper}")
             for subscription in spec.on:
                 every = subscription.every if isinstance(subscription, OnTick) else None

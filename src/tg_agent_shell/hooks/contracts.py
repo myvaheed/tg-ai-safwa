@@ -11,12 +11,12 @@ the hook's one pending request and asks the feature for the words just before th
 said, so what is said is what is still there. RunAndAdvise first does work of its own and
 keeps what that work returned the same way.
 
-A hook whose effect reaches the agent — a helper offered to its session, a call refused, a
-request handed to the Advisor — is the owner's to turn off; whether it is on is the application's policy,
+A hook whose effect reaches the agent — a helper offered to its session, a call refused with
+one, a request handed to the Advisor — is the owner's to turn off; whether it is on is the application's policy,
 read where the hook is about to work. A hook that only runs work of its own is always on, unless it
 names another hook as its switch: then it is on exactly when that one is. A check on the
-model's own work — a response sent back, a call refused on review, an answer held, a
-proposal saved unseen — has no switch either: the application registers it or leaves it out.
+model's own work — a response sent back, a call refused on review or with no helper, an
+answer held, a proposal saved unseen — has no switch either: the application registers it or leaves it out.
 """
 
 from __future__ import annotations
@@ -316,12 +316,13 @@ class RefuseTool:
     """Before a tool runs: it does not run, the check's notice is what the model reads as
     the call's result, and the named helper is on the session's tool list from the next
     model call on. The model answers with something else — the helper, or a different call.
-    The refusal stands in a session the helper cannot be granted to.
+    The refusal stands in a session the helper cannot be granted to, and one that names no
+    helper grants nothing.
 
     A check that fails, or whose notice is not words, is not a pass: the turn ends there,
     and the call is not run."""
 
-    helper: str
+    helper: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -448,10 +449,12 @@ class HookSpec[Event, Payload]:
 
     @property
     def agent_related(self) -> bool:
-        """Whether the effect hands the agent something of the owner's — a helper, a refusal,
-        a request — which is what makes the hook the owner's to switch. A check on the model's
-        own work is not: it is registered or left out."""
-        return isinstance(self.effect, OfferTool | RefuseTool | Advise | RunAndAdvise)
+        """Whether the effect hands the agent something of the owner's — a helper, a refusal
+        with one, a request — which is what makes the hook the owner's to switch. A check on
+        the model's own work is not: it is registered or left out."""
+        if isinstance(self.effect, RefuseTool):
+            return self.effect.helper is not None
+        return isinstance(self.effect, OfferTool | Advise | RunAndAdvise)
 
 
 # Whether the hook of that name is on, asked only for an agent-related hook.

@@ -259,6 +259,36 @@ def is_complex_read(sql: str) -> bool:
     return bool(COMPLEX_READ.search(_QUOTED.sub("''", sql)))
 
 
+# The column a LIKE compares: the name, qualified or not, right before it.
+_LIKE = re.compile(r"(?:\b\w+\.)?\b(\w+)\s+(?:not\s+)?like\b", re.IGNORECASE)
+
+
+def like_on_words(sql: str, views: Sequence[SqlView]) -> tuple[str, str] | None:
+    """The view of the first word column a LIKE in the read compares, with that view's first
+    word column, or None.
+
+    A word column is one the search index reads, so a search finds its words better: in
+    their other forms, and by meaning. A list column is matched with LIKE, as its view's block
+    says. A read the runner would refuse is left to it."""
+    try:
+        _, read = validated_read(sql, frozenset(view.name for view in views))
+    except UnsafeQueryError:
+        return None
+    words: dict[str, tuple[str, str]] = {}
+    for view in views:
+        if view.name in read and view.searchable is not None:
+            for name in view.searchable.fields:
+                words.setdefault(name, (view.name, view.searchable.fields[0]))
+    return next(
+        (
+            words[column.casefold()]
+            for column in _LIKE.findall(_QUOTED.sub("''", sql))
+            if column.casefold() in words
+        ),
+        None,
+    )
+
+
 def validated_read(sql: str, views: Collection[str]) -> tuple[str, set[str]]:
     """One safe read: the statement to run, and the views it reads.
 

@@ -106,11 +106,11 @@ async def test_ag_tool_033_a_read_that_failed_earns_no_offer() -> None:
     assert session.offered_helpers == ("any",)
 
 
-def _refusing(evaluate, *, policy=None, **adapters: Any) -> ToolAdapters:
+def _refusing(evaluate, *, policy=None, helper: str | None = "any", **adapters: Any) -> ToolAdapters:
     hooks = HookRegistry.of(
         (HookSpec(
             name="refusal", owner="test", on=(OnBeforeTool(tool="read_thing"),),
-            evaluate=evaluate, effect=RefuseTool("any"),
+            evaluate=evaluate, effect=RefuseTool(helper),
             title="Refusal", description="Refuses a read and offers any helper.",
         ),),
         owners=frozenset({"test"}), helpers=frozenset({"any"}),
@@ -208,6 +208,21 @@ async def test_ag_hook_036_a_refusal_stands_where_its_helper_cannot_be_granted()
 
     assert ran == []
     assert not outcome.succeeded and outcome.result["code"] == "refused"
+    assert not session.offered_helpers
+
+
+async def test_ag_hook_036_a_refusal_naming_no_helper_grants_nothing() -> None:
+    """AG-HOOK-036 — tests/brd/tg_agent_shell/agents.feature"""
+    ran: list[str] = []
+
+    async def words(event):
+        return ("Search for the words instead.",)
+
+    session = _helped_session(ran)
+    outcome = await _refusing(words, helper=None).run(session, READ)
+
+    assert ran == []
+    assert outcome.result["notice"] == "Search for the words instead."
     assert not session.offered_helpers
 
 
