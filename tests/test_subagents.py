@@ -178,7 +178,7 @@ def test_the_clock_is_the_only_volatile_line_a_diary_session_gets() -> None:
     current = datetime(2026, 8, 21, 12, tzinfo=UTC)
     clock = diary_clock("Europe/Istanbul", FixedClock(current))
     today = current.astimezone(ZoneInfo("Europe/Istanbul")).date().isoformat()
-    assert clock.startswith(f"Today is {today}")
+    assert clock.startswith("Today is Friday, 21 August 2026") and f"({today})" in clock
     assert today not in DIARY_PROMPT
 
 

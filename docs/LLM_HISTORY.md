@@ -141,7 +141,7 @@ Two requests that saved something, then a question, as the model receives the th
                  "text": "Готово."}
 [10] assistant  Добавила [Купить яйца](card:2), а [Купить молоко 2,5%](card:1) переименовала.
 [11] user       [2026-09-26 15:02] Спасибо! Что у меня осталось в Backlog?
-                <system>Current local time: 2026-09-26 15:02 (Europe/Istanbul)</system>   ← volatile, always last
+                <system>Today is Saturday, 26 September 2026 (2026-09-26), 15:02, Europe/Istanbul.</system>   ← volatile, always last
 ```
 
 The answers keep their citations, so a follow-up about "the milk" is answerable without the rows

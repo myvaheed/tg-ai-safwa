@@ -18,7 +18,7 @@ import time
 from collections.abc import Collection, Mapping, Sequence
 from copy import copy
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
@@ -26,7 +26,9 @@ from pydantic import ValidationError
 
 from llm_gateway import ToolCall
 
+from ..foundation.clock import utcnow
 from ..foundation.database import DatabaseFile, driver
+from ..foundation.days import from_today
 from .contracts import (
     QueryToolInput,
     ToolResultStatus,
@@ -471,6 +473,36 @@ class ReadOnlyQueryRunner:
         )
 
 
+# A cell that is a date, a local time as `local_time` gives it, or a time stored in UTC.
+_DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
+_LOCAL_TIME = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}")
+_STORED_TIME = re.compile(r"\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d+)?([+-]\d{2}:\d{2})?")
+
+
+def _day_of(value: str, tz: ZoneInfo) -> date | None:
+    if _DAY.fullmatch(value) or _LOCAL_TIME.fullmatch(value):
+        return date.fromisoformat(value[:10])
+    if _STORED_TIME.fullmatch(value):
+        stored = datetime.fromisoformat(value)
+        return (stored if stored.tzinfo else stored.replace(tzinfo=UTC)).astimezone(tz).date()
+    return None
+
+
+def dated(rows: list[dict[str, Any]], tz: ZoneInfo, today: date) -> list[dict[str, Any]]:
+    """The rows with each date followed by how far its day is from today (AG-READ-075).
+
+    The value itself stays as stored, because it is what a WHERE compares."""
+    return [
+        {
+            key: f"{value} ({from_today(day, today)})"
+            if isinstance(value, str) and (day := _day_of(value, tz)) is not None
+            else value
+            for key, value in row.items()
+        }
+        for row in rows
+    ]
+
+
 @dataclass
 class QueryRead:
     """One `query_data` call: the SQL it asked for, and the rows the model reads back.
@@ -498,7 +530,8 @@ async def read_query(runner: ReadOnlyQueryRunner, call: ToolCall) -> QueryRead:
         outcome = await runner.run(sql, query.search)
         if outcome.notice:
             logger.info("AI TOOL query_data capped: %s", outcome.notice)
-        return QueryRead(sql, outcome.as_tool_result())
+        today = utcnow().astimezone(runner.tz).date()
+        return QueryRead(sql, dated(outcome.as_tool_result(), runner.tz, today))
     # ``UnsafeQueryError`` is a ``ValueError``, so it has to be caught before the
     # argument-shape clause or a rejected SELECT is reported as a bad argument and the
     # model rewrites the call instead of the query.

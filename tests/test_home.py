@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -414,13 +415,14 @@ async def test_each_value_in_focus_carries_the_words_written_for_it(sessions) ->
         "- Run a marathon (kind=goal, priority=medium, values=Health)\n"
         "  - Morning run (kind=action, priority=medium, values=Health)"
     ) in context
-    finished = [line for line in context.splitlines() if line.startswith("- 2026-")]
+    finished = [line for line in context.splitlines() if re.match(r"- \d+ \w+ 2026 \(", line)]
     assert len(finished) == MOTIVATION_DONE_ACTIONS
     assert finished[0].endswith(f"{done[-1].title} (values=none)")
     assert "Run 0" not in context
     diary = context.split("Diary, newest first:\n")[1].split("\n\n")[0].splitlines()
     assert len(diary) == MOTIVATION_DIARY_ENTRIES
-    assert diary == ["2026-09-04: Slept well"]
+    [line] = diary
+    assert line.startswith("4 September 2026 (") and line.endswith("): Slept well")
     # A Value in focus comes with the Today Cards that carry it; one carried only in the
     # Sprint is not in focus.
     assert context.endswith(
@@ -479,7 +481,7 @@ async def test_motivation_reads_sprint_criteria_and_today_as_its_tree(
     await Motivator(model, spawn=spawn_timer).write(sessions)
 
     context = model.requests[0].messages[1]["content"]
-    assert "Today: 2026-10-08" in context
+    assert "Today is Thursday, 8 October 2026 (2026-10-08)" in context
     today = context.split("Today Actions, in Today's order, each under its Goals and Subgoals:\n")
     assert today[1].split("\n\n")[0].splitlines() == [
         "- Critical Today Action (kind=action, priority=critical, values=none)",

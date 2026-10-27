@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.clock import utcnow
+from tg_agent_shell.foundation.days import day_words
 from tg_agent_shell.foundation.errors import DomainError
 
 from ...foundation.workspace import Workspace, WorkspaceMode, require_workspace
@@ -214,11 +215,12 @@ async def sprint_summary(session: AsyncSession, sprint: Sprint) -> str:
     if len(open_titles) > len(shown):
         shown.append(f"and {len(open_titles) - len(shown)} more")
     ended = "the user closed it" if sprint.finish_reason != "expired" else "its end date passed"
+    today = utcnow().astimezone(ZoneInfo((await require_workspace(session)).timezone)).date()
     effort_tracking = await effort_tracking_on(session)
     return "\n".join(
         [
-            f"Sprint {sprint.number} is over, {sprint.planned_start_date} – "
-            f"{sprint.planned_end_date}; {ended}.",
+            f"Sprint {sprint.number} is over, {day_words(sprint.planned_start_date, today)} – "
+            f"{day_words(sprint.planned_end_date, today)}; {ended}.",
             f"Success criteria: {sprint.success_criteria}",
             *(["Effort: "
             + ", ".join(

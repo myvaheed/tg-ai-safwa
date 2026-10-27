@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tg_agent_shell.ai.sql import DEFAULT_CELL_LIMIT, DEFAULT_CHAR_BUDGET, DEFAULT_ROW_LIMIT
 from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.clock import utcnow
+from tg_agent_shell.foundation.days import day_words, moment_words
 from tg_agent_shell.foundation.errors import DomainError
 
 from ...constants import REMIND_LEAD_MAX_MINUTES
@@ -376,6 +377,13 @@ def appointment_label(
     """An appointment's moment, or only its day when it has no clock."""
     local = at.astimezone(tz)
     return f"{local:{day_format}}" if rule.get("all_day") else f"{local:{day_format} %H:%M}"
+
+
+def appointment_words(rule: dict[str, Any], at: datetime, tz: ZoneInfo, today: date) -> str:
+    """An appointment's moment as a model is told it, or only its day when it has no
+    clock (WS-CONTEXT-014)."""
+    local = at.astimezone(tz)
+    return day_words(local.date(), today) if rule.get("all_day") else moment_words(local, today)
 
 
 def rule_summary(rule: dict[str, Any], tz: ZoneInfo) -> str:

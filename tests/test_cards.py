@@ -85,6 +85,7 @@ from safwa.foundation.log_events import LogEvent
 from safwa.foundation.marks import live_repeat_instance_id, title_marks
 from tg_agent_shell.foundation.changes import Committed, take_changes
 from tg_agent_shell.foundation.clock import utcnow
+from tg_agent_shell.foundation.days import day_name
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.hooks.contracts import OnCommitted, OnTick, Run
 from tg_agent_shell.proposals.api import ApplyContext, ProposalChange, ToolPreparationError
@@ -1559,11 +1560,13 @@ async def test_cd_overdue_065_the_request_names_open_cards_whose_schedule_has_pa
         now = datetime.combine(tomorrow + timedelta(days=2), time(9), tzinfo=tz)
         request = await overdue_request(session, [MORNING_TIME_DEFAULT], now=now)
         assert request is not None
-        assert f"#{once.id} «Call the bank» (Action, {tomorrow:%Y-%m-%d} 10:00, in Sprint)" in request
+        due = f"{day_name(tomorrow)} 10:00 (2 days ago)"
+        assert f"#{once.id} «Call the bank» (Action, {due}, in Sprint)" in request
         assert f"#{repeating.id} «Stretch» (Action, " in request
         assert ", repeats, in Backlog)" in request
-        assert f"#{goal.id} «Pass the exam» (Goal, Deadline {tomorrow:%Y-%m-%d} 23:59)" in request
-        assert f"#{subgoal.id} «Revise» (Subgoal, Deadline {tomorrow:%Y-%m-%d} 23:59)" in request
+        deadline = f"Deadline {day_name(tomorrow)} 23:59 (2 days ago)"
+        assert f"#{goal.id} «Pass the exam» (Goal, {deadline})" in request
+        assert f"#{subgoal.id} «Revise» (Subgoal, {deadline})" in request
         assert request.index("Call the bank") < request.index("Pass the exam")
         for title in ("Done already", "Gone", "Next month"):
             assert title not in request

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -338,7 +339,7 @@ async def test_cacheable_prefix_is_byte_stable_across_turns(e2e_harness):
     first, second = provider.calls
     # Only the trailing clock inside the final owner turn may differ.
     assert first[:-1] == second[:-1]
-    assert "<system>Current local time:" in str(first[-1]["content"])
+    assert "<system>Today is " in str(first[-1]["content"])
 
 
 async def test_advisor_combines_context_when_history_is_absent(e2e_harness):
@@ -350,7 +351,7 @@ async def test_advisor_combines_context_when_history_is_absent(e2e_harness):
     assert [message["role"] for message in messages] == ["system", "user"]
     assert "Persistent memory:" in messages[-1]["content"]
     assert "Hi" in messages[-1]["content"]
-    assert "<system>Current local time:" in messages[-1]["content"]
+    assert "<system>Today is " in messages[-1]["content"]
 
 
 async def test_advisor_sends_layered_system_blocks_and_canonical_dialogue(e2e_harness):
@@ -377,15 +378,15 @@ async def test_advisor_sends_layered_system_blocks_and_canonical_dialogue(e2e_ha
         "user",
     ]
     assert messages[-1]["content"].startswith(dialogue[-1].content)
-    assert "<system>Current local time:" in messages[-1]["content"]
-    timestamp = messages[-1]["content"].split("Current local time: ", 1)[1]
-    assert "T" not in timestamp and timestamp.count(":") == 1
+    assert "<system>Today is " in messages[-1]["content"]
+    timestamp = messages[-1]["content"].split("Today is ", 1)[1]
+    assert re.search(r"\(\d{4}-\d{2}-\d{2}\), \d{2}:\d{2}, ", timestamp)
     system = str(messages[0]["content"])
     assert system == SYSTEM_PROMPT
     assert "query_data" in system
     assert "ai_cards(id, title" in system
-    assert "Current local time" not in system
-    assert "Current local time" not in str(messages[1]["content"])
+    assert not re.search(r"Today is \w+day, ", system)
+    assert not re.search(r"Today is \w+day, ", str(messages[1]["content"]))
     assert "Workspace revision:" not in system
     assert "Saved Requests:" not in system
     assert "Sprint cards:" not in system

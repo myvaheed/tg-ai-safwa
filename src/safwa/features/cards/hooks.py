@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.changes import Committed
 from tg_agent_shell.foundation.clock import utcnow
+from tg_agent_shell.foundation.days import day_words, moment_words
 from tg_agent_shell.hooks.contracts import (
     Advise,
     HookSpec,
@@ -46,7 +47,7 @@ from ..profile.api import (
     morning_time,
     today_capacity_ep,
 )
-from ..schedules.api import appointment_label, workspace_zone
+from ..schedules.api import appointment_words, workspace_zone
 from ..tags.model import CardTag, Tag
 from .api import PLANNED_STAGES, actions_on_stages, order_cards, parents_of
 from .hierarchy import branch_actions, branch_ids, card_parent_ids
@@ -666,7 +667,7 @@ async def move_scheduled_actions(marker: str, context: RunContext) -> tuple[str,
                     target = CardStage.TODAY
                 elif end is not None and today < day <= end and stage is CardStage.BACKLOG:
                     target = CardStage.SPRINT
-                schedule = appointment_label(rule, when, tz, '%Y-%m-%d')
+                schedule = appointment_words(rule, when, tz, today)
             elif (
                 rule["kind"] == "quota"
                 and rule["period"] == "day"
@@ -678,7 +679,7 @@ async def move_scheduled_actions(marker: str, context: RunContext) -> tuple[str,
             if target is not None:
                 await move_card(session, card.id, target, actor=ActorType.AI)
                 lines.append(
-                    f"- {_named(card)}: {schedule}; {day.isoformat()}, "
+                    f"- {_named(card)}: {schedule}; {day_words(day, today)}, "
                     f"moved from {stage.value.capitalize()} to {target.value.capitalize()}"
                 )
         await session.commit()
@@ -775,7 +776,7 @@ async def overdue_request(
         if card.deadline_at is not None:
             lines.append(
                 f"- #{card.id} «{card.title}» ({card_kind_name(card.kind, card.id in above)}, "
-                f"Deadline {card.deadline_at.astimezone(tz):%Y-%m-%d %H:%M})"
+                f"Deadline {moment_words(card.deadline_at.astimezone(tz), today)})"
             )
             continue
         when = card.scheduled_at
@@ -783,7 +784,7 @@ async def overdue_request(
         if when is None or (rule.get("all_day") and when.astimezone(tz).date() >= today):
             continue
         lines.append(
-            f"- #{card.id} «{card.title}» (Action, {appointment_label(rule, when, tz, '%Y-%m-%d')}"
+            f"- #{card.id} «{card.title}» (Action, {appointment_words(rule, when, tz, today)}"
             + (", repeats" if card.repeats() else "")
             + f", in {card.effective_stage.capitalize()})"
         )

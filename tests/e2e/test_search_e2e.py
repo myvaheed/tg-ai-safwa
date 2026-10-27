@@ -126,7 +126,7 @@ async def test_di_find_025_the_diary_finds_a_day_by_what_happened_on_it(e2e_harn
     outcome = await advisor.handle("Допиши в день, когда мы ездили на море, что вечером ели рыбу")
 
     [found] = read_rows(provider, 2)
-    assert found["entry_date"] == sea.isoformat()
+    assert found["entry_date"].startswith(f"{sea.isoformat()} (")
     assert outcome.kind is AIOutcomeKind.PROPOSAL
     [change] = e2e_harness.reviews.proposal(outcome.proposal_id).changes
     assert (change.entity, change.entity_id) == ("diary", sea_day.id)

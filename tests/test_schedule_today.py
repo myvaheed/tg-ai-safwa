@@ -26,6 +26,7 @@ from tg_agent_shell.cues.initiatives import TickPoll, hand_on_start, queue_advic
 from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.foundation.changes import Committed
 from tg_agent_shell.foundation.clock import utcnow
+from tg_agent_shell.foundation.days import day_name
 from tg_agent_shell.hooks.contracts import OnStarted, OnTick, RunAndAdvise, RunContext, Tick
 from tg_agent_shell.hooks.registry import HookRegistry
 from tg_agent_shell.hooks.ticks import TickSchedule
@@ -151,14 +152,14 @@ async def test_pl_hardtime_021_moves_today_and_remaining_sprint_work_and_notifie
         for card in upcoming:
             assert (f"#{card.id} «{card.title}»" in request) == running
         if running:
-            assert end.isoformat() in request
+            assert day_name(end) in request
             assert "moved from Backlog to Sprint" in request
             assert {row.card_id for row in await session.scalars(
                 select(SprintCommitment).where(SprintCommitment.sprint_id == sprint.id)
             )} >= {card.id for card in upcoming}
         for title in ("After Sprint", "Already in Sprint", "Future but in Today", "Yesterday", "Already in Today", "Paid", "Shelved", "Future quota", "Expired quota", "No Schedule"):
             assert title not in request
-        assert today.isoformat() in request
+        assert f"{day_name(today)} (today)" in request
         assert "moved from Backlog to Today" in request
         assert "do not ask for confirmation" in request
         assert await schedule_plan_request(session, []) is None

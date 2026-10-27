@@ -1,13 +1,23 @@
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime
+
 import pytest
 from database_key import keyed, keyed_engine
 
+from llm_gateway import ToolCall
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, PROPOSALS
 from safwa.features.cards.agent import ActionToolInput, GoalToolInput
 from safwa.features.checks.agent import CheckToolInput
+from tg_agent_shell.ai import sql as sql_module
 from tg_agent_shell.ai.contracts import QueryToolInput, tool_json_schema
-from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, UnsafeQueryError, validated_read
+from tg_agent_shell.ai.sql import (
+    ReadOnlyQueryRunner,
+    UnsafeQueryError,
+    read_query,
+    validated_read,
+)
 
 
 def test_native_mutation_tools_become_typed_change_intents():
@@ -365,6 +375,38 @@ def test_read_sql_accepts_recursive_and_column_list_ctes():
         validated_read(
             "WITH RECURSIVE tree AS (SELECT id FROM cards) SELECT id FROM tree", ALLOWED_VIEWS
         )
+
+
+async def test_ag_read_075_a_date_read_back_says_how_far_it_is_from_today(
+    sessions, tmp_path, monkeypatch
+):
+    """AG-READ-075 — tests/brd/tg_agent_shell/agents.feature"""
+    # Noon in Istanbul; 22:30 UTC yesterday is already 01:30 of today there.
+    monkeypatch.setattr(sql_module, "utcnow", lambda: datetime(2026, 10, 27, 9, tzinfo=UTC))
+    runner = ReadOnlyQueryRunner(keyed(tmp_path / "sessions.db"), ALLOWED_VIEWS, timezone="Europe/Istanbul")
+    sql = (
+        "WITH d(day, at_local, at_stored, words) AS (SELECT '2026-10-21', '2026-10-27 09:00', "
+        "'2026-10-26 22:30:00.000000', 'Ran on 2026-10-21') SELECT * FROM d WHERE day = '2026-10-21'"
+    )
+    call = ToolCall(id="read", name="query_data", arguments_json=json.dumps({"sql": sql}))
+
+    assert (await read_query(runner, call)).rows == [
+        {
+            "day": "2026-10-21 (6 days ago)",
+            "at_local": "2026-10-27 09:00 (today)",
+            "at_stored": "2026-10-26 22:30:00.000000 (today)",
+            "words": "Ran on 2026-10-21",
+        }
+    ]
+    # Code that reads for itself gets the rows as stored.
+    assert (await runner.run(sql)).rows == [
+        {
+            "day": "2026-10-21",
+            "at_local": "2026-10-27 09:00",
+            "at_stored": "2026-10-26 22:30:00.000000",
+            "words": "Ran on 2026-10-21",
+        }
+    ]
 
 
 def test_a_reader_is_scoped_to_the_views_it_declared(tmp_path):

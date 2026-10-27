@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.ai.messages import StateBlocks
 from tg_agent_shell.foundation.clock import utcnow
+from tg_agent_shell.foundation.days import day_words, moment_words, today_line
 from tg_agent_shell.telegram.manifest import AgentContext
 
 from ...foundation.closeness import closeness_to, closest
@@ -107,18 +108,10 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
     keys = await key_action_ids(session)
 
     def moment(at: datetime, clock: bool) -> str:
-        """A moment counted from today: a small model misreads date arithmetic."""
         local = at.astimezone(timezone)
-        days = (local.date() - local_day).days
-        label = {0: "today", 1: "tomorrow"}.get(days) or (
-            f"{local:%d.%m}" if local.year == local_day.year else f"{local:%d.%m.%Y}"
-        )
-        if clock:
-            label += f" {local:%H:%M}"
-        passed = local < local_now if clock else days < 0
-        if passed:
-            return label + (f" overdue {counted(-days, 'day')}" if days < 0 else " overdue")
-        return label + (f" in {counted(days, 'day')}" if days > 1 else "")
+        label = moment_words(local, local_day) if clock else day_words(local.date(), local_day)
+        passed = local < local_now if clock else local.date() < local_day
+        return label.removesuffix(")") + ", overdue)" if passed else label
 
     async def focus(cards: list[Card]) -> list[Card]:
         return await order_cards(session, cards, now=local_now, focus=True)
@@ -206,7 +199,8 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
         # The day is counted here, not by the model: a small model misreads date arithmetic.
         day, days = sprint_day(sprint, local_day)
         lines.append(
-            f"Sprint {sprint.number}: {sprint.planned_start_date} – {sprint.planned_end_date}, "
+            f"Sprint {sprint.number}: {day_words(sprint.planned_start_date, local_day)} – "
+            f"{day_words(sprint.planned_end_date, local_day)}, "
             f"{days} days. Today is day {day}. Days left after today: {max(days - day, 0)}."
         )
         if effort_on and sprint.capacity_effort_points is not None:
@@ -265,7 +259,7 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
         lines += await ranked("Still in Sprint, to review", in_sprint)
     return StateBlocks(
         state="\n".join(lines),
-        clock=f"Current local time: {local_now:%Y-%m-%d %H:%M} ({timezone})",
+        clock=today_line(local_now, timezone.key),
     )
 
 

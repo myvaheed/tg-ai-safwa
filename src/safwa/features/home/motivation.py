@@ -22,6 +22,7 @@ from telegram_llm.host import Spawn
 from tg_agent_shell.ai.contracts import ToolInput
 from tg_agent_shell.ai.mini import TerminalTool, run_mini_session
 from tg_agent_shell.foundation.clock import utcnow
+from tg_agent_shell.foundation.days import day_words, today_line
 
 from ...foundation.workspace import require_workspace
 from ..cards.api import finished_actions, goal_tree, order_cards, served_values
@@ -109,7 +110,7 @@ async def owner_context(session: AsyncSession) -> tuple[str, dict[int, list[str]
 
     lines = [
         "About me:", (await about_me(session)).strip() or "Nothing written.", "",
-        f"Today: {local_now:%Y-%m-%d %H:%M} ({workspace.timezone})",
+        today_line(local_now, workspace.timezone),
     ]
     lines += [
         "", "Current Sprint's Success criteria:",
@@ -149,11 +150,14 @@ async def owner_context(session: AsyncSession) -> tuple[str, dict[int, list[str]
     lines += check_lines or ["None."]
     lines += ["", "Actions finished last, newest first:"]
     lines += [
-        f"- {card.completed_at.astimezone(local_now.tzinfo):%Y-%m-%d} {card.title} "
+        f"- {day_words(card.completed_at.astimezone(local_now.tzinfo).date(), local_now.date())} "
+        f"{card.title} "
         f"(values={values(card.id)})" for card in done
     ] or ["None."]
     lines += ["", "Diary, newest first:"]
-    lines += [f"{day.entry_date:%Y-%m-%d}: {day.body}" for day in days] or ["Nothing written."]
+    lines += [
+        f"{day_words(day.entry_date, local_now.date())}: {day.body}" for day in days
+    ] or ["Nothing written."]
     return "\n".join(lines), by_value
 
 

@@ -27,11 +27,11 @@ from llm_gateway import ToolCall
 from tg_agent_shell.ai.contracts import ToolResultStatus
 from tg_agent_shell.ai.mini import ReadToolSpec
 from tg_agent_shell.foundation.clock import utcnow
+from tg_agent_shell.foundation.days import day_words, today_line
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.telegram import owner_anchor
 from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec
 
-from ...constants import WEEKDAY_NAMES
 from ...foundation.workspace import require_workspace
 from ..life.agent import show_life_tool
 from ..planning.closing import RetroStatistics
@@ -369,16 +369,17 @@ async def retro_now(context: AgentContext, _conversation: str) -> str:
     """The newest Sprints that ended, and the one running, for this step."""
     async with context.sessions() as session:
         workspace = await require_workspace(session)
-        today = await _today(session)
-        lines = [f"Today is {today.isoformat()} ({WEEKDAY_NAMES[today.weekday()]})."]
+        now = utcnow().astimezone(ZoneInfo(workspace.timezone))
+        today = now.date()
+        lines = [today_line(now, workspace.timezone)]
         recent = await ended_sprints(session, RETRO_RECENT_SPRINTS)
         if recent:
             lines.append(f"The newest {len(recent)} Sprints that ended, newest first:")
             for sprint in recent:
                 statistics = RetroStatistics.from_record(sprint.retro)
                 lines.append(
-                    f"- {retro_link(sprint)}: ran {statistics.first_day.isoformat()} – "
-                    f"{statistics.last_day.isoformat()}, Success criteria "
+                    f"- {retro_link(sprint)}: ran {day_words(statistics.first_day, today)} – "
+                    f"{day_words(statistics.last_day, today)}, Success criteria "
                     f"{_MARK[sprint.criterion_met]}, "
                     + ("analysed" if sprint.analysis else "not analysed")
                 )

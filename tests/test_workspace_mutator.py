@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 from contextlib import asynccontextmanager
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 from typing import get_args
 
@@ -28,12 +29,18 @@ from safwa.features.advisor.agent import ADVISOR_VIEWS
 from safwa.features.cards.use_cases import create_card, finish_action
 from safwa.features.checks.model import CheckOutcome
 from safwa.features.checks.use_cases import create_check, resolve_check
-from safwa.features.diary.agent import DIARY_AGENT
+from safwa.features.diary.agent import DIARY_AGENT, diary_clock
+from safwa.features.home import motivation
+from safwa.features.home.motivation import owner_context
 from safwa.features.onboarding.agent import ONBOARDING_AGENT
+from safwa.features.planning import agent as planning_agent
+from safwa.features.planning.agent import sprint_now
 from safwa.features.planning.use_cases import start_sprint
 from safwa.features.profile.agent import PROFILE_AGENT
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
+from safwa.features.retro import agent as retro_agent
+from safwa.features.retro.agent import retro_now
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.use_cases import create_value
 from safwa.features.workspace_mutator import state
@@ -47,6 +54,8 @@ from safwa.features.workspace_mutator.state import (
 )
 from tg_agent_shell.ai.messages import ContextBuilder, StateBlocks
 from tg_agent_shell.ai.subagents import RoutedSubagent
+from tg_agent_shell.foundation.days import from_today
+from tg_agent_shell.telegram.manifest import AgentContext
 
 
 def test_every_mutation_tool_belongs_to_the_part_that_owns_what_it_changes():
@@ -99,7 +108,9 @@ async def _no_session():
 
 def _builder(state: str) -> ContextBuilder:
     async def workspace_state(_session) -> StateBlocks:
-        return StateBlocks(state=state, clock="Current local time: 2026-09-08 10:00")
+        return StateBlocks(
+            state=state, clock="Today is Tuesday, 8 September 2026 (2026-09-08), 10:00, Europe/Istanbul."
+        )
 
     return ContextBuilder(
         _no_session,
@@ -209,8 +220,8 @@ async def test_ws_context_007_the_clock_is_the_owners_and_comes_last(sessions):
     async with sessions() as session:
         context = await workspace_context(session)
 
-    assert context.clock.startswith("Current local time: ")
-    assert context.clock.endswith("(Europe/Istanbul)")
+    assert context.clock.startswith("Today is ")
+    assert context.clock.endswith(", Europe/Istanbul.")
 
     builder = _builder("Workspace mode: planning")
     turn = [{"role": "user", "content": "What is open?"}]
@@ -218,8 +229,46 @@ async def test_ws_context_007_the_clock_is_the_owners_and_comes_last(sessions):
     messages = await builder.root(turn)
 
     # Last, and behind the conversation: everything before it is the same on the next turn.
-    assert "Current local time" in json.dumps(messages[-1])
-    assert "Current local time" not in json.dumps(messages[:-1])
+    assert "Today is" in json.dumps(messages[-1])
+    assert "Today is" not in json.dumps(messages[:-1])
+
+
+async def test_ws_context_014_a_date_is_told_in_words_and_from_today(sessions, monkeypatch):
+    """WS-CONTEXT-014 — tests/brd/workspace_mutator.feature"""
+    # 14:05 in Istanbul.
+    now = datetime(2026, 10, 27, 11, 5, tzinfo=UTC)
+    for module in (state, planning_agent, retro_agent, motivation):
+        monkeypatch.setattr(module, "utcnow", lambda: now)
+    context = AgentContext(
+        owner_id=42,
+        timezone="Europe/Istanbul",
+        query_runner=None,  # type: ignore[arg-type]
+        history=None,  # type: ignore[arg-type]
+        sessions=sessions,
+    )
+    async with sessions() as session:
+        await create_card(session, kind="action", title="Ship", stage="sprint")
+        sprint = await start_sprint(session, success_criteria="Ship v2")
+        sprint.planned_start_date, sprint.planned_end_date = date(2026, 10, 21), date(2026, 11, 3)
+        await session.commit()
+        blocks = await workspace_context(session)
+        told = await owner_context(session)
+
+    today = "Today is Tuesday, 27 October 2026 (2026-10-27), 14:05, Europe/Istanbul."
+    assert blocks.clock == today
+    assert diary_clock("Europe/Istanbul", SimpleNamespace(now=lambda: now)) == today
+    for lines in (await sprint_now(context, ""), await retro_now(context, ""), told[0]):
+        assert today in lines.splitlines()
+    assert (
+        f"Sprint {sprint.number}: 21 October 2026 (6 days ago) – 3 November 2026 (in 7 days), "
+        "14 days. Today is day 7." in blocks.state
+    )
+    assert f"Sprint {sprint.number} runs 21 October 2026 (6 days ago) – 3 November 2026 (in 7 days)" in (
+        await sprint_now(context, "")
+    )
+    assert [from_today(date(2026, 10, 27) + timedelta(days=days), date(2026, 10, 27)) for days in (
+        -6, -1, 0, 1, 6
+    )] == ["6 days ago", "yesterday", "today", "tomorrow", "in 6 days"]
 
 
 # Every prompt a model reads a view list from, however that list was written, and the list.

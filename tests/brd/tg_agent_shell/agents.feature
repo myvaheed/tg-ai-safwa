@@ -296,6 +296,14 @@ Feature: Agents — the session, the hand-over, and what comes back
       never learns exists
     And a word like delete inside quoted text is text, and is not something to refuse over
 
+  Scenario: AG-READ-075 — A date a read gives back says how far it is from today
+    Given a read whose rows hold a date, a local time and a time stored in UTC
+    Then the model reads each as it is stored, then how far its day is from the owner's today:
+      "2026-10-21 (6 days ago)", "2026-10-27 09:00 (today)"
+    And a time stored in UTC is counted by the owner's own day
+    And a WHERE over it compares the value as it is stored
+    And a read that code makes for itself, such as a Request's screen, gets the rows as they are
+
   Scenario: AG-HELPER-028 — A helper that spends its budget without an answer comes back as a failure
     Given a helper reading its way to an answer, under the budget its caller gave it
     When the budget is spent and it has still not ended the session

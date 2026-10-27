@@ -91,8 +91,10 @@
     Then Today Actions lists every one of them in the focus order, one line each
     And its heading says how many, and the planned executions left today and, while Effort Points are on, the effort left
     And each line says its own stored Priority when it is not Medium, key when it is key to the running Sprint, blocked when it is blocked, its executions when they are other than one, its effort while Effort Points are on, and its appointment
-    And an appointment says today or tomorrow in place of its date, its year only when it is not this year, and its time unless it takes the whole day
-    And a later appointment says in how many days it comes, and a passed one says overdue, with how many days ago when it was before today
+    And an appointment says its date in words with its year, its time unless it takes the whole day,
+      and how far it is from today: today, yesterday, tomorrow, in how many days or how many days
+      ago (WS-CONTEXT-014)
+    And a passed one also says overdue
     And an appointment for the whole day passes when that day ends
     And values= names the Values it serves, its own and its Goals', highest first, by name
     And under= names every Goal it stands under directly, as links
@@ -124,3 +126,17 @@
       Action's or a Check's Schedule, a Goal's deadline, and the Card a Check hangs on
     And a Done Card, an answered Check, an archived item, a Value and a Tag are never among them
     And when none is close, nothing is added
+
+  Scenario: WS-CONTEXT-014 — Safwa is told a date in words, and how far it is from today
+    Given the owner's today is Tuesday, 27 October 2026
+    Then the Advisor, the workspace mutator, the Diary, the Sprint and the Retro subagents and the
+      Home motivation are each told today in one line: "Today is Tuesday, 27 October 2026
+      (2026-10-27), 14:05, Europe/Istanbul."
+    And every other date they are told says its month by name and its year, then how far it is
+      from today: "21 October 2026 (6 days ago)", "(yesterday)", "(today)", "(tomorrow)",
+      "(in 6 days)"
+    And so does what a hook asks Safwa to say about a Sprint, a Check's Missed run or an
+      Action's appointment
+    But a screen, a Schedule's description, what Safwa remembers, the hour marks of the
+      conversation, the Retro analysis and the sessions that read a time from the owner's words
+      keep their own dates

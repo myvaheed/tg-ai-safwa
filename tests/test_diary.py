@@ -272,7 +272,7 @@ def test_di_date_012_today_is_the_local_day() -> None:
     line = diary_clock("Europe/Istanbul", clock)
 
     assert clock.now().date() == date(2026, 8, 21)
-    assert "Today is 2026-08-22" in line
+    assert line.startswith("Today is Saturday, 22 August 2026 (2026-08-22)")
 
 
 async def test_di_date_012_a_read_defaults_to_the_local_day(sessions) -> None:

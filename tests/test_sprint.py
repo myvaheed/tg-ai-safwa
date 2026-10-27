@@ -79,6 +79,7 @@ from tg_agent_shell.cues.initiatives import bind_committed, hand_on_start, queue
 from tg_agent_shell.cues.model import Cue
 from tg_agent_shell.foundation.changes import Committed, take_changes
 from tg_agent_shell.foundation.clock import utcnow
+from tg_agent_shell.foundation.days import day_name, day_words, moment_words
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.hooks.contracts import (
     Advise,
@@ -498,11 +499,12 @@ async def test_pl_ask_026_the_sprint_is_read_as_it_stands(sessions, effort_on):
     async with sessions() as session:
         running_state = (await workspace_context(session)).state
 
-    assert f"Sprint {sprint.number} runs {today - timedelta(days=4)}" in running
+    first, last = today - timedelta(days=4), today + timedelta(days=9)
+    assert f"Sprint {sprint.number} runs {day_words(first, today)}" in running
     assert "Today is day 5 of 14. Days left after today: 9." in running
     assert "last day" not in running
     assert (
-        f"Sprint {sprint.number}: {today - timedelta(days=4)} – {today + timedelta(days=9)}, "
+        f"Sprint {sprint.number}: {day_words(first, today)} – {day_words(last, today)}, "
         "14 days. Today is day 5. Days left after today: 9." in running_state
     )
     assert "Sprint capacity: 20 EP." in running_state
@@ -546,8 +548,9 @@ async def test_pl_context_010_safwa_is_handed_the_sprint_and_todays_actions(sess
 
         context = await workspace_context(session)
 
-    assert f"Sprint {sprint.number}: {sprint.planned_start_date} – {sprint.planned_end_date}" in (
-        context.state
+    assert (
+        f"Sprint {sprint.number}: {day_name(sprint.planned_start_date)} (today) – "
+        f"{day_name(sprint.planned_end_date)} (in 13 days)" in context.state
     )
     assert "Success criteria: Ship v2" in context.state
     assert "Today Actions, best first (1 of 1; " in context.state
@@ -577,7 +580,7 @@ async def test_pl_context_020_todays_actions_are_handed_over_in_planning_as_in_a
             priority="low", schedule="09:00",
         )
         tz = ZoneInfo("Europe/Istanbul")
-        day = "today" if fixed.scheduled_at.astimezone(tz).date() == datetime.now(tz).date() else "tomorrow"
+        at = moment_words(fixed.scheduled_at.astimezone(tz), datetime.now(tz).date())
         await create_card(session, title="Later", stage="sprint", effort_points=3)
         await create_domain_card(session, title="The release", kind="goal", stage="today")
         await start_sprint(session, success_criteria="Ship v2")
@@ -597,7 +600,7 @@ async def test_pl_context_020_todays_actions_are_handed_over_in_planning_as_in_a
     # the Sprint and the open Goals are handed over in lists of their own.
     handed = today_lines(running)
     assert handed == [
-        f"- [The dentist](card:{fixed.id}) priority=low effort=1 at={day} 09:00",
+        f"- [The dentist](card:{fixed.id}) priority=low effort=1 at={at}",
         f"- [Ship it](card:{today.id}) priority=critical effort=5",
         f"- [Middling](card:{medium.id}) effort=2",
         f"- [Sometime](card:{low.id}) priority=low effort=1",

@@ -15,11 +15,11 @@ from llm_gateway import ToolCall
 from tg_agent_shell.ai.contracts import ToolInput, ToolResultStatus
 from tg_agent_shell.ai.mini import ReadToolSpec
 from tg_agent_shell.foundation.clock import Clock, SystemClock
+from tg_agent_shell.foundation.days import today_line
 from tg_agent_shell.media.library import DESCRIPTION_MAX_WORDS, media_label
 from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
 from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec
 
-from ...constants import WEEKDAY_NAMES
 from .api import day_media
 from .model import DiaryEntry
 
@@ -273,11 +273,7 @@ def day_read_tool(
 
 def diary_clock(timezone: str, clock: Clock | None = None) -> str:
     """The one volatile line a Diary session needs: which day 'today' is."""
-    now = (clock or SystemClock()).now().astimezone(ZoneInfo(timezone))
-    return (
-        f"Today is {now.date().isoformat()} ({WEEKDAY_NAMES[now.weekday()]}), "
-        f"local time now {now:%H:%M}, timezone {timezone}"
-    )
+    return today_line((clock or SystemClock()).now().astimezone(ZoneInfo(timezone)), timezone)
 
 
 def _diary_read_tools(context: AgentContext) -> tuple[ReadToolSpec, ...]:

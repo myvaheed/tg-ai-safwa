@@ -11,6 +11,8 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.changes import Committed
+from tg_agent_shell.foundation.clock import utcnow
+from tg_agent_shell.foundation.days import day_words
 from tg_agent_shell.hooks.contracts import Advise, HookSpec, OnCommitted
 
 from ...foundation.workspace import require_workspace
@@ -50,6 +52,7 @@ async def missed_run_request(session: AsyncSession, items: Sequence[int]) -> str
     series whose run has moved past a multiple asks nothing until the next one.
     """
     tz = ZoneInfo((await require_workspace(session)).timezone)
+    today = utcnow().astimezone(tz).date()
     lines: list[str] = []
     series_seen: set[int] = set()
     for item in sorted(int(item) for item in items):
@@ -63,7 +66,7 @@ async def missed_run_request(session: AsyncSession, items: Sequence[int]) -> str
         card_id = await check_card_id(session, check.id)
         card = await session.get(Card, card_id) if card_id is not None else None
         where = f"on Card «{card.title}»" if card is not None else "on no Card"
-        since = run[-1].resolved_at.astimezone(tz).date().isoformat()
+        since = day_words(run[-1].resolved_at.astimezone(tz).date(), today)
         lines.append(
             f"- #{check.id} «{check.title}» {where}: Missed {len(run)} times in a row, "
             f"since {since}"

@@ -17,6 +17,7 @@ from safwa.features.planning.use_cases import start_sprint
 from safwa.features.values.use_cases import create_value
 from safwa.features.workspace_mutator import state as context_state
 from safwa.features.workspace_mutator.state import CONTEXT_LIST_LIMIT, workspace_context
+from tg_agent_shell.foundation.days import day_name
 
 TZ = ZoneInfo("Europe/Istanbul")
 
@@ -209,17 +210,17 @@ async def test_a_line_counts_its_appointment_from_today(sessions, monkeypatch):
     monkeypatch.setattr(context_state, "utcnow", lambda: datetime.combine(day, time(12), tzinfo=TZ))
 
     def on(days: int) -> str:
-        return f"{day + timedelta(days=days):%d.%m}"
+        return day_name(day + timedelta(days=days))
 
     moments = {
-        "Earlier today": (0, "09:00", "today 09:00 overdue"),
-        "Later today": (0, "18:30", "today 18:30"),
-        "Tomorrow": (1, "10:00", "tomorrow 10:00"),
-        "Soon": (4, "12:00", f"{on(4)} 12:00 in 4 days"),
-        "Next year": (400, "12:00", f"{day + timedelta(days=400):%d.%m.%Y} 12:00 in 400 days"),
-        "Days ago": (-3, "12:00", f"{on(-3)} 12:00 overdue 3 days"),
-        "All of today": (0, None, "today"),
-        "All of yesterday": (-1, None, f"{on(-1)} overdue 1 day"),
+        "Earlier today": (0, "09:00", f"{on(0)} 09:00 (today, overdue)"),
+        "Later today": (0, "18:30", f"{on(0)} 18:30 (today)"),
+        "Tomorrow": (1, "10:00", f"{on(1)} 10:00 (tomorrow)"),
+        "Soon": (4, "12:00", f"{on(4)} 12:00 (in 4 days)"),
+        "Next year": (400, "12:00", f"{on(400)} 12:00 (in 400 days)"),
+        "Days ago": (-3, "12:00", f"{on(-3)} 12:00 (3 days ago, overdue)"),
+        "All of today": (0, None, f"{on(0)} (today)"),
+        "All of yesterday": (-1, None, f"{on(-1)} (yesterday, overdue)"),
     }
     async with sessions() as session:
         cards = {}
@@ -243,10 +244,10 @@ async def test_a_goal_counts_its_deadline_from_today(sessions, monkeypatch):
     day = (datetime.now(TZ) + timedelta(days=10)).date()
     monkeypatch.setattr(context_state, "utcnow", lambda: datetime.combine(day, time(12), tzinfo=TZ))
     deadlines = {
-        "Due today": (0, None, "today"),
-        "Due later": (10, None, f"{day + timedelta(days=10):%d.%m} in 10 days"),
-        "Due at six": (2, "18:00", f"{day + timedelta(days=2):%d.%m} 18:00 in 2 days"),
-        "Due last week": (-7, None, f"{day - timedelta(days=7):%d.%m} overdue 7 days"),
+        "Due today": (0, None, f"{day_name(day)} (today)"),
+        "Due later": (10, None, f"{day_name(day + timedelta(days=10))} (in 10 days)"),
+        "Due at six": (2, "18:00", f"{day_name(day + timedelta(days=2))} 18:00 (in 2 days)"),
+        "Due last week": (-7, None, f"{day_name(day - timedelta(days=7))} (7 days ago, overdue)"),
     }
     async with sessions() as session:
         goals = {}

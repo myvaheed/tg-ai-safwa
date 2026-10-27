@@ -16,10 +16,10 @@ from pydantic import Field, model_validator
 
 from tg_agent_shell.ai.contracts import AgentChange, ChangeAction, ToolInput
 from tg_agent_shell.foundation.clock import utcnow
+from tg_agent_shell.foundation.days import day_words, today_line
 from tg_agent_shell.proposals.api import MutationToolSpec
 from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec
 
-from ...constants import WEEKDAY_NAMES
 from ...foundation.workspace import require_workspace
 from ..cards.api import CardStage, actions_on_stages, effort_label
 from ..profile.api import effort_tracking_on
@@ -62,10 +62,7 @@ async def sprint_now(context: AgentContext, _conversation: str) -> str:
         today = now.date()
         length = await sprint_length_days(session)
         effort_tracking = await effort_tracking_on(session)
-        lines = [
-            f"Today is {today.isoformat()} ({WEEKDAY_NAMES[today.weekday()]}), local time "
-            f"now {now:%H:%M}, timezone {workspace.timezone}."
-        ]
+        lines = [today_line(now, workspace.timezone)]
         sprint = (
             await session.get(Sprint, workspace.active_sprint_id)
             if workspace.active_sprint_id
@@ -98,8 +95,8 @@ async def sprint_now(context: AgentContext, _conversation: str) -> str:
         day, days = sprint_day(sprint, today)
         left = days - day
         lines += [
-            f"Mode: Sprint. Sprint {sprint.number} runs {sprint.planned_start_date.isoformat()} "
-            f"– {sprint.planned_end_date.isoformat()}, {days} days.",
+            f"Mode: Sprint. Sprint {sprint.number} runs {day_words(sprint.planned_start_date, today)} "
+            f"– {day_words(sprint.planned_end_date, today)}, {days} days.",
             f"Today is day {day} of {days}. Days left after today: {max(left, 0)}."
             + (" Today is its last day." if left == 0 else ""),
             f"Success criteria: {sprint.success_criteria}",

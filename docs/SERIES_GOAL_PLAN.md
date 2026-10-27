@@ -2158,6 +2158,98 @@ Advisor ответил сам и предложил запись в Diary, ка�
 Чтение Advisor до `route` с тем же промптом — 1 и 11 в 20 и 13 и 13 в 21b: двух проходов мало, чтобы
 отличить батч от разброса.
 
+Владелец закоммитил 21b как v9.251 и влил в main.
+
+## Батч 22 — даты словами, строка Planning, серия раз за разом, LIKE по словам
+
+Владелец:
+- дата в контексте — словами и от сегодня: «21 октября 2026 (это 6 дней назад)», а не `2026-10-21`;
+- в Planning строка «A Sprint started today runs …» читается как уже начатый Sprint;
+- «сделал три раза» о повторяющемся Action закрывает одну копию: модель не знает, что следующая
+  откроется после Save;
+- Advisor ищет `LIKE` по словам. В 21b `title LIKE '%зарядка%'` не нашёл «Сделал зарядку?» — другая
+  форма слова, — и Advisor повторял чтение 11 раз до заглушки. У Advisor в 21b 11 из 13 и 7 из 13
+  чтений — `LIKE` по `title`, `name` или `note`; `search` за шесть проходов 20–21b передан один раз,
+  сабагентом.
+
+Четыре части, коммит на каждую.
+
+### 22a — даты
+
+- Одна функция в `tg_agent_shell/foundation/days.py`: `21 October 2026 (6 days ago)`, `(yesterday)`,
+  `(today)`, `(tomorrow)`, `(in 6 days)`; со временем — `21 October 2026 14:00 (6 days ago)`.
+- Одна строка о сегодняшнем дне вместо разных у каждой сессии:
+  `Today is Tuesday, 27 October 2026 (2026-10-27), 14:05, Europe/Istanbul.` — у Advisor и Mutator,
+  Diary, Sprint, Retro и motivation. ISO в ней — для SQL.
+- Проза: строка Sprint, `deadline=` и `at=` в состоянии (overdue остаётся), Sprint и Retro,
+  запросы хуков к Advisor — итог Sprint, Missed подряд у Check, перенос по Schedule, просроченное.
+  Предупреждение о конце Sprint уже говорит «tomorrow» или «today» и получает дату без хвоста.
+- `query_data`: значение остаётся ISO — по нему модель пишет `WHERE`, — за ним хвост:
+  `2026-10-21 (6 days ago)`. Время, хранимое в UTC, — по локальному дню. Хвост только в том, что
+  читает модель (`read_query`); экран Requests и чтения кода его не получают.
+- Не входит: экраны Telegram, описания Schedule и память (они общие с экранами, память — с
+  /memory); метки часа в диалоге (`telegram_llm`); разбор Retro — он сравнивает Sprints между
+  собой, а не с сегодня; сессии разбора времени — Scheduler и `when`: других дат, кроме «сейчас»,
+  у них нет, формат связан с полями их ответа, а фразы `goal` меряются на них.
+- Сценарии: WS-CONTEXT-010 — дата словами и с годом всегда, по слову владельца; новые
+  WS-CONTEXT-014 и AG-READ-075.
+
+### 22b — строка Planning
+
+`A Sprint started today runs 2026-10-27 – 2026-11-09, 14 days.` становится
+`If the next Sprint starts today, it ends on 9 November 2026 (in 13 days) and lasts 14 days.`, так
+же у сабагента Sprint. PL-ASK-026 не меняется: длина и даты остаются.
+
+### 22c — серия закрывается раз за разом
+
+Следующая копия появляется только при Save, поэтому «закрыть текущую, закрыть новую» — это экран на
+каждую копию. Одним экраном — `times`.
+
+- `times` у `action` с `mode: complete` и у `check` с `mode: passed` или `missed`, до 10
+  (*REPEAT_TIMES_MAX* = 10):
+  - `action.times`: `How many times, when the user did it more than once.`;
+  - `check.times`: `How many times it went this way, when more than once.`
+- Save закрывает открытую копию, потом следующую, всего `times` раз; кончилась серия — стоп.
+- Отказ при подготовке: item не повторяется; на Action есть Checks — каждой копии нужен свой
+  ответ; у Check нет своего Schedule; `times` вместе с `tracked_mins`.
+- Заметка в результате, который модель читает после Save:
+  `Its next copy is open: [Пробежка](card:12), with [Сделал зарядку?](check:31).`; с `times` —
+  `Finished 3 copies. The open one now: [Пробежка](card:14).`; серия кончилась —
+  `The series has ended; no copy is open.` Для этого handler при `apply` может добавить строки к
+  результату.
+- Строка Mutator в `# Proposing`, после «I did …»:
+  `- A repeating Action or Check has one open copy; Save opens the next one. "I did it 3 times": one call with times=3.`
+- Review: `×3`. CD-TIME-041: о закрытых копиях — один вопрос.
+- Сценарии: новые SCH-TIMES-032 и PR-NOTE-038.
+
+### 22d — LIKE по словам у Advisor
+
+- Хук перед `query_data` у корня, как `analyzer.offer`: отказ, если `LIKE` стоит на колонке слов —
+  той, что читает индекс поиска (`Searchable.fields`: `title`, `note`, `name`, `description`,
+  `body`, `remind_text`, `blocked_description`). Списки (`direct_values`, `parent_ids`, …) и
+  `schedule` — по-прежнему через `LIKE`: так велят описания views, а `search` их не ищет.
+- `RefuseTool` без helper: отказ ничего не даёт.
+- Текст отказа, `<view>` — из отклонённого запроса:
+
+```text
+LIKE misses other forms of a word.
+To find an item by words, call query_data with them in "search", not in "sql": {"search": "<the user's words>", "sql": "SELECT id, title FROM <view> WHERE relevance IS NOT NULL ORDER BY relevance DESC LIMIT 5"}
+To create, update, remove or remind, call route: the subagent reads the conversation and finds the items itself.
+```
+
+- Не ловит `lower(title) LIKE`, `instr()`, GLOB: в логах их нет. Сабагентов не касается: у них
+  одно-два чтения за проход.
+- Сценарий: новый AD-READ-009; AG-HOOK-036 — отказ без helper.
+
+### Критерий успеха
+
+На 35B, 2 прохода шага 2, «я сделал» и новых случаев `times`:
+- `LIKE` по словам у Advisor не выполнен ни разу; «Слушай, каждый раз, когда я отвечаю «нет» на
+  зарядку…» и «ping me … skipped my reading 7 times» — 2 из 2; `query_data` Advisor до `route` не
+  больше, чем в 20: 1 и 11;
+- `times`: каждая фраза 2 из 2;
+- «я сделал», Remind на item, «Also track», новый item и фразы `goal` не хуже 21b.
+
 ## Тексты на согласование
 
 Mutator не меняется: он передаёт слова владельца в `when` как есть.

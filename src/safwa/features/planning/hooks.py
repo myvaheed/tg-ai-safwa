@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tg_agent_shell.foundation.changes import Committed
 from tg_agent_shell.foundation.clock import utcnow
+from tg_agent_shell.foundation.days import day_name
 from tg_agent_shell.hooks.contracts import (
     Advise,
     HookSpec,
@@ -95,7 +96,7 @@ async def sprint_end_request(
     template = {end - timedelta(days=1): SPRINT_ENDS_TOMORROW, end: SPRINT_ENDS_TODAY}.get(today)
     if template is None:
         return None
-    return template.format(number=sprint.number, end_date=end.isoformat())
+    return template.format(number=sprint.number, end_date=day_name(end))
 
 
 SPRINT_END_HOOK = HookSpec(
