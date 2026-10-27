@@ -82,8 +82,8 @@ async def sprint_now(context: AgentContext, _conversation: str) -> str:
                 + (f" Estimated load: {effort_label(effort)} EP. Capacity: {_capacity(capacity)}. "
                    f"Unestimated Actions: {load.unestimated}."
                    if effort_tracking else ""),
-                f"Next Sprint's length: {length} days. Started today, it "
-                f"runs {today.isoformat()} – {(today + timedelta(days=length - 1)).isoformat()}.",
+                "If the next Sprint starts today, it ends on "
+                f"{day_words(today + timedelta(days=length - 1), today)} and lasts {length} days.",
                 "It can start now." if refusal is None else f"It cannot start now: {refusal}.",
                 *(["Schedule quantities are unknown for some Actions; these totals are lower bounds."]
                   if load.unknown_schedules else []),

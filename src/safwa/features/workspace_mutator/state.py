@@ -217,8 +217,9 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
                 else "No Success criteria have been written yet."
             )
         )
+        last = local_day + timedelta(days=length - 1)
         lines.append(
-            f"A Sprint started today runs {local_day} – {local_day + timedelta(days=length - 1)}, "
+            f"If the next Sprint starts today, it ends on {day_words(last, local_day)} and lasts "
             f"{length} days."
         )
         if (capacity := await capacity_effort_points(session)) is not None:

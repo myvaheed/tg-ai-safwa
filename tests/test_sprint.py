@@ -477,16 +477,16 @@ async def test_pl_ask_026_the_sprint_is_read_as_it_stands(sessions, effort_on):
     last = today + timedelta(days=SPRINT_LENGTH_DAYS - 1)
     assert "Mode: Planning. No Sprint is running." in planning
     assert "Next Sprint's Success criteria: Ship v2" in planning
-    assert (
-        f"Next Sprint's length: {SPRINT_LENGTH_DAYS} days. Started today, it "
-        f"runs {today} – {last}." in planning
+    # Said as what would be, so it is never read as a Sprint already started.
+    would_be = (
+        f"If the next Sprint starts today, it ends on {day_name(last)} "
+        f"(in {SPRINT_LENGTH_DAYS - 1} days) and lasts {SPRINT_LENGTH_DAYS} days."
     )
+    assert would_be in planning.splitlines()
     assert "It can start now." in planning
     # The Advisor answers from its own state, where the length is already counted.
-    assert (
-        f"A Sprint started today runs {today} – {last}, {SPRINT_LENGTH_DAYS} days."
-        in planning_state
-    )
+    assert would_be in planning_state.splitlines()
+    assert "started today" not in planning + planning_state
     assert "Next Sprint's capacity: 20 EP." in planning_state
 
     async with sessions() as session:

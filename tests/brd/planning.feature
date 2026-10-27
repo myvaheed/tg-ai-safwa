@@ -254,6 +254,8 @@
       (PL-CAPACITY-027)
     And in Planning it answers with the length a Sprint started today would have, its dates,
       and its capacity while Effort Points are on
+    And that state says it as what would be if the next Sprint started today, and never as a
+      Sprint already started
 
   Scenario: PL-CAPACITY-027 — A Sprint keeps the capacity it started with
     Given Effort Points are on in the Profile
