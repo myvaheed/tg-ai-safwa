@@ -193,11 +193,30 @@ class CardProposalHandler:
             _refuse_wrong_tool(card, values.pop("kind", None))
         # Time and effort supplied after completion belong to the finished instance;
         # its successor was already copied, so other edits still target the open repeat.
+        accounting_fields = {"tracked_mins", "effort_points"}
         accounting_only = (
-            change.action is ChangeAction.UPDATE
+            (
+                change.action is ChangeAction.UPDATE
+                or (change.action is ChangeAction.COMPLETE and values.get("tracked_mins") is not None)
+            )
             and bool(values)
-            and set(values) <= {"tracked_mins", "effort_points"}
+            and set(values) <= accounting_fields
         )
+        if (
+            card is not None
+            and card.kind == CardKind.ACTION.value
+            and card.effective_stage == CardStage.DONE.value
+            and change.action is ChangeAction.UPDATE
+            and set(values) & accounting_fields
+            and not accounting_only
+        ):
+            raise ToolPreparationError(
+                "closed_repeat" if card.is_closed_repeat() else "closed_action",
+                f"Action #{card.id} is finished. Update its time or Effort Points separately.",
+                f"Retry action(mode='update', id={card.id}, tracked_mins=30) or "
+                f"action(mode='update', id={card.id}, effort_points=3). "
+                "Send only tracked_mins and/or effort_points; omit all other fields, including nulls.",
+            )
         if card is not None and not accounting_only:
             refusal = await closed_repeat_refusal(
                 context.session,
@@ -221,7 +240,8 @@ class CardProposalHandler:
         for spec in CARD_REFERENCE_SPECS:
             await validate_named_references(context.session, values, spec)
         await _guard_parents(context, change, values, card.id if card else None)
-        await _guard_pending_checks(context.session, change)
+        if not (accounting_only and card is not None and card.effective_stage == CardStage.DONE.value):
+            await _guard_pending_checks(context.session, change)
         await read_proposed_schedule(
             context, values, "action" if proposed_kind == CardKind.ACTION.value else "deadline"
         )

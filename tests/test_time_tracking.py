@@ -63,7 +63,7 @@ from safwa.features.retro.analysis import OVERVIEW_PROMPT, overview_text
 from safwa.features.retro.telegram import open_retro
 from safwa.features.retro.use_cases import analysis_input
 from tg_agent_shell.cues.queue import add_hook_cue
-from tg_agent_shell.foundation.changes import Committed
+from tg_agent_shell.foundation.changes import Committed, take_changes
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.hooks.contracts import OnCommitted
 from tg_agent_shell.proposals.api import ApplyContext, ChangeAction, ToolPreparationError
@@ -216,6 +216,108 @@ async def test_cd_time_039_safwa_proposes_the_time_on_an_action_or_with_finishin
         with pytest.raises(ToolPreparationError) as refused:
             await _prepared(session, {"mode": "update", "id": run.id, "title": "Run far"})
         assert refused.value.code == "closed_repeat"
+
+
+@pytest.mark.parametrize("repeating", [False, True])
+@pytest.mark.parametrize("via_proposal", [False, True])
+async def test_completion_with_time_on_a_finished_action_only_updates_its_time(
+    sessions, repeating, via_proposal,
+):
+    """CD-TIME-069 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        goal = await create_card(session, kind="goal", title="Fitness")
+        action = await create_card(
+            session, kind="action", title="Run", parent_ids={goal.id}, effort_points=3,
+            schedule="after completion" if repeating else None,
+        )
+        result = await finish_action(session, action.id, tracked_mins=15)
+        completed_at, version = action.completed_at, action.version
+        successor_id = result.successor_ids[0] if repeating else None
+        await session.commit()
+        take_changes(session.info)
+
+        for minutes in (30, 45):
+            if via_proposal:
+                await _save(session, {"mode": "complete", "id": action.id, "tracked_mins": minutes})
+            else:
+                result = await finish_action(session, action.id, tracked_mins=minutes)
+                assert result.card_ids == [action.id]
+                assert result.successor_ids == []
+            await session.flush()
+            assert action.tracked_mins == goal.tracked_mins == minutes
+            assert action.completed_at == completed_at
+            assert action.effective_stage == CardStage.DONE.value
+            assert action.effort_points == 3
+            assert len(list(await session.scalars(select(Card)))) == (3 if repeating else 2)
+            if successor_id is not None:
+                successor = await session.get(Card, successor_id)
+                assert successor.tracked_mins is None
+                assert successor.effective_stage == CardStage.BACKLOG.value
+        assert action.version == version + 2
+        assert not any(change.kind == CARD_DONE for change in take_changes(session.info))
+        with pytest.raises(DomainError, match="already terminal"):
+            await finish_action(session, action.id)
+        await archive_subtree(session, action.id)
+        with pytest.raises(DomainError, match="archived"):
+            await finish_action(session, action.id, tracked_mins=60)
+
+
+@pytest.mark.parametrize("repeating", [False, True])
+@pytest.mark.parametrize("extra", [
+    {"schedule": None}, {"blocked_description": None}, {"title": "Run far"},
+    {"tags": []}, {"categories": []}, {"stage": "today"},
+])
+@pytest.mark.parametrize("fields", [
+    {"tracked_mins": 30}, {"effort_points": 5},
+    {"tracked_mins": None, "effort_points": None},
+])
+async def test_mixed_accounting_update_on_a_finished_action_is_refused_without_changes(
+    sessions, effort_on, repeating, extra, fields,
+):
+    """CD-TIME-070 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        action = await create_card(
+            session, kind="action", title="Run", effort_points=3, blocked_description="Rain",
+            schedule="after completion" if repeating else None,
+        )
+        result = await finish_action(session, action.id, tracked_mins=15)
+        await session.commit()
+        await session.refresh(action)
+        before = {column.key: getattr(action, column.key) for column in Card.__table__.columns}
+        with pytest.raises(ToolPreparationError) as refused:
+            await _prepared(session, {"mode": "update", "id": action.id, **fields, **extra})
+        error = refused.value
+        assert error.code == ("closed_repeat" if repeating else "closed_action")
+        assert f"action(mode='update', id={action.id}, tracked_mins=30)" in error.hint
+        assert f"action(mode='update', id={action.id}, effort_points=3)" in error.hint
+        assert "including nulls" in error.hint
+        assert {column.key: getattr(action, column.key) for column in Card.__table__.columns} == before
+        assert not session.dirty and not session.new
+        for successor_id in result.successor_ids:
+            successor = await session.get(Card, successor_id)
+            assert successor.tracked_mins is None
+            assert successor.effort_points == 3
+
+
+async def test_finished_repeat_accepts_accounting_with_harmless_null_placeholders(sessions, effort_on):
+    """CD-TIME-070 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        action = await create_card(session, kind="action", title="Run", schedule="after completion")
+        [successor_id] = (await finish_action(session, action.id)).successor_ids
+        await session.commit()
+        await _save(session, {
+            "mode": "update", "id": action.id, "tracked_mins": 30, "effort_points": 5,
+            "title": None, "note": None, "priority": None, "stage": None,
+            "categories": None, "energy_types": None, "values": None, "tags": None,
+            "checks": None, "parent": None, "remind": None,
+        })
+        assert (action.tracked_mins, action.effort_points) == (30, 5)
+        successor = await session.get(Card, successor_id)
+        assert (successor.tracked_mins, successor.effort_points) == (None, None)
+        await _save(session, {
+            "mode": "update", "id": action.id, "tracked_mins": None, "effort_points": None,
+        })
+        assert (action.tracked_mins, action.effort_points) == (None, None)
 
 
 async def test_cd_time_039_the_card_screen_shows_and_takes_the_time(sessions):

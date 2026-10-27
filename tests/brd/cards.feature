@@ -406,6 +406,23 @@
     Then the Action that takes its place carries none
     And reopening an Action keeps its time, and an archived one's time cannot be changed
 
+  Scenario: CD-TIME-069 — Recording time on a finished Action does not finish it again
+    Given a finished Action, repeating or not, which is not archived
+    When Safwa proposes its time together with finishing it again
+    Then Save records that time on the finished Action and its Goals show the corrected total
+    And its completion date and Effort Points stay as they were
+    And no next repeat is created or changed, and no completion follow-up is asked again
+    And an archived Action still refuses changes to its time
+
+  Scenario: CD-TIME-070 — Correcting a finished Action's time or Effort Points preserves its other fields
+    Given a finished Action, repeating or not, which is not archived
+    When Safwa proposes its time or Effort Points together with other edits
+    Then the whole proposal is refused without changing the Action or its open repeat
+    And the refusal shows how to retry on that same Action with only time and Effort Points
+    And an empty value that would remove the Schedule or Blocked reason counts as another edit
+    But empty placeholders that have no meaning as edits do not stop recording time or Effort Points
+    And a proposal containing only time and Effort Points may also clear either value
+
   Scenario: CD-TIME-040 — A Goal shows the time of the Actions under it
     Given a Goal with two Actions under it, of 30 and 45 minutes, and a third with no time
     Then the Goal shows 1h 15m, and so does a Subgoal between them for its own branch
