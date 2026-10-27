@@ -23,6 +23,7 @@ from tg_agent_shell.proposals.api import (
 from ...enums import ActorType
 from ...foundation.marks import closed_repeat_refusal
 from ..schedules.agent import read_proposed_remind, read_proposed_schedule
+from ..schedules.api import repeating, series_note
 from ..schedules.use_cases import set_remind
 from .model import Check, CheckOutcome
 from .references import CHECK_VALUE_REFERENCE
@@ -58,6 +59,12 @@ class CheckProposalHandler:
             )
             if refusal is not None:
                 raise ToolPreparationError(*refusal)
+        if check is not None and (values.get("times") or 1) > 1 and not repeating(check):
+            raise ToolPreparationError(
+                "not_repeating",
+                f"Check #{check.id} has no Schedule of its own, so it does not repeat.",
+                "Answer it once, without times.",
+            )
         await validate_named_references(context.session, values, CHECK_VALUE_REFERENCE)
         await read_proposed_schedule(context, values, "check")
         await read_proposed_remind(context, values, check)
@@ -92,9 +99,7 @@ class CheckProposalHandler:
             if "remind" in values:
                 await set_remind(session, check, values["remind"], actor=ActorType.AI)
         elif change.action in CHECK_ANSWER_ACTIONS:
-            await resolve_check(
-                session, check.id, CHECK_ANSWER_ACTIONS[change.action], actor=ActorType.AI
-            )
+            return await _answer_copies(context, check, CHECK_ANSWER_ACTIONS[change.action], values)
         elif change.action is ChangeAction.ARCHIVE:
             await archive_check(session, check.id, actor=ActorType.AI)
         elif change.action is ChangeAction.DELETE:
@@ -111,6 +116,25 @@ class CheckProposalHandler:
         else:
             raise DomainError(f"Unsupported Check action: {change.action}")
         return [check.id]
+
+
+async def _answer_copies(
+    context: ApplyContext, check: Check, outcome: str, values: dict[str, Any]
+) -> list[int]:
+    """Answer the open copy, then each next one, `times` in all (SCH-TIMES-032), and say
+    which copy a repeating Check left open (PR-NOTE-038)."""
+    series = repeating(check)
+    answered: list[int] = []
+    current: Check | None = check
+    while current is not None and len(answered) < (values.get("times") or 1):
+        answered.append(current.id)
+        _, current = await resolve_check(context.session, current.id, outcome, actor=ActorType.AI)
+    if series:
+        opened = (
+            f"[{' '.join(current.title.split())}](check:{current.id})" if current is not None else None
+        )
+        context.said.append(series_note(len(answered), "Answered", opened))
+    return answered
 
 
 async def open_checks(session: AsyncSession) -> list[tuple[int, str]]:

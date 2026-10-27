@@ -172,6 +172,21 @@ async def _answered_count(session: AsyncSession, entity: Card | Check, *where: A
     )
 
 
+def repeating(entity: Card | Check) -> bool:
+    """Whether the item's own Schedule opens one copy after another."""
+    definition = entity.schedule_record
+    return bool(definition and definition.rule and repeats(definition.rule))
+
+
+def series_note(closed: int, verb: str, opened: str | None) -> str:
+    """What a Save that closed copies of a series tells the model it left open
+    (PR-NOTE-038): `opened` is the open copy's link, None when the series ended."""
+    head = f"{verb} {closed} copies. " if closed > 1 else ""
+    if opened is None:
+        return head + "The series has ended; no copy is open."
+    return head + (f"The open one now: {opened}." if closed > 1 else f"Its next copy is open: {opened}.")
+
+
 async def successor_slot(
     session: AsyncSession, entity: Card | Check
 ) -> tuple[bool, datetime | None]:

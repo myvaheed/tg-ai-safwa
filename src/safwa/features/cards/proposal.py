@@ -23,13 +23,16 @@ from tg_agent_shell.proposals.api import (
 
 from ...enums import ActorType
 from ...foundation.marks import closed_repeat_refusal
+from ..checks.model import Check
 from ..checks.use_cases import pending_checks
 from ..profile.api import effort_tracking_on
 from ..schedules.agent import read_proposed_remind, read_proposed_schedule
+from ..schedules.api import repeating, series_note
 from ..schedules.use_cases import set_remind
 from .model import (
     Card,
     CardCategory,
+    CardCheck,
     CardEnergyType,
     CardKind,
     CardStage,
@@ -123,6 +126,59 @@ async def _guard_pending_checks(session: AsyncSession, change: Any) -> None:
         "said how it went, otherwise cite them as [title](check:<id>) so they answer them "
         "themselves. Then retry only this unfinished completion.",
     )
+
+
+async def _guard_times(session: AsyncSession, card: Card | None, change: Any) -> None:
+    """Copies closed one after another need a series, and no Check each copy would ask
+    its own answer of (SCH-TIMES-032)."""
+    if card is None or (change.values.get("times") or 1) == 1:
+        return
+    if not repeating(card):
+        raise ToolPreparationError(
+            "not_repeating",
+            f"Action #{card.id} does not repeat.",
+            "Complete it once, without times.",
+        )
+    if await session.scalar(select(CardCheck.check_id).where(CardCheck.card_id == card.id)):
+        raise ToolPreparationError(
+            "checks_on_copies",
+            f"Action #{card.id} has Checks, and each copy needs its own answers.",
+            "Complete it once, without times.",
+        )
+
+
+async def _open_copy(session: AsyncSession, card: Card | None) -> str | None:
+    """The open copy as a link, with the Checks it carries."""
+    if card is None:
+        return None
+    checks = await session.execute(
+        select(Check.id, Check.title)
+        .join(CardCheck, CardCheck.check_id == Check.id)
+        .where(CardCheck.card_id == card.id)
+        .order_by(Check.id)
+    )
+    links = [f"[{' '.join(title.split())}](check:{check_id})" for check_id, title in checks]
+    return f"[{' '.join(card.title.split())}](card:{card.id})" + (
+        ", with " + ", ".join(links) if links else ""
+    )
+
+
+async def _finish_copies(context: ApplyContext, card: Card, values: dict[str, Any]) -> list[int]:
+    """Finish the open copy, then each next one, `times` in all (SCH-TIMES-032), and say
+    which copy a repeating Action left open (PR-NOTE-038)."""
+    session = context.session
+    series = repeating(card)
+    finished: list[int] = []
+    current: Card | None = card
+    while current is not None and len(finished) < (values.get("times") or 1):
+        result = await finish_card(
+            session, current.id, actor=ActorType.AI, tracked_mins=values.get("tracked_mins")
+        )
+        finished.append(current.id)
+        current = await session.get(Card, result.successor_ids[0]) if result.successor_ids else None
+    if series:
+        context.said.append(series_note(len(finished), "Finished", await _open_copy(session, current)))
+    return finished
 
 
 async def _replace_card_sets(
@@ -222,6 +278,7 @@ class CardProposalHandler:
             await validate_named_references(context.session, values, spec)
         await _guard_parents(context, change, values, card.id if card else None)
         await _guard_pending_checks(context.session, change)
+        await _guard_times(context.session, card, change)
         await read_proposed_schedule(
             context, values, "action" if proposed_kind == CardKind.ACTION.value else "deadline"
         )
@@ -262,12 +319,7 @@ class CardProposalHandler:
                 session, card.id, CardStage(change.values["stage"]), actor=ActorType.AI
             )
         elif change.action is ChangeAction.COMPLETE:
-            await finish_card(
-                session,
-                card.id,
-                actor=ActorType.AI,
-                tracked_mins=change.values.get("tracked_mins"),
-            )
+            return await _finish_copies(context, card, change.values)
         elif change.action is ChangeAction.REOPEN:
             await reopen_card(
                 session, card.id, CardStage(change.values.get("stage", CardStage.BACKLOG.value)),

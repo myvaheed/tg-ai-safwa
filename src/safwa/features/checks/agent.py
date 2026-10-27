@@ -10,7 +10,12 @@ from tg_agent_shell.ai.autoapproval import SCALAR_UPDATE, AutoApprovalRule
 from tg_agent_shell.ai.contracts import AgentChange, Reference, ToolInput
 from tg_agent_shell.proposals.api import ChangeAction, MutationToolSpec
 
-from ...constants import NEW_ITEM_REMIND_DESCRIPTION, NOTE_REPLACED_WHOLE, REMIND_LEAD_MAX_MINUTES
+from ...constants import (
+    NEW_ITEM_REMIND_DESCRIPTION,
+    NOTE_REPLACED_WHOLE,
+    REMIND_LEAD_MAX_MINUTES,
+    REPEAT_TIMES_MAX,
+)
 
 # The answers are the Card lifecycle verbs underneath: Passed completes, Missed cancels.
 ANSWER_MODES = {"passed": ChangeAction.COMPLETE, "missed": ChangeAction.CANCEL}
@@ -41,6 +46,12 @@ class CheckToolInput(ToolInput):
     )
     remind: int | None = Field(
         default=None, ge=0, le=REMIND_LEAD_MAX_MINUTES, description=NEW_ITEM_REMIND_DESCRIPTION
+    )
+    times: int | None = Field(
+        default=None,
+        ge=1,
+        le=REPEAT_TIMES_MAX,
+        description="How many times it went this way, when more than once.",
     )
     values: Reference | list[Reference] | None = Field(
         default=None,
@@ -76,8 +87,8 @@ class CheckToolInput(ToolInput):
                 raise ValueError(
                     f"Check {self.mode} does not accept: " + ", ".join(sorted(unsupported))
                 )
-        elif supplied:
-            raise ValueError(f"Check {self.mode} does not accept fields")
+        elif supplied - {"times"}:
+            raise ValueError(f"Check {self.mode} accepts only times")
         return self
 
 

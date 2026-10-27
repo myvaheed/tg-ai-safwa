@@ -426,6 +426,29 @@ async def test_current_request_progress_includes_current_card_update_diffs(e2e_h
     assert saved["summary"] == f"Update Card #{card.id}"
     assert "Note: Before dinner → After dinner" in saved["fields"]
     assert "Categories: growth → rest" in saved["fields"]
+    assert "note" not in saved
+
+
+async def test_pr_note_038_the_resumed_session_reads_which_copy_is_open(e2e_harness):
+    """PR-NOTE-038 — tests/brd/tg_agent_shell/proposals.feature"""
+    async with e2e_harness.sessions() as session:
+        card = await create_manual_card(session, title="Run", schedule="daily 20:00")
+        await session.commit()
+    advisor, provider = e2e_harness.advisor([
+        route_turn("workspace_mutator"),
+        mutation_turn(("action", {"mode": "complete", "id": card.id})),
+        "Done.",
+        "Done.",
+    ])
+    proposal = await advisor.handle("I ran today")
+
+    await save(advisor, proposal.proposal_id)
+
+    saved = json.loads(
+        str(next(message for message in provider.calls[2] if message["role"] == "tool")["content"])
+    )
+    assert saved["status"] == "approved"
+    assert saved["note"].startswith("Its next copy is open: [Run](card:")
 
 
 async def test_child_proposal_fails_cleanly_when_earlier_parent_is_discarded(e2e_harness):

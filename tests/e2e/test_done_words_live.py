@@ -2,10 +2,11 @@
 
 Opt-in with ``--live-provider``, as `test_series_goal_live.py` is, and run from the folder that
 holds `.env` and `data/models`. Every turn is the live model, reasoning off: the Advisor and the
-mutator. The workspace holds two Today Actions, two repeating Actions and three daily trackers.
-Each case is the owner's words with no word of a change, one of them a reply to a Reminder that
-asked about its tracker; what is compared is that the proposal marks that one item: the Action
-complete, the Check Passed.
+mutator. The workspace holds two Today Actions, three repeating Actions and three daily
+trackers. Each case is the owner's words with no word of a change, one of them a reply to a
+Reminder that asked about its tracker, three of them about doing it several times; what is
+compared is that the proposal marks that one item: the Action complete, the Check Passed, as
+many times as the owner said (SCH-TIMES-032).
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from schedule_helpers import create_card, create_check
 
 from llm_gateway import OpenAICompatibleProvider
 from safwa.bootstrap.modules import AI_VIEWS, TEXT_MODEL, WORD_FORMS
+from safwa.features.cards.use_cases import create_card as domain_card
 from safwa.qa import qa_provider_settings
 from telegram_llm import DialogueMessage
 from tg_agent_shell.proposals.api import ChangeAction
@@ -36,6 +38,7 @@ class Done:
     title: str
     # A Reminder asked about the item just before, as Safwa says it.
     asked: bool = False
+    times: int = 1
 
 
 DONE = (
@@ -45,6 +48,9 @@ DONE = (
     Done("Just got back with the groceries.", "Buy groceries"),
     Done("I read for 20 minutes tonight.", "Read 20 minutes?"),
     Done("Сделал!", "Сделал зарядку?", asked=True),
+    Done("На этой неделе уже три раза бегал.", "Пробежка", times=3),
+    Done("Did my stretching twice today.", "Stretching", times=2),
+    Done("I read for 20 minutes three times this week.", "Read 20 minutes?", times=3),
 )
 
 
@@ -90,6 +96,11 @@ async def _workspace(harness) -> dict[str, tuple[str, int]]:
                 session, kind="action", title=title, stage=stage, schedule=schedule
             )
             items[title] = ("card", card.id)
+        stretching = await domain_card(
+            session, kind="action", title="Stretching", schedule="twice a day",
+            schedule_rule={"kind": "quota", "period": "day", "count": 2},
+        )
+        items["Stretching"] = ("card", stretching.id)
         for title, schedule in (
             ("Помедитировал?", "daily 07:00"),
             ("Сделал зарядку?", "daily 08:00"),
@@ -127,6 +138,11 @@ async def test_the_model_marks_what_the_owner_did(settings, encoder, e2e_harness
     finally:
         await provider.aclose()
     changes = advisor.reviews.proposal(outcome.proposal_id).changes if outcome.proposal_id else []
-    marked = [(change.entity, change.action, change.entity_id) for change in changes]
+    marked = [
+        (change.entity, change.action, change.entity_id, change.values.get("times") or 1)
+        for change in changes
+    ]
     print(f"{case.words!r}: said {outcome.message!r}")
-    assert marked == [(entity, ChangeAction.COMPLETE, item_id)], f"{case.words!r} proposed {marked}"
+    assert marked == [
+        (entity, ChangeAction.COMPLETE, item_id, case.times)
+    ], f"{case.words!r} proposed {marked}"

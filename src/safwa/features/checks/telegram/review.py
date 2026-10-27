@@ -67,6 +67,8 @@ class CheckProposalPresenter:
             proposed["remind"] = remind_label(values["remind"])
         if change.action in CHECK_ANSWER_ACTIONS:
             proposed["outcome"] = CHECK_OUTCOME_LABELS[CHECK_ANSWER_ACTIONS[change.action]]
+            if (values.get("times") or 1) > 1:
+                proposed["times"] = values["times"]
         check = (
             await session.get(Check, change.entity_id)
             if change.entity_id is not None
@@ -104,7 +106,10 @@ class CheckProposalPresenter:
             )
             outcome = CHECK_ANSWER_ACTIONS[change.action]
             head = f"“{result_value(check.title)}”" if check else f"#{change.entity_id}"
-            return f"Answer Check {head} ({CHECK_OUTCOME_LABELS[outcome]})"
+            times = change.values.get("times") or 1
+            return f"Answer Check {head} ({CHECK_OUTCOME_LABELS[outcome]}" + (
+                f" ×{times})" if times > 1 else ")"
+            )
         return await named_summary(session, change, details, model=Check)
 
     async def screen(

@@ -382,3 +382,15 @@ Feature: Proposals
     And it is not told to carry on with what of the request is unfinished
     When the owner discards it
     Then nothing is written, and Safwa is told it was discarded, by PR-RESULT-011
+
+  Scenario: PR-NOTE-038 — Safwa reads what a Save did beyond the change it proposed
+    Given a feature whose Save does more than the change says
+    When the owner saves it and the session that proposed it resumes
+    Then the result that session reads carries the feature's words for it as its note
+    And a finished copy of a repeating Action, or an answered one of a repeating Check, says which
+      copy is open now, as a link, with the Checks it carries:
+      "Its next copy is open: [Run](card:12), with [Warmed up?](check:31)."
+    And after several copies it says how many, by SCH-TIMES-032:
+      "Finished 3 copies. The open one now: [Run](card:14)."
+    And when the series has ended it says so: "The series has ended; no copy is open."
+    And a Save that did nothing more carries no note

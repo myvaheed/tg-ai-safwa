@@ -11,7 +11,12 @@ from tg_agent_shell.ai.autoapproval import RELATIONSHIP_LINK, SCALAR_UPDATE, Aut
 from tg_agent_shell.ai.contracts import AgentChange, Reference, ToolInput
 from tg_agent_shell.proposals.api import MutationToolSpec, entity_change
 
-from ...constants import NEW_ITEM_REMIND_DESCRIPTION, NOTE_REPLACED_WHOLE, REMIND_LEAD_MAX_MINUTES
+from ...constants import (
+    NEW_ITEM_REMIND_DESCRIPTION,
+    NOTE_REPLACED_WHOLE,
+    REMIND_LEAD_MAX_MINUTES,
+    REPEAT_TIMES_MAX,
+)
 from .model import (
     CATEGORY_MEANINGS,
     ENERGY_MEANINGS,
@@ -171,6 +176,12 @@ class ActionToolInput(ToolInput):
             "user said, never an estimate. On update, null removes it. " + REPEAT_INSTANCE
         ),
     )
+    times: int | None = Field(
+        default=None,
+        ge=1,
+        le=REPEAT_TIMES_MAX,
+        description="How many times, when the user did it more than once.",
+    )
     categories: list[Literal["growth", "people", "work", "chores", "rest"]] | None = Field(
         default=None,
         description="What the Action gives. "
@@ -192,10 +203,14 @@ class ActionToolInput(ToolInput):
     def validate_target(self) -> ActionToolInput:
         if self.mode == "create" and "tracked_mins" in self.model_fields_set:
             raise ValueError("a new Action has no time spent yet; omit tracked_mins")
+        if "times" in self.model_fields_set and self.mode != "complete":
+            raise ValueError("times goes only with complete")
+        if {"times", "tracked_mins"} <= self.model_fields_set:
+            raise ValueError("times goes without tracked_mins: complete it once with them")
         _validate_call(
             self,
             label="Action",
-            only={"move": {"stage"}, "complete": {"tracked_mins"}, "reopen": {"stage"}},
+            only={"move": {"stage"}, "complete": {"tracked_mins", "times"}, "reopen": {"stage"}},
         )
         if self.mode == "move" and self.stage is None:
             raise ValueError("Action move needs a stage")

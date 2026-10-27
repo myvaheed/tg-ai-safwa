@@ -2206,7 +2206,7 @@ Advisor ответил сам и предложил запись в Diary, ка�
 каждую копию. Одним экраном — `times`.
 
 - `times` у `action` с `mode: complete` и у `check` с `mode: passed` или `missed`, до 10
-  (*REPEAT_TIMES_MAX* = 10):
+  (`REPEAT_TIMES_MAX = 10`):
   - `action.times`: `How many times, when the user did it more than once.`;
   - `check.times`: `How many times it went this way, when more than once.`
 - Save закрывает открытую копию, потом следующую, всего `times` раз; кончилась серия — стоп.

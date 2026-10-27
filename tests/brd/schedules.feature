@@ -258,3 +258,15 @@ Feature: One plain-language Schedule for Actions and Checks
       on Friday at 9:00 and on Saturday
     Then Friday's answer counts for Friday, and the five Passed are in a row: Thursday has no answer
       and no Missed
+
+  Scenario: SCH-TIMES-032 — An item done several times closes as many copies in one Save
+    Given a repeating Action, or a Check with its own Schedule, with one open copy
+    When the owner says they did it 3 times and saves what Safwa proposed
+    Then Save finishes the open copy, then the copy that opened after it, then the next: 3 in all,
+      each counting for the period it is closed in, by SCH-PERIOD-031
+    And a Check is answered the same way, each copy Passed or each Missed
+    And the review says how many: "×3", and one call closes at most 10 (REPEAT_TIMES_MAX = 10)
+    And when the series ends first, Save stops there
+    But an Action that does not repeat, an Action with Checks on it and a Check without a Schedule
+      of its own are sent back, to be closed once
+    And how many times does not go with the minutes the Action took

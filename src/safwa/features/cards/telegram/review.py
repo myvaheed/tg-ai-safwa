@@ -334,8 +334,9 @@ class CardProposalPresenter:
             proposed = {"stage": values.get("stage")}
         elif change.action is ChangeAction.COMPLETE:
             proposed = {"stage": CardStage.DONE.value}
-            if "tracked_mins" in values:
-                proposed["tracked_mins"] = values["tracked_mins"]
+            for field in ("tracked_mins", "times"):
+                if field in values:
+                    proposed[field] = values[field]
         elif change.action is ChangeAction.REOPEN:
             proposed = {"stage": values.get("stage", CardStage.BACKLOG.value)}
         elif change.action in {ChangeAction.ARCHIVE, ChangeAction.DELETE}:
@@ -412,8 +413,11 @@ class CardProposalPresenter:
             parts.extend(await reference_groups(session, values, others))
         elif action in {ChangeAction.MOVE, ChangeAction.REOPEN} and values.get("stage"):
             parts.append(str(values["stage"]).title())
-        elif action is ChangeAction.COMPLETE and values.get("tracked_mins"):
-            parts.append(f"{minutes_label(values['tracked_mins'])} spent")
+        elif action is ChangeAction.COMPLETE:
+            if (values.get("times") or 1) > 1:
+                parts.append(f"×{values['times']}")
+            if values.get("tracked_mins"):
+                parts.append(f"{minutes_label(values['tracked_mins'])} spent")
         elif action is ChangeAction.UPDATE:
             parts.extend(became(detail) for detail in details)
         if parents:

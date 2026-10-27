@@ -113,6 +113,9 @@ class ApplyContext:
     session: AsyncSession
     views: frozenset[str]
     allow_destructive: bool = False
+    # What the write did beyond the change itself, in the words the session that proposed
+    # it reads with its result (PR-NOTE-038).
+    said: list[str] = field(default_factory=list)
 
 
 class ProposalHandler(Protocol):

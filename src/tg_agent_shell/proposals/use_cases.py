@@ -213,6 +213,7 @@ async def _apply(
     proposal: ChangeProposal,
     allow_destructive: bool,
     touched: set[tuple[str, int]],
+    said: list[str] | None = None,
 ) -> list[int]:
     """Walk one proposal's changes, in order, through the operations of their features.
 
@@ -224,6 +225,7 @@ async def _apply(
         session=session,
         views=proposals.views,
         allow_destructive=allow_destructive,
+        said=[] if said is None else said,
     )
     affected: list[int] = []
     for change in proposal.changes:
@@ -239,6 +241,14 @@ async def _apply(
 
 
 @dataclass(frozen=True)
+class Written:
+    """What one kept Save wrote: the ids it touched, and what it did beyond its changes."""
+
+    ids: list[int]
+    said: list[str]
+
+
+@dataclass(frozen=True)
 class SaveFailure:
     """The kept Save that could not be written, so none of its queue was."""
 
@@ -251,7 +261,7 @@ async def write_saved(
     store: ProposalStore,
     proposals: ProposalRegistry,
     items: Sequence[QueueItem],
-) -> dict[int, list[int]] | SaveFailure:
+) -> dict[int, Written] | SaveFailure:
     """Write the Saves a queue kept, once it has ended, all of them or none: what each
     wrote, or the one that failed.
 
@@ -259,7 +269,7 @@ async def write_saved(
     refused when the workspace moved on after its screen was shown.
     """
     saved = [item for item in items if item.decision is BatchDecision.APPROVED]
-    written: dict[int, list[int]] = {}
+    written: dict[int, Written] = {}
     if not saved:
         return written
     current = saved[0].proposal_id
@@ -274,7 +284,9 @@ async def write_saved(
             if proposal.workspace_revision != revision:
                 raise StaleStateError(STALE)
             destructive = bool(item.notes.get("destructive"))
-            written[current] = await _apply(session, proposals, proposal, destructive, touched)
+            said: list[str] = []
+            ids = await _apply(session, proposals, proposal, destructive, touched, said)
+            written[current] = Written(ids, said)
         await session.commit()
     except Exception as error:
         await session.rollback()
@@ -464,7 +476,10 @@ async def _write_kept(
                 if str(tool.get("id")) not in item.call_ids:
                     continue
                 if not isinstance(outcome, SaveFailure):
-                    payload = {**item.notes, "affected_ids": outcome[item.proposal_id]}
+                    written = outcome[item.proposal_id]
+                    payload = {**item.notes, "affected_ids": written.ids}
+                    if written.said:
+                        payload["note"] = " ".join(written.said)
                     tool["result"] = render(tool, BatchDecision.APPROVED, payload)
                 elif outcome.proposal_id == item.proposal_id:
                     tool["result"] = render(

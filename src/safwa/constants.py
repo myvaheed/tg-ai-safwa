@@ -27,6 +27,8 @@ REMIND_DESCRIPTION = (
     "'remind me' is 0, 'remind me 25 minutes before' is 25, '3 hours before' is 180."
 )
 NEW_ITEM_REMIND_DESCRIPTION = REMIND_DESCRIPTION + " Only on create."
+# How many copies of a repeating Action or Check one call closes at most (SCH-TIMES-032).
+REPEAT_TIMES_MAX = 10
 # How a subagent that proposes changes goes through a turn, and how it reads the workspace.
 # The workspace mutator says both; the reminder subagent, handed what it needs and reading
 # nothing, says the turn without its first step. One wording: two copies drift.
