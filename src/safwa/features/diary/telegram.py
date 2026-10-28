@@ -396,10 +396,6 @@ def _day_lines(change: ProposalChange) -> list[str]:
         lines.append(f"Feeling: {values['feeling_score']}")
     lines += [f"Photo added: {item['meta']}" for item in values.get("add_media") or ()]
     lines += [f"Photo taken off: {item['meta']}" for item in values.get("remove_media") or ()]
-    lines += [
-        f"Photo renamed: {item['was']} → {item['meta']}"
-        for item in values.get("rename_media") or ()
-    ]
     return lines
 
 
@@ -459,12 +455,10 @@ class DiaryProposalPresenter:
         proposed = dict(current)
         added: list[str] = []
         removed: list[str] = []
-        renamed: list[dict[str, Any]] = []
         for change in changes:
             values = dict(change.values)
             added += [item["meta"] for item in values.pop("add_media", None) or ()]
             removed += [item["meta"] for item in values.pop("remove_media", None) or ()]
-            renamed += values.pop("rename_media", None) or ()
             if values.get("body") is None:
                 # No words in the change: the words already saved stay.
                 values.pop("body", None)
@@ -479,10 +473,6 @@ class DiaryProposalPresenter:
             # A new day reads plain; an edited one marks the photos it adds and takes off.
             new = "{}" if change.action is ChangeAction.CREATE else "<b>{}</b>"
             photos = [f"📷 {new.format(html.escape(meta))}" for meta in added]
-            photos += [
-                f"📷 <s>{html.escape(item['was'])}</s> <b>{html.escape(item['meta'])}</b>"
-                for item in renamed
-            ]
             photos += [f"📷 <s>{html.escape(meta)}</s>" for meta in removed]
         blocks = [
             f"<i>{html.escape(str(proposed['remark']))}</i>"

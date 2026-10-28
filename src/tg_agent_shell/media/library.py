@@ -58,6 +58,7 @@ class ChatMedia(Base):
 
     __tablename__ = "chat_media"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
     meta: Mapped[str] = mapped_column(Text)
     mime: Mapped[str] = mapped_column(String(40))
     data: Mapped[bytes] = mapped_column(LargeBinary)
@@ -90,6 +91,7 @@ async def rename_media(session: AsyncSession, media_id: int, words: str) -> None
     if media is None:
         raise DomainError(f"No photo has the number {media_id}")
     media.meta = label_words(words)
+    media.version += 1
 
 
 def image_part(data: bytes, mime: str) -> dict[str, Any]:

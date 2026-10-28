@@ -30,6 +30,7 @@ HERE = Path(__file__).resolve()
 for folder in (HERE.parent, HERE.parents[2] / "examples", HERE.parents[2] / "tests"):
     sys.path.insert(0, str(folder))
 
+from agent_turns import mutation_turn, route_turn  # noqa: E402
 from hook_helpers import run_hooks  # noqa: E402
 from sqlalchemy import inspect, select  # noqa: E402
 from wallet.ledger.model import Entry  # noqa: E402
@@ -40,6 +41,9 @@ from wallet_harness import (  # noqa: E402
     seed_lists,
     take_a_turn,
 )
+
+from llm_gateway import CompletionTurn  # noqa: E402
+from tg_agent_shell.media.library import ChatMedia, Photo  # noqa: E402
 
 
 async def main(path: Path) -> dict[str, object]:
@@ -64,10 +68,25 @@ async def main(path: Path) -> dict[str, object]:
         entries = list(await session.scalars(select(Entry)))
         connection = await session.connection()
         tables = await connection.run_sync(lambda sync: inspect(sync).get_table_names())
+    entry_answer = running.chat[-1]
+    renaming = await harness.start(
+        route_turn("bookkeeper"),
+        mutation_turn(("rename_media", {"media_id": 1, "meta": "Lunch receipt"})),
+        CompletionTurn(content="Renamed."),
+        CompletionTurn(content="The photo is renamed."),
+    )
+    (media_id,) = await renaming.services.media.keep(
+        [(Photo(b"jpeg", 1280, 960, "receipt-file"), "Receipt")]
+    )
+    await take_a_turn(renaming, f"Call [Receipt](media:{media_id}) Lunch receipt.")
+    await press(renaming, "proposal_approve")
+    async with renaming.sessions() as session:
+        photo_label = (await session.get(ChatMedia, media_id)).meta
     await harness.stop()
     return {
-        "answer": running.chat[-1],
+        "answer": entry_answer,
         "entries": len(entries),
+        "photo_label": photo_label,
         "tables": sorted(tables),
         "safwa_imported": any(name == "safwa" or name.startswith("safwa.") for name in sys.modules),
     }

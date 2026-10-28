@@ -83,6 +83,7 @@ BOOKKEEPER_PROMPT = """You keep the user's ledger. One movement of money, one en
    `amount_minor` is always positive. The category's `kind` is what makes it income or expense.
 5. A receipt photo reads as `[words](media:N)`. Read it with `read_receipt(media_id=N)` first,
    and write one entry for its total.
+6. Correct a photo's label with `rename_media(media_id=N, meta="…")`. Propose only that label.
 """
 
 RECEIPT_INSTRUCTIONS = """You read one receipt photo.
@@ -119,10 +120,10 @@ def today_in(timezone: str) -> date:
 
 BOOKKEEPER = AgentSpec(
     name="bookkeeper",
-    purpose="write, correct or remove one ledger entry.",
+    purpose="write, correct or remove one ledger entry; correct a photo's label.",
     instructions=BOOKKEEPER_PROMPT,
     views=("ai_wallets", "ai_categories", "ai_entries", "ai_wallet_balances"),
-    mutation_tools=("entry",),
+    mutation_tools=("entry", "rename_media"),
     read_tools=_read_tools,
     current=_now,
 )

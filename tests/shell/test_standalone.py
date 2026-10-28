@@ -41,5 +41,6 @@ def test_the_example_runs_its_whole_path_with_safwa_unimportable(tmp_path):
     result = json.loads(finished.stdout.strip().splitlines()[-1])
     assert result["safwa_imported"] is False
     assert result["entries"] == 1
+    assert result["photo_label"] == "Lunch receipt"
     assert "Lunch is on the Cash wallet." in result["answer"]
     assert set(result["tables"]) == SHELL_TABLES | WALLET_TABLES

@@ -166,11 +166,11 @@ Feature: Diary
   Scenario: DI-PHOTO-024 — A photo the owner corrects is called by the new words everywhere
     Given 26.09.2026 holds a photo called "Кот на окне"
     When the owner says the photo is "Рыжий кот на окне"
-    Then one screen shows "Кот на окне" struck through and "Рыжий кот на окне" beside it
+    Then one screen shows the change to its name, with removed words struck through and new words bold
     And the photo stays on that day
     And once the owner saves it, the photo is called "Рыжий кот на окне" on its links, under it
       when it opens, and on that day
-    And the Diary is asked for a name of at most 5 words (DESCRIPTION_MAX_WORDS = 5)
+    And the Diary uses the shell's rename_media tool, with a name of at most 5 words (DESCRIPTION_MAX_WORDS = 5)
 
   Scenario: DI-FIND-025 — The Diary finds a day by what happened on it
     Given the owner names a day by what happened on it rather than by its date

@@ -26,16 +26,6 @@ from .model import DiaryEntry
 DIARY_DAY_TOKEN_BUDGET = 12_000
 
 
-class DiaryMediaInput(ToolInput):
-    """New words for one photo on a day."""
-
-    media_id: PositiveInt = Field(description="N from the photo's [words](media:N) label.")
-    meta: str = Field(
-        description=f"At most {DESCRIPTION_MAX_WORDS} words: what the photo shows, as the user "
-        "names it.",
-    )
-
-
 class DiaryToolInput(ToolInput):
     """One day of the Diary: written in the user's voice, or removed."""
 
@@ -68,9 +58,6 @@ class DiaryToolInput(ToolInput):
     remove_media: list[PositiveInt] | None = Field(
         default=None, description="With update: N of each photo to take off that day."
     )
-    rename_media: list[DiaryMediaInput] | None = Field(
-        default=None, description="With update: new words for photos on that day."
-    )
 
     @field_validator("date")
     @classmethod
@@ -82,9 +69,9 @@ class DiaryToolInput(ToolInput):
 
     @model_validator(mode="after")
     def entry_needs_its_text(self) -> DiaryToolInput:
-        media = self.add_media or self.remove_media or self.rename_media
+        media = self.add_media or self.remove_media
         if self.mode == "update" and not ((self.body or "").strip() or media):
-            raise ValueError("An update carries body, add_media, remove_media or rename_media")
+            raise ValueError("An update carries body, add_media or remove_media")
         if self.mode == "delete" and (self.body or self.feeling_score is not None or media):
             raise ValueError("A deletion carries only mode and date")
         return self
@@ -116,8 +103,8 @@ A photo the user sent reads as `[words](media:N)`, then their caption if they wr
   `body`, no `remark`.
 - A caption that says something about the day: put the photo on it and write `body` too.
 - Take one off the day: `remove_media=[N]`.
-- The user corrects what a photo shows: `rename_media=[{{"media_id": N, "meta": "…"}}]`, at most
-  {DESCRIPTION_MAX_WORDS} words, as the user names it. Never take the photo off for that.
+- The user corrects a photo's label: call `rename_media(media_id=N, meta="…")`, at most
+  {DESCRIPTION_MAX_WORDS} words, as the user names it. Propose only the label change; no day is needed.
 
 # body
 `body` is the day itself, and only the user speaks in it: first person, their words, their language.
@@ -295,12 +282,12 @@ DIARY_AGENT = AgentSpec(
     name="diary",
     purpose=(
         "questions about what the user and Safwa talked about today, yesterday or on a named "
-        "day; write, rewrite or delete a day, and rename the photos on it."
+        "day; write, rewrite or delete a day; correct any photo's label."
     ),
     instructions=DIARY_PROMPT,
     # To find a day by what happened on it (DI-FIND-025).
     views=("ai_diary",),
-    mutation_tools=("diary",),
+    mutation_tools=("diary", "rename_media"),
     read_tools=_diary_read_tools,
     current=_diary_now,
     answers_questions=True,

@@ -162,24 +162,21 @@ async def test_di_photo_020_safwa_carries_on_from_a_full_day(e2e_harness):
     assert (refused["code"], refused["retryable"]) == ("day_full", True)
 
 
-async def test_di_photo_024_the_owner_corrects_what_a_photo_on_a_day_is_called(e2e_harness):
+@pytest.mark.parametrize("attached", [True, False])
+async def test_di_photo_024_the_owner_corrects_what_a_photo_on_a_day_is_called(e2e_harness, attached):
     """DI-PHOTO-024 — tests/brd/diary.feature"""
     (sons,) = await keep_photos(e2e_harness, "Мукхаммет и сын в музее")
-    async with e2e_harness.sessions() as session:
-        await create_diary_entry(session, entry_date=date.today(), body=None, media=[sons])
-        await session.commit()
-    advisor, _ = e2e_harness.advisor(
+    if attached:
+        async with e2e_harness.sessions() as session:
+            await create_diary_entry(session, entry_date=date.today(), body=None, media=[sons])
+            await session.commit()
+    advisor, provider = e2e_harness.advisor(
         [
             turn(("route", {"name": "diary"})),
-            turn(("read_day", {"date": TODAY})),
             turn(
                 (
-                    "diary",
-                    {
-                        "mode": "update",
-                        "date": TODAY,
-                        "rename_media": [{"media_id": sons, "meta": "Мухаммет с двумя сыновьями"}],
-                    },
+                    "rename_media",
+                    {"media_id": sons, "meta": "Мухаммет с двумя сыновьями"},
                 )
             ),
         ],
@@ -191,9 +188,15 @@ async def test_di_photo_024_the_owner_corrects_what_a_photo_on_a_day_is_called(e
     assert outcome.kind is AIOutcomeKind.PROPOSAL
     description = await save(e2e_harness, advisor, outcome.proposal_id)
     assert (
-        "Photo renamed: Мукхаммет и сын в музее → Мухаммет с двумя сыновьями" in description.fields
+        "Photo label: Мукхаммет и сын в музее → Мухаммет с двумя сыновьями" in description.fields
     )
-    assert await the_day(e2e_harness) == (None, [(sons, "Мухаммет с двумя сыновьями")])
+    if attached:
+        assert await the_day(e2e_harness) == (None, [(sons, "Мухаммет с двумя сыновьями")])
+    else:
+        async with e2e_harness.sessions() as session:
+            assert await session.scalar(select(DiaryEntry)) is None
+    assert "rename_media" not in {tool["function"]["name"] for tool in provider.options[0]["tools"]}
+    assert "rename_media" in {tool["function"]["name"] for tool in provider.options[1]["tools"]}
 
 
 async def test_di_read_023_words_for_an_unread_day_go_back_to_the_diary(e2e_harness):
