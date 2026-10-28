@@ -8,13 +8,19 @@ mutation tools the features that own those entities publish.
 
 from __future__ import annotations
 
-from tg_agent_shell.telegram.manifest import AgentSpec
+from dataclasses import replace
+
+from tg_agent_shell.ai.subagents import RoutedSubagent
+from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec
 
 from ...constants import PROPOSING_TURN, READING_THE_WORKSPACE
+from ..profile.api import thoughts_by_default_on
 from .state import close_items
 
 MUTATOR_TOOLS = ("goal", "action", "thought", "check", "value", "tag", "request", "remove")
 
+_CREATE_REQUESTED = "- Otherwise, create the requested type; use a Thought to keep a note, idea or draft."
+_CREATE_THOUGHT = "- Otherwise, create a Thought unless the user explicitly asks for an Action, Goal, Value or Check."
 
 MUTATOR_PROMPT = f"""You keep the user's workspace: their Cards, Checks, Values, Tags and Requests.
 
@@ -37,14 +43,30 @@ MUTATOR_PROMPT = f"""You keep the user's workspace: their Cards, Checks, Values,
 - Update existing items with their current type.
 - Create Tags and Requests as requested.
 - Direct Create or an accepted Blueprint plan: create every requested item with the type its content calls for.
-- For other new Actions, Goals, Values and Checks, read Thoughts by default.
-- On: create a Thought unless the user explicitly asks for that item type.
-- Off: create the requested type; use a Thought to keep a note, idea or draft.
+{_CREATE_REQUESTED}
 
 {READING_THE_WORKSPACE}"""
 
 
-MUTATOR_AGENT = AgentSpec(
+def thoughts_default_prompt(prompt: str) -> str:
+    return prompt.replace(_CREATE_REQUESTED, _CREATE_THOUGHT)
+
+
+class _MutatorAgentSpec(AgentSpec):
+    __slots__ = ()
+
+    def bind(self, context: AgentContext, *, prompt: str) -> RoutedSubagent:
+        agent = super().bind(context, prompt=prompt)
+
+        async def selected_prompt() -> str:
+            async with context.sessions() as session:
+                on = await thoughts_by_default_on(session)
+            return thoughts_default_prompt(prompt) if on else prompt
+
+        return replace(agent, prompt=selected_prompt)
+
+
+MUTATOR_AGENT = _MutatorAgentSpec(
     name="workspace_mutator",
     purpose="create, update or delete a Card, Check, Value, Tag or Request; archive a Card or Check only.",
     instructions=MUTATOR_PROMPT,

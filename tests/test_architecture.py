@@ -42,6 +42,7 @@ from safwa.features.schedules.agent import (
     scheduled_tool,
 )
 from safwa.features.values.link_review import VALUE_LINK_PROMPT, VALUE_LINK_TERMINAL
+from safwa.features.workspace_mutator.agent import thoughts_default_prompt
 from safwa.foundation.models import Base
 from scripts.architecture_metrics import (
     BUSINESS_FILES,
@@ -322,6 +323,10 @@ def test_rule_i_prompt_prefix_is_byte_stable(request):
     # time, so the raw constant is not what any subagent reads.
     for agent in AGENTS:
         produced[f"agent:{agent.name}"] = _digest(agent.instructions)
+    mutator = next(agent for agent in AGENTS if agent.name == "workspace_mutator")
+    produced["agent:workspace_mutator:thoughts_default"] = _digest(
+        thoughts_default_prompt(mutator.instructions)
+    )
     for name, schema in _tool_schemas().items():
         produced[f"tool:{name}"] = _digest(json.dumps(schema, sort_keys=True))
 

@@ -301,6 +301,8 @@ keeps the page; Refresh clamps a page that emptied after deletion. Editing prese
 All Tags are ordinary user labels.
 
 **Thoughts by default** in Profile is off initially and controls Mutator creation alone.
+Mutator reads Profile before each step and selects one creation rule in its system prompt.
+The setting's value is absent from the shared workspace context.
 On, new items are Thoughts unless the owner requests another type, accepts a Blueprint plan
 or chooses Direct Create. Tags, Requests and updates keep their ordinary behavior. Off, a
 request to capture a note, idea or draft creates a Thought; ordinary work uses its requested type.

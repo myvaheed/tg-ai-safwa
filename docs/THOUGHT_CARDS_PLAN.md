@@ -213,9 +213,9 @@ id и выбранное действие; содержимое не копир�
 screen/review, что `time_tracking` и `effort_tracking`. Оно переключается вручную и через
 Profile proposal. Значение для других features читается через profile/api.py.
 
-В `workspace_context` после разговора добавить одну строку «Thoughts by default: on/off».
-Не собирать новый системный промпт для каждого положения выключателя и не менять перечень tools
-при переключении. Проверки поддержки полей остаются кодом; выбор намерения — задачей Mutator.
+Mutator перед каждым шагом читает Profile и выбирает одну инструкцию создания в системном промпте.
+В `workspace_context` флажка нет. Для каждого положения промпт стабилен, перечень tools одинаков.
+Проверки поддержки полей остаются кодом; выбор намерения — задачей Mutator.
 
 ### Точные предлагаемые тексты
 
@@ -244,11 +244,13 @@ Profile proposal. Значение для других features читается
 >
 > Direct Create or an accepted Blueprint plan: create every requested item with the type its content calls for.
 >
-> For other new Actions, Goals, Values and Checks, read Thoughts by default.
->
-> On: create a Thought unless the user explicitly asks for that item type.
->
-> Off: create the requested type; use a Thought to keep a note, idea or draft.
+Далее сервер выбирает ровно одну строку. При включённой настройке:
+
+> Otherwise, create a Thought unless the user explicitly asks for an Action, Goal, Value or Check.
+
+При выключенной:
+
+> Otherwise, create the requested type; use a Thought to keep a note, idea or draft.
 
 Уточнить существующую строку про новый Backlog: она относится только к новым Actions.
 Существующие правила Effort относятся к Actions и не расширяются на Thought.
@@ -283,7 +285,7 @@ Profile proposal. Значение для других features читается
 | Поверхность | Что добавляет и почему необходимо | Что заменяет / чего не дублирует |
 |---|---|---|
 | Общее определение и инструмент | Модель различает сохранение мысли и создание рабочего item | Захват внутри Action Note; без метода качества Thought |
-| Mutator + строка состояния | Выбирает тип по живой настройке; понимает исключения и Direct Create | Старый Inbox-раздел; без списка доменных запретов и повторения методов |
+| Выбранная инструкция Mutator | Получает готовое правило по живой настройке; понимает исключения и Direct Create | Условные On/Off-инструкции и строка флажка в контексте |
 | Advisor | Передаёт захват сразу; кнопки дают явные планирование или исполнение | Старый Inbox-раздел; без нового маршрутизирующего классификатора |
 | Profile purpose/current/tool/review | Новая настройка доступна словами и не теряется после Save | Одна настройка в существующих перечнях; без отдельного агента |
 | Каталоги `ai_cards` и `ai_values` | Третий kind, NULL для неприменимых полей и прямые связи Values по id | Исправление текущих строк, без нового view |
@@ -411,7 +413,7 @@ Fake-provider тест доказывает маршруты и сохранен
   Requests поддерживают Values; `ai_values.card_ids` позволяет точно проверять связь по id.
 - Встроенный Inbox удалён вместе с установкой, защитой имени и исключениями по Tag.
   Его прежние проверки захвата перенесены на Thought; проверки Tags теперь подтверждают обычное поведение имени Inbox.
-- Thoughts by default добавлен в Profile, его proposal, UI и живой контекст. Исходное значение — off;
+- Thoughts by default добавлен в Profile, его proposal, UI и выбор инструкции Mutator. Исходное значение — off;
   сохранённый Thought после запуска выбранного пути остаётся. Create proposal имеет четыре кнопки без Edit.
 - Две кнопки используют обычные callbacks и owner turn. Проверены оба источника, оба положения
   настройки, несколько создаваемых items, сохранённая часть очереди, отклонённый хвост, повторный
@@ -427,5 +429,5 @@ Fake-provider тест доказывает маршруты и сохранен
   связи и завершение типами Goal/Action и перечисляют все три типа Card в Add.
 
 Итог проверки 28 октября 2026, включая отдельный Menu → Thoughts и начальные Requests без Done/архивных Goals:
-полный локальный набор — 3119 passed, 206 skipped;
+полный локальный набор — 3125 passed, 206 skipped;
 Ruff — без ошибок; архитектурные правила — 0 нарушений; проверка пробелов diff — без ошибок.

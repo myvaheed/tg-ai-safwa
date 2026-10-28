@@ -190,7 +190,6 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
         f"Workspace mode: {workspace.mode if workspace else 'planning'}",
         f"About me: {(profile.about_me if profile else '').strip()}",
         f"Advisor instructions: {(profile.advisor_instructions if profile else '').strip()}",
-        f"Thoughts by default: {'on' if profile and profile.thoughts_by_default else 'off'}",
         f"Effort Points: {'on' if effort_on else 'off'}",
         *value_lines,
         *section(

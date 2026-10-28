@@ -186,6 +186,8 @@ Feature: Profile
     Then Profile shows Thoughts by default, off independently of Time tracking and Effort Points
     When the owner switches it by button or saves a Profile proposal
     Then the setting takes effect without a restart and persists after one
+    And before each step Mutator receives only the creation rule for the current setting in its system prompt
+    And the shared workspace context contains no Thoughts by default flag or value
     And with it on, new items default to Thoughts
     And Actions, Goals, Values and Checks are created only when the owner explicitly requests their type,
       accepts a Blueprint plan or chooses Direct Create

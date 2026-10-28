@@ -64,3 +64,23 @@ async def test_an_ordinary_edit_keeps_the_thought_in_its_selection(e2e_harness):
         card = await session.get(Card, card_id)
         assert card.note == "Уточнённая мысль" and card.kind == "thought"
         assert card.title == "Уточнённая идея"
+
+
+@pytest.mark.parametrize("on", [False, True])
+async def test_mutator_provider_receives_only_the_selected_creation_policy(e2e_harness, on):
+    """PS-THOUGHT-026 — tests/brd/profile.feature"""
+    advisor, provider = e2e_harness.advisor([
+        route_turn("workspace_mutator"),
+        mutation_turn(("thought", {"mode": "create", "title": "Idea"})),
+    ])
+    async with e2e_harness.sessions() as session:
+        await set_profile_field(session, ProfileField.THOUGHTS_BY_DEFAULT, on)
+        await session.commit()
+    outcome = await advisor.handle("Record a Thought: Idea.")
+    assert outcome.kind is AIOutcomeKind.PROPOSAL
+    assert len(provider.calls) == 2
+    prompt = provider.calls[1][0]["content"]
+    assert ("Otherwise, create a Thought" in prompt) is on
+    assert ("Otherwise, create the requested type" in prompt) is not on
+    for request in provider.calls:
+        assert all("Thoughts by default:" not in str(message["content"]) for message in request)
