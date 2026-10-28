@@ -18,8 +18,11 @@ from aiogram.types import BufferedInputFile, InlineKeyboardMarkup, Message, Phot
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..ai.contracts import AgentChange
 from ..foundation.errors import DomainError
 from ..foundation.kinds import MessageKind
+from ..proposals.api import ProposalChange, ProposalScreen, ShownField
+from ..proposals.render import detail_lines, named_details
 from ..telegram.chat import dismiss_prior_ui, keep_typing, send_registered
 from ..telegram.dialogue import run_dialogue_turn
 from ..telegram.progress import Progress
@@ -214,3 +217,31 @@ async def media_citation_label(
     session: AsyncSession, services: Any, media: ChatMedia, *, short: bool
 ) -> str:
     return media.meta
+
+
+class MediaProposalPresenter:
+    entity = "media"
+
+    def raw_details(self, change: AgentChange) -> list[str]:
+        return detail_lines(dict(change.values), {"meta": "Photo label"})
+
+    async def details(
+        self, session: AsyncSession, change: ProposalChange, fallback: AgentChange | None
+    ) -> list[str]:
+        return await named_details(
+            session, change, [], model=ChatMedia, labels={"meta": "Photo label"}
+        )
+
+    async def summary(
+        self, session: AsyncSession, change: ProposalChange, details: list[str]
+    ) -> str:
+        return f"Rename photo to “{change.values['meta']}”."
+
+    async def screen(
+        self, session: AsyncSession, changes: Sequence[ProposalChange]
+    ) -> ProposalScreen:
+        media = await session.get(ChatMedia, changes[0].entity_id)
+        return ProposalScreen(
+            item="Photo",
+            fields=(ShownField("Label", media.meta if media else None, changes[-1].values["meta"]),),
+        )

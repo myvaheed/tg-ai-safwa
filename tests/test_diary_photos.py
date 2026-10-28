@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 import pytest
@@ -16,7 +16,6 @@ from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.diary.agent import DiaryToolInput, day_read_tool
 from safwa.features.diary.api import day_media
 from safwa.features.diary.hooks import DAY_NOT_READ, unread_days
-from safwa.features.diary.proposal import DiaryProposalHandler
 from safwa.features.diary.telegram import DiaryProposalPresenter, render_diary
 from safwa.features.diary.use_cases import (
     DIARY_DAY_PHOTOS,
@@ -32,7 +31,7 @@ from telegram_llm import TELEGRAM_ALBUM_LIMIT
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.hooks.contracts import BeforeProposals, ProposedCall, SessionRead
 from tg_agent_shell.media.library import DESCRIPTION_MAX_WORDS, ChatMedia, MediaLibrary, Photo
-from tg_agent_shell.media.telegram import open_media
+from tg_agent_shell.media.telegram import MediaProposalPresenter, open_media
 from tg_agent_shell.proposals.api import (
     ApplyContext,
     ChangeAction,
@@ -58,13 +57,13 @@ async def keep_photos(sessions, *metas: str) -> list[int]:
     )
 
 
-async def prepared(sessions, arguments: dict[str, Any]) -> ProposalChange:
-    """One `diary` call, prepared the way the review is: as the change Save would apply."""
-    change = PROPOSALS.change_from_tool("diary", arguments)
+async def prepared(sessions, arguments: dict[str, Any], *, tool: str = "diary") -> ProposalChange:
+    """One call, prepared the way the review is: as the change Save would apply."""
+    change = PROPOSALS.change_from_tool(tool, arguments)
     async with sessions() as session:
         result = await ChangePreparer(None, None, PROPOSALS).prepare(session, change)  # type: ignore[arg-type]
     return ProposalChange(
-        entity="diary",
+        entity=change.entity,
         action=ChangeAction(change.action),
         entity_id=change.id,
         expected_version=result.expected_version,
@@ -74,7 +73,7 @@ async def prepared(sessions, arguments: dict[str, Any]) -> ProposalChange:
 
 async def saved(sessions, change: ProposalChange) -> None:
     async with sessions() as session:
-        await DiaryProposalHandler().apply(ApplyContext(session, frozenset()), change)
+        await PROPOSALS.handler(change.entity).apply(ApplyContext(session, frozenset()), change)
         await session.commit()
 
 
@@ -91,7 +90,7 @@ def test_di_photo_017_a_photo_is_put_on_a_day_by_its_number() -> None:
         {"mode": "update", "date": DAY.isoformat(), "add_media": [3]}
     )
     assert photo_only.body is None
-    with pytest.raises(ValueError, match="body, add_media, remove_media or rename_media"):
+    with pytest.raises(ValueError, match="body, add_media or remove_media"):
         DiaryToolInput.model_validate({"mode": "update", "date": DAY.isoformat()})
     with pytest.raises(ValueError, match="only mode and date"):
         DiaryToolInput.model_validate(
@@ -191,7 +190,6 @@ async def test_di_photo_020_a_photo_that_does_not_fit_is_refused_by_name(session
         ("media_not_found", {"add_media": [99]}),
         ("media_already_on_day", {"add_media": [cat]}),
         ("media_not_on_day", {"remove_media": [99]}),
-        ("media_not_on_day", {"rename_media": [{"media_id": 99, "meta": "Нет"}]}),
     )
     for code, arguments in refusals:
         with pytest.raises(ToolPreparationError) as refused:
@@ -349,31 +347,34 @@ async def test_di_photo_024_a_corrected_photo_is_called_by_the_new_words_everywh
     sessions,
 ) -> None:
     """DI-PHOTO-024 — tests/brd/diary.feature"""
-    rename = PROPOSALS.tools["diary"].schema()["function"]["parameters"]["properties"]["rename_media"]
-    meta = rename["anyOf"][0]["items"]["properties"]["meta"]
+    rename = PROPOSALS.tools["rename_media"].schema()["function"]["parameters"]["properties"]
+    meta = rename["meta"]
     assert f"At most {DESCRIPTION_MAX_WORDS} words" in meta["description"]
     (cat,) = await keep_photos(sessions, "Кот на окне")
     async with sessions() as session:
         await create_diary_entry(session, entry_date=DAY, body=None, media=[cat])
+        await create_diary_entry(
+            session, entry_date=DAY + timedelta(days=1), body="Ещё день.", media=[cat]
+        )
         await session.commit()
 
     change = await prepared(
         sessions,
-        {
-            "mode": "update",
-            "date": DAY.isoformat(),
-            "rename_media": [{"media_id": cat, "meta": "Рыжий кот на окне"}],
-        },
+        {"media_id": cat, "meta": "Рыжий кот на окне"},
+        tool="rename_media",
     )
-    presenter = DiaryProposalPresenter()
+    presenter = MediaProposalPresenter()
     async with sessions() as session:
         screen = await presenter.screen(session, [change])
         details = await presenter.details(session, change, None)
-    assert "📷 <s>Кот на окне</s> <b>Рыжий кот на окне</b>" in screen.blocks
-    assert details == ["Date: 2026-09-26", "Photo renamed: Кот на окне → Рыжий кот на окне"]
+    assert field_line(screen.fields[0], effect=Effect.UPDATE) == (
+        "<i>Label:</i> <s>Кот</s> <b>Рыжий кот</b> на окне"
+    )
+    assert details == ["Photo label: Кот на окне → Рыжий кот на окне"]
 
     await saved(sessions, change)
     assert await photos_on(sessions, DAY) == [(cat, "Рыжий кот на окне")]
+    assert await photos_on(sessions, DAY + timedelta(days=1)) == [(cat, "Рыжий кот на окне")]
     services = services_for(sessions)
     async with sessions() as session:
         linked = await render_citations(session, services, f"[Кот на окне](media:{cat})")

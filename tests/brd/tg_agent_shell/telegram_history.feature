@@ -306,3 +306,12 @@
     When the chat is locked and opened again with the secret word
     Then the conversation is still open, and the owner's next message goes on with it
     And its agent still reads every message of it, though the clears that came with the lock took them out of the chat
+
+  Scenario: TG-RENAME-039 — A photo's label can be corrected wherever the photo is used
+    Given a photo kept in the chat, whether or not a saved item uses it
+    When the owner corrects what it is called
+    Then one review shows the label change, with removed words struck through and new words bold
+    And Save changes the label on its links and when the photo opens, and Discard keeps it
+    And renaming creates no application item and changes no attachment
+    And a missing photo or a photo changed since review is refused without a write
+    And only a subagent explicitly granted rename_media may call it, never the root session

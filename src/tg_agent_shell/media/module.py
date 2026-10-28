@@ -1,14 +1,23 @@
-"""Photos: what an application includes to cite a photo and open it again."""
+"""Photos: their citations, screens and proposed label changes."""
 
 from __future__ import annotations
 
 from ..foundation.screens import ScreenSpec
-from ..telegram.manifest import FeatureModule
+from ..telegram.manifest import FeatureModule, ProposalContribution
+from .agent import RENAME_MEDIA_TOOL
 from .library import MEDIA_TYPE, ChatMedia
-from .telegram import media_citation_label, open_media
+from .proposal import MediaProposalHandler
+from .telegram import MediaProposalPresenter, media_citation_label, open_media
 
 MODULE = FeatureModule(
     name="media",
+    proposals=(
+        ProposalContribution(
+            handler=MediaProposalHandler(),
+            tool=RENAME_MEDIA_TOOL,
+            presenter=MediaProposalPresenter(),
+        ),
+    ),
     screens=(
         ScreenSpec(
             item_type=MEDIA_TYPE,

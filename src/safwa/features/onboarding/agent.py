@@ -170,7 +170,7 @@ MANUAL = f"""# Safwa
 - At the Evening time Safwa sums up the day and offers to write it up in the Diary. The retro reads the Diary.
 - A day opens from its link or the Diary menu, its photos above its words. Back returns to the list it came from.
 - A photo sent with no words, or with words about the day, goes to the Diary: Safwa shows it to save on today, or on the day named. A day holds up to 10 photos.
-- Correcting what a photo on a day shows renames that photo everywhere, once saved.
+- Correcting what any sent photo shows renames it everywhere once saved, even before it is put on a Diary day.
 
 # Reminders
 - A Reminder is words and when they come due: a time, or a count of answers of Checks or Actions. When it fires, Safwa reminds you of what you asked.

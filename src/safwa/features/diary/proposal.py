@@ -2,7 +2,7 @@
 
 A Diary change names its date, never an id: preparation resolves the day and settles
 whether the change creates it, replaces it or removes it, and whether the photos it puts
-on the day, takes off it and renames fit there.
+on the day and takes off it fit there.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from datetime import date as calendar_date
 from typing import Any
 
 from tg_agent_shell.foundation.errors import DomainError, StaleStateError
-from tg_agent_shell.media.library import ChatMedia, label_words, rename_media
+from tg_agent_shell.media.library import ChatMedia
 from tg_agent_shell.proposals.api import (
     ApplyContext,
     ChangeAction,
@@ -99,7 +99,7 @@ class DiaryProposalHandler:
         entry_date: calendar_date,
         values: dict[str, Any],
     ) -> dict[str, list[dict[str, Any]]]:
-        """The photos a change puts on the day, takes off it and renames, each by number and
+        """The photos a change puts on the day and takes off it, each by number and
         label; only the kinds the change has."""
         day = entry_date.isoformat()
         removed: list[dict[str, Any]] = []
@@ -134,26 +134,9 @@ class DiaryProposalHandler:
                 f"{day} holds {len(on_day)} photos, and a day holds at most {DIARY_DAY_PHOTOS}.",
                 "Tell the user that day is full. Put the photo on it only once they take one off.",
             )
-        labels = {media_id: meta for media_id, meta in on_day.items() if media_id not in taken_off}
-        labels.update({media_id: item["meta"] for media_id, item in added.items()})
-        renamed: dict[int, dict[str, Any]] = {}
-        for item in values.get("rename_media") or ():
-            media_id = int(item["media_id"])
-            if media_id not in labels:
-                raise ToolPreparationError(
-                    "media_not_on_day",
-                    f"Photo {media_id} is not on {day}.",
-                    "Rename only a photo read_day lists for that day, or one add_media puts on it.",
-                )
-            renamed[media_id] = {
-                "media_id": media_id,
-                "meta": label_words(str(item["meta"])),
-                "was": labels[media_id],
-            }
         media = {
             "add_media": list(added.values()),
             "remove_media": removed,
-            "rename_media": list(renamed.values()),
         }
         return {kind: items for kind, items in media.items() if items}
 
@@ -188,6 +171,4 @@ class DiaryProposalHandler:
                 )
         else:
             raise DomainError(f"Unsupported approved Diary action: {change.action}")
-        for item in values.get("rename_media") or ():
-            await rename_media(session, int(item["media_id"]), str(item["meta"]))
         return [entry.id]

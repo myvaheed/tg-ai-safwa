@@ -66,7 +66,7 @@ def test_every_mutation_tool_belongs_to_the_part_that_owns_what_it_changes():
 
     assert routed == set(PROPOSALS.tools)
     assert set(PROPOSALS.tools) - set(MUTATOR_AGENT.mutation_tools) == {
-        "diary", "stop_onboarding", "sprint", "profile", "reminder", "remind",
+        "diary", "stop_onboarding", "sprint", "profile", "reminder", "remind", "rename_media",
     }
     # One way to take away what the workspace keeps; a Reminder's part deletes with its own.
     assert [agent.name for agent in AGENTS if "remove" in agent.mutation_tools] == [
@@ -75,6 +75,9 @@ def test_every_mutation_tool_belongs_to_the_part_that_owns_what_it_changes():
     assert ONBOARDING_AGENT.mutation_tools == ()
     assert [agent.name for agent in AGENTS if "stop_onboarding" in agent.mutation_tools] == [
         PROFILE_AGENT.name,
+    ]
+    assert [agent.name for agent in AGENTS if "rename_media" in agent.mutation_tools] == [
+        DIARY_AGENT.name,
     ]
 
 

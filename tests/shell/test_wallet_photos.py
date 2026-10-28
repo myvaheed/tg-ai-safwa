@@ -24,8 +24,10 @@ from wallet_harness import TIMEZONE, TODAY, press, seed_lists, take_a_turn
 import tg_agent_shell.telegram.services as services_module
 from llm_gateway import CompletionTurn, ScriptedProvider
 from telegram_llm import TELEGRAM_ALBUM_LIMIT
+from tg_agent_shell.ai.contracts import AgentChange
 from tg_agent_shell.ai.mini import ReadToolSpec
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner
+from tg_agent_shell.foundation.errors import StaleStateError
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.history import CONVERSATION_KINDS, TelegramMessage
 from tg_agent_shell.media.library import (
@@ -34,9 +36,19 @@ from tg_agent_shell.media.library import (
     DESCRIPTION_EXCHANGES,
     DESCRIPTION_MAX_WORDS,
     RELOOK_INSTRUCTIONS,
+    ChatMedia,
     Photo,
+    rename_media,
 )
+from tg_agent_shell.media.proposal import MediaProposalHandler
 from tg_agent_shell.media.telegram import photo_message, send_photo_screen
+from tg_agent_shell.proposals.api import (
+    ApplyContext,
+    ChangeAction,
+    ProposalChange,
+    ToolPreparationError,
+)
+from tg_agent_shell.proposals.prepare import ChangePreparer
 from tg_agent_shell.telegram import dismiss_prior_ui, open_citation, render_citations
 from tg_agent_shell.telegram.services import OwnerAndWritingMiddleware
 
@@ -323,6 +335,73 @@ async def test_a_photo_the_answer_points_at_opens_as_that_photo(wallet_bot):
             select(TelegramMessage).where(TelegramMessage.message_id == shown)
         )
     assert kept.kind not in CONVERSATION_KINDS
+
+
+@pytest.mark.parametrize("decision", ["proposal_approve", "proposal_reject"])
+async def test_a_photo_label_can_be_corrected_without_attaching_it(wallet_bot, decision):
+    """TG-RENAME-039 — tests/brd/tg_agent_shell/telegram_history.feature"""
+    running = await wallet_bot.start(
+        route_turn("bookkeeper"),
+        mutation_turn(("rename_media", {"media_id": 1, "meta": "Рыжий кот на окне"})),
+        answer("Decided."),
+        answer("Done."),
+    )
+    (media_id,) = await keep_photos(running, "Кот на окне")
+    running.services.bot_username = "wallet_bot"
+    await take_a_turn(running, f"[Кот на окне](media:{media_id}) Это рыжий кот на окне.")
+
+    async with running.sessions() as session:
+        assert (await session.get(ChatMedia, media_id)).meta == "Кот на окне"
+    screen = running.chat[-1]
+    assert "<s>Кот</s> <b>Рыжий кот</b> на окне" in screen
+    assert "rename_media" not in tool_names(running.provider.requests[0])
+    assert "rename_media" in tool_names(running.provider.requests[1])
+    agents = {agent.name: agent for agent in app.REGISTRY.agents}
+    assert "media" not in agents
+    assert "rename_media" not in agents["auditor"].mutation_tools
+
+    await press(running, decision)
+
+    expected = "Рыжий кот на окне" if decision == "proposal_approve" else "Кот на окне"
+    async with running.sessions() as session:
+        assert (await session.get(ChatMedia, media_id)).meta == expected
+        assert list(await session.scalars(select(Entry))) == []
+        linked = await render_citations(session, running.services, f"[старое](media:{media_id})")
+    assert f">{expected}</a>" in linked
+    await open_citation(running.message, running.services, f"media-{media_id}")
+    assert running.chat[-1] == expected
+
+
+async def test_a_photo_rename_refuses_missing_and_changed_photos(wallet_bot):
+    """TG-RENAME-039 — tests/brd/tg_agent_shell/telegram_history.feature"""
+    running = await wallet_bot.start()
+    (media_id,) = await keep_photos(running, "Кот на окне")
+    handler = MediaProposalHandler()
+    call = AgentChange(
+        entity="media", action=ChangeAction.UPDATE, id=media_id, values={"meta": "Рыжий кот"}
+    )
+    preparer = ChangePreparer(None, None, app.REGISTRY.proposals)
+    async with running.sessions() as session:
+        context = await preparer.context(session)
+        with pytest.raises(ToolPreparationError) as refused:
+            await handler.prepare(context, call.model_copy(update={"id": 999}))
+        assert refused.value.code == "media_not_found"
+        prepared = await handler.prepare(context, call)
+        assert (await session.get(ChatMedia, media_id)).meta == "Кот на окне"
+        await rename_media(session, media_id, "Спящий кот")
+        await session.commit()
+
+    change = ProposalChange(
+        entity="media",
+        action=ChangeAction.UPDATE,
+        entity_id=media_id,
+        expected_version=prepared.expected_version,
+        values=prepared.values,
+    )
+    async with running.sessions() as session:
+        with pytest.raises(StaleStateError):
+            await handler.apply(ApplyContext(session, frozenset()), change)
+        assert (await session.get(ChatMedia, media_id)).meta == "Спящий кот"
 
 
 def tool_names(request) -> set[str]:
