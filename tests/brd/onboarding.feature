@@ -70,6 +70,8 @@ Feature: Onboarding
       switches
     Then each of them is registered by the application
     And the menu and the switches it lists are the whole of them
+    And it names every Card kind in the definition and in Add
+    And its explanations of links and completion apply to Goals and Actions
 
   Scenario: OB-RETURN-007 — The owner's first message after 14 days away is followed by what still stands
     Given the owner's previous message, typed or spoken, is 14 days old or older

@@ -13,8 +13,13 @@ from safwa.features.cards.telegram import (
     render_card_creation,
     sanitize_card_creation_state,
 )
-from safwa.features.cards.telegram.thoughts import command_thoughts
-from safwa.features.cards.use_cases import create_card, toggle_card_tag, update_card_fields
+from safwa.features.cards.telegram.thoughts import THOUGHTS_PAGE_SIZE, command_thoughts
+from safwa.features.cards.use_cases import (
+    create_card,
+    delete_card,
+    toggle_card_tag,
+    update_card_fields,
+)
 from safwa.features.profile.agent import profile_now
 from safwa.features.profile.model import ProfileField, UserProfile
 from safwa.features.profile.telegram.screens import command_profile
@@ -42,7 +47,7 @@ async def test_thoughts_list_opens_cards_refreshes_and_returns_to_menu(sessions)
     callback.data = "nav:thoughts"
     await navigation(callback, services)
     body, markup = message.edits[-1]
-    assert "<b>Thoughts</b>" in body and "2 matching cards" in body
+    assert "<b>Thoughts</b> · 2 · page 1/1" in body
     assert button_texts(markup) == ["💭 Z first", "💭 A second", "↻ Refresh", "↩️ Menu"]
     await press(services, message, markup, "💭 Z first")
     assert "Quality Plan" in button_texts(message.edits[-1][1])
@@ -54,15 +59,57 @@ async def test_thoughts_list_opens_cards_refreshes_and_returns_to_menu(sessions)
         await session.commit()
     await press(services, message, message.edits[-1][1], "↻ Refresh")
     assert button_texts(message.edits[-1][1]) == ["💭 Renamed", "↻ Refresh", "↩️ Menu"]
-    assert "1 matching card" in message.edits[-1][0]
+    assert "· 1 · page 1/1" in message.edits[-1][0]
 
 
 async def test_empty_thoughts_list_has_refresh_and_menu(sessions):
     """SR-INBOX-014 — tests/brd/saved_requests.feature"""
     message = FakeMessage(192, bot_message=True)
     await command_thoughts(message, services_for(sessions))
-    assert "0 matching cards" in message.edits[-1][0]
+    assert "· 0 · page 1/1" in message.edits[-1][0]
     assert button_texts(message.edits[-1][1]) == ["↻ Refresh", "↩️ Menu"]
+
+
+async def test_thoughts_pages_keep_order_and_back_position_and_clamp_after_deletion(sessions):
+    """SR-INBOX-014 — tests/brd/saved_requests.feature
+    SC-PAGE-007 — tests/brd/tg_agent_shell/screens.feature
+    """
+    async with sessions() as session:
+        thoughts = [
+            await create_card(session, kind="thought", title=f"Idea {index:02d}")
+            for index in range(THOUGHTS_PAGE_SIZE + 1)
+        ]
+        await session.commit()
+    services = services_for(sessions)
+    message = FakeMessage(193, bot_message=True)
+    await command_thoughts(message, services)
+    body, markup = message.edits[-1]
+    assert "page 1/2" in body
+    assert button_texts(markup) == [
+        *(f"💭 {thought.title}" for thought in thoughts[:-1]),
+        "Next ▶", "↻ Refresh", "↩️ Menu",
+    ]
+    await press(services, message, markup, "Next ▶")
+    body, markup = message.edits[-1]
+    assert "page 2/2" in body
+    assert button_texts(markup) == [
+        f"💭 {thoughts[-1].title}", "◀ Previous", "↻ Refresh", "↩️ Menu",
+    ]
+    await press(services, message, markup, f"💭 {thoughts[-1].title}")
+    assert "Quality Plan" in button_texts(message.edits[-1][1])
+    await press(services, message, message.edits[-1][1], "↩️ Back")
+    assert "page 2/2" in message.edits[-1][0]
+    await press(services, message, message.edits[-1][1], "◀ Previous")
+    assert "page 1/2" in message.edits[-1][0]
+    await press(services, message, message.edits[-1][1], "Next ▶")
+    async with sessions() as session:
+        await delete_card(session, thoughts[-1].id)
+        await session.commit()
+    await press(services, message, message.edits[-1][1], "↻ Refresh")
+    assert "page 1/1" in message.edits[-1][0]
+    assert button_texts(message.edits[-1][1]) == [
+        *(f"💭 {thought.title}" for thought in thoughts[:-1]), "↻ Refresh", "↩️ Menu",
+    ]
 
 
 async def test_manual_save_and_full_editor_show_only_thought_fields(sessions):

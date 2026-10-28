@@ -110,9 +110,12 @@ Feature: Saved Requests
   Scenario: SR-INBOX-014 — The Menu's Thoughts list replaces the capture Request
     Given the owner opens Thoughts from Menu
     Then it lists Thoughts oldest first, without requiring a saved Request
+    And it shows THOUGHTS_PAGE_SIZE = 25 per page, the current page and the number of pages
+    And Previous and Next reach every Thought by SC-PAGE-007
     And a Tag named "Inbox" on an Action does not put that Action in the selection
     And editing a Thought leaves it in the selection
-    And a Thought opens its saved screen and comes back to this list
+    And a Thought opens its saved screen and comes back to the same page of this list
     And Refresh reads the list again and Menu returns to the menu
+    And Refresh returns to the last remaining page if deletion emptied the current page
     And an empty list still offers Refresh and Menu
     And a new workspace has no default Request named "Thoughts"

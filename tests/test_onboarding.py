@@ -21,6 +21,7 @@ from ui_harness import FakeMessage, kind_of, services_for
 
 from safwa.bootstrap.modules import AGENTS, FEATURE_COMMANDS, PROPOSALS, REGISTRY
 from safwa.features.cards.hooks import BLOCKER_HOOK
+from safwa.features.cards.model import CardKind
 from safwa.features.cards.use_cases import finish_action
 from safwa.features.checks.use_cases import resolve_check
 from safwa.features.onboarding.agent import MANUAL, ONBOARDING_AGENT
@@ -753,6 +754,11 @@ def test_ob_manual_006_the_manual_names_only_what_the_application_registers():
     named_switches = next(
         line for line in MANUAL.splitlines() if line.startswith("- Hooks:")
     )
+    kinds = next(line for line in MANUAL.splitlines() if line.startswith("- A Card is "))
+    creation = next(line for line in MANUAL.splitlines() if line.startswith('- With buttons: "➕ Add"'))
+    for kind in CardKind:
+        assert kind.value.title() in kinds.split(".", 1)[0]
+        assert kind.value.title() in creation.split(".", 1)[0]
 
     assert named_commands and named_commands <= commands
     assert set(re.findall(r'route\("([a-z_]+)"\)', ONBOARDING_AGENT.instructions)) <= routes

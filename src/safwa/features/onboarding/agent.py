@@ -61,7 +61,7 @@ MANUAL = f"""# Safwa
 - Once the plan is agreed, the conversation leaves the chat and the plan comes back as one message. Say yes, and the Advisor proposes each item on its own review screen.
 
 # Cards
-- A Card is a Goal or an Action. A Card may stand under one Goal or several, its parents. A Goal with no parent is root-level; with a parent it is displayed as a Subgoal. An Action may stand under any Goals or alone and has no children.
+- A Card is a Goal, an Action or a Thought. A Goal or an Action may stand under one Goal or several, its parents. A Goal with no parent is root-level; with a parent it is displayed as a Subgoal. An Action may stand under any Goals or alone and has no children.
 - Goal markers count Goal levels including the Card itself: 🎯 for one level, 🎯² for two, 🎯³ for three, and so on. Actions do not count.
 - Cards stand at most {CARD_TREE_DEPTH_MAX} levels deep along any path, counting the root as 1 and including Actions. A Card cannot be placed under itself or its descendants.
 - Goals name a specific, attainable, meaningful result, with a verifiable completion criterion in Note; Deadline is optional. A Subgoal contributes to each parent's result. Unclear results or criteria are clarified before proposing. Directions are Values; ongoing practices are repeating Actions or Checks.
@@ -85,18 +85,18 @@ MANUAL = f"""# Safwa
 - Clear Schedule with "off" on the current instance to stop repetition. Deleting it also stops the plan. Past instances still count; the final Action can be reopened.
 - A Schedule or Deadline with a time still ahead opens on "🔔 Remind" and "✏️ Edit"; any other opens the editor. Remind offers Off, At the time, 15 minutes, 1 hour or 1 day before, and "✏️ Other" for minutes typed, up to a day. It makes a Reminder that fires that long before each time and follows the Card or Check: its next copy, a changed Schedule or title. A time whose lead has already passed is reminded at once. Safwa turns it on when asked: "remind me an hour before". Off, or deleting that Reminder, stops it.
 - Ask the Advisor for scheduled work and progress: planned, done and remaining counts for the asked dates, the current Sprint and all time.
-- Blocked is a warning on an Action, with its reason. It stops nothing.
+- Blocked is a warning on an Action or a Thought, with its reason. It stops nothing.
 - A repeating Action makes its next copy when it is finished.
 - A repeating Action or Check left open moves on to each new day or period; the one it leaves gets no answer and no Missed. An answer counts for the period it is given in.
 - A Done Card is archived two Sprints later, or by hand. It still counts.
-- In words: create, change, move, finish, place under another Goal or take it from one, delete.
+- In words, for Goals and Actions: create, change, move, finish, place under another Goal or take it from one, delete.
 - Deleting a Card deletes only it. The Cards under it lose that parent and keep their others; one left with none becomes root-level. The Advisor then asks where to put those, offering the Goals the deleted Card stood under. Cards without a parent in Profile → Hooks switches this off or on.
-- With buttons: "➕ Add" creates a Goal or an Action. "🗂 Dashboard" shows Sprint, Today and Done side by side, 10 of each: Sprint and Today in Card order, Done finished last first; one button switches between Actions and Goals, ✓ marking the one shown. Its "📚 Backlog · N" lists the Backlog 10 to a page. Its "🌌 Constellation" sends the whole tree as one picture, a file to zoom into: the Values as stars above, the Goals under them, the Actions at the bottom, and what Compass would ask about ringed in red. Each title there is a link that opens its Card. On a Card: "✅ Done", "📍 Stage", "☑️ Checks", and "✏️ Full editing" for every field, its Values and Tags, "Archive" and "Delete". Its Parents, Values and Tags are links in its words. "Children" counts 🎯 Goals and ⭐️ Actions under it, with EP done of all while EP are on, and opens them as a list.
-- Not with buttons: placing a Card under a Goal, taking it from one, or making a Subgoal. Ask the Advisor; it places or takes one parent at a time.
+- With buttons: "➕ Add" creates a Goal, an Action or a Thought. "🗂 Dashboard" shows Sprint, Today and Done side by side, 10 of each: Sprint and Today in Card order, Done finished last first; one button switches between Actions and Goals, ✓ marking the one shown. Its "📚 Backlog · N" lists the Backlog 10 to a page. Its "🌌 Constellation" sends the whole tree as one picture, a file to zoom into: the Values as stars above, the Goals under them, the Actions at the bottom, and what Compass would ask about ringed in red. Each title there is a link that opens its Card. On a Goal or an Action: "✅ Done", "📍 Stage", "☑️ Checks", and "✏️ Full editing" for every field, its Values and Tags, "Archive" and "Delete". Its Parents, Values and Tags are links in its words. "Children" counts 🎯 Goals and ⭐️ Actions under it, with EP done of all while EP are on, and opens them as a list.
+- Not with buttons: placing a Goal or an Action under a Goal, taking it from one, or making a Subgoal. Ask the Advisor; it places or takes one parent at a time.
 - Not at all: moving an Action straight to Done. Finish it with "✅ Done".
 
 # Thoughts
-- A Thought keeps a note, idea or draft with only Title, Note and Blocked description. Open Menu → Thoughts; oldest comes first.
+- A Thought keeps a note, idea or draft with only Title, Note and Blocked description. Open Menu → Thoughts; oldest comes first. "◀ Previous" and "Next ▶" change pages; Back from a Thought returns to its page.
 - Quality Plan opens Blueprint with its contents. Direct Create asks Mutator to carry out its contents. Both are on its proposal and its saved screen.
 - On a proposal, these buttons leave the Thought unsaved. A saved Thought stays until deleted. New items still need Save.
 - Thoughts by default in Profile is off at first. On, new items are Thoughts unless you request another type, accept a Blueprint plan or choose Direct Create. Tags, Requests and edits keep their ordinary behavior.
@@ -117,25 +117,25 @@ MANUAL = f"""# Safwa
 
 # Checks
 - A Check asks whether something held: "posture straight?", or "milk" under "Go to the market". It is an observation, not a task: no effort, no stage.
-- It hangs on one Card or on none. It is Pending until it is answered Passed or Missed.
+- It hangs on one Goal or Action, or on none. It is Pending until it is answered Passed or Missed.
 - A Check with its own Schedule hangs on a Goal or on no Card. Its next copy opens when answered; on a Goal, only while the Goal is open, and finishing the Goal asks for its last answer. Checks on an Action follow that Action's cycle.
-- A Card is Done only when each Check on it has an answer; "✅ Done" opens the closing screen: an answer for each Check, and "⌛ Time spent" and "🔢 Effort" when they are on. Nothing is written until "✅ Save".
-- In words: create, rename, put on a Card, answer, delete.
+- A Goal or an Action is Done only when each Check on it has an answer; "✅ Done" opens the closing screen: an answer for each Check, and "⌛ Time spent" and "🔢 Effort" when they are on. Nothing is written until "✅ Save".
+- In words: create, rename, put on a Goal or an Action, answer, delete.
 - With buttons: "☑️ Checks" on its Card, counting answered of all; on the Check, "✅ Yes" answers Passed and "❌ No" answers Missed, "📝 Note", "⏱ Schedule", "💎 Values", "🗑 Delete". "Answered: ✅8 · ❌2" opens the series' answers, newest first.
-- Not with buttons: creating a Check, or putting it on a Card. Ask the Advisor.
+- Not with buttons: creating a Check, or putting it on a Goal or an Action. Ask the Advisor.
 - After a Check is created, Safwa silently checks that it marks a fact answered yes or no — a state, a result or a habit done — and is about its Card's result. "Did I exercise?" every morning tracks a habit; "Was I a good father?" needs a fact that shows it. If something clearly does not fit, the Advisor says the Check could be improved, suggests the change with its reason, and asks. Check review in Profile → Hooks switches this off or on.
 
 # Values and Tags
-- A Value is what the user lives by: "📖 Endless learning". It has a name and a description: why it matters and what the user does for it on an ordinary day. A vivid name and description make it clearer what the user wants; the Advisor helps word them from the user's own words. A Card carries a Value when it serves it; a Check carries one when it shows how well it is held. A Value is in focus while a Card in Today carries it, including Goals above its Actions, or a Check linked to it is scheduled for today and still needs an answer. The Advisor reads every Value. A Value's or a Tag's description holds at most {DESCRIPTION_MAX_CHARS} characters.
+- A Value is what the user lives by: "📖 Endless learning". It has a name and a description: why it matters and what the user does for it on an ordinary day. A vivid name and description make it clearer what the user wants; the Advisor helps word them from the user's own words. A Goal or an Action carries a Value when it serves it; a Check carries one when it shows how well it is held. A Value is in focus while a Card in Today carries it, including Goals above its Actions, or a Check linked to it is scheduled for today and still needs an answer. The Advisor reads every Value. A Value's or a Tag's description holds at most {DESCRIPTION_MAX_CHARS} characters.
 - {_LINK} Explain unclear links in Note.
 - After a Value is created, Safwa silently checks that it is a direction the user lives by, not a result, a practice, a feeling, a means or a rule, and that its description says what the user does for it. If not, the Advisor says the Value could be improved and asks with advice. It may offer a short exercise. Value clarification in Profile → Hooks switches this off or on.
 - After linking a Value, Safwa silently checks this direction. If unclear or reversed, it asks the user to clarify Note. It may suggest a possible explanation for the user to confirm. Value link clarification in Profile → Hooks switches this off or on.
 - After a Value is taken off an item or deleted, Safwa silently reads each Note that may still mention it. If one does, the Advisor proposes that Note without that part, to save or discard. Value unlink cleanup in Profile → Hooks switches this off or on.
 - Compass looks at the whole tree of Values, Goals, Actions and Checks: a root Goal that serves no Value, a Goal with {GOAL_VALUES_MANY} Values or more, a Value no open item carries, a Value that is really a Goal, a practice or a rule, a reversed link, two Values with one root. Ask the Advisor whether the Values, Goals or links are set right, which Value an item serves, or where it belongs. Compass names at most {COMPASS_FINDINGS_MAX} things, asks about each, and changes nothing itself. Ask it to show the tree, or the part one Value or Goal is on, as a picture.
 - Every {COMPASS_REVIEW_DAYS} days in the Morning, Safwa looks at the whole tree. If something stands out, Compass names it and asks whether to go through it together. Compass review in Profile → Hooks switches this off or on.
-- A Tag is a free label on Cards, to find them together later. It helps most for what no field says, such as a place, a means or a person: Home, Phone, Anna.
-- In words: create, rename, put on a Card, delete.
-- With buttons: "💎 Values" or /values, and "🏷 Tags" or /tags: "➕ Add Value", "➕ Add Tag", rename and delete. A Value is created once it has a name and a description. On a Card, "✏️ Full editing" puts them on. "Linked Cards" on a Value or a Tag counts its Cards as "Children" does and opens them as a list.
+- A Tag is a free label on Goals and Actions, to find them together later. It helps most for what no field says, such as a place, a means or a person: Home, Phone, Anna.
+- In words: create, rename, put on a Goal or an Action, delete.
+- With buttons: "💎 Values" or /values, and "🏷 Tags" or /tags: "➕ Add Value", "➕ Add Tag", rename and delete. A Value is created once it has a name and a description. On a Goal or an Action, "✏️ Full editing" puts them on. "Linked Cards" on a Value or a Tag counts its Cards as "Children" does and opens them as a list.
 - Set a Value's place by asking the Advisor or pressing "↕️ Prioritize" on Values. Tap a Value to select it; tap it again to clear. ↑/↓ saves a move; ←/→ turns pages; Back exits. Places are 1..N, 1 highest; other Values shift automatically. Values and Advisor context follow this order.
 
 # Requests
@@ -233,7 +233,7 @@ Your answer goes to the user as you wrote it.
 The newest message starts with "Onboarding." and lists what the user just did, each item cited with its state. Other requests in it are not yours.
 Write the tip as its own section. Start it with the words "Onboarding tip:", then write in the user's language:
 - what happened, in their words, not the system's — one line;
-- what this makes possible now, on these very items: the screen it lives on, the button, or the words to say — one to three lines. Prefer what is not done yet: a Card with no Check, a Goal with no Value, Actions waiting with no Sprint.
+- what this makes possible now, on these very items: the screen it lives on, the button, or the words to say — one to three lines. Prefer what is not done yet: a Goal or an Action with no Check, a Goal with no Value, Actions waiting with no Sprint.
 If the conversation already shows a tip about this kind of item, write one short line only.
 Ask nothing. Your answer goes to the user as you wrote it."""
 

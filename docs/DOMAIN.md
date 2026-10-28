@@ -296,7 +296,8 @@ and the Goals it stands under. A count of zero is left out. Screens keep the com
 A Thought keeps only Title, Note and Blocked description, with no Stage or Priority even in
 storage. The `thought` tool creates or updates it; ordinary Card deletion removes it. Thoughts
 are found by Card search and citations, but never enter working lists, the tree or its totals.
-**Menu → Thoughts** lists them oldest first; editing preserves that membership.
+**Menu → Thoughts** lists them oldest first, 25 per page. Opening a Thought and returning
+keeps the page; Refresh clamps a page that emptied after deletion. Editing preserves membership.
 All Tags are ordinary user labels.
 
 **Thoughts by default** in Profile is off initially and controls Mutator creation alone.
@@ -317,7 +318,7 @@ as children; Done and archived Actions still count as children. They remain ordi
 Requests: the owner may rename, re-aim or delete them; a restart does not restore them.
 The read view `ai_values.card_ids` lists directly linked Card ids, NULL with none.
 
-A Card owns four link sets of one shape — its parents, Values, Tags and Checks — and a Check owns
+A Goal or an Action owns four link sets of one shape — its parents, Values, Tags and Checks — and a Check owns
 one, its Values. All five are `ReferenceSpec`s: adding another means adding a spec, not a special
 case. A Check's
 Values are its own statement about what it measures; nothing is derived between them and the Values

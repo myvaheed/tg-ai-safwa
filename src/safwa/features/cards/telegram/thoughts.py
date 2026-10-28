@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from aiogram.types import InlineKeyboardButton, Message
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,35 +13,57 @@ from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.proposals.api import ChangeAction, ProposalAction, ProposalChange
 from tg_agent_shell.proposals.model import BatchDecision
-from tg_agent_shell.telegram import Place, Services, send_registered, token_button
+from tg_agent_shell.telegram import (
+    Place,
+    Services,
+    back_button,
+    paginate,
+    paging_row,
+    place_button,
+    send_registered,
+    token_button,
+)
 from tg_agent_shell.telegram.chat import dismiss_prior_ui, send_owner_turn
 from tg_agent_shell.telegram.dialogue import run_dialogue_turn
 from tg_agent_shell.telegram.services import CallbackContext
 from tg_agent_shell.telegram.subsessions import EXIT_RESULT, finish_subsession
 
 from ..model import Card, CardKind
-from .lists import card_results
+from .presentation import item_button_label
 
 QUALITY_PLAN = "Quality Plan"
 DIRECT_CREATE = "Direct Create"
+THOUGHTS_PAGE_SIZE = 25
 
 
-async def command_thoughts(message: Message, services: Services) -> None:
-    here = Place("thought_list")
+async def command_thoughts(message: Message, services: Services, *, page: int = 0) -> None:
     async with services.sessions() as session:
         cards = list(await session.scalars(
             select(Card).where(Card.kind == CardKind.THOUGHT).order_by(Card.created_at, Card.id)
         ))
-        count, markup = await card_results(session, services, cards, here, None, ordered=True)
+        shown = paginate(cards, page, THOUGHTS_PAGE_SIZE)
+        here = Place("thought_list", {"page": shown.index})
+        rows = [
+            [await place_button(
+                session, services.owner_id, await item_button_label(session, card),
+                here.child("card_view", id=card.id),
+            )]
+            for card in shown.items
+        ]
+        rows.extend(await paging_row(session, services.owner_id, shown, here))
+        rows.append([await place_button(session, services.owner_id, "↻ Refresh", here)])
+        rows.append([await back_button(session, services.owner_id, None)])
         await session.commit()
     await send_registered(
-        message, services, f"<b>Thoughts</b>\n\n{count}",
-        kind=MessageKind.DASHBOARD, markup=markup,
+        message, services, f"<b>Thoughts</b> · {len(cards)} · {shown.label}",
+        kind=MessageKind.DASHBOARD, markup=InlineKeyboardMarkup(inline_keyboard=rows),
     )
 
 
 async def on_thought_list(context: CallbackContext) -> None:
-    await command_thoughts(context.message, context.services)
+    await command_thoughts(
+        context.message, context.services, page=int(context.payload.get("page", 0))
+    )
 
 
 def thought_actions(change: ProposalChange) -> tuple[tuple[ProposalAction, ...], ...]:

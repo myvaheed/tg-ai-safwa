@@ -36,7 +36,7 @@ def answer_run(answers: Sequence[Any], outcome: str) -> list[Any]:
 CHECK = Method(
     name="Check",
     definition=(
-        "Check: a yes/no fact to mark, on one Card or on none. "
+        "Check: a yes/no fact to mark, on one Goal or Action, or on none. "
         "A repeating Check of a habit is its tracker."
     ),
     criteria=(
