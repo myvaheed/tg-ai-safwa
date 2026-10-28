@@ -83,6 +83,7 @@ async def test_background_gate_does_not_start_work_while_foreground_is_active() 
 
     assert await guard.run_background(background) is None
     assert called is False
+    assert guard.source_message_id == 101
 
 
 async def test_background_gate_invalidates_currentness_after_dialogue_revision_changes() -> None:

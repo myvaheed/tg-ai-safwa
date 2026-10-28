@@ -45,8 +45,10 @@ asr-cuda = [
   "nvidia-cudnn-cu12>=9.1,<10",
 ]
 dev = [
+  "coverage>=7.10.6,<8",
   "pytest>=8.3,<9",
   "pytest-asyncio>=0.25,<1",
+  "pytest-cov>=7.1,<8",
   "pytest-xdist>=3.6,<4",
   "respx>=0.22,<1",
   "ruff>=0.9,<1",
@@ -82,6 +84,15 @@ markers = [
 line-length = 100
 target-version = "py312"
 extend-exclude = ["telegram-bot-exampler"]
+
+[tool.coverage.run]
+source = ["src", "examples"]
+branch = true
+relative_files = true
+patch = ["subprocess"]
+
+[tool.coverage.html]
+show_contexts = true
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

@@ -260,59 +260,6 @@ async def test_reconcile_is_a_no_op_when_the_timezone_has_not_moved(sessions):
 # --- the guard ------------------------------------------------------------
 
 
-def test_a_background_lease_is_marked_background():
-    """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
-    turn = TurnManager()
-    assert turn.try_begin_background() is True
-    assert turn.active and turn.background
-
-
-def test_an_owner_lease_is_not_background():
-    """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
-    turn = TurnManager()
-    turn.try_begin(101)
-    assert turn.active and not turn.background
-
-
-def test_a_background_lease_never_steals_from_the_owner():
-    """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
-    turn = TurnManager()
-    turn.try_begin(101)
-    assert turn.try_begin_background() is False
-    assert turn.source_message_id == 101
-
-
-def test_releasing_a_background_lease_gives_the_turn_back():
-    """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
-    turn = TurnManager()
-    turn.try_begin_background()
-    turn.end_background(turn.dialogue_revision)
-    assert not turn.active and not turn.background
-
-
-def test_cancelling_a_background_lease_bumps_the_dialogue_revision():
-    """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
-    # That bump is how the running turn learns it lost and must discard its answer.
-    turn = TurnManager()
-    turn.try_begin_background()
-    revision = turn.dialogue_revision
-    turn.cancel()
-    assert turn.dialogue_revision != revision
-    assert not turn.active
-    assert turn.try_begin(101) is True  # the owner can take it immediately
-
-
-def test_ending_background_work_cannot_take_the_owners_turn():
-    """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
-    turn = TurnManager()
-    turn.try_begin_background()
-    lease = turn.dialogue_revision
-    turn.cancel()
-    turn.try_begin(101)
-    turn.end_background(lease)
-    assert turn.source_message_id == 101
-
-
 def test_old_background_work_never_gives_back_a_lease_taken_by_something_else():
     """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
     turn = TurnManager()
