@@ -142,8 +142,6 @@ async def test_ws_context_004_the_advisor_reads_it_always_and_a_subagent_only_wh
     assert "Workspace mode: sprint" in answering
     assert "Workspace mode: sprint" in asked
     assert "Workspace mode: sprint" not in did_not
-    # The one that changes the workspace asks for it; the one that writes days does not.
-    assert MUTATOR_AGENT.workspace_state is True
     assert DIARY_AGENT.workspace_state is False
 
 

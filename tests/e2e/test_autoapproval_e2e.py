@@ -158,7 +158,8 @@ async def test_one_unlisted_change_shows_the_whole_proposal(e2e_harness):
     # Finishing is not on the list, so the reviewer is never asked about the rename either.
     assert len(provider.calls) == 2
     async with e2e_harness.sessions() as session:
-        assert (await session.get(Card, card.id)).title == "Buy milk"
+        stored = await session.get(Card, card.id)
+        assert (stored.title, stored.effective_stage) == ("Buy milk", "backlog")
 
 
 async def test_creation_is_never_autoapproved(e2e_harness):
@@ -212,43 +213,6 @@ async def test_reviewer_doubt_leaves_the_original_proposal_pending(e2e_harness):
         assert (await session.get(Tag, tag.id)).name == "Work"
         proposal = advisor.reviews.proposal(outcome.proposal_id)
         assert proposal is not None
-
-
-async def test_batch_is_reviewed_head_first_without_a_bulk_block(e2e_harness):
-    """PR-AUTO-027 — tests/brd/tg_agent_shell/proposals.feature"""
-    async with e2e_harness.sessions() as session:
-        tag = await create_tag(session, name="Work")
-        value = await create_value(session, name="Freedom", description="What matters to me")
-        await session.commit()
-    advisor, provider = e2e_harness.advisor(
-        [
-            route_turn("workspace_mutator"),
-            mutation_turn(
-                ("tag", {"mode": "update", "id": tag.id, "name": "Career"}),
-                ("value", {"mode": "update", "id": value.id, "name": "Autonomy"}),
-            ),
-            review_turn("autoapprove", "The requested Tag name is exact."),
-            review_turn("require_review", "The requested Value needs manual review."),
-        ],
-        autoapprove=True,
-    )
-
-    outcome = await advisor.handle("Rename the Work tag to Career and the Freedom value")
-
-    assert outcome.kind is AIOutcomeKind.PROPOSAL
-    assert outcome.proposal_id is not None
-    assert len(provider.calls) == 4
-    async with e2e_harness.sessions() as session:
-        # Kept like the owner's Save, and written with the rest once the queue ends.
-        assert (await session.get(Tag, tag.id)).name == "Work"
-        assert (await session.get(Value, value.id)).name == "Freedom"
-        batch = next(iter(advisor.reviews.open_batches), None)
-        assert batch is not None
-        assert [item.decision for item in batch.state.items] == [
-            "approved",
-            "pending",
-        ]
-        assert batch.state.items[0].notes["approval_source"] == "auto"
 
 
 async def test_next_head_is_autoapproved_after_a_manual_save(e2e_harness):
@@ -314,27 +278,6 @@ async def test_multi_step_request_can_be_autoapproved_one_proposal_at_a_time(e2e
     async with e2e_harness.sessions() as session:
         assert (await session.get(Card, card.id)).title == "Enrol"
         assert await session.get(CardTag, (card.id, tag.id)) is not None
-
-
-async def test_non_allowlisted_operation_does_not_call_the_reviewer(e2e_harness):
-    """PR-AUTO-025 — tests/brd/tg_agent_shell/proposals.feature"""
-    card = await action(e2e_harness)
-
-    advisor, provider = e2e_harness.advisor(
-        [
-            route_turn("workspace_mutator"),
-            mutation_turn(("action", {"mode": "complete", "id": card.id})),
-        ],
-        autoapprove=True,
-    )
-
-    outcome = await advisor.handle("Finish Buy milk")
-
-    assert outcome.kind is AIOutcomeKind.PROPOSAL
-    assert len(provider.calls) == 2
-    async with e2e_harness.sessions() as session:
-        stored = await session.get(Card, card.id)
-        assert stored is not None and stored.effective_stage == "backlog"
 
 
 async def test_a_requested_move_is_autoapproved(e2e_harness):
@@ -424,3 +367,4 @@ async def test_the_third_in_a_queue_is_not_read_while_the_second_is_on_screen(e2
         batch = next(iter(advisor.reviews.open_batches), None)
         assert batch is not None
         assert [item.decision for item in batch.state.items] == ["approved", "pending", "pending"]
+        assert batch.state.items[0].notes["approval_source"] == "auto"

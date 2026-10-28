@@ -281,11 +281,11 @@ async def test_safwas_own_request_is_not_read_and_a_failed_check_lets_the_answer
 
 
 async def after_a_change(
-    e2e_harness, request: str, decision: BatchDecision, then: list[str]
+    e2e_harness, request: str, decision: BatchDecision, then: list[str], *, request_review: bool = True
 ) -> tuple[AIOutcome | None, ScriptedProvider]:
-    """The request review on, one Action proposed for `request` and decided, then `then`."""
+    """One Action proposed for `request` and decided, then `then`."""
     advisor, provider = e2e_harness.advisor(
-        [route_turn("workspace_mutator"), mutation_turn(PULL_UPS)], request_review=True
+        [route_turn("workspace_mutator"), mutation_turn(PULL_UPS)], request_review=request_review
     )
     first = await advisor.handle(request, source_message_id=1)
     assert first.kind is AIOutcomeKind.PROPOSAL
@@ -361,7 +361,11 @@ async def test_a_request_that_made_no_change_is_not_read(e2e_harness):
 
 async def test_request_review_off_reads_no_answer(e2e_harness):
     """AG-DONE-045 — tests/brd/tg_agent_shell/agents.feature"""
-    advisor, provider = e2e_harness.advisor(["Ответ."])
+    outcome, provider = await after_a_change(
+        e2e_harness, REQUEST, BatchDecision.APPROVED, ["Карточка создана.", "Ответ."],
+        request_review=False,
+    )
 
-    assert (await advisor.handle("Как дела?", source_message_id=1)).message == "Ответ."
-    assert len(provider.calls) == 1
+    assert outcome is not None and "Ответ." in outcome.message
+    assert len(provider.calls) == 4
+    assert not [call for call in provider.calls if call[0]["content"] == REQUEST_REVIEW_PROMPT]

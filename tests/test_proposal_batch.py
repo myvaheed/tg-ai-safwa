@@ -170,7 +170,3 @@ def test_a_kept_save_carries_its_notes_and_a_late_press_changes_nothing():
     assert effects == () and kept.items[0].notes == {"destructive": True}
     # A press on a screen already answered hands the very same state back.
     assert reduce(kept, DecideAction(1, DISCARDED))[0] is kept
-
-
-def test_a_batch_with_nothing_left_to_answer_has_no_head():
-    assert batch(item(1, APPROVED), item(2, DISCARDED)).head is None

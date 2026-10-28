@@ -154,23 +154,18 @@ def _entry_result(running) -> dict[str, Any]:
     raise AssertionError("the entry call was never answered")
 
 
-async def test_a_switch_is_a_button_above_the_decision(wallet_bot, monkeypatch):
-    """PR-SWITCH-037 — tests/brd/tg_agent_shell/proposals.feature"""
-    running, _memos = await _proposed(wallet_bot, monkeypatch, _memo_of())
-
-    assert "Ledger entry" in running.chat[-1]
-    assert _buttons(running) == [KEEP_AS_MEMO, "✅ Create", "🗑 Discard"]
-
-
 async def test_saving_the_switched_proposal_writes_the_other_call_and_answers_the_first(
     wallet_bot, monkeypatch
 ):
     """PR-SWITCH-037 — tests/brd/tg_agent_shell/proposals.feature"""
     running, memos = await _proposed(wallet_bot, monkeypatch, _memo_of(), answer="Kept a memo.")
+    assert "Ledger entry" in running.chat[-1]
+    assert _buttons(running) == [KEEP_AS_MEMO, "✅ Create", "🗑 Discard"]
 
     await press(running, "proposal_switch")
     assert "Memo" in running.chat[-1] and "Lunch" in running.chat[-1]
     assert "Ledger entry" not in running.chat[-1]
+    assert memos.conversations == [""]
     await press(running, "proposal_approve")
 
     async with running.sessions() as session:
@@ -189,17 +184,6 @@ async def test_saving_the_switched_proposal_writes_the_other_call_and_answers_th
     assert switched["saved"] == "Keep the memo “Lunch”"
     assert "Kept a memo." in running.chat[-1]
     assert len(running.provider.requests) == 5
-
-
-async def test_ag_session_063_a_switched_call_is_prepared_with_no_conversation(
-    wallet_bot, monkeypatch
-):
-    """AG-SESSION-063 — tests/brd/tg_agent_shell/agents.feature"""
-    running, memos = await _proposed(wallet_bot, monkeypatch, _memo_of())
-
-    await press(running, "proposal_switch")
-
-    assert memos.conversations == [""]
 
 
 async def test_a_refused_switch_leaves_the_proposal_as_it_was(wallet_bot, monkeypatch):

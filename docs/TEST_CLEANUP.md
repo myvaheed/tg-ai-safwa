@@ -9,7 +9,7 @@
 Аудит всего набора завершён, когда для каждой группы поведения рассмотрены проверки всех
 уровней, решения записаны, у каждого удаления названо оставшееся покрытие, а итоговые
 проверки проходят. Зелёный набор и уменьшение количества тестов сами по себе этого не доказывают.
-Завершены инвентаризация, пилот и батчи 1–2 из 10. Батчи 3–10 ещё не выполнены.
+Завершены инвентаризация, пилот и батчи 1–3 из 10. Батчи 4–10 ещё не выполнены.
 
 ## Исходная точка — 28 октября 2026
 
@@ -326,3 +326,105 @@ callback текущести, ответы команды при занятом �
   Ruff проходит, архитектурных нарушений 0, diff не содержит ошибок пробелов.
 - Завершено 2 из 10 батчей. Следующий — Proposals и Save/Discard; его исходная точка
   batch02-final. Неуспешное сравнение первого snapshot batch02 не подменяет принятый результат.
+
+## Батч 3 — Proposals, подготовка и Save/Discard
+
+Область: все 15 файлов третьего батча, 186 исходных случаев. Вход — batch02-final;
+контрольные суммы приложения, настроек и зависимостей сверены до изменений.
+Прочитаны [proposals.feature](../tests/brd/tg_agent_shell/proposals.feature), связанные
+AG-HOOK/AG-SESSION и CD-TREE, раздел Proposals в [AGENT_ARCH.md](AGENT_ARCH.md),
+раздел ответственности Proposal в [FEATURE_MODULES.md](FEATURE_MODULES.md), реализация
+подготовки, материализации, очереди, транзакций и отображения, все тесты области.
+
+### Решения по всей области
+
+| Файлы / семейство | Решение |
+|---|---|
+| [test_proposal_batch.py](../tests/test_proposal_batch.py), [test_proposal_saves.py](../tests/test_proposal_saves.py) | Удалить повтор пустой head; сохранить таблицу разных переходов, порядок head, notes и поздний press. Три проверки настоящей БД отдельно защищают один commit со всеми фактами, rollback всей очереди и отказ устаревшего Save |
+| [test_proposals.py](../tests/test_proposals.py) | Удалить искусственное повторение restart и обычный Save под названием проверки uptime. Сохранить разные отказы archived/not-found, закрытие Sprint, ошибку commit с оставшимся review и отказ автоодобрения, после которого уже нет живой очереди |
+| [test_proposals_e2e.py](../tests/e2e/test_proposals_e2e.py) | Удалить два повторения создания Tag и ремонта зависимой ссылки; перенести assertions в существующее создание Tag с двумя ссылками. Сохранить порядок/группировку очередей, атомарность одного item, разные завершения очереди, повторный вызов после решения, ошибки чтения рядом с mutation, продолжение после Save, destructive confirmation и гонки хода |
+| [test_autoapproval_e2e.py](../tests/e2e/test_autoapproval_e2e.py) | Удалить два подслучая более сильных смешанных/трёхэлементных сценариев. Сохранить create, update/move/link, явное сомнение и недоступность reviewer, последовательное автоодобрение после ручного Save и между ответами модели |
+| [test_review_e2e.py](../tests/e2e/test_review_e2e.py) | Сохранить ReturnProposals/HoldAnswer и review завершённого запроса: ошибка до подготовки не равна ошибке проверки ответа. Усилить выключенный review: теперь есть настоящее одобренное изменение, при котором включённая проверка должна была бы сработать |
+| [test_review_edit_e2e.py](../tests/e2e/test_review_edit_e2e.py), [test_proposal_fields.py](../tests/shell/test_proposal_fields.py) | Сохранить. Выбор, текст, несколько ticks, отказ после изменения БД, истечение editor, возврат к первоначальному значению, смена операции и повторное чтение Schedule имеют разные последствия. Tag/Value/Check/Diary/Reminder проверяют разные точки подключения. Поле, сохранённое подготовкой без значения в call, и страница поля — самостоятельные возможности shell |
+| [test_proposals_ui.py](../tests/test_proposals_ui.py) | Сохранить разные presenter/operations и чистые границы маркировки; сократить два эквивалентных параметра глубины предков. В тесте метки остаются корневой и вложенный родитель, а также собственные ветви высотой 1 и 3. Проверки глубины дерева не объявляются аудитом этого UI-формата |
+| [test_proposal_switch.py](../tests/shell/test_proposal_switch.py), [test_proposal_actions.py](../tests/shell/test_proposal_actions.py), [test_preparation_conversation.py](../tests/shell/test_preparation_conversation.py) | Перенести начальные controls и пустой conversation в уже существующий успешный switch. Сохранить отказ/Discard/непредложенный switch, дополнительный action ровно один раз и передачу исходного conversation обычной подготовке и mini session |
+| [test_wallet_flow.py](../tests/shell/test_wallet_flow.py), [test_wallet_restart.py](../tests/shell/test_wallet_restart.py) | Сохранить реальный путь второго приложения, баланс, отдельный экран Entry, разделение views, ручные editors, ошибочный ввод и restart с устаревшей кнопкой. Удалить повторный подсчёт home: Registry проверяет его при каждом настоящем старте |
+| [test_workspace_mutator.py](../tests/test_workspace_mutator.py) | Сохранить владение tools, допустимые kinds удаления, opt-in контекста, citations, часы, поиск открытых items и имена views в прозе prompts. Проверка прозы не заменяется проверкой объявленного списка views. Настройка настоящего MUTATOR_AGENT остаётся в WS-JUDGE-002; её повторный assertion убран из проверки общего ContextBuilder |
+
+Первая проверка связей обнаружила, что удаление декларационного теста оставило WS-JUDGE-002
+без собственного свидетельства. Тест сохранён; из соседнего WS-CONTEXT-004 убран ровно его
+повторный assertion. Последний проверяет механизм opt-in на заданных RoutedSubagent,
+а первый — настройку настоящего roster. Повторная проверка Workspace/traceability: 78 passed.
+Сценарии и их идентификаторы не менялись; PR-STALE-013 теперь цитирует реальный restart Wallet.
+
+### Удаления и оставшиеся проверки
+
+Имена слева исторические. Все десять удалённых функций были без параметризации.
+
+| Удалённый тест | Оставшееся покрытие и результаты |
+|---|---|
+| tests/test_proposal_batch.py::test_a_batch_with_nothing_left_to_answer_has_no_head | `test_a_batch_moves_only_the_way_the_table_says` в [test_proposal_batch.py](../tests/test_proposal_batch.py) проверяет отсутствие head после закрытия разными решениями, одновременно с решениями каждого item и effects |
+| tests/shell/test_proposal_switch.py::test_a_switch_is_a_button_above_the_decision | `test_saving_the_switched_proposal_writes_the_other_call_and_answers_the_first` в [test_proposal_switch.py](../tests/shell/test_proposal_switch.py) теперь сначала проверяет тот же исходный Ledger entry и точный порядок controls, а затем switch, Save, данные и ответ модели |
+| tests/shell/test_proposal_switch.py::test_ag_session_063_a_switched_call_is_prepared_with_no_conversation | Тот же успешный switch проверяет пустой conversation непосредственно после подготовки, до Save. Обычная передача conversation остаётся в [test_preparation_conversation.py](../tests/shell/test_preparation_conversation.py) |
+| tests/shell/test_wallet_restart.py::test_the_application_publishes_exactly_one_home_screen | `test_a_read_becomes_a_proposal_and_the_owner_decides_it` в [test_wallet_flow.py](../tests/shell/test_wallet_flow.py) действительно запускает приложение с его Registry; обязательный constructor отвергает отсутствие home и дубли навигации до выполнения flow |
+| tests/test_proposals.py::test_startup_clears_what_an_unanswered_review_left_behind | `test_a_button_drawn_before_a_restart_is_refused_rather_than_claimed` в [test_wallet_restart.py](../tests/shell/test_wallet_restart.py) создаёт настоящий review, перезапускает приложение, проверяет abandoned, удалённые tokens и очищенный related_id, затем нажимает старый Save и проверяет отсутствие Entry |
+| tests/test_proposals.py::test_process_uptime_does_not_expire_a_proposal_whose_review_is_still_open | Тест не менял время: это был обычный Save с проверкой отсутствия внутреннего created_at. Успех такого Save проверяет `test_single_tag_proposal_save_and_discard_callbacks_resume_agent` в [test_proposals_e2e.py](../tests/e2e/test_proposals_e2e.py), прямого approve — `test_saving_card_proposal_applies_every_editable_field` в [test_proposals_ui.py](../tests/test_proposals_ui.py). `test_pr_expire_029_a_review_nobody_answered_closes_the_request_for_good` отдельно проверяет действительную границу времени показанного review и отсутствие отсчёта для queued proposal |
+| tests/e2e/test_autoapproval_e2e.py::test_batch_is_reviewed_head_first_without_a_bulk_block | `test_the_third_in_a_queue_is_not_read_while_the_second_is_on_screen` в [test_autoapproval_e2e.py](../tests/e2e/test_autoapproval_e2e.py) проходит тот же Tag/Value префикс, проверяет отсутствие записи, approved/pending/pending и отсутствие третьего review. Перенесена проверка approval_source=auto |
+| tests/e2e/test_autoapproval_e2e.py::test_non_allowlisted_operation_does_not_call_the_reviewer | `test_one_unlisted_change_shows_the_whole_proposal` там же содержит ту же complete рядом с разрешённой update, проверяет отсутствие обращения к reviewer и показ всего proposal. Дополнительно проверяется неизменённый Backlog, как в удалённом тесте |
+| tests/e2e/test_proposals_e2e.py::test_ai_approved_tag_proposal_creates_a_reusable_tag | `test_ai_create_tag_and_links_are_reviewed_as_separate_proposals` в [test_proposals_e2e.py](../tests/e2e/test_proposals_e2e.py) теперь создаёт Tag с описанием, проверяет сохранённые имя/описание и действительно использует Tag в двух связях |
+| tests/e2e/test_proposals_e2e.py::test_new_tag_and_dependent_card_link_use_one_repair_round | Тот же существующий сценарий проверяет отдельные screens, одну ремонтную итерацию по числу provider calls, результат создания с affected_ids, reference_not_found до создания и настоящие CardTag после Save. Перенесены утверждения о первоначальных tool results |
+
+Из `test_cd_tree_002_the_review_screen_shows_the_goal_becoming_a_subgoal` в
+[test_proposals_ui.py](../tests/test_proposals_ui.py) удалены параметры (2, 0, 🎯) и (5, 0, 🎯).
+Вместе с (1, 0, 🎯) это одна группа для отображения: у родителя есть предки, у переносимого
+Goal нет собственных Goal-детей. Метка считается снизу, а не от глубины родителя.
+Оставлены (0, 0, 🎯), (1, 0, 🎯), (0, 1, 🎯²), (0, 3, 🎯⁴), проверка родителя на экране
+и реально сохранённая связь. Это сокращение двух случаев, не удаление проверки CD-TREE-002.
+
+### Усиления слабых проверок
+
+- `test_independent_mutations_are_reviewed_in_order_before_one_resume` раньше проверял
+  all(approved) над списком, про который тут же утверждал, что он пуст. Теперь читается
+  фактический запрос возобновлённого подагента: ровно два approved, в порядке Tag/Value.
+- `test_request_review_off_reads_no_answer` раньше не делал изменений и проходил бы также
+  с включённой проверкой. Теперь реально одобряется Action в запросе владельца, после чего
+  проверяются дошедший ответ, четыре model calls и отсутствие request-review call.
+  Уточнённый сценарий прошёл; новая тестовая функция не добавлена.
+
+Удалены только осиротевшие импорты. Продуктовый код, prompts, зависимости, настройки покрытия
+и распределение файлов не менялись. Независимые сценарии не объединялись ради счётчика.
+
+### Исходные пробелы покрытия
+
+Исходный batch02-final содержит непроверенные отказы edit/switch для исчезнувшего review,
+поля или switch; повторный press/claim и закрытие отсутствующей очереди; исключения commit,
+отличные от DomainError; невалидный результат ReturnProposals; fallback рендера без presenter
+или item и ошибки построения receipt после уже совершённого Save. В registry Proposal остаются
+отказы для пустых, неизвестных и неоднозначных ссылок; в marks — bool и пустые строки;
+в Workspace state — unestimated нагрузка и повторно встреченный предок DAG.
+
+Это непроверенные варианты существующих границ shell и отображения, а не доказанно ненужный
+код. Fallback/защиты сохранены; отсутствие выполнения при нынешних декларациях Safwa не
+доказывает, что они не нужны второму приложению. Все строки reducer/store выполнялись;
+пропущенные переходы также просмотрены. Исходные пробелы не считаются допустимыми новыми потерями.
+
+### Проверка и результат
+
+Первый выборочный прогон: основная область 210 passed и один отказ traceability, shell —
+18 passed. Отказ исправлен сохранением WS-JUDGE-002, а не ослаблением проверки ссылок.
+Повторная проверка Workspace/traceability — 78 passed; усиленный выключенный review — 1 passed.
+Окончательная проверка области: 213 passed для основной области и BRD, 18 passed для shell.
+
+### Принятый результат батча 3
+
+- Полный snapshot batch03: 3097 passed, 206 skipped, 144.28 секунды. Всего 3303 случая;
+  opt-in-пропуски не изменились.
+- Сравнения batch02-final → batch03 и baseline-original → batch03: 0 потерянных строк
+  и 0 потерянных ветвей, losses.json пуст. Контрольные суммы приложения, настроек
+  и зависимостей совпадают; повторный полный замер не потребовался.
+- Все 15 файлов рассмотрены; область батча: 186 → 174 случая. Удалены десять функций
+  и два эквивалентных параметра; новых тестовых случаев нет. Две слабые проверки усилены,
+  полезные assertions перенесены в существующие сценарии, повтор настройки контекста убран.
+- Все 180 файлов назначены десяти батчам без пропусков и повторений. Ruff проходит,
+  архитектурных нарушений 0, diff не содержит ошибок пробелов.
+- Завершено 3 из 10 батчей. Следующий — Cards и иерархия; исходная точка — batch03.

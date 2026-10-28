@@ -8,7 +8,6 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import pytest
-from sqlalchemy import select
 
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.features.cards.model import Card
@@ -17,10 +16,7 @@ from safwa.features.checks.model import CheckOutcome
 from safwa.features.checks.use_cases import archive_check, create_check, resolve_check
 from safwa.features.planning.use_cases import expire_due_sprint, start_sprint
 from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
-from tg_agent_shell.ai.runs import AgentRun
 from tg_agent_shell.foundation.errors import StaleStateError
-from tg_agent_shell.foundation.kinds import MessageKind
-from tg_agent_shell.history import TelegramMessage
 from tg_agent_shell.hooks.contracts import BeforeReview, HookSpec, OnBeforeReview, SaveProposal
 from tg_agent_shell.hooks.registry import HookRegistry
 from tg_agent_shell.proposals.api import ToolPreparationError
@@ -35,8 +31,6 @@ from tg_agent_shell.proposals.use_cases import (
     open_batch,
     prepare_change,
 )
-from tg_agent_shell.recovery import recover_startup
-from tg_agent_shell.telegram.model import CallbackToken
 
 
 @pytest.fixture
@@ -133,66 +127,6 @@ async def test_a_sprint_closing_refuses_a_proposal_whose_review_is_still_open(se
     async with sessions() as session:
         assert reviews.proposal(proposal.id) is None
         assert (await session.get(Card, card.id)).title == "Walk"
-
-
-async def test_process_uptime_does_not_expire_a_proposal_whose_review_is_still_open(sessions, reviews):
-    """PR-STALE-013 — tests/brd/tg_agent_shell/proposals.feature"""
-    async with sessions() as session:
-        card = await create_card(
-            session, kind="action", title="Walk", effort_points=2, stage="today"
-        )
-        proposal = await _proposal_for(
-            session, reviews, "action", {"mode": "update", "id": card.id, "title": "Walk more"}
-        )
-        await session.commit()
-
-        # Process uptime is not proposal age; the shown review's own timer is PR-EXPIRE-029.
-        assert not hasattr(proposal, "created_at")
-        await approve_proposal(session, reviews, PROPOSALS, proposal.id)
-        await session.commit()
-
-    async with sessions() as session:
-        assert reviews.proposal(proposal.id) is None
-        assert (await session.get(Card, card.id)).title == "Walk more"
-
-
-async def test_startup_clears_what_an_unanswered_review_left_behind(sessions, reviews):
-    """PR-STALE-013 — tests/brd/tg_agent_shell/proposals.feature
-
-    A restart ends the reviews themselves, because they only ever lived in the process
-    that opened them.  What outlives them is what pointed at one: the button that would
-    still claim, and the screen whose `related_id` would name a review made later.
-    """
-    async with sessions() as session:
-        run = AgentRun(provider="test", model="test", status="awaiting_approval")
-        session.add(run)
-        session.add(
-            CallbackToken(
-                token="tok-approve",
-                owner_id=42,
-                action="proposal_approve",
-                payload={"id": 1},
-            )
-        )
-        session.add(
-            TelegramMessage(
-                chat_id=700,
-                message_id=10,
-                direction="out",
-                kind=MessageKind.APPROVAL.value,
-                related_id=1,
-            )
-        )
-        await session.commit()
-
-        await recover_startup(session)
-        await session.commit()
-
-    async with sessions() as session:
-        screen = await session.scalar(select(TelegramMessage))
-        assert await session.get(CallbackToken, "tok-approve") is None
-        assert screen.related_id is None
-        assert (await session.get(AgentRun, run.id)).status == "abandoned"
 
 
 async def test_pr_fail_014_a_commit_that_fails_leaves_a_review_the_owner_can_still_answer(

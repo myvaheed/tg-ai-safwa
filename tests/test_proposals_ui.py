@@ -118,7 +118,7 @@ async def test_card_proposal_marks_only_what_changes(sessions, effort_on) -> Non
 
 @pytest.mark.parametrize(
     "parent_depth, depth, marker",
-    [(0, 0, "🎯"), (1, 0, "🎯"), (2, 0, "🎯"), (5, 0, "🎯"), (0, 1, "🎯²"), (0, 3, "🎯⁴")],
+    [(0, 0, "🎯"), (1, 0, "🎯"), (0, 1, "🎯²"), (0, 3, "🎯⁴")],
 )
 async def test_cd_tree_002_the_review_screen_shows_the_goal_becoming_a_subgoal(sessions, parent_depth, depth, marker) -> None:
     """CD-TREE-002 — tests/brd/cards.feature"""

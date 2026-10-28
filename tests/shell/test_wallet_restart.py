@@ -7,7 +7,6 @@ ended it, and every button drawn for it has to say so rather than claim.
 from __future__ import annotations
 
 from sqlalchemy import select
-from wallet.app import REGISTRY
 from wallet.ledger.model import Entry
 from wallet.wallets.model import Category, Wallet
 from wallet_harness import Press, entry_script, live_token, press, seed_lists, take_a_turn
@@ -22,6 +21,7 @@ from tg_agent_shell.telegram.model import CallbackToken, UiSession
 
 
 async def test_a_button_drawn_before_a_restart_is_refused_rather_than_claimed(wallet_bot):
+    """PR-STALE-013 — tests/brd/tg_agent_shell/proposals.feature"""
     seeding = await wallet_bot.start()
     ids = await seed_lists(seeding.sessions)
     running = await wallet_bot.start(*entry_script(ids, answer="Done."))
@@ -86,8 +86,3 @@ async def test_a_refused_value_keeps_the_editor_open(wallet_bot):
         assert list(await session.scalars(select(Wallet))) == []
         editor = await session.scalar(select(UiSession))
     assert editor is not None and editor.kind == "text_input"
-
-
-def test_the_application_publishes_exactly_one_home_screen():
-    """The shell refuses a feature list with no home screen, or with two."""
-    assert [command.nav for command in REGISTRY.commands].count("home") == 1
