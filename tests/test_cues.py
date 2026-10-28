@@ -158,19 +158,6 @@ async def test_locked_hook_queue_lets_reminder_words_through_without_preparing_h
     assert await remaining(sessions) == []
 
 
-async def test_ag_cue_029_a_waiting_cue_is_said_once_and_then_gone(sessions):
-    """AG-CUE-029 — tests/brd/tg_agent_shell/agents.feature"""
-    await write(sessions, "Sprint 1 is over.")
-    recorder = Recorder()
-
-    assert await tick(sessions, **_hooks(recorder)) is True
-
-    assert recorder.said == ["Sprint 1 is over."]
-    assert len(recorder.events[0]) == 32
-    assert await remaining(sessions) == []
-    assert await tick(sessions, **_hooks(recorder)) is False
-
-
 async def test_ag_cue_029_a_closed_gate_leaves_the_cue_waiting(sessions):
     """AG-CUE-029 — tests/brd/tg_agent_shell/agents.feature"""
     await write(sessions, "Sprint 1 is over.")
@@ -184,22 +171,6 @@ async def test_ag_cue_029_a_closed_gate_leaves_the_cue_waiting(sessions):
     assert recorder.releases == 0
 
 
-async def test_ag_cue_029_a_turn_that_did_not_land_leaves_the_cue_waiting(sessions):
-    """AG-CUE-029 — tests/brd/tg_agent_shell/agents.feature"""
-    await write(sessions, "Sprint 1 is over.")
-    failing = Recorder(lands=False)
-
-    assert await tick(sessions, **_hooks(failing)) is False
-
-    assert failing.said  # it was attempted
-    assert await remaining(sessions) == ["Sprint 1 is over."]
-    assert failing.releases == 1
-
-    recorder = Recorder()
-    assert await tick(sessions, **_hooks(recorder)) is True
-    assert recorder.said == ["Sprint 1 is over."]
-
-
 async def test_ag_cue_029_one_tick_says_everything_waiting_as_one_request_oldest_first(sessions):
     """AG-CUE-029 — tests/brd/tg_agent_shell/agents.feature"""
     await write(sessions, "Sprint 1 is over.")
@@ -210,6 +181,7 @@ async def test_ag_cue_029_one_tick_says_everything_waiting_as_one_request_oldest
     assert await tick(sessions, **_hooks(failing)) is False
     assert failing.said == ["Sprint 1 is over.\n\nSprint 2 is over."]
     assert await remaining(sessions) == ["Sprint 1 is over.", "Sprint 2 is over."]
+    assert failing.releases == 1
 
     recorder = Recorder()
     assert await tick(sessions, **_hooks(recorder)) is True
@@ -220,6 +192,8 @@ async def test_ag_cue_029_one_tick_says_everything_waiting_as_one_request_oldest
     assert len(recorder.events[0]) == 32 and recorder.events != failing.events
     assert await remaining(sessions) == []
     assert recorder.releases == 1
+    assert await tick(sessions, **_hooks(recorder)) is False
+    assert len(recorder.said) == 1 and recorder.releases == 1
 
 
 async def test_ag_cue_029_a_turn_registered_but_not_settled_is_settled_alone_by_the_next_tick(

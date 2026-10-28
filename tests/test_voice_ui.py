@@ -46,7 +46,7 @@ async def test_long_transcript_is_split_and_answered_once(sessions, monkeypatch)
     await voice_message(message, services)
 
     assert len(message.sent_messages) > 1
-    assert "User Name Surname:" in message.sent_messages[0].text
+    assert "<b>User Name Surname:</b>" in message.sent_messages[0].text
     assert all("User Name Surname:" not in item.text for item in message.sent_messages[1:])
     async with sessions() as session:
         rows = list(await session.scalars(select(TelegramMessage)))

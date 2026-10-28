@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, time, timedelta
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -127,9 +128,13 @@ async def pending(sessions) -> list[tuple[str | None, str | None, list | None]]:
         ]
 
 
-async def test_ag_hook_037_a_commit_hands_the_change_on_and_a_rollback_does_not(sessions):
+async def test_ag_hook_037_a_commit_hands_the_change_on_and_a_rollback_does_not(sessions, caplog):
     """AG-HOOK-037 — tests/brd/tg_agent_shell/agents.feature"""
-    sink = bind_committed(sessions, catalogue(HOOK))
+    async def unreadable(event):
+        raise RuntimeError("The changed thing could not be read")
+
+    broken = replace(HOOK, name="test.unreadable", evaluate=unreadable)
+    sink = bind_committed(sessions, catalogue(broken, HOOK))
     async with sessions() as session:
         # An operation has read before it records, so the transaction is real.
         await session.execute(text("SELECT 1"))
@@ -140,6 +145,10 @@ async def test_ag_hook_037_a_commit_hands_the_change_on_and_a_rollback_does_not(
         await session.commit()
     await sink.drain()
     assert await pending(sessions) == [("test.advice", None, [3])]
+
+    assert caplog.messages.count(
+        "Hook test.unreadable failed: The changed thing could not be read"
+    ) == 1
 
     async with sessions() as session:
         await session.execute(text("SELECT 1"))

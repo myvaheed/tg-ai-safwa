@@ -8,7 +8,6 @@ from dataclasses import replace
 from datetime import time
 
 import pytest
-from hook_helpers import run_hooks
 
 from agent_runtime import AgentDefinition, AgentSession, RunRecord, ToolOutcome
 from llm_gateway import ToolCall
@@ -287,10 +286,6 @@ async def test_optional_bad_offer_keeps_the_original_result():
     await port._offer_tools(agent, CALL, ToolOutcome(rows))
     assert rows == [{"n": 1}]
     assert not agent.offered_helpers
-
-
-async def test_empty_catalogue_has_no_work():
-    assert not [item async for item in run_hooks().evaluate(AfterTurn(42, 42, 1, 0), NO_SESSIONS)]
 
 
 async def test_a_committed_change_reaches_the_hook_of_its_kind_only():

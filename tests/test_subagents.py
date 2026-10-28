@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from functools import partial
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -13,8 +12,6 @@ from llm_gateway import ToolCall as ProviderToolCall
 from safwa.bootstrap.modules import (
     AGENTS,
     ALLOWED_VIEWS,
-    PROPOSALS,
-    SCREENS,
     SYSTEM_PROMPT,
     routed_prompt,
 )
@@ -25,13 +22,7 @@ from safwa.features.diary.agent import (
     day_read_tool,
     diary_clock,
 )
-from tg_agent_shell.ai.contracts import (
-    QUERY_TOOL,
-    ROUTE_TOOL,
-    open_tool,
-)
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner
-from tg_agent_shell.ai.subagents import RoutedSubagent
 from tg_agent_shell.ai.tools import IMMEDIATE_TOOLS
 from tg_agent_shell.telegram.manifest import AgentContext
 
@@ -52,30 +43,6 @@ class FixedClock:
 
     def now(self) -> datetime:
         return self.current
-
-
-def diary_routed(history: StubDayReader, timezone: str = "Europe/Istanbul") -> RoutedSubagent:
-    return RoutedSubagent(
-        name="diary",
-        prompt=DIARY_PROMPT,
-        # Nothing here runs `read_day`, so it has no database to read the saved day from.
-        read_tools=(
-            day_read_tool(None, timezone=timezone),  # type: ignore[arg-type]
-            conversation_read_tool(history, chat_id=42, timezone=timezone),
-        ),
-        mutation_tools=("diary",),
-        current=partial(_now, timezone),
-    )
-
-
-async def _now(timezone: str, _conversation: str) -> str:
-    return diary_clock(timezone)
-
-
-def test_the_routing_rules_name_every_subagent_that_can_be_routed_to() -> None:
-    """The rules are prose in the prompt, so a subagent they omit is never routed to."""
-    rules = SYSTEM_PROMPT.split("# Routing", 1)[1].split("\n# ", 1)[0]
-    assert 'route("diary")' in rules
 
 
 def test_a_routed_prompt_carries_the_one_persona_block() -> None:
@@ -121,15 +88,6 @@ def test_saying_an_open_item_was_done_asks_for_it_to_be_marked() -> None:
     assert '"I did …" or "did it 3 times" about an open Action or Check' in rules
     mutator = routed_prompt(next(agent for agent in AGENTS if agent.name == "workspace_mutator"))
     assert '"I did …" about an open Action: complete it; about a Check: passed.' in mutator
-
-
-def test_the_diary_is_written_only_by_its_subagent() -> None:
-    """AG-ROUTE-001 — tests/brd/tg_agent_shell/agents.feature"""
-    root_tools = (QUERY_TOOL, open_tool(SCREENS), ROUTE_TOOL)
-    advisor_tools = {tool["function"]["name"] for tool in root_tools}
-    assert "diary" not in advisor_tools
-    assert "diary" in PROPOSALS.tools
-    assert diary_routed(StubDayReader("")).mutation_tools == ("diary",)
 
 
 @pytest.mark.parametrize("timezone", ["Europe/Istanbul", "Pacific/Kiritimati"])

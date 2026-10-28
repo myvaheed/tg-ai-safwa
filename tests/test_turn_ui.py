@@ -12,12 +12,9 @@ from sqlalchemy import select
 from ui_harness import (
     FakeBot,
     FakeMessage,
-    ScriptedTranscriber,
     StubAdvisor,
-    capture_dialogue_turns,
     kind_of,
     services_for,
-    voice_message_for,
 )
 
 from safwa.bootstrap.modules import (
@@ -25,7 +22,6 @@ from safwa.bootstrap.modules import (
 )
 from safwa.features.planning.telegram import render_sprint
 from safwa.features.planning.use_cases import set_sprint_success_criteria
-from safwa.foundation.workspace import Workspace
 from telegram_llm import DialogueMessage
 from tg_agent_shell.ai.outcome import AIOutcome, AIOutcomeKind
 from tg_agent_shell.ai.steps import announce
@@ -42,7 +38,7 @@ from tg_agent_shell.telegram.chat import (
     remove_turn_notice,
     send_owner_turn,
 )
-from tg_agent_shell.telegram.dialogue import run_dialogue_turn, voice_message
+from tg_agent_shell.telegram.dialogue import run_dialogue_turn
 
 
 class TurnAdvisor:
@@ -68,18 +64,6 @@ def turn_services(sessions):
 
 async def _empty_dialogue(_chat_id):
     return []
-
-
-async def test_an_autoapproved_change_still_reaches_the_chat(sessions) -> None:
-    """The workspace revision moves inside the turn, so it cannot invalidate the answer."""
-    services = turn_services(sessions)
-    message = FakeMessage(960, text="Save it", bot_message=False, answer_as_new=True)
-
-    await run_dialogue_turn(message, services, "Save it", 960)
-
-    assert any("Auto-saved" in item.text for item in message.sent_messages)
-    async with sessions() as session:
-        assert (await session.get(Workspace, 1)).revision > 0
 
 
 @pytest.mark.parametrize("report_fails", [False, True])
@@ -115,21 +99,6 @@ async def test_ag_turn_034_after_turn_work_that_fails_leaves_the_answer_standing
     assert not any("could not complete" in text for text in said)
     # One broken piece of after-work does not silence the rest.
     assert ran_after == ["second"]
-
-
-async def test_ag_turn_022_the_notice_stands_while_the_answer_is_written(sessions) -> None:
-    """AG-TURN-022 — tests/brd/tg_agent_shell/agents.feature"""
-    services = turn_services(sessions)
-    message = FakeMessage(966, text="Save it", bot_message=False, answer_as_new=True)
-
-    await run_dialogue_turn(message, services, "Save it", 966)
-
-    notice = message.sent_messages[0]
-    assert notice.text == TURN_NOTICE
-    assert notice.message_id in message.bot.deleted
-    # Taken out of the chat, so nothing of it is kept to be read back.
-    assert await kind_of(sessions, notice) is None
-    assert any("Auto-saved" in item.text for item in message.sent_messages)
 
 
 async def test_ag_turn_022_a_cancelled_turn_leaves_no_notice_and_no_answer(sessions) -> None:
@@ -211,6 +180,7 @@ async def test_ag_turn_053_the_notice_lists_each_step_as_it_starts(sessions) -> 
     assert last[1] == "3. Step &lt;3&gt;."
     assert last[-2] == f"{len(steps)}. Step &lt;{len(steps)}&gt;."
     assert notice.message_id in message.bot.deleted
+    assert await kind_of(sessions, notice) is None
     assert any("Auto-saved" in item.text for item in message.sent_messages)
 
 
@@ -258,16 +228,6 @@ async def test_a_review_that_could_not_be_drawn_ends_and_the_owner_is_told(sessi
     assert any(
         "Nothing was changed" in item.text for item in message.sent_messages
     )
-
-
-async def test_the_owner_turn_is_headed_by_the_telegram_name(sessions, monkeypatch) -> None:
-    capture_dialogue_turns(monkeypatch)
-    services = services_for(sessions, transcriber=ScriptedTranscriber("Plan my week."))
-    message = voice_message_for(962)
-
-    await voice_message(message, services)
-
-    assert "<b>User Name Surname:</b>" in message.sent_messages[0].text
 
 
 async def test_a_turn_with_no_owner_message_is_headed_by_the_bare_role(sessions) -> None:

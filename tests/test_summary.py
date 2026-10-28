@@ -24,17 +24,6 @@ from tg_agent_shell.telegram.dialogue import run_after_turn
 from tg_agent_shell.turn import TurnManager
 
 
-class SequenceProvider:
-    def __init__(self, *responses: str) -> None:
-        self.responses = list(responses)
-
-    async def complete(self, _request: CompletionRequest) -> CompletionTurn:
-        return CompletionTurn(self.responses.pop(0))
-
-    async def aclose(self) -> None:
-        return None
-
-
 class RecordingProvider:
     def __init__(self, *responses: str) -> None:
         self.responses = list(responses)
@@ -102,9 +91,10 @@ async def test_owner_message_wins_race_with_in_flight_summary() -> None:
     """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
     first = said(10, "A long enough request")
     changed = said(11, "A newer request")
+    provider = RecordingProvider("stale summary")
     summary = DialogueSummary(
         SequenceHistory([first], [first, changed]),  # type: ignore[arg-type]
-        SequenceProvider("stale summary"),  # type: ignore[arg-type]
+        provider,  # type: ignore[arg-type]
         summary_trigger_tokens=1,
         chars_per_token=1,
     )
@@ -114,6 +104,7 @@ async def test_owner_message_wins_race_with_in_flight_summary() -> None:
         sent.append(text)
 
     assert await summary.close_window(42, write) is False
+    assert len(provider.requests) == 1
     assert sent == []
 
 
@@ -188,17 +179,6 @@ async def test_the_summary_hook_writes_after_a_turn_whatever_the_stored_switches
     assert len(provider.requests) == 2
     assert await kind_of(sessions, message.sent_messages[-1]) == MessageKind.SUMMARY.value
     assert "Manual" in message.sent_messages[-1].text
-
-
-async def test_summary_hook_keeps_the_snapshot_check(sessions):
-    """AG-TURN-024 — tests/brd/tg_agent_shell/agents.feature"""
-    first, changed = said(10, "Long dialogue"), said(12, "Newer words")
-    provider = RecordingProvider("Stale")
-    services = summary_services(sessions, provider, SequenceHistory([first], [first, changed]))
-    message = FakeMessage(11, text="Continue", bot_message=False, answer_as_new=True)
-    await run_after_turn(message, services, AfterTurn(42, 700, 11, 0))
-    assert len(provider.requests) == 1
-    assert message.sent_messages == []
 
 
 async def test_new_owner_turn_cancels_the_hook_without_losing_its_lease(sessions):
