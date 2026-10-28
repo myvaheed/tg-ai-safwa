@@ -13,7 +13,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from aiogram.enums import ChatAction
-from aiogram.types import Message
+from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,10 +26,12 @@ from ...telegram import (
     Place,
     Services,
     TextInputScreen,
+    back_button,
     choice_rows,
     choice_screen,
     paginate,
     render_text_input,
+    send_registered,
 )
 from ...telegram.contributions import TextInputFlow
 from ..api import EditableField
@@ -57,11 +59,14 @@ def _field(
 def _values(
     services: Services, change: ProposalChange, key: str, field: EditableField
 ) -> tuple[Any, Any]:
-    """What the change gives the field now, and what Safwa's call gave it."""
+    """What the change gives the field now, and what Safwa's call gave it. A field offered on
+    a call that says nothing for it gives what the check of the proposal kept."""
     call = services.root.proposals.current(change)
     if call is None or change.source is None:
         return None, None
-    return field.said(key, call), field.said(key, change.source)
+    says = key in call.values or field.read is not None
+    current = field.said(key, call) if says else change.values.get(key)
+    return current, field.said(key, change.source)
 
 
 async def _ticked(session: AsyncSession, field: EditableField, value: Any) -> set[Any]:
@@ -158,6 +163,8 @@ async def _on_field(context: CallbackContext) -> None:
         if field.parse is not None and not field.many
         else []
     )
+    if field.about is not None:
+        other.append((field.about[0], here.child("proposal_edit_about", **address)))
     page = (
         paginate(options, int(payload.get("page", 0)), field.page_size)
         if field.page_size is not None
@@ -187,6 +194,29 @@ async def _on_other(context: CallbackContext) -> None:
     """Typed words for a field whose own screen takes them beside its choices."""
     edit = Place("proposal_edit", {"id": context.payload["id"]})
     await _typed(context, back=context.back or edit)
+
+
+async def _on_about(context: CallbackContext) -> None:
+    """The field's page on what it means, drawn in place of the review like every screen of
+    Edit, with the way back to the field's choices (PR-EDIT-040)."""
+    services = context.services
+    proposal, _change, field = _field(services, context.payload)
+    if field.about is None:
+        raise DomainError("This field has no page")
+    back = context.back or Place("proposal_edit", {"id": proposal.id})
+    async with context.sessions() as session:
+        markup = InlineKeyboardMarkup(
+            inline_keyboard=[[await back_button(session, services.owner_id, back)]]
+        )
+        await session.commit()
+    await send_registered(
+        context.message,
+        services,
+        field.about[1],
+        kind=MessageKind.APPROVAL,
+        markup=markup,
+        related_id=proposal.id,
+    )
 
 
 async def _typing(message: Message) -> None:
@@ -270,6 +300,7 @@ EDIT_ACTIONS: dict[str, CallbackHandler] = {
     "proposal_edit": _on_edit,
     "proposal_edit_field": _on_field,
     "proposal_edit_other": _on_other,
+    "proposal_edit_about": _on_about,
     "proposal_edit_set": _on_set,
     "proposal_switch": _on_switch,
 }

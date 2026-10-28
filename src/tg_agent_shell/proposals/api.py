@@ -218,6 +218,9 @@ class ShownField:
     after: FieldValue = None
     # Shown on an edit even when Save leaves it as it is: what tells the owner which item.
     anchor: bool = False
+    # Shown whatever the proposal does, empty as EMPTY_FIELD: what the owner confirms before
+    # Save even when the proposal leaves it as it is (PR-SCREEN-039).
+    always: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -321,14 +324,23 @@ class EditableField:
     # the owner's choice in its place.
     read: Callable[[AgentChange], Any] | None = None
     write: Callable[[AgentChange, Any], AgentChange] | None = None
+    # Whether a call that says nothing for the field still offers it, with the value the
+    # check of the proposal keeps for it (PR-SCREEN-039).
+    offered: Callable[[AgentChange], bool] | None = None
+    # A button among the field's choices, and the page of HTML it opens on what the field
+    # means (PR-EDIT-040).
+    about: tuple[str, str] | None = None
 
     def said(self, key: str, call: AgentChange) -> Any:
         """What `call` gives this field."""
         return self.read(call) if self.read is not None else call.values.get(key)
 
     def sets(self, key: str, call: AgentChange) -> bool:
-        """Whether `call` gives this field anything for the owner to change."""
-        return self.read(call) is not None if self.read is not None else key in call.values
+        """Whether the owner may set this field on `call`: the call gives it something to
+        change, or the field is offered on it."""
+        if self.read is not None:
+            return self.read(call) is not None
+        return key in call.values or (self.offered is not None and self.offered(call))
 
     def put(self, key: str, call: AgentChange, value: Any) -> AgentChange:
         """`call` with `value` in this field."""
@@ -421,11 +433,11 @@ class ProposalRegistry:
     def edit_fields(
         self, changes: Sequence[ProposalChange]
     ) -> list[tuple[int, str, EditableField]]:
-        """What Edit offers on a proposal: each field one of its calls sets that its feature
-        lets the owner set, as (change index, key, field). A value preparation left out, such
-        as one the workspace has switched off, is not saved, so it is not offered either. A
-        field two calls set is left out, since one button could not say which of them it
-        sets."""
+        """What Edit offers on a proposal: each field one of its calls sets, or is offered on,
+        that its feature lets the owner set, as (change index, key, field). A value
+        preparation left out, such as one the workspace has switched off, is not saved, so it
+        is not offered either. A field two calls set is left out, since one button could not
+        say which of them it sets."""
         offered: list[tuple[int, str, EditableField]] = []
         for index, change in enumerate(changes):
             call = self.current(change)

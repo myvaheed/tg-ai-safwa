@@ -21,6 +21,8 @@ SHORT_VALUE_WORDS = 3
 REPLACED_SHARE = 0.5
 # A field longer than this folds into a quote the owner opens.
 LONG_TEXT_CHARS = 200
+# What an empty field shown on every proposal reads as.
+EMPTY_FIELD = "—"
 
 # A word, a run of spaces, or a whole citation, so a mark never cuts `[title](card:12)` apart.
 _TOKEN = re.compile(r"\[(?:[^\[\]\n]|\[[^\[\]\n]*\])*\]\([a-z_]+:[^)\s]*\)|\s+|\S+")
@@ -106,10 +108,12 @@ def field_line(field: ShownField, effect: Effect) -> str | None:
         text = _escaped(field.before)
     elif field.before != field.after:
         text = marked(field.before, field.after)
-    elif field.anchor:
+    elif field.anchor or field.always:
         text = _escaped(field.after)
     else:
         return None
+    if not text and field.always:
+        text = EMPTY_FIELD
     if not text:
         return None
     label = html.escape(field.label)

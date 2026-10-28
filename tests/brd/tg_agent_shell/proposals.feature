@@ -32,10 +32,11 @@ Feature: Proposals
       offers a field
     When the proposal creates the item, or archives or deletes it
     Then the screen shows the item as it will be, or as it is, all in plain words
-    And a field that is empty, or that a new item takes by default, is not shown
+    And a field that is empty, or that a new item takes by default, is not shown unless
+      PR-SCREEN-039 shows it
     When the proposal edits the item
-    Then the screen shows what names the item and each field the edit changes, once and with no
-      arrow
+    Then the screen shows what names the item, each field the edit changes and each field
+      PR-SCREEN-039 shows, once and with no arrow
     And what goes is struck through and what comes is bold
     And a value of at most 3 words on both sides reads whole, the old struck and the new bold
       (SHORT_VALUE_WORDS = 3)
@@ -58,6 +59,19 @@ Feature: Proposals
     Then nothing is written yet: one more screen asks to confirm, saying what goes with it
     And it is written only after the owner presses that confirmation
     And a proposal whose feature declares no such change never asks twice
+
+  Scenario: PR-SCREEN-039 — A field its feature shows on every proposal of a kind stands there even when Save leaves it as it is
+    Given a feature shows a field of its item on every proposal of one kind, as Safwa shows
+      "Effort" and "Time spent" on a proposal that finishes an Action
+    When the review screen of such a proposal is drawn
+    Then the field stands there whether the proposal changes it or not
+    And an empty one reads "—" (EMPTY_FIELD = "—")
+    And one the proposal changes is marked by PR-SCREEN-003
+    When the call said nothing for that field and the check of the proposal kept a value for it
+    Then Edit offers the field by PR-EDIT-033, with the kept value as the one it has now
+    And the value the owner sets there goes into the proposal by PR-EDIT-034
+    When the check of the proposal kept no value for it, as for Effort Points while they are off
+    Then Edit offers no button for it
 
   Scenario: PR-QUEUE-005 — Everything Safwa proposes for one item at once is one screen
     Given the owner asks for something that needs the workspace changed
@@ -297,8 +311,9 @@ Feature: Proposals
     Then the same choices the Action's own screen offers for Effort take the review's place, 5 ticked
     And a field offers words to type, one choice to pick or several to tick, the way the item's
       own screen offers it, and offers choices beside "✏️ Other" for words where that screen does
-    And a field the proposal does not set has no button, and neither has a field its feature does
-      not let the owner set by hand
+    And a field the proposal does not set has no button unless its feature offers it on that
+      proposal by PR-SCREEN-039, and neither has a field its feature does not let the owner set
+      by hand
     And a value the check of the proposal leaves out of what Save writes has no button, as Effort
       Points while they are off
     When Safwa proposes instead to link the Value "Health" to an Action that already carries "Calm"
@@ -359,6 +374,17 @@ Feature: Proposals
     Then nothing about that field is reported as changed
     When the owner discards a proposal they edited
     Then Safwa is told it was discarded, by PR-RESULT-011
+
+  Scenario: PR-EDIT-040 — A field's choices may open a page on what the field means
+    Given a feature gives a field under Edit a page on what it means, as Safwa gives "🔢 Effort"
+      the page "ℹ️ About Effort Points"
+    When the owner opens that field's choices
+    Then the page's button follows the choices, before "↩️ Back"
+    When the owner presses it
+    Then the page is drawn in place of the review by PR-EDIT-035, with "↩️ Back" alone under it
+    When the owner presses "↩️ Back" there
+    Then the field's choices come back with the same ticks, and the proposal is as it was
+    And a field whose feature gives no page has no such button
 
   Scenario: PR-SWITCH-037 — A feature may offer to turn a proposal into another one before Save
     Given a feature declares that a proposed change of its item may turn into another call
