@@ -9,7 +9,7 @@
 Аудит всего набора завершён, когда для каждой группы поведения рассмотрены проверки всех
 уровней, решения записаны, у каждого удаления названо оставшееся покрытие, а итоговые
 проверки проходят. Зелёный набор и уменьшение количества тестов сами по себе этого не доказывают.
-Завершены инвентаризация, пилот и батчи 1–3 из 10. Батчи 4–10 ещё не выполнены.
+Завершены инвентаризация, пилот и батчи 1–4 из 10. Батчи 5–10 ещё не выполнены.
 
 ## Исходная точка — 28 октября 2026
 
@@ -428,3 +428,77 @@ Goal нет собственных Goal-детей. Метка считаетс�
 - Все 180 файлов назначены десяти батчам без пропусков и повторений. Ruff проходит,
   архитектурных нарушений 0, diff не содержит ошибок пробелов.
 - Завершено 3 из 10 батчей. Следующий — Cards и иерархия; исходная точка — batch03.
+
+## Батч 4 — Cards, иерархия, порядок и учёт
+
+Рассмотрены все 18 файлов, 292 исходных случая. Вход — batch03 на неизменённых исходниках.
+Прочитаны контракты CD-KIND/TREE/STAGE/DELETE/ORDER, завершения, Effort/Time и hooks в
+[cards.feature](../tests/brd/cards.feature), связанные сценарии Profile/Retro/Schedules,
+реализация hierarchy, операций Card, проверки proposal и сортировки.
+
+### Решения по области
+
+| Семейство и файлы | Решение |
+|---|---|
+| [test_cards.py](../tests/test_cards.py), [test_card_hierarchy.py](../tests/test_card_hierarchy.py), [test_parent_completion.py](../tests/test_parent_completion.py) | Удалить три старых повторения стадий/удаления. Сохранить ограничения kinds/полей, ошибки создания/ссылок, разные состояния закрытого/открытого Goal, rollback, архив, общих потомков DAG, все пути к родителям, цикл и предел глубины |
+| [test_card_creation.py](../tests/test_card_creation.py), [test_goal_markers.py](../tests/test_goal_markers.py) | Сохранить границу Pydantic отдельно от domain move, реальный тип timestamp и запрет старой копии repeat. Удалить повтор короткой цепочки меток, сохранив glyphs каждой высоты, изменение структуры, SQL и предел дерева |
+| [test_cards_ui.py](../tests/test_cards_ui.py) | Удалить старое повторение обзора и переходов. Сохранить создание/редактирование, paging, compact/full, разные controls по kind, блокировку, ссылки/Back, повторение и destructive delete. Draft и сохранённая Card имеют разные пути, их проверки не взаимозаменяемы |
+| [test_card_ordering.py](../tests/test_card_ordering.py) | Убрать шесть значений внутри уже проверяемых групп. Сохранить границы 1/2 и 7/8 дней, undated, местную дату, окна Sprint/Planning, 90/91, Priority/Value/key, общих предков, минимальное расстояние Value и собственный SQL order/offset |
+| [test_card_closing.py](../tests/test_card_closing.py), [test_effort_tracking.py](../tests/test_effort_tracking.py), [test_time_tracking.py](../tests/test_time_tracking.py), [test_repeat_times.py](../tests/test_repeat_times.py) | Сохранить настоящие Save/Back, переключатели, Pending Checks, старые кнопки, пустую оценку, время на законченной копии, следующую копию, limits и исторический retro. Сократить декартово произведение отказов accounting с 36 до 12 по одному правилу множества допустимых полей |
+| [test_parent_hooks.py](../tests/test_parent_hooks.py), [test_parent_completion_hook_e2e.py](../tests/e2e/test_parent_completion_hook_e2e.py), [test_parent_hooks_e2e.py](../tests/e2e/test_parent_hooks_e2e.py) | Сохранить. Выбор предметных объектов, повторная проверка перед доставкой, commit/rollback и подключение реестра защищают разные ошибки. Новый Action, reopen, закрытие Goal, delete и выключение hook не являются эквивалентными параметрами |
+| [test_blocker_hook_e2e.py](../tests/e2e/test_blocker_hook_e2e.py), [test_empty_parents_hook_e2e.py](../tests/e2e/test_empty_parents_hook_e2e.py), [test_time_tracking_e2e.py](../tests/e2e/test_time_tracking_e2e.py), [test_done_words_live.py](../tests/e2e/test_done_words_live.py) | Сохранить реальные пути от операции через commit/Cue к словам и следующему Save. Live-набор проверяет выбор настоящей модели, языки, контекст Reminder и times; scripted tests его не заменяют. Live не запускался |
+
+Две похожие проверки архива оставлены: одна закрывает Goal явно и сохраняет его Done и
+completed effort, другая оставляет Goal открытым и читает архив через SQL view. Это разные
+состояния, а не доказанный дубль. Схема timestamp также сохранена: SQLite может вернуть
+naive datetime при другом типе столбца, даже когда SQL snapshot выглядит одинаково.
+
+### Удаления и оставшиеся проверки
+
+| Удалённая функция | Оставшееся покрытие |
+|---|---|
+| tests/test_cards.py::test_parent_stage_propagation_and_reopen | `test_cd_stage_014_a_goal_shows_the_stage_of_the_actions_under_it` и `test_cd_stage_015_a_goal_is_done_only_when_explicitly_closed` в [test_cards.py](../tests/test_cards.py) проверяют переходы открытого Goal; `test_explicit_completion_and_reopen_keep_checks_and_child_state` в [test_parent_completion.py](../tests/test_parent_completion.py) — сохранение закрытых родителей при reopen Action, с Checks и Subgoal |
+| tests/test_cards.py::test_an_action_cannot_reach_a_terminal_stage_through_move | `test_cd_stage_016_done_comes_from_finishing_not_from_moving` проверяет тот же отказ move, неизменённую Today, а затем настоящее завершение с Check. Отдельная граница tool validation остаётся в [test_card_creation.py](../tests/test_card_creation.py) |
+| tests/test_cards.py::test_cd_delete_025_deleting_a_goal_leaves_its_children_standing | `test_cd_delete_025_children_lose_the_deleted_parent_and_keep_their_others` в [test_card_hierarchy.py](../tests/test_card_hierarchy.py) проверяет сохранение прямых/глубоких потомков, других родителей, unlink audit и пересчёт предка. Перенесено утверждение о неизменённых kinds Goal/Action |
+| tests/test_goal_markers.py::test_cd_button_048_goal_subgoal_action_chain_counts_only_goal_levels | `test_cd_tree_053_seven_goals_with_an_action_keep_the_root_marker_seven` в [test_goal_markers.py](../tests/test_goal_markers.py) проверяет ту же невключённость Action в высоту на длинной цепочке, при create и link, с настоящим SQL view. Перенесены проверки glyphs листового Goal и Action |
+| tests/test_cards_ui.py::test_card_overview_uses_derived_progress_and_relationship_navigation | `test_cd_link_055_a_cards_relations_are_links_in_its_words` в [test_cards_ui.py](../tests/test_cards_ui.py) проверяет те же totals 3/8 EP, ссылку Children без дублирующей Effort и Back, плюс Value/Tag. Перенесены число, точные кнопки двух прямых детей и отсутствие глубокого потомка. Action→Parent отдельно проверяют `test_cd_view_031_a_card_opens_compact_with_full_editing_one_button_away` и `test_cd_tree_005_no_screen_can_change_a_cards_parent` |
+
+В [test_card_ordering.py](../tests/test_card_ordering.py) сокращены:
+
+- Из test_action_date_windows_have_one_common_order: -30, 30, 31; остаются -1, 0, 1, 2, 7, 8, None.
+- Из test_action_time_and_priority_precedence_changes_by_group: день 7; остаются 0, 1 и 2,
+  представляющие два разных порядка сравнения. Сам конец окна 7 сохранён в первом тесте.
+- Из test_last_action_group_compares_values_before_appointments: 30 и 100; остаются 8 и None,
+  то есть поздняя дата и отсутствие даты. Другой границы Action после дня 7 контракт не имеет.
+
+В test_mixed_accounting_update_on_a_finished_action_is_refused_without_changes в
+[test_time_tracking.py](../tests/test_time_tracking.py) вместо 2×6×3 оставлены 2×6 сочетаний.
+Для каждого repeating=False/True остаются пары extra/accounting:
+schedule=null / tracked_mins=30; blocked_description=null / effort_points=5;
+title=Run far / оба null; tags=[] / tracked_mins=30; categories=[] / effort_points=5;
+stage=today / оба null. Все шесть лишних ключей и все три формы accounting сохраняются.
+Отказ зависит от множества ключей, не от пары выбранной формы с каждым лишним ключом.
+Сохранены правильный код отказа, hints, неизменность всех столбцов, отсутствие dirty/new
+и нетронутая следующая копия. Положительные accounting и очистка null проверяются отдельно.
+
+### Исходные пробелы и проверка
+
+Прочитаны исходные пропуски batch03: защиты отсутствующих/архивных объектов, stale version,
+неверный kind/поле selector, неполный draft, истёкший Done editor, недостающий presenter/item,
+неизвестное Schedule количество и неполная оценка; также callback-пути создания/возврата
+draft, которые нынешние проверки не нажимают. Это исходные непроверенные пути. Код сохранён;
+отсутствие выполнения не доказывает ненужность пользовательского callback или защиты.
+
+Затронутая область и BRD: 305 passed, 9 opt-in skipped. Ruff и diff check проходят.
+Первый snapshot batch04: 3062 passed, 206 skipped, 145.04 секунды. Сравнение с batch03
+нашло две строки: пропуск Action в пересчёте ancestors и passing для неизвестного/не Advise hook.
+Предыдущие контексты — неизменённые параметры switch_off и close_parent в parent-completion
+E2E, а не удалённые проверки. Это нестабильное выполнение фоновых путей, не доказанное перекрытие.
+
+В существующем DAG-сценарии усилили повторный пересчёт от изменённой Action: сама Action
+сохраняет оценку, все Goals уже актуальны и повторный вызов ничего не меняет. В существующем
+сценарии слов hook дополнительно проверяется отсутствие passing у удалённого hook и Offer.
+Новые функции тестов и исключения покрытия не добавлялись; код приложения не менялся.
+Принятый snapshot batch04-final: 3062 passed, 206 skipped, 140.67 секунды.
+Сравнения с batch03 и baseline-original: потерянных строк и ветвей нет.
+Архитектурный сканер не нашёл нарушений. Батч: 292 → 257 случаев; весь набор: 3303 → 3268.

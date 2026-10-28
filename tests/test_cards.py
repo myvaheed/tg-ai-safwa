@@ -1108,27 +1108,6 @@ async def a_card(session, **overrides):
     return await create_card(session, **payload)
 
 
-async def test_parent_stage_propagation_and_reopen(sessions):
-    async with sessions() as session:
-        goal = await a_card(session, title="Goal", kind="goal", effort_points=None)
-        action = await a_card(
-            session,
-            title="Child",
-            parent_ids={goal.id},
-            expected_parent_version=goal.version,
-            root_confirmed=False,
-        )
-        await session.commit()
-        await move_card(session, action.id, CardStage.TODAY)
-        assert goal.effective_stage == CardStage.TODAY.value
-        await finish_action(session, action.id)
-        assert goal.effective_stage == CardStage.BACKLOG.value
-        await finish_card(session, goal.id)
-        assert goal.effective_stage == CardStage.DONE.value
-        await move_card(session, action.id, CardStage.BACKLOG)
-        assert goal.effective_stage == CardStage.DONE.value
-
-
 async def test_repeat_completion_clones_the_action(sessions):
     """SCH-STAGE-013 — tests/brd/schedules.feature"""
     async with sessions() as session:
@@ -1248,14 +1227,6 @@ async def test_committed_card_relationships_are_validated_propagated_and_audited
             "unlink_value",
             "update",
         }
-
-
-async def test_an_action_cannot_reach_a_terminal_stage_through_move(sessions):
-    async with sessions() as session:
-        action = await a_card(session, title="Ship", stage="today", effort_points=3)
-        with pytest.raises(DomainError):
-            await move_card(session, action.id, CardStage.DONE)
-        assert action.effective_stage == CardStage.TODAY.value
 
 
 async def test_goal_progress_is_recursive_but_children_count_is_direct(sessions):
@@ -1385,38 +1356,6 @@ async def test_cd_axes_045_an_action_carries_several_of_each_or_none(sessions):
         assert not list(
             await session.scalars(select(CardCategory).where(CardCategory.card_id == bare.id))
         )
-
-async def test_cd_delete_025_deleting_a_goal_leaves_its_children_standing(sessions):
-    """CD-DELETE-025 — tests/brd/cards.feature"""
-    async with sessions() as session:
-        goal = await create_card(session, kind="goal", title="Health")
-        subgoal = await create_card(
-            session, kind="goal", title="Sleep better", parent_ids={goal.id}
-        )
-        action = await create_card(
-            session, kind="action", title="Buy a pillow", effort_points=1, parent_ids={goal.id}
-        )
-        deep = await create_card(
-            session, kind="action", title="Read at night", effort_points=1, parent_ids={subgoal.id}
-        )
-        await session.commit()
-
-        await delete_card(session, goal.id)
-        await session.commit()
-
-        assert await session.get(Card, goal.id) is None
-        await session.refresh(subgoal)
-        await session.refresh(action)
-        assert (subgoal.kind, await card_parent_ids(session, subgoal.id)) == (CardKind.GOAL.value, [])
-        assert (action.kind, await card_parent_ids(session, action.id)) == (CardKind.ACTION.value, [])
-        # Whatever hung under the Subgoal never moved: only the deleted Card's children did.
-        assert await card_parent_ids(session, deep.id) == [subgoal.id]
-        # The parent is gone, while the kind stays Goal.
-        assert await session.scalar(
-            select(LogEvent.operation).where(LogEvent.item_type == "card", LogEvent.item_id == subgoal.id).order_by(
-                LogEvent.id.desc()
-            )
-        ) == "unlink_parent"
 
 
 async def test_cd_blocked_034_becoming_blocked_is_the_change_a_hook_follows_up(sessions):

@@ -7,7 +7,7 @@ from schedule_helpers import create_card, create_check
 from sqlalchemy import select
 
 from safwa.bootstrap.modules import PROPOSALS
-from safwa.features.cards.hierarchy import card_parent_ids, card_progress
+from safwa.features.cards.hierarchy import card_parent_ids, card_progress, propagate_ancestors
 from safwa.features.cards.hooks import parent_completion_request
 from safwa.features.cards.model import CARD_TREE_DEPTH_MAX, Card, CardKind
 from safwa.features.cards.use_cases import (
@@ -165,6 +165,8 @@ async def test_cd_effort_021_an_action_reached_along_two_paths_counts_once(sessi
         assert (first.effort_points, second.effort_points, goal.effort_points) == (5, 8, 8)
         await update_card_fields(session, shared.id, {"effort_points": 8})
         assert (first.effort_points, second.effort_points, goal.effort_points) == (8, 11, 11)
+        assert await propagate_ancestors(session, [shared.id]) == []
+        assert shared.effort_points == 8
         assert (await card_progress(session, goal.id))["effort_points"] == 11
 
 
@@ -267,6 +269,7 @@ async def test_cd_delete_025_children_lose_the_deleted_parent_and_keep_their_oth
             [root.id],
             [child.id],
         ]
+        assert (child.kind, direct.kind) == ("goal", "action")
         assert (root.effective_stage, root.effort_points) == ("backlog", 2)
         assert [(change.subject_id, dict(change.data)) for change in orphaned] == [
             (middle.id, {"title": "Goal 1", "parent_ids": [root.id], "children": [child.id]})

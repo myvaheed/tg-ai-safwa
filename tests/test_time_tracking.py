@@ -263,13 +263,13 @@ async def test_completion_with_time_on_a_finished_action_only_updates_its_time(
 
 
 @pytest.mark.parametrize("repeating", [False, True])
-@pytest.mark.parametrize("extra", [
-    {"schedule": None}, {"blocked_description": None}, {"title": "Run far"},
-    {"tags": []}, {"categories": []}, {"stage": "today"},
-])
-@pytest.mark.parametrize("fields", [
-    {"tracked_mins": 30}, {"effort_points": 5},
-    {"tracked_mins": None, "effort_points": None},
+@pytest.mark.parametrize("extra,fields", [
+    ({"schedule": None}, {"tracked_mins": 30}),
+    ({"blocked_description": None}, {"effort_points": 5}),
+    ({"title": "Run far"}, {"tracked_mins": None, "effort_points": None}),
+    ({"tags": []}, {"tracked_mins": 30}),
+    ({"categories": []}, {"effort_points": 5}),
+    ({"stage": "today"}, {"tracked_mins": None, "effort_points": None}),
 ])
 async def test_mixed_accounting_update_on_a_finished_action_is_refused_without_changes(
     sessions, effort_on, repeating, extra, fields,

@@ -101,17 +101,6 @@ async def test_cd_button_048_markers_follow_moves_and_single_card_deletion(sessi
         assert await card_emoji(session, goal) == "🎯"
 
 
-async def test_cd_button_048_goal_subgoal_action_chain_counts_only_goal_levels(sessions):
-    """CD-BUTTON-048 — tests/brd/cards.feature"""
-    async with sessions() as session:
-        goal = await create_card(session, kind="goal", title="Goal")
-        subgoal = await create_card(session, kind="goal", title="Subgoal", parent_ids={goal.id})
-        action = await create_card(session, kind="action", title="Action", parent_ids={subgoal.id})
-        assert await card_emoji(session, goal) == "🎯²"
-        assert await card_emoji(session, subgoal) == "🎯"
-        assert await card_emoji(session, action) == "⭐️"
-
-
 async def test_cd_tree_053_ai_cards_reads_the_goal_marker_as_tree_level(read_views):
     """CD-TREE-053 — tests/brd/cards.feature"""
     sessions, runner = read_views
@@ -169,6 +158,8 @@ async def test_cd_tree_053_seven_goals_with_an_action_keep_the_root_marker_seven
         if link:
             await toggle_card_parent(session, action.id, chain[-1].id)
         assert await card_emoji(session, chain[0]) == "🎯⁷"
+        assert await card_emoji(session, chain[-1]) == "🎯"
+        assert await card_emoji(session, action) == "⭐️"
         await session.commit()
         root_id, action_id = chain[0].id, action.id
 

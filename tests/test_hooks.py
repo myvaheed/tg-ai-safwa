@@ -338,6 +338,8 @@ async def test_the_words_of_a_request_come_from_the_hook_that_is_still_on():
     assert await hooks.prepare(NO_SESSIONS, "reader.advice", []) is None
     assert await hooks.prepare(NO_SESSIONS, "reader.offer", [7]) is None
     assert await hooks.prepare(NO_SESSIONS, "gone", [7]) is None
+    assert hooks.passing("reader.offer") is None
+    assert hooks.passing("gone") is None
     off = catalogue(ADVICE, policy=switched(ADVICE.name))
     assert await off.prepare(NO_SESSIONS, "reader.advice", [7]) is None
 
