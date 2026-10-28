@@ -291,6 +291,7 @@ async def test_the_board_owns_every_mutation_tool(e2e_harness):
         "query_data",
         "goal",
         "action",
+        "thought",
         "check",
         "value",
         "tag",

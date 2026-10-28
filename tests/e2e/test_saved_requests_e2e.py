@@ -99,7 +99,7 @@ async def test_ai_request_update_is_rejected_when_the_request_becomes_stale(e2e_
     "sql",
     [
         "SELECT id FROM cards",
-        "SELECT 'value' AS item_type, id FROM ai_checks",
+        "SELECT 'tag' AS item_type, id FROM ai_checks",
         "SELECT 'check' AS item_type, 'wrong' AS id FROM ai_checks",
         # The id is real and belongs to a CTE nobody selects it from, so the Request would
         # answer with amounts; the Cards here are named inside a string and read nowhere.
@@ -262,26 +262,34 @@ async def test_ai_request_query_supports_complex_boolean_logic(e2e_harness):
 
 
 @pytest.mark.parametrize("mixed", [False, True])
-async def test_ai_saves_check_requests_and_opens_them_without_another_model_call(e2e_harness, mixed):
+@pytest.mark.parametrize("item_type", ["check", "value"])
+async def test_ai_saves_typed_requests_and_opens_them_without_another_model_call(e2e_harness, mixed, item_type):
     """SR-AI-007 — tests/brd/saved_requests.feature"""
     from ui_harness import FakeMessage, button_texts, services_for
 
     from safwa.features.checks.use_cases import create_check
     from safwa.features.saved_requests.telegram import command_requests
+    from safwa.features.values.use_cases import create_value
     from tg_agent_shell.telegram import open_item_screen
 
     async with e2e_harness.sessions() as session:
-        check = await create_check(session, title="Enough sleep?")
+        item = (
+            await create_check(session, title="Enough sleep?") if item_type == "check"
+            else await create_value(session, "Health", "Stay healthy.")
+        )
         await create_manual_card(session, title="Walk", effort_points=1)
         await session.commit()
-    sql = "SELECT 'check' AS item_type, id FROM ai_checks WHERE status = 'pending'"
+    sql = (
+        "SELECT 'check' AS item_type, id FROM ai_checks WHERE status = 'pending'"
+        if item_type == "check" else "SELECT 'value' AS item_type, id FROM ai_values"
+    )
     if mixed:
         sql += " UNION ALL SELECT 'card', id FROM ai_cards"
     advisor, provider = e2e_harness.advisor([
         route_turn("workspace_mutator"),
         mutation_turn(("request", {"mode": "create", "name": "Selection", "sql": sql})),
     ])
-    outcome = await advisor.handle("Save a Request for pending Checks and the selected Cards")
+    outcome = await advisor.handle(f"Save a Request for {item_type}s" + (" and Cards" if mixed else ""))
     assert outcome.proposal_id is not None
     assert len(provider.calls) == 2
     async with e2e_harness.sessions() as session:
@@ -292,14 +300,17 @@ async def test_ai_saves_check_requests_and_opens_them_without_another_model_call
         stored = await session.get(SavedRequest, request_id)
         assert stored.query_sql == sql
         results = await request_items(session, stored.query_sql, ALLOWED_VIEWS)
-        assert results[0].id == check.id
+        assert results[0].id == item.id
+        assert type(results[0]) is type(item)
         assert len(results) == (2 if mixed else 1)
 
     services = services_for(e2e_harness.sessions)
     message = FakeMessage(975, bot_message=True)
     await command_requests(message, services)
-    expected = "Selection · " + ("⭐️1 · " if mixed else "") + "☑️1"
+    marker = "☑️" if item_type == "check" else "💎"
+    expected = "Selection · " + ("⭐️1 · " if mixed else "") + marker + "1"
     assert expected in button_texts(message.edits[-1][1])
     await open_item_screen(message, services, "request", request_id)
-    assert any(label.startswith("☑️ Enough sleep?") for label in button_texts(message.edits[-1][1]))
+    label = "☑️ Enough sleep?" if item_type == "check" else "💎 Health"
+    assert any(button.startswith(label) for button in button_texts(message.edits[-1][1]))
     assert len(provider.calls) == 2

@@ -13,7 +13,6 @@ from sqlalchemy import select
 
 from llm_gateway import CompletionTurn, ToolCall
 from safwa.bootstrap.modules import AGENTS, REGISTRY, SYSTEM_PROMPT, routed_prompt
-from safwa.constants import INBOX_TAG_NAME
 from safwa.features.cards.use_cases import toggle_card_parent
 from safwa.features.compass.agent import COMPASS_AGENT, COMPASS_PROMPT, MORE_ABOUT, compass_now
 from safwa.features.compass.graph import (
@@ -36,8 +35,6 @@ from safwa.features.compass.graph_review import (
 )
 from safwa.features.onboarding.agent import MANUAL
 from safwa.features.profile.api import hook_switched_on, morning_time, set_hook_switch
-from safwa.features.tags.model import Tag
-from safwa.features.tags.use_cases import seed_inbox_tag
 from safwa.features.values.model import CheckValue
 from safwa.features.values.use_cases import create_value
 from safwa.foundation.workspace import require_workspace
@@ -120,8 +117,6 @@ async def test_each_step_compass_is_told_what_sql_finds(sessions):
     context = SimpleNamespace(sessions=sessions)
     assert await compass_now(context, "") == "Found without a model: nothing."
     async with sessions() as session:
-        await seed_inbox_tag(session)
-        inbox_id = await session.scalar(select(Tag.id).where(Tag.name == INBOX_TAG_NAME))
         many = {await value(session, f"Value {n}") for n in range(GOAL_VALUES_MANY)}
         everything = await create_card(session, kind="goal", title="Everything", value_ids=many)
         # The same Value as its Goal is not a finding.
@@ -133,7 +128,7 @@ async def test_each_step_compass_is_told_what_sql_finds(sessions):
         await create_card(session, kind="goal", title="Find clients", parent_ids={earn.id})
         calm = await value(session, "Calm")
         await create_card(
-            session, kind="goal", title="Some idea", tag_ids={inbox_id}, value_ids={calm},
+            session, kind="thought", title="Some idea",
         )
         freedom = await value(session, "Freedom")
         old = await create_card(session, kind="goal", title="Old", value_ids={freedom})

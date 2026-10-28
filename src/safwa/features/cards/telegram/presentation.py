@@ -41,6 +41,8 @@ ITEM_BUTTON_LIMIT = 60
 async def item_button_label(session: AsyncSession, card: Card) -> str:
     """A Card on a button in a list of several stages: its kind and its stage as emoji, which
     say both without a word (CD-BUTTON-048)."""
+    if card.kind == CardKind.THOUGHT:
+        return f"💭 {card.title[:ITEM_BUTTON_LIMIT - 2]}"
     stage = STAGE_EMOJIS[card.effective_stage]
     marker = await card_emoji(session, card)
     title = card.title[: ITEM_BUTTON_LIMIT - len(stage) - len(marker) - 4]
@@ -115,6 +117,8 @@ def values_expression(kind: Any, names: list[str], has_parent: bool = False) -> 
 def kind_emoji(value: Any, level: int = 0) -> str:
     """Return the compact Card-kind marker without repeating its text label."""
     kind = str(getattr(value, "value", value))
+    if kind == CardKind.THOUGHT.value:
+        return "💭"
     if kind == CardKind.ACTION.value:
         return "⭐️"
     if kind == CardKind.GOAL.value:
@@ -217,6 +221,10 @@ def card_overview_text(
         f"<i>Kind:</i> {html.escape(kind_label(kind, has_parent, level=state.get('tree_level', 0)))}",
         f"<i>Title:</i> <b>{html.escape(str(state.get('title') or '—'))}</b>",
     ]
+    if kind == CardKind.THOUGHT.value:
+        lines.append(f"\n{markdown_field('Note', str(state.get('note') or ''))}\n")
+        lines.append(markdown_field("Blocked description", str(state.get("blocked_description") or "")))
+        return f"<b>{html.escape(heading)}</b>\n" + "\n".join(lines)
     if parents := state.get("parents_html"):
         lines.append(f"<i>{'Parent' if len(parents) == 1 else 'Parents'}:</i> {', '.join(parents)}")
     lines.append(f"<i>Stage:</i> {html.escape(str(state.get('stage') or 'backlog').title())}")
@@ -230,7 +238,7 @@ def card_overview_text(
             lines.append(html.escape(state["schedule_summary"]))
     if not compact:
         lines.append(f"<i>Priority:</i> {html.escape(str(state.get('priority') or 'medium').title())}")
-    # Only an Action is ever blocked, and its reason is what blocks it.
+    # Thoughts returned above; this is the Action's Blocked control.
     if kind == CardKind.ACTION.value and not compact:
         reason = str(state.get("blocked_description") or "")
         lines.append(f"<i>Blocked:</i> {'Yes' if reason else 'No'}")

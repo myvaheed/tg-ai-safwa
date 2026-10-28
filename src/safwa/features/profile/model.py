@@ -40,6 +40,7 @@ class UserProfile(Base, TimestampMixin):
     # Sprint's time in its retro, and the question after Done follow it.
     time_tracking: Mapped[bool] = mapped_column(Boolean, default=False)
     effort_tracking: Mapped[bool] = mapped_column(Boolean, default=False)
+    thoughts_by_default: Mapped[bool] = mapped_column(Boolean, default=False)
     today_capacity_ep: Mapped[float] = mapped_column(Float, default=TODAY_CAPACITY_EP_DEFAULT)
     home_after_minutes: Mapped[int] = mapped_column(Integer, default=HOME_AFTER_MINUTES_DEFAULT)
     secret_word_hash: Mapped[str | None] = mapped_column(Text, server_default=null())
@@ -66,6 +67,7 @@ class ProfileField(StrEnum):
     MOTIVATOR_INSTRUCTIONS = "motivator_instructions"
     TIME_TRACKING = "time_tracking"
     EFFORT_TRACKING = "effort_tracking"
+    THOUGHTS_BY_DEFAULT = "thoughts_by_default"
     TODAY_CAPACITY_EP = "today_capacity_ep"
     HOME_AFTER_MINUTES = "home_after_minutes"
     DONT_DISTURB = "dont_disturb"

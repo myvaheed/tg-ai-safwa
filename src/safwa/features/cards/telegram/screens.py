@@ -37,6 +37,7 @@ from ..api import order_cards, parents_of, tree_level
 from ..hierarchy import card_progress
 from ..model import Card, CardCategory, CardEnergyType, CardKind, CardStage
 from .presentation import card_overview_text, card_title_marks, progress_summary
+from .thoughts import thought_buttons
 
 
 async def render_card(
@@ -103,6 +104,7 @@ async def render_card(
                 select(CardEnergyType.energy_type).where(CardEnergyType.card_id == card.id)
             )
         )
+        thought = card.kind == CardKind.THOUGHT.value
         archived = card.archived_at is not None
         effort_tracking = await effort_tracking_on(session)
         # An archived Card has no control to put away, so it opens whole.
@@ -156,6 +158,10 @@ async def render_card(
                     ("🏷 Tags", "card_choose_tags", {"id": card.id}),
                 ]
             )
+        if thought:
+            field_specs = [spec for spec in field_specs if spec[2].get("field") in {"title", "note"}]
+            if full:
+                field_specs.append(("📝 Blocked reason", "card_edit_text", {"id": card.id, "field": "blocked_description"}))
         buttons = [
             await place_button(session, services.owner_id, text, Place(action, args, back))
             for text, action, args in field_specs
@@ -210,7 +216,7 @@ async def render_card(
                         )
                     )
         primary_row: list[InlineKeyboardButton] = []
-        if not archived and card.effective_stage != CardStage.DONE.value:
+        if not thought and not archived and card.effective_stage != CardStage.DONE.value:
             primary_row.append(
                 await place_button(
                     session, services.owner_id, "✅ Done", Place("card_finish", {"id": card.id}, back)
@@ -239,7 +245,8 @@ async def render_card(
                 )
             )
         rows = (
-            ([move_row] if move_row else [])
+            ([await thought_buttons(session, services, card.id)] if thought else [])
+            + ([move_row] if move_row else [])
             + ([primary_row] if primary_row else [])
             + relationship_rows
             + rows
@@ -270,7 +277,7 @@ async def render_card(
                             ),
                         ),
                     )
-            else:
+            elif not thought:
                 closing_row.insert(
                     0,
                     await place_button(
@@ -311,7 +318,7 @@ async def render_card(
         # Parents, children, Values and Tags are links in the Card's words (CD-LINK-055).
         progress: dict[str, Any] = {}
         children_html = ""
-        if card.kind != CardKind.ACTION.value:
+        if card.kind == CardKind.GOAL.value:
             progress = dict(await card_progress(session, card.id))
             children = progress_summary(progress, effort_tracking=effort_tracking)
             if children:

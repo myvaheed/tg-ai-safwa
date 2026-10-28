@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from tg_agent_shell.telegram.manifest import AgentSpec
 
-from ...constants import DESCRIPTION_MAX_CHARS, INBOX_TAG_NAME
+from ...constants import DESCRIPTION_MAX_CHARS
 from ..cards.model import (
     CARD_TREE_DEPTH_MAX,
     CATEGORY_MEANINGS,
@@ -65,7 +65,7 @@ MANUAL = f"""# Safwa
 - Goal markers count Goal levels including the Card itself: 🎯 for one level, 🎯² for two, 🎯³ for three, and so on. Actions do not count.
 - Cards stand at most {CARD_TREE_DEPTH_MAX} levels deep along any path, counting the root as 1 and including Actions. A Card cannot be placed under itself or its descendants.
 - Goals name a specific, attainable, meaningful result, with a verifiable completion criterion in Note; Deadline is optional. A Subgoal contributes to each parent's result. Unclear results or criteria are clarified before proposing. Directions are Values; ongoing practices are repeating Actions or Checks.
-- After a Goal or Subgoal is created, Safwa silently checks that it is one concrete result that takes more than one day, with an observable Done, and that a Subgoal moves each parent forward. If not, the Advisor says the Goal could be improved and asks with advice. It may suggest a criterion, a Value, a repeating Action or Check, or an Action instead, for the user to confirm. A Goal tagged "{INBOX_TAG_NAME}" is not checked. Goal clarification in Profile → Hooks switches this off or on.
+- After a Goal or Subgoal is created, Safwa silently checks that it is one concrete result that takes more than one day, with an observable Done, and that a Subgoal moves each parent forward. If not, the Advisor says the Goal could be improved and asks with advice. It may suggest a criterion, a Value, a repeating Action or Check, or an Action instead, for the user to confirm. Goal clarification in Profile → Hooks switches this off or on.
 - An Action has a stage: Backlog, Sprint, Today, Done. It goes to Sprint or Today when the user takes it on; it need not pass every stage. An open Goal shows its children's live stage. Goals and Subgoals close only by an explicit Done or approved proposal, even with open Cards under them, which stay open; only an explicit reopen opens them again.
 - After all Actions under a Goal or Subgoal are Done, the Advisor asks whether to close it too or create a new Action. Goal completion follow-up in Profile → Hooks switches this question off or on.
 - After a Goal is closed over open Cards that serve no other open Goal, the Advisor asks whether to keep it closed, reopen it or close them too. Open Cards under a closed Goal in Profile → Hooks switches this off or on.
@@ -76,7 +76,7 @@ MANUAL = f"""# Safwa
 - Categories say what an Action gives: {_CATEGORIES}.
 - Energy says what an Action costs: {_ENERGY}.
 - An Action may carry several Categories and several Energy types. Their selectors show these words on each button.
-- After an Action is created, by hand or by a saved proposal, Safwa silently checks that it is one concrete step that fits in one day and moves its Goals forward, and that its Categories, Energy types and, with EP on, Effort Points fit it. EP are compared with similar Actions, finished ones first. What the user named in the last messages is left alone. If something clearly does not fit, the Advisor says the Action could be improved, suggests the change with its reason, and asks. It may suggest a Goal instead. An Action tagged "{INBOX_TAG_NAME}" is not checked. Action review in Profile → Hooks switches this off or on.
+- After an Action is created, by hand or by a saved proposal, Safwa silently checks that it is one concrete step that fits in one day and moves its Goals forward, and that its Categories, Energy types and, with EP on, Effort Points fit it. EP are compared with similar Actions, finished ones first. What the user named in the last messages is left alone. If something clearly does not fit, the Advisor says the Action could be improved, suggests the change with its reason, and asks. It may suggest a Goal instead. Action review in Profile → Hooks switches this off or on.
 - Schedule holds an Action's timing in plain words: every evening, every Monday, five times a day, Tuesday at 15:00, on the 1st and 15th of each month, three times a month. No clock is needed: a day without one is due by its end. Calendar weeks start Monday and months on the 1st, in the workspace timezone; the 31st is the last day of every month. What a week or a month leaves undone does not carry over.
 - A Schedule is read before it is saved. Typed into "⏱ Schedule", the Card shows how it was understood, and a missing detail is asked on the same screen. Proposed in words, the review screen shows how it was understood, and the Advisor asks for a missing detail in the same reply. Words Safwa cannot read come back with examples of the forms a Schedule takes.
 - An Action repeats at most {ACTION_DAILY_EXECUTIONS_MAX} times a day; more often is a Check.
@@ -95,8 +95,11 @@ MANUAL = f"""# Safwa
 - Not with buttons: placing a Card under a Goal, taking it from one, or making a Subgoal. Ask the Advisor; it places or takes one parent at a time.
 - Not at all: moving an Action straight to Done. Finish it with "✅ Done".
 
-# Inbox
-- An Action can hold a note, captured idea or draft. Tag "{INBOX_TAG_NAME}" marks these captures. Find them in "🔎 Requests" → "{INBOX_TAG_NAME}".
+# Thoughts
+- A Thought keeps a note, idea or draft with only Title, Note and Blocked description. Open Menu → Thoughts; oldest comes first.
+- Quality Plan opens Blueprint with its contents. Direct Create asks Mutator to carry out its contents. Both are on its proposal and its saved screen.
+- On a proposal, these buttons leave the Thought unsaved. A saved Thought stays until deleted. New items still need Save.
+- Thoughts by default in Profile is off at first. On, new items are Thoughts unless you request another type, accept a Blueprint plan or choose Direct Create. Tags, Requests and edits keep their ordinary behavior.
 
 # Effort Points (EP)
 - "🔢 Effort Points" in the Profile switches the estimates, Sprint capacity, Today overload warnings and Effort Points reminder on or off. Switching off keeps saved estimates and capacity. It does not change Time tracking.
@@ -136,10 +139,11 @@ MANUAL = f"""# Safwa
 - Set a Value's place by asking the Advisor or pressing "↕️ Prioritize" on Values. Tap a Value to select it; tap it again to clear. ↑/↓ saves a move; ←/→ turns pages; Back exits. Places are 1..N, 1 highest; other Values shift automatically. Values and Advisor context follow this order.
 
 # Requests
-- A Request is a saved query over Cards and Checks. In Sprint planning, only the Actions it returns filter the Backlog.
-- A list of Cards, such as a Request's or a Goal's children, shows live Cards, then Done, then archived. Each part is in Card order, each Card under the last of its parents there. A Request lists Checks after its ordered Cards. A query with ORDER BY over its whole result keeps that order.
+- A Request is a saved query over Cards, Checks and Values. In Sprint planning, only the Actions it returns filter the Backlog.
+- A new workspace starts with Goals without children, Goals without Values and Values without Goals. Ignore Done and archived Goals in these defaults. These are ordinary Requests; edit or delete them as usual.
+- A list of Cards, such as a Request's or a Goal's children, shows live Cards, then Done, then archived. Each part is in Card order, each Card under the last of its parents there. A Request lists Checks and Values after its ordered Cards in query order. A query with ORDER BY over its whole result keeps that order.
 - In words: ask the Advisor to make one or rename one. Its screen shows the query.
-- With buttons: "🔎 Requests" or /requests: each name counts 🎯 Goals, ⭐️ Actions and ☑️ Checks, omitting zeros. Open one to see its results, or delete it.
+- With buttons: "🔎 Requests" or /requests: each name counts 🎯 Goals, ⭐️ Actions, 💭 Thoughts, ☑️ Checks and 💎 Values, omitting zeros. Open one to see its results, or delete it.
 - Not with buttons: making or changing a Request.
 
 # Sprint
@@ -197,11 +201,11 @@ MANUAL = f"""# Safwa
 - "Usage time" shows roughly how long the user has used Safwa in all, such as "~2d 5h 25m". It is not Time tracking.
 - "⌛ Time tracking" is off until pressed. On, it offers "⌛ Time spent" on an Action, keeps a Sprint's time for its retro and turns on "Time tracking reminder". The active day it measures runs from the Morning time to the Evening time.
 - In words too: its ordinary fields, shown to save, marked from what it was to what it becomes. Secret word is set only on its own Profile screen, and the word is never shown.
-- Time tracking and Effort Points can also be changed in words, through a Profile proposal. Hook switches are buttons only. Onboarding alone may be turned off in words.
+- Time tracking, Effort Points and Thoughts by default can also be changed in words, through a Profile proposal. Hook switches are buttons only. Onboarding alone may be turned off in words.
 
 # Screens and commands
 - Field labels are italic. Notes, descriptions, instructions, Diary text and Sprint criteria support bold, italic, strikethrough and code Markdown. Text editors show the copyable source. Review screens keep the source visible and mark added and removed words.
-- /start opens Home with one ☰ Menu button. ☰ Menu or ↩️ Menu unfolds these buttons: "🗂 Dashboard", "🏃 Sprint", "📊 Retro", "➕ Add", "💎 Values", "🏷 Tags", "📔 Diary", "⚙️ Profile", "⏰ Reminders", "🔎 Requests".
+- /start opens Home with one ☰ Menu button. ☰ Menu or ↩️ Menu unfolds these buttons: "🗂 Dashboard", "🏃 Sprint", "📊 Retro", "➕ Add", "💭 Thoughts", "💎 Values", "🏷 Tags", "📔 Diary", "⚙️ Profile", "⏰ Reminders", "🔎 Requests".
 - Commands: /start, /sprint, /retro, /values, /tags, /reminders, /requests, /memory, /status for the workspace mode, /summarize to fold the conversation into a Summary now, /clear to empty the chat now, /cancel to stop an answer being written.
 - A voice message is transcribed and answered like text.
 - A photo is read as a few words when it arrives, when image input is on. Asked what a photo shows, Safwa looks at it again. A link to a photo opens it, and it stays in the chat.

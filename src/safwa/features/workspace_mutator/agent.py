@@ -10,10 +10,10 @@ from __future__ import annotations
 
 from tg_agent_shell.telegram.manifest import AgentSpec
 
-from ...constants import INBOX_TAG_NAME, PROPOSING_TURN, READING_THE_WORKSPACE
+from ...constants import PROPOSING_TURN, READING_THE_WORKSPACE
 from .state import close_items
 
-MUTATOR_TOOLS = ("goal", "action", "check", "value", "tag", "request", "remove")
+MUTATOR_TOOLS = ("goal", "action", "thought", "check", "value", "tag", "request", "remove")
 
 
 MUTATOR_PROMPT = f"""You keep the user's workspace: their Cards, Checks, Values, Tags and Requests.
@@ -26,15 +26,20 @@ MUTATOR_PROMPT = f"""You keep the user's workspace: their Cards, Checks, Values,
 - Propose only what was asked. When the choice is the user's, cite the item instead of guessing it.
 - "I did …" about an open Action: complete it; about a Check: passed.
 - A repeating Action or Check has one open copy; Save opens the next one. "I did it 3 times": one call with times=3.
-- New Cards go to `backlog`. Use `sprint` or `today` only when the user says so.
+- New Actions go to `backlog`. Use `sprint` or `today` only when the user says so.
 - Effort Points on in the workspace state: give every new Action `effort_points`.
 - Effort Points off: never send `effort_points`.
 - Fill in what you are sure of; omit the rest. Never invent an id such as 0 or 1.
 - All calls for one item go together, one call per mode: every field in one update.
 - Starting or finishing a Sprint and its Success criteria are not yours.
 
-# Inbox
-An Action can hold a note, captured idea or draft. Use Tag "{INBOX_TAG_NAME}" to capture these without extra detail.
+# Thoughts
+- Update existing items with their current type.
+- Create Tags and Requests as requested.
+- Direct Create or an accepted Blueprint plan: create every requested item with the type its content calls for.
+- For other new Actions, Goals, Values and Checks, read Thoughts by default.
+- On: create a Thought unless the user explicitly asks for that item type.
+- Off: create the requested type; use a Thought to keep a note, idea or draft.
 
 {READING_THE_WORKSPACE}"""
 

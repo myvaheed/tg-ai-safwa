@@ -48,7 +48,7 @@ class RequestProposalHandler:
                 raise ToolPreparationError(
                     "unsafe_query",
                     f"Invalid Request SQL: {error}",
-                    "Return item_type ('card' or 'check') and id from ai_cards or ai_checks.",
+                    "Return item_type ('card', 'check' or 'value') and id from ai_cards, ai_checks or ai_values.",
                 ) from error
         return PreparedChange(values=values, expected_version=expected_version)
 

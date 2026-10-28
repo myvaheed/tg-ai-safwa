@@ -31,6 +31,7 @@ from ...foundation.models import Base, TimestampMixin, UtcDateTime
 class CardKind(StrEnum):
     GOAL = "goal"
     ACTION = "action"
+    THOUGHT = "thought"
 
 
 CARD_TREE_DEPTH_MAX = 8
@@ -136,19 +137,22 @@ class Card(Base, TimestampMixin):
     kind: Mapped[str] = mapped_column(String(20))
     title: Mapped[str] = mapped_column(String(500))
     note: Mapped[str] = mapped_column(Text, default="")
-    manual_stage: Mapped[str] = mapped_column(String(20), default=CardStage.BACKLOG.value)
-    effective_stage: Mapped[str] = mapped_column(
-        String(20), default=CardStage.BACKLOG.value, index=True
+    manual_stage: Mapped[str | None] = mapped_column(
+        String(20).evaluates_none(), default=CardStage.BACKLOG.value
     )
-    priority: Mapped[str] = mapped_column(String(20), default=Priority.MEDIUM.value)
+    effective_stage: Mapped[str | None] = mapped_column(
+        String(20).evaluates_none(), default=CardStage.BACKLOG.value, index=True
+    )
+    priority: Mapped[str | None] = mapped_column(
+        String(20).evaluates_none(), default=Priority.MEDIUM.value
+    )
     schedule: Mapped[str | None] = mapped_column(Text)
     schedule_id: Mapped[int | None] = mapped_column(ForeignKey("schedules.id"), index=True)
     period_start: Mapped[datetime | None] = mapped_column(UtcDateTime)
     schedule_record: Mapped["ScheduleDefinition | None"] = relationship(  # noqa: F821, UP037
         "ScheduleDefinition", lazy="joined"
     )
-    # What blocks an Action, in the owner's words; empty when nothing does. A Goal and a
-    # Subgoal keep it empty: only an Action is ever blocked.
+    # What blocks an Action or a Thought, in the owner's words; empty when nothing does.
     blocked_description: Mapped[str] = mapped_column(Text, default="")
     effort_points: Mapped[float | None] = mapped_column(Float)
     # The minutes the owner says an Action took; on a Goal and a Subgoal, the sum below it.

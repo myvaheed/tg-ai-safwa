@@ -83,7 +83,7 @@ class RequestProposalPresenter:
 async def request_citation_label(
     session: AsyncSession, services: Any, request: SavedRequest, *, short: bool
 ) -> str:
-    """A Request is named by how many Cards and Checks it currently matches, not by its SQL."""
+    """A Request is named by how many items it currently matches, not by its SQL."""
     matches = await request_items(session, request.query_sql, services.views)
     return with_citation_fields(
         f"💬 {citation_title(request.name, short=short)}", [str(len(matches))]

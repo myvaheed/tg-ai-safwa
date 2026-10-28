@@ -1,7 +1,7 @@
 # Safwa
 
 Safwa is a single-owner personal agile organizer and AI advisor delivered through a Telegram bot.
-It supports hierarchical Goal/Action Cards (a Card may stand under several Goals; nested Goals
+It supports Thoughts and hierarchical Goal/Action Cards (a Card may stand under several Goals; nested Goals
 display as Subgoals), Checks, Values, Tags, Planning and Sprints (two weeks by default), repeatable Actions, a Diary, Reminders, saved Card and Check Requests Safwa writes, voice input,
 and an OpenAI-compatible persona. The advisor never writes to your data itself: every change is a
 proposal, and it arrives as a Save/Discard screen unless it is one of the narrow allowlisted shapes
@@ -217,7 +217,7 @@ See [CHAT_ACCESS.md](docs/CHAT_ACCESS.md).
 
 Use `/start`, `/sprint`, `/values`, `/tags`, `/requests`, `/reminders`, `/memory`,
 `/summarize`, `/status`, `/clear` and `/cancel`. The Dashboard, its Backlog, the Diary and the
-Profile are menu buttons only; Today is on the Home dashboard.
+Profile and Thoughts are menu buttons only; Today is on the Home dashboard.
 
 The advisor reads a window of the chat bounded by a token budget, so nothing has to be started or
 ended. `/summarize` writes a `📜 Summary` on demand, which becomes the far edge of that window.
@@ -225,7 +225,11 @@ ended. `/summarize` writes a `📜 Summary` on demand, which becomes the far edg
 Creating a Card by hand stores nothing until **Save**: the draft lives in the screen and is gone if
 you leave it.
 
-An Action can hold a note, captured idea or draft. Ask Safwa to record it; the built-in
-**Inbox** Tag marks these captures without requiring extra detail.
-Open **Requests → Inbox** to return to these records. Remove the Tag after deciding
-what to do with one; ordinary edits do not remove it. The Tag cannot be renamed or deleted.
+A Thought keeps an idea or draft with only Title, Note and Blocked description.
+Open **Menu → Thoughts** to return to them, oldest first. **Quality Plan** starts Blueprint;
+**Direct Create** asks Mutator to carry out the request in the Thought.
+**Thoughts by default** in Profile makes new items default to Thoughts until you request
+another type, accept a Blueprint plan or choose Direct Create.
+
+A new database starts with three ordinary, editable and deletable Requests:
+**Goals without children**, **Goals without Values** and **Values without Goals**.

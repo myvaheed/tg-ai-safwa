@@ -1,4 +1,4 @@
-"""Saved Requests: a Card and Check query the owner reruns from the interface."""
+"""Saved Requests: a Card, Check and Value query the owner reruns from the interface."""
 
 from __future__ import annotations
 

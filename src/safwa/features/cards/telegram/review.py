@@ -79,7 +79,7 @@ _REFERENCE_BY_FIELD = {spec.field: spec for spec in CARD_REFERENCE_SPECS}
 
 def normalized_card_details(values: dict[str, Any], *, creating: bool) -> dict[str, Any]:
     fields = {name: values[name] for name in CARD_DETAIL_FIELDS if name in values}
-    if creating:
+    if creating and fields.get("kind") != CardKind.THOUGHT.value:
         fields.setdefault("stage", CardStage.BACKLOG.value)
         fields.setdefault("note", "")
         fields.setdefault("priority", "medium")
@@ -272,6 +272,8 @@ async def _card_fields(
         "energy_types": "Energy",
         **{spec.field: f"{spec.label}s" for spec in CARD_REFERENCE_SPECS},
     }
+    if (after.get("kind") or before.get("kind")) == CardKind.THOUGHT.value:
+        labels = {key: value for key, value in labels.items() if key in {"kind", "title", "note", "blocked_description"}}
     # A new Card's defaults say nothing the owner chose.
     defaults = {"stage": CardStage.BACKLOG.value, "priority": Priority.MEDIUM.value}
     missing = {

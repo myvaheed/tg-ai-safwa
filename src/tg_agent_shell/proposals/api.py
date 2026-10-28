@@ -355,6 +355,18 @@ EditableFields = Callable[[AgentChange], Mapping[str, EditableField]]
 
 
 @dataclass(frozen=True, slots=True)
+class ProposalAction:
+    """An extra review button, dispatched through the feature's ordinary callbacks."""
+
+    label: str
+    action: str
+    payload: Mapping[str, Any] = field(default_factory=dict)
+
+
+ProposalActions = Callable[[ProposalChange], Sequence[Sequence[ProposalAction]]]
+
+
+@dataclass(frozen=True, slots=True)
 class ProposalSwitch:
     """A button that turns a proposed change into another call, for the owner to save
     instead (PR-SWITCH-037). The feature says when it is offered and writes the call; the
@@ -390,6 +402,12 @@ class ProposalRegistry:
     editable: Mapping[str, EditableFields] = field(default_factory=dict)
     # By entity, in the order its feature declares them; one absent here turns into nothing.
     switches: Mapping[str, Sequence[ProposalSwitch]] = field(default_factory=dict)
+    actions: Mapping[str, ProposalActions] = field(default_factory=dict)
+
+    def offered_actions(self, changes: Sequence[ProposalChange]) -> Sequence[Sequence[ProposalAction]]:
+        if len(changes) != 1 or (offer := self.actions.get(changes[0].entity)) is None:
+            return ()
+        return offer(changes[0])
 
     def offered_switches(
         self, changes: Sequence[ProposalChange]

@@ -188,6 +188,8 @@ def test_the_menu_draws_every_label_a_screen_declared() -> None:
     )
 
     rows = menu_markup(commands).inline_keyboard
+    assert any(button.text == "💭 Thoughts" and button.callback_data == "nav:thoughts"
+               for row in rows for button in row)
     drawn = [button.callback_data.split(":", 1)[1] for row in rows for button in row]
     assert drawn == placed
     # Home is the one action reached without a menu button of its own.

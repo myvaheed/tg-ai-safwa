@@ -222,3 +222,6 @@ constant, and the tests read the constant.
   approximate nearest-neighbour structure and a refresh driven by writes.
 - One search per read. Two different searches are two reads.
 - The text model reads 2048 tokens of a text; a longer Diary body is ranked by its start.
+
+Thoughts use the existing Card search index and citations. Similar-item selection includes
+Thoughts alongside open Goals and Actions, despite their absent Stage.

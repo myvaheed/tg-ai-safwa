@@ -5,21 +5,27 @@ from pydantic import ValidationError
 from sqlalchemy import select, text
 
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, PROPOSALS
-from safwa.constants import INBOX_TAG_NAME
 from safwa.features.cards.model import Card
-from safwa.features.cards.use_cases import create_card, toggle_card_tag
+from safwa.features.cards.use_cases import (
+    archive_subtree,
+    create_card,
+    finish_action,
+    finish_card,
+    toggle_card_value,
+)
 from safwa.features.checks.model import Check
-from safwa.features.checks.use_cases import create_check, delete_check
+from safwa.features.checks.use_cases import create_check, delete_check, toggle_check_value
 from safwa.features.saved_requests.api import RequestQueryError, request_items
 from safwa.features.saved_requests.model import SavedRequest
 from safwa.features.saved_requests.use_cases import (
     create_saved_request,
     delete_saved_request,
-    seed_inbox_request,
+    seed_default_requests,
     update_saved_request,
 )
 from safwa.features.tags.model import CardTag, Tag
-from safwa.features.tags.use_cases import create_tag, seed_inbox_tag
+from safwa.features.values.model import Value
+from safwa.features.values.use_cases import create_value, delete_value
 from safwa.features.workspace_mutator.remove import RemoveToolInput
 from safwa.foundation.marks import title_marks
 from tg_agent_shell.ai.sql import create_ai_views
@@ -264,32 +270,77 @@ def test_the_remove_tool_refuses_to_archive_a_request():
         RemoveToolInput(mode="archive", entity="request", id=1)
 
 
-async def test_the_inbox_selection_matches_the_exact_tag_in_creation_order(sessions):
-    """SR-INBOX-014 — tests/brd/saved_requests.feature"""
+async def test_default_requests_select_missing_direct_relationships(read_views):
+    """SR-UI-013 — tests/brd/saved_requests.feature"""
+    sessions, runner = read_views
     async with sessions() as session:
-        await seed_inbox_tag(session)
-        await seed_inbox_request(session, views=ALLOWED_VIEWS)
-        await seed_inbox_request(session, views=ALLOWED_VIEWS)
-        inbox = await session.scalar(select(Tag).where(Tag.name == INBOX_TAG_NAME))
-        similar = await create_tag(session, "Inbox другое")
-        other = await create_tag(session, "Другой")
-        cards = []
-        for title in ("Z first", "A second", "Similar Tag", "No Tag"):
-            cards.append(await create_card(session, kind="action", title=title))
-        for card, tag in ((cards[0], inbox), (cards[1], other), (cards[1], inbox), (cards[2], similar)):
-            await toggle_card_tag(session, card.id, tag.id)
+        requests = await seed_default_requests(session, views=ALLOWED_VIEWS)
+        # Similar names and commas must not turn a partial name match into a relationship.
+        linked = await create_value(session, "Health, fitness", "Stay healthy.")
+        unused = await create_value(session, "Health", "Stay well.")
+        action_only = await create_value(session, "Work", "Do useful work.")
+        check_only = await create_value(session, "Rest", "Recover.")
+        leaf = await create_card(session, kind="goal", title="No links")
+        parent = await create_card(session, kind="goal", title="Parent")
+        await toggle_card_value(session, parent.id, linked.id)
+        child = await create_card(session, kind="goal", title="Subgoal", parent_ids={parent.id})
+        action = await create_card(session, kind="action", title="Step", parent_ids={parent.id, child.id})
+        await toggle_card_value(session, action.id, action_only.id)
+        check = await create_check(session, title="Rested?")
+        await toggle_check_value(session, check.id, check_only.id)
+        # A finished or archived Action is still a child.
+        await finish_action(session, action.id)
+        await archive_subtree(session, action.id)
+        await create_card(session, kind="thought", title="Not a Goal")
         await session.commit()
+        results = {
+            request.name: await request_items(session, request.query_sql, ALLOWED_VIEWS)
+            for request in requests
+        }
+        assert results == {
+            "Goals without children": [leaf],
+            "Goals without Values": [leaf, child],
+            "Values without Goals": [unused, action_only, check_only],
+        }
+        for request in requests:
+            rows = (await runner.run(request.query_sql)).rows
+            assert [row["id"] for row in rows] == [item.id for item in results[request.name]]
+        rows = (await runner.run("SELECT * FROM ai_values ORDER BY id")).rows
+        assert [row["card_ids"] for row in rows] == [str(parent.id), None, str(action.id), None]
 
-        request = await session.scalar(select(SavedRequest))
-        assert len(list(await session.scalars(select(SavedRequest)))) == 1
-        assert [card.id for card in await request_items(session, request.query_sql, ALLOWED_VIEWS)] == [
-            cards[0].id, cards[1].id
-        ]
-        await toggle_card_tag(session, cards[0].id, inbox.id)
+
+@pytest.mark.parametrize("archived", [False, True])
+async def test_default_requests_ignore_done_and_archived_goals(read_views, archived):
+    """SR-UI-013 — tests/brd/saved_requests.feature"""
+    sessions, runner = read_views
+    async with sessions() as session:
+        requests = await seed_default_requests(session, views=ALLOWED_VIEWS)
+        closed_value = await create_value(session, "Closed work", "Only closed Goals serve it.")
+        live_value = await create_value(session, "Live work", "An open Goal serves it.")
+        parent = await create_card(session, kind="goal", title="Only a closed child Goal")
+        child = await create_card(session, kind="goal", title="Closed child", parent_ids={parent.id})
+        await toggle_card_value(session, child.id, closed_value.id)
+        action = await create_card(session, kind="action", title="Finished step", parent_ids={child.id})
+        await finish_action(session, action.id)
+        await finish_card(session, child.id)
+        if archived:
+            await archive_subtree(session, child.id)
+            assert child.archived_at is not None
+        leaf = await create_card(session, kind="goal", title="Closed leaf without Values")
+        await finish_card(session, leaf.id)
+        live = await create_card(session, kind="goal", title="Open leaf with a Value")
+        await toggle_card_value(session, live.id, live_value.id)
         await session.commit()
-        assert [card.id for card in await request_items(session, request.query_sql, ALLOWED_VIEWS)] == [
-            cards[1].id
-        ]
+        expected = {
+            "Goals without children": [parent, live],
+            "Goals without Values": [parent],
+            "Values without Goals": [closed_value],
+        }
+        for request in requests:
+            assert await request_items(session, request.query_sql, ALLOWED_VIEWS) == expected[request.name]
+            assert [row["id"] for row in (await runner.run(request.query_sql)).rows] == [
+                item.id for item in expected[request.name]
+            ]
 
 
 async def test_a_mixed_request_keeps_types_order_and_unique_references(sessions):
@@ -297,7 +348,8 @@ async def test_a_mixed_request_keeps_types_order_and_unique_references(sessions)
     async with sessions() as session:
         card = await create_card(session, kind="action", title="Walk")
         check = await create_check(session, title="Slept enough?")
-        assert card.id == check.id
+        value = await create_value(session, "Health", "Stay healthy.")
+        assert card.id == check.id == value.id
         check.archived_at = check.created_at
         request = await create_saved_request(
             session, "Mixed",
@@ -305,16 +357,20 @@ async def test_a_mixed_request_keeps_types_order_and_unique_references(sessions)
             "UNION ALL SELECT 'card', id, 1 FROM ai_cards "
             "UNION ALL SELECT 'check', id, 2 FROM ai_checks "
             "UNION ALL SELECT 'check', id + 1000, 3 FROM ai_checks "
+            "UNION ALL SELECT 'value', id, 4 FROM ai_values "
+            "UNION ALL SELECT 'value', id, 5 FROM ai_values "
+            "UNION ALL SELECT 'value', id + 1000, 6 FROM ai_values "
             "ORDER BY position",
             views=ALLOWED_VIEWS,
         )
         await session.commit()
         matches = await request_items(session, request.query_sql, ALLOWED_VIEWS)
         assert [(type(item), item.id) for item in matches] == [
-            (Check, check.id), (Card, card.id)
+            (Check, check.id), (Card, card.id), (Value, value.id)
         ]
         assert await title_marks(session, matches[0]) == " [📦]"
         await delete_check(session, check.id)
+        await delete_value(session, value.id)
         await session.commit()
         assert await request_items(session, request.query_sql, ALLOWED_VIEWS) == [card]
 
@@ -333,7 +389,7 @@ async def test_a_check_only_request_is_valid_on_an_empty_workspace(sessions):
 
 
 @pytest.mark.parametrize("projection", [
-    "'value' AS item_type, id",
+    "'tag' AS item_type, id",
     "NULL AS item_type, id",
     "'check' AS item_type, NULL AS id",
     "'check' AS item_type, 1.5 AS id",
@@ -353,7 +409,7 @@ async def test_invalid_stored_references_cannot_open_another_item(sessions, proj
 
 
 @pytest.mark.parametrize("projection", [
-    "'value' AS item_type, id",
+    "'tag' AS item_type, id",
     "'check' AS item_type, 'wrong' AS id",
 ])
 async def test_invalid_references_are_refused_before_a_request_is_saved(sessions, projection):

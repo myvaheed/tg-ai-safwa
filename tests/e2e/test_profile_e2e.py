@@ -28,6 +28,25 @@ from tg_agent_shell.telegram.manifest import AgentContext
 pytestmark = pytest.mark.e2e
 
 
+async def test_thought_default_can_be_changed_in_words_through_a_profile_proposal(e2e_harness):
+    """PS-THOUGHT-026 — tests/brd/profile.feature"""
+    advisor, provider = e2e_harness.advisor([
+        route_turn("profile"),
+        mutation_turn(("profile", {"thoughts_by_default": True})),
+        "Switched on.", "New items default to Thoughts.",
+    ], subagents=(e2e_harness.subagent("profile"),))
+    outcome = await advisor.handle("Включи Thoughts by default.")
+    assert outcome.kind is AIOutcomeKind.PROPOSAL
+    async with e2e_harness.sessions() as session:
+        assert not (await session.get(UserProfile, 1)).thoughts_by_default
+    await save(advisor, outcome.proposal_id)
+    async with e2e_harness.sessions() as session:
+        profile = await session.get(UserProfile, 1)
+        assert profile.thoughts_by_default
+        assert not profile.time_tracking and not profile.effort_tracking
+    assert not provider.responses
+
+
 def _tool_result(call: list[dict], name: str) -> dict:
     [result] = [
         message for message in call if message.get("role") == "tool" and message.get("name") == name

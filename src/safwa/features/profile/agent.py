@@ -46,7 +46,7 @@ Your answer goes to the user as you wrote it. Keep it short."""
 
 def _shown(profile: UserProfile, field: ProfileField) -> str:
     value = getattr(profile, field.value)
-    if field in {ProfileField.TIME_TRACKING, ProfileField.EFFORT_TRACKING}:
+    if field in {ProfileField.TIME_TRACKING, ProfileField.EFFORT_TRACKING, ProfileField.THOUGHTS_BY_DEFAULT}:
         return "on" if value else "off"
     if field is ProfileField.DONT_DISTURB:
         return ", ".join(value) or "off"
@@ -84,7 +84,7 @@ PROFILE_AGENT = AgentSpec(
     purpose=(
         "change a Profile field or answer what it holds: About me, Advisor instructions, "
         "the Morning and Evening times, Diary and Motivator instructions, Home after, "
-        "Don't disturb, Time tracking, Effort Points, Today capacity; or asks to switch an automatic reaction or stop onboarding."
+        "Don't disturb, Time tracking, Effort Points, Thoughts by default, Today capacity; or asks to switch an automatic reaction or stop onboarding."
     ),
     instructions=PROFILE_PROMPT,
     mutation_tools=("profile", "stop_onboarding"),
@@ -133,6 +133,9 @@ class ProfileToolInput(ToolInput):
     )
     effort_tracking: bool | None = Field(
         default=None, description="Whether the user uses Effort Points to estimate load."
+    )
+    thoughts_by_default: bool | None = Field(
+        default=None, description="Whether new items default to Thoughts."
     )
     today_capacity_ep: float | None = Field(
         default=None, description="Positive EP limit for Today; only while Today overload is on."

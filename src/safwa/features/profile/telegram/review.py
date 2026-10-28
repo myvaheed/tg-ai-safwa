@@ -16,8 +16,8 @@ from ..model import ProfileField, UserProfile
 from ..proposal import stored_value
 from .screens import PROFILE_FIELDS
 
-# The two switches the Profile screen draws as buttons rather than as fields.
-_SWITCH_TITLES = {"time_tracking": "Time tracking", "effort_tracking": "Effort Points"}
+# The switches the Profile screen draws as buttons rather than as fields.
+_SWITCH_TITLES = {"time_tracking": "Time tracking", "effort_tracking": "Effort Points", "thoughts_by_default": "Thoughts by default"}
 
 
 def _title(name: str) -> str:

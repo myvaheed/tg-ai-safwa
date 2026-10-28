@@ -32,6 +32,7 @@ from .ordering import order_cards as order_cards
 from .ordering import served_values as served_values
 
 PLANNED_STAGES = (CardStage.SPRINT, CardStage.TODAY)
+THOUGHT_DEFINITION = "Thought: a captured note, idea or draft, with a Title, Note and blocked description."
 # The page on what Effort Points mean (CD-EFFORT-073): its button, the action that draws it, and
 # the item type a citation opens it by, with the Profile's id.
 EFFORT_POINTS_ABOUT = "ℹ️ About Effort Points"
@@ -88,7 +89,7 @@ async def every_finished_action(session: AsyncSession) -> list[FinishedAction]:
         card.id: card
         for card in await session.scalars(
             select(Card)
-            .where(Card.kind != CardKind.ACTION.value)
+            .where(Card.kind == CardKind.GOAL.value)
             .options(selectinload(Card.values))
         )
     }

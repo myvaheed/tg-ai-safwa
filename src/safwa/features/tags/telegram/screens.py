@@ -45,7 +45,6 @@ from ..use_cases import (
     tag_description,
     tag_link_count,
     update_tag_fields,
-    validate_tag_change,
 )
 
 _EDITOR_TTL = timedelta(minutes=30)
@@ -151,9 +150,7 @@ async def render_tag(
                 ),
             ]
         ]
-        if tag is not None and tag.is_inbox:
-            rows[0].pop(0)
-        if tag is not None and not tag.is_inbox:
+        if tag is not None:
             rows.append(
                 [
                     await place_button(
@@ -185,7 +182,6 @@ async def render_tag(
         f"<i>Name:</i> {html.escape(editor_values['name'] or '—')}\n"
         f"\n{description}\n"
         + linked
-        + ("\nThis built-in Tag cannot be renamed or deleted." if tag and tag.is_inbox else "")
     )
     markup = InlineKeyboardMarkup(inline_keyboard=rows)
     if replace_message_id is not None:
@@ -404,7 +400,6 @@ async def _on_delete_prompt(context: CallbackContext) -> None:
         tag = await session.get(Tag, context.payload["id"])
         if tag is None:
             raise DomainError("Tag does not exist")
-        validate_tag_change(tag, deleting=True)
         cards = await tag_link_count(session, tag.id)
         confirm = await place_button(
             session,

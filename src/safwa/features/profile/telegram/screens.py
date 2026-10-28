@@ -252,6 +252,10 @@ def profile_text(profile: UserProfile, timezone: str, *, usage: int = 0) -> str:
         f"Action took; your active day runs from the Morning time to the Evening time, "
         f"{_clock(profile.morning_time)} to {_clock(profile.evening_time)}."
     )
+    lines.append(
+        f"<i>Thoughts by default:</i> {'on' if profile.thoughts_by_default else 'off'} — "
+        "keeps new items as Thoughts until you ask for another type."
+    )
     lines.append("Tap a setting to change it.")
     return "\n".join(lines)
 
@@ -293,6 +297,13 @@ async def command_profile(
             await token_button(
                 session, services.owner_id, _effort_tracking_label(profile),
                 "profile_effort_tracking", {},
+            )
+        ])
+        rows.append([
+            await token_button(
+                session, services.owner_id,
+                f"💭 Thoughts by default: {'on' if profile.thoughts_by_default else 'off'}",
+                "profile_thoughts_by_default", {},
             )
         ])
         # Readable before Effort Points are switched on, to choose whether to (CD-EFFORT-073).
@@ -605,7 +616,23 @@ async def _on_effort_tracking(context: CallbackContext) -> None:
     )
 
 
+async def _on_thoughts_by_default(context: CallbackContext) -> None:
+    async with context.sessions() as session:
+        profile = await session.get(UserProfile, 1)
+        if profile is None:
+            raise DomainError("Workspace is not initialized")
+        on = not profile.thoughts_by_default
+        await set_profile_field(session, ProfileField.THOUGHTS_BY_DEFAULT, on)
+        await session.commit()
+    await command_profile(
+        context.message, context.services,
+        notice=f"Thoughts by default switched {'on' if on else 'off'}.",
+        replace_message_id=context.message.message_id,
+    )
+
+
 PROFILE_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
+    "profile_thoughts_by_default": _on_thoughts_by_default,
     "profile_secret_word": _on_secret_word,
     "profile_secret_word_clear": _on_secret_word_clear,
     "profile_edit": _on_edit,

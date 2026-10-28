@@ -1,4 +1,4 @@
-"""Running a saved Request over Cards and Checks."""
+"""Running a saved Request over Cards, Checks and Values."""
 
 from __future__ import annotations
 
@@ -13,10 +13,11 @@ from tg_agent_shell.foundation.errors import DomainError
 
 from ..cards.model import Card
 from ..checks.model import Check
+from ..values.model import Value
 
 
 class RequestQueryError(DomainError):
-    """A saved query that cannot return Card and Check references."""
+    """A saved query that cannot return Card, Check or Value references."""
 
 
 async def _request_references(
@@ -29,8 +30,8 @@ async def _request_references(
         statement, sources = validated_read(raw, views)
     except UnsafeQueryError as error:
         raise RequestQueryError(str(error)) from error
-    if not sources.intersection({"ai_cards", "ai_checks"}):
-        raise RequestQueryError("The query must read ai_cards or ai_checks")
+    if not sources.intersection({"ai_cards", "ai_checks", "ai_values"}):
+        raise RequestQueryError("The query must read ai_cards, ai_checks or ai_values")
     try:
         result = await session.execute(text(statement))
     except SQLAlchemyError as error:
@@ -40,8 +41,8 @@ async def _request_references(
             raise RequestQueryError(f"The query must return a column named {column}")
     keys: dict[tuple[str, int], None] = {}
     for row in result.mappings():
-        if row["item_type"] not in {"card", "check"}:
-            raise RequestQueryError("Request SQL item_type must be card or check")
+        if row["item_type"] not in {"card", "check", "value"}:
+            raise RequestQueryError("Request SQL item_type must be card, check or value")
         if not isinstance(row["id"], int):
             raise RequestQueryError("Request SQL id results must be integers")
         keys[(row["item_type"], row["id"])] = None
@@ -58,11 +59,11 @@ async def normalize_request_query(
 
 async def request_items(
     session: AsyncSession, query_sql: str, views: Collection[str]
-) -> list[Card | Check]:
+) -> list[Card | Check | Value]:
     """Load each typed reference once, preserving SQL order and skipping deleted items."""
     _statement, keys = await _request_references(session, query_sql, views)
-    found: dict[tuple[str, int], Card | Check] = {}
-    for item_type, model in (("card", Card), ("check", Check)):
+    found: dict[tuple[str, int], Card | Check | Value] = {}
+    for item_type, model in (("card", Card), ("check", Check), ("value", Value)):
         ids = [item_id for kind, item_id in keys if kind == item_type]
         if ids:
             items = await session.scalars(select(model).where(model.id.in_(ids)))

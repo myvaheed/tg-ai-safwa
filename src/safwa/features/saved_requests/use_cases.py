@@ -2,7 +2,7 @@
 
 A Request is validated when it is written *and* again every time it is run, because the
 row is the only thing standing between a stored statement and the database. What it
-returns is a list of Cards and Checks on a screen and never enters the model's history, so the query is bound
+returns is a list of Cards, Checks and Values on a screen and never enters the model's history, so the query is bound
 by nothing but being valid — the caps in `ReadOnlyQueryRunner` exist for what a model reads.
 """
 
@@ -17,7 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tg_agent_shell.foundation.changes import record_change
 from tg_agent_shell.foundation.errors import DomainError
 
-from ...constants import INBOX_TAG_NAME
 from ...enums import ActorType
 from ...foundation.log_events import CREATE, DELETE, UPDATE, record_log_event, snapshot
 from ...foundation.workspace import bump_workspace
@@ -30,21 +29,29 @@ REQUEST_CREATED = "request.created"
 # What a new workspace starts with, so the owner sees what a Request is before
 # asking for one. It is an ordinary Request from the moment it exists: renaming,
 # re-aiming and deleting it work as they do for any other.
-INBOX_REQUEST = (
-    INBOX_TAG_NAME,
-    f"Записи с Тегом «{INBOX_TAG_NAME}», которые ждут разбора.",
-    "SELECT 'card' AS item_type, id FROM ai_cards "
-    f"WHERE instr(',' || COALESCE(direct_tags, '') || ',', ',{INBOX_TAG_NAME},') > 0 "
-    "ORDER BY created_at, id",
-)
-
 DEFAULT_REQUESTS: tuple[tuple[str, str, str], ...] = (
     (
-        "Все цели",
-        "Каждая Цель, включая архивные.",
-        "SELECT 'card' AS item_type, id FROM ai_cards WHERE kind = 'goal'",
+        "Goals without children",
+        "Open Goals with no direct child Actions or open Goals.",
+        "SELECT 'card' AS item_type, g.id FROM ai_cards g WHERE g.kind = 'goal' "
+        "AND g.stage != 'done' "
+        "AND NOT EXISTS (SELECT 1 FROM ai_cards c "
+        "WHERE (c.kind != 'goal' OR c.stage != 'done') "
+        "AND instr(',' || c.parent_ids || ',', ',' || g.id || ',') > 0)",
     ),
-    INBOX_REQUEST,
+    (
+        "Goals without Values",
+        "Open Goals with no directly linked Values.",
+        "SELECT 'card' AS item_type, id FROM ai_cards "
+        "WHERE kind = 'goal' AND stage != 'done' AND direct_values IS NULL",
+    ),
+    (
+        "Values without Goals",
+        "Values with no directly linked open Goals.",
+        "SELECT 'value' AS item_type, v.id FROM ai_values v WHERE NOT EXISTS "
+        "(SELECT 1 FROM ai_cards c WHERE c.kind = 'goal' AND c.stage != 'done' "
+        "AND instr(',' || v.card_ids || ',', ',' || c.id || ',') > 0) ORDER BY v.\"order\"",
+    ),
 )
 
 
@@ -138,16 +145,6 @@ async def seed_default_requests(
         await create_saved_request(session, name, query_sql, description, views=views)
         for name, description, query_sql in DEFAULT_REQUESTS
     ]
-
-
-async def seed_inbox_request(session: AsyncSession, *, views: Collection[str]) -> None:
-    """Install the Inbox selection when an existing workspace first receives its Tag."""
-    name, description, query_sql = INBOX_REQUEST
-    existing = await session.scalar(
-        select(SavedRequest).where(SavedRequest.name.collate("NOCASE") == name)
-    )
-    if existing is None:
-        await create_saved_request(session, name, query_sql, description, views=views)
 
 
 async def delete_saved_request(

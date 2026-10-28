@@ -9,7 +9,7 @@
   Background:
     Given a workspace where a Card can be written by the owner or proposed by Safwa
 
-  Scenario: CD-KIND-001 — A Card is a Goal or an Action, and its kind never changes
+  Scenario: CD-KIND-001 — A Card is a Goal, an Action or a Thought, and its kind never changes
     Given a Card exists as a Goal with a parent, displayed as a Subgoal
     When the owner or Safwa tries to make it an Action
     Then the change is refused and the Card is still a Goal displayed as a Subgoal
@@ -67,7 +67,7 @@
     Then it is refused, and the Card keeps the parents it had
     And a parent that matches no Card is refused the same way
 
-  Scenario: CD-FIELD-007 — Effort, categories, energy and Blocked belong to an Action alone
+  Scenario: CD-FIELD-007 — Effort, categories and energy belong to an Action alone
     Given a Goal is being written, by hand or as a proposal
     When effort, a category, an energy type, or a blocked reason is set on it in a draft
     Then the Goal is saved without them, rather than refused
@@ -112,7 +112,7 @@
     When the same Action is later unblocked
     Then the reason goes with it, and the Action no longer shows a warning
 
-  Scenario: CD-STAGE-011 — A new Card starts in the Backlog and can never be born closed
+  Scenario: CD-STAGE-011 — A new Goal or Action starts in the Backlog and can never be born closed
     Given a Card is being written and no stage was chosen
     Then it starts in Backlog
     When a Card is written straight into Done
@@ -191,7 +191,7 @@
     When anything tries to reopen it
     Then it is refused
 
-  Scenario: CD-BLOCKED-018 — Only an Action can be blocked
+  Scenario: CD-BLOCKED-018 — An Action or a Thought can be blocked, and a Goal cannot
     Given a Goal, a Subgoal and an Action
     When the Action is marked blocked, with a reason
     Then it is blocked, and the reason is the words that were given
@@ -345,7 +345,7 @@
     When the Profile's Morning time passes, 09:00 unless the owner moved it (MORNING_TIME_DEFAULT = "09:00"), and the chat is free
     Then the Advisor is asked once, about all of them together, to put both ways forward for each in one message: plan its Actions now, or create one Action to plan them later
     And the owner's choice is awaited: nothing is created before their answer
-    And one younger than that, archived, carrying "Inbox", or given an Action before the question is said is left out; with none left, nothing is asked
+    And one younger than that, archived, or given an Action before the question is said is left out; with none left, nothing is asked
     And the same one still without an Action is asked about again the next morning
     And a check that fires again before the question is said adds no second one
 
@@ -358,9 +358,9 @@
     And it answers unclear, with what is unclear and one advice, for a direction, an ongoing practice or a rule, work for one day, two results, a Done nothing shows, or a Subgoal that does not move a parent forward
     And it does not judge whether the Goal is attainable or worth doing
     And a clear Goal produces no question or change
-    And creating an Action or a Goal carrying "Inbox", a rollback, or editing a Goal starts no review
+    And creating an Action or a Thought, a rollback, or editing a Goal starts no review
     And a Goal changed, closed or deleted during review produces no queued request
-    And one request carries every Goal still open and still without "Inbox", each with its advice, and tells the Advisor to read current data before asking
+    And one request carries every Goal still open, each with its advice, and tells the Advisor to read current data before asking
     And the Advisor says it looked at the new Goal again and it could be improved, says what could be clearer, and asks one question following its advice
     And it offers each suggestion as a possibility and to update the Goal, and nothing changes before the owner answers
     And the answer writes the criterion in Note, or proposes what the Goal should be instead
@@ -375,9 +375,9 @@
     And it answers unclear, with what to change, why and one advice, for an Action that takes more than one day, a direction rather than one step that can be started, a state to observe rather than work, one that does not move its Goals forward, a Category or Energy type that clearly does not fit, a clearly missing main one, Effort Points clearly apart from the similar Actions, or Effort Points not set while they are on
     And it never advises changing what the owner named in those messages, and does not judge whether the Action is worth doing
     And an Action that fits produces no question or change
-    And creating a Goal or an Action carrying "Inbox", a rollback, or editing an Action starts no review
+    And creating a Goal or a Thought, a rollback, or editing an Action starts no review
     And an Action changed, finished or deleted during review produces no queued request
-    And one request carries every Action still open and still without "Inbox", each with its advice, and tells the Advisor to read current data before asking
+    And one request carries every Action still open, each with its advice, and tells the Advisor to read current data before asking
     And the Advisor says it looked at the new Action again and it could be improved, says what to change and why, and asks whether to make the change
     And nothing changes before the owner answers; the answer updates the Action or proposes a Goal instead
     And the request waits like any hook request while access is locked
@@ -723,3 +723,31 @@
     Then the finished Action carries 5, and a repeating Action's next copy keeps the estimate it had
     And with Time tracking off no time is shown or offered unless Safwa proposed one, and with Effort Points off no Effort is
     And a proposal that finishes copies of a series `times` over shows neither
+
+  Scenario: CD-THOUGHT-074 — A Thought keeps only its content and has no workflow
+    When a Thought is saved, by hand or by proposal
+    Then it keeps its required Title, its optional Note and its optional Blocked description
+    And it has no Stage, Priority, Schedule, Deadline, Effort, Time, Categories or Energy
+    And it has no parents, children, Values, Tags or Checks
+    And attempts to set those fields or relationships are refused before anything is written
+    And it cannot be Done, reopened or archived, but can be edited or deleted
+    And it is found by the usual Card search and links, with marker 💭 and no stage
+    And mixed Request results count and show it without changing Goal or Action order
+    And it is absent from working lists, calculations and Compass
+    And each Card kind accepts only its own mutation tool
+
+  Scenario: CD-THOUGHT-075 — A Thought can be planned or carried out from its review or its saved screen
+    Given a proposed new Thought or a saved Thought
+    Then its screen offers "Quality Plan" and "Direct Create"
+    And the create proposal has exactly those two buttons above Save and Discard, without Edit
+    When the owner presses Quality Plan
+    Then Advisor is given the full content as an explicit request to open Blueprint
+    And Blueprint's check recognizes that the owner asked to plan
+    When the owner presses Direct Create
+    Then Mutator receives the full request in the Thought, including every item it asks to create
+    And these choices work with Thoughts by default on or off
+    And the unsaved Thought is not written; a saved source Thought remains as it was
+    And any new item is still a proposal requiring Save
+    And earlier Saves in the current queue are written once together; its undecided tail is discarded
+    And a stale review or failure to write earlier Saves starts no new work
+    And one press works once, and the turn is released after the transition

@@ -32,6 +32,7 @@ from ..media.library import MediaLibrary
 from ..proposals.api import (
     EditableFields,
     MutationToolSpec,
+    ProposalActions,
     ProposalHandler,
     ProposalPresenter,
     ProposalSwitch,
@@ -142,6 +143,7 @@ class ProposalContribution:
     editable: EditableFields | None = None
     # What a proposed change may turn into instead, each a button above Edit.
     switches: tuple[ProposalSwitch, ...] = ()
+    actions: ProposalActions | None = None
 
 
 @dataclass(frozen=True, slots=True)

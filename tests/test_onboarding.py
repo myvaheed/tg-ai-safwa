@@ -20,9 +20,8 @@ from sqlalchemy import select
 from ui_harness import FakeMessage, kind_of, services_for
 
 from safwa.bootstrap.modules import AGENTS, FEATURE_COMMANDS, PROPOSALS, REGISTRY
-from safwa.constants import INBOX_TAG_NAME
 from safwa.features.cards.hooks import BLOCKER_HOOK
-from safwa.features.cards.use_cases import finish_action, toggle_card_tag
+from safwa.features.cards.use_cases import finish_action
 from safwa.features.checks.use_cases import resolve_check
 from safwa.features.onboarding.agent import MANUAL, ONBOARDING_AGENT
 from safwa.features.onboarding.hooks import (
@@ -42,8 +41,6 @@ from safwa.features.onboarding.model import OnboardingNotice, OwnerPresence
 from safwa.features.onboarding.proposal import OnboardingProposalHandler
 from safwa.features.planning.use_cases import start_sprint
 from safwa.features.profile.api import hook_switched_on, set_hook_switch
-from safwa.features.tags.model import Tag
-from safwa.features.tags.use_cases import seed_inbox_tag
 from safwa.features.values.use_cases import create_value
 from safwa.foundation.workspace import Workspace
 from tg_agent_shell.ai.contracts import AgentChange, ChangeAction
@@ -251,21 +248,14 @@ async def _pending(sessions) -> list[tuple[str | None, list]]:
         ]
 
 
-async def test_an_inbox_tip_is_given_the_cards_capture_state(sessions):
+async def test_a_thought_tip_is_given_the_cards_capture_state(sessions):
     """OB-CAPTURE-008 — tests/brd/onboarding.feature"""
     async with sessions() as session:
-        await seed_inbox_tag(session)
-        tag = await session.scalar(select(Tag).where(Tag.name == INBOX_TAG_NAME))
-        card = await create_card(session, kind="action", title="Разобрать: мысль")
-        await toggle_card_tag(session, card.id, tag.id)
+        card = await create_card(session, kind="thought", title="Разобрать: мысль")
         await session.commit()
         words = await onboarding_request(session, [("card.created", card.id)])
-        await toggle_card_tag(session, card.id, tag.id)
-        await session.commit()
-        clarified_words = await onboarding_request(session, [("card.created", card.id)])
-
-    assert f'carries Tag "{INBOX_TAG_NAME}"; captured note, idea or draft' in words
-    assert f'carries Tag "{INBOX_TAG_NAME}"' not in clarified_words
+    assert "a Thought; captured note, idea or draft" in words
+    assert "Backlog" not in words
 
 
 async def test_ob_tip_002_a_value_saved_by_hand_or_by_proposal_is_owed_a_tip(sessions):

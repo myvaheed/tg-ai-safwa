@@ -98,6 +98,7 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
     open_cards = list(
         await session.scalars(
             select(Card).where(
+                Card.kind.in_([CardKind.GOAL.value, CardKind.ACTION.value]),
                 Card.archived_at.is_(None), Card.effective_stage != CardStage.DONE.value
             )
         )
@@ -189,6 +190,7 @@ async def workspace_context(session: AsyncSession) -> StateBlocks:
         f"Workspace mode: {workspace.mode if workspace else 'planning'}",
         f"About me: {(profile.about_me if profile else '').strip()}",
         f"Advisor instructions: {(profile.advisor_instructions if profile else '').strip()}",
+        f"Thoughts by default: {'on' if profile and profile.thoughts_by_default else 'off'}",
         f"Effort Points: {'on' if effort_on else 'off'}",
         *value_lines,
         *section(
@@ -300,6 +302,7 @@ async def close_items(context: AgentContext, conversation: str) -> str:
                 select(Card).where(
                     Card.id.in_(found["card"]),
                     Card.archived_at.is_(None),
+                    Card.kind.in_([CardKind.GOAL.value, CardKind.ACTION.value]),
                     Card.effective_stage != CardStage.DONE.value,
                 )
             )

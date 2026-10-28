@@ -74,11 +74,11 @@
 
   Scenario: WS-CAPTURE-008 — A captured record waits for a decision, not for filled fields
     Given the owner asks to record a note, idea or draft
-    Then it can be captured as an Action with Tag "Inbox", without extra detail
-    When the Card's fields are edited
-    Then the Tag stays attached
-    When the owner explicitly resolves the input or asks to remove the Tag
-    Then it is taken off that Card, without requiring any set of filled fields
+    Then it is proposed as a Thought, without asking for extra detail
+    And editing its content keeps it a Thought
+    And saving it changes no other Card
+    And its type remains Thought until the owner deletes it
+    And creating other item types follows the Profile setting by PS-THOUGHT-026
 
   Scenario: WS-FIND-009 — The workspace finds the item the owner describes
     Given the owner describes an item in other words than its title

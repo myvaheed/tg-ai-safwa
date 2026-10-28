@@ -33,6 +33,7 @@ from safwa.features.saved_requests.use_cases import (
     delete_saved_request,
     seed_default_requests,
 )
+from safwa.features.values.use_cases import create_value
 from tg_agent_shell.ai.sql import create_ai_views
 from tg_agent_shell.telegram import callback_token_handler, open_item_screen
 
@@ -162,7 +163,9 @@ async def test_sr_ui_013_a_new_workspace_starts_with_requests_and_a_screen_about
         await create_card(session, kind="action", title="Run", effort_points=1)
         seeded = await seed_default_requests(session, views=ALLOWED_VIEWS)
         await session.commit()
-        assert [request.name for request in seeded] == ["Все цели", "Inbox"]
+        assert [request.name for request in seeded] == [
+            "Goals without children", "Goals without Values", "Values without Goals"
+        ]
         goal_id, goals_id = goal.id, seeded[0].id
 
     async with sessions() as session:
@@ -181,7 +184,7 @@ async def test_sr_ui_013_a_new_workspace_starts_with_requests_and_a_screen_about
     message = FakeMessage(950, bot_message=True)
     await command_requests(message, services)
     labels = button_texts(message.edits[-1][1])
-    assert not any(label.startswith("Все цели · ") for label in labels)
+    assert not any(label.startswith("Goals without children · ") for label in labels)
     about = next(
         button
         for row in message.edits[-1][1].inline_keyboard
@@ -419,16 +422,18 @@ async def test_request_counts_cover_the_full_selection_and_survive_a_bad_request
 
 
 @pytest.mark.parametrize("ordered", [False, True])
-async def test_mixed_request_order_and_check_navigation(sessions, ordered):
+async def test_mixed_request_order_and_check_value_navigation(sessions, ordered):
     """SR-UI-012 — tests/brd/saved_requests.feature"""
     async with sessions() as session:
         await create_card(session, kind="action", title="Walk")
         check = await create_check(session, title="Enough sleep?")
+        await create_value(session, "Health <&>", "Stay healthy.")
         check.archived_at = check.created_at
         await create_saved_request(
             session, "Mixed",
-            "SELECT 'check' AS item_type, id, 0 AS position FROM ai_checks "
-            "UNION ALL SELECT 'card', id, 1 FROM ai_cards"
+            "SELECT 'value' AS item_type, id, 0 AS position FROM ai_values "
+            "UNION ALL SELECT 'check', id, 1 FROM ai_checks "
+            "UNION ALL SELECT 'card', id, 2 FROM ai_cards"
             + (" ORDER BY position" if ordered else ""),
             views=ALLOWED_VIEWS,
         )
@@ -438,12 +443,23 @@ async def test_mixed_request_order_and_check_navigation(sessions, ordered):
     await command_requests(message, services)
     entry = next(
         button for row in message.edits[-1][1].inline_keyboard for button in row
-        if button.text == "Mixed · ⭐️1 · ☑️1"
+        if button.text == "Mixed · ⭐️1 · ☑️1 · 💎1"
     )
     await callback_token_handler(FakeCallback(entry.callback_data.split(":", 1)[1], message), services)
     markup = message.edits[-1][1]
     labels = button_texts(markup)
-    assert labels[0].startswith("☑️" if ordered else "⭐️")
+    assert [label[:1] for label in labels[:3]] == (["💎", "☑", "⭐"] if ordered else ["⭐", "💎", "☑"])
+    value_button = next(
+        button for row in markup.inline_keyboard for button in row if button.text.startswith("💎")
+    )
+    await callback_token_handler(
+        FakeCallback(value_button.callback_data.split(":", 1)[1], message), services
+    )
+    assert "Health &lt;&amp;&gt;" in message.edits[-1][0]
+    back = message.edits[-1][1].inline_keyboard[-1][0]
+    await callback_token_handler(FakeCallback(back.callback_data.split(":", 1)[1], message), services)
+    assert "<b>Mixed</b>" in message.edits[-1][0]
+    markup = message.edits[-1][1]
     check_button = next(
         button for row in markup.inline_keyboard for button in row if button.text.startswith("☑️")
     )

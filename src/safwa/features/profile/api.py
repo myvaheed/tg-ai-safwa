@@ -33,6 +33,11 @@ EFFORT_TRACKING_REMINDER = "cards.effort_tracking_reminder"
 TODAY_OVERLOAD = "cards.today_overload"
 
 
+async def thoughts_by_default_on(session: AsyncSession) -> bool:
+    profile = await session.get(UserProfile, 1)
+    return profile is not None and profile.thoughts_by_default
+
+
 async def effort_tracking_on(session: AsyncSession) -> bool:
     """Whether the owner uses Effort Points to estimate load."""
     profile = await session.get(UserProfile, 1)

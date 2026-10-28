@@ -19,7 +19,7 @@ class RequestToolInput(RecordToolInput):
         default=None,
         description=(
             "Use one read-only SELECT or WITH ... SELECT over ai_* views.\n"
-            "Return item_type ('card' or 'check') and id from ai_cards or ai_checks.\n"
+            "Return item_type ('card', 'check' or 'value') and id from ai_cards, ai_checks or ai_values.\n"
             "Example: SELECT 'check' AS item_type, id FROM ai_checks WHERE status = 'pending'."
         ),
     )
@@ -34,6 +34,6 @@ REQUEST_AUTOAPPROVALS = {
 REQUEST_TOOL = MutationToolSpec(
     name="request",
     input_model=RequestToolInput,
-    description="Propose one Request — a saved query over Cards and Checks the user reruns.",
+    description="Propose one Request — a saved query over Cards, Checks and Values the user reruns.",
     to_change=entity_change("request"),
 )

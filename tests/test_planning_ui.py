@@ -694,20 +694,27 @@ async def test_mixed_request_filters_only_returned_actions(sessions):
     from safwa.bootstrap.modules import ALLOWED_VIEWS
     from safwa.features.checks.use_cases import create_check
     from safwa.features.planning.telegram.state import resolve_filters
+    from safwa.features.values.use_cases import create_value
 
     async with sessions() as session:
         excluded = await create_card(session, kind="action", title="Not selected")
         included = await create_card(session, kind="action", title="Selected")
         check = await create_check(session, title="Observed?")
-        assert check.id == excluded.id
+        value = await create_value(session, "Health", "Stay healthy.")
+        assert check.id == value.id == excluded.id
         request = await create_saved_request(
             session, "Mixed",
             f"SELECT 'card' AS item_type, id FROM ai_cards WHERE id = {included.id} "
-            "UNION ALL SELECT 'check', id FROM ai_checks",
+            "UNION ALL SELECT 'check', id FROM ai_checks "
+            "UNION ALL SELECT 'value', id FROM ai_values",
             views=ALLOWED_VIEWS,
         )
         only_checks = await create_saved_request(
             session, "Only Checks", "SELECT 'check' AS item_type, id FROM ai_checks",
+            views=ALLOWED_VIEWS,
+        )
+        only_values = await create_saved_request(
+            session, "Only Values", "SELECT 'value' AS item_type, id FROM ai_values",
             views=ALLOWED_VIEWS,
         )
         assert await resolve_filters(session, [request.id], ALLOWED_VIEWS) == (
@@ -715,4 +722,7 @@ async def test_mixed_request_filters_only_returned_actions(sessions):
         )
         assert await resolve_filters(session, [only_checks.id], ALLOWED_VIEWS) == (
             [only_checks.id], set()
+        )
+        assert await resolve_filters(session, [only_values.id], ALLOWED_VIEWS) == (
+            [only_values.id], set()
         )

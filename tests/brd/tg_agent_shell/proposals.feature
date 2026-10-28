@@ -420,3 +420,12 @@ Feature: Proposals
       "Finished 3 copies. The open one now: [Run](card:14)."
     And when the series has ended it says so: "The series has ended; no copy is open."
     And a Save that did nothing more carries no note
+
+  Scenario: PR-ACTION-041 — A feature can offer an extra action on a review screen
+    Given a feature declares extra action buttons for a proposal
+    When that review is drawn
+    Then those buttons appear above its usual controls, in the rows the feature declares
+    And each press reaches the feature's ordinary callback with the proposal id
+    And a button works once by SC-BUTTON-003
+    And a feature declaring none keeps its usual review unchanged
+    And no application-specific entity or agent is needed by the shared shell

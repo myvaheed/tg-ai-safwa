@@ -94,6 +94,9 @@ async def card_creation_markup(
             ("🏷 Tags", "card_create_choose_tags", {}),
         ]
     )
+    if state["kind"] == CardKind.THOUGHT.value:
+        fields = [item for item in fields if item[0] in {"🧩 Kind", "✏️ Title", "📝 Note"}]
+        fields.append(("📝 Blocked reason", "card_create_edit_text", {"field": "blocked_description"}))
     buttons = [await token_button(session, services.owner_id, *field) for field in fields]
     rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
     if not card_creation_errors(state):

@@ -4,6 +4,7 @@ owner may set some of it by hand, and what it may turn into instead."""
 from __future__ import annotations
 
 import html
+from collections.abc import Sequence
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import delete
@@ -20,7 +21,15 @@ from ...telegram import (
     token_button,
 )
 from ...telegram.model import UiSession
-from ..api import EditableField, Effect, ProposalScreen, ProposalSwitch, ShownField, effect_of
+from ..api import (
+    EditableField,
+    Effect,
+    ProposalAction,
+    ProposalScreen,
+    ProposalSwitch,
+    ShownField,
+    effect_of,
+)
 from ..marks import field_line, shown
 from ..model import ChangeAction, ProposalChange
 from ..render import detail_label, result_value
@@ -88,6 +97,7 @@ async def render_proposal(
                 effect,
                 fields,
                 services.root.proposals.offered_switches(changes),
+                services.root.proposals.offered_actions(changes),
             )
         )
         # An item a review names is not a link: tapping it would leave the review unanswered.
@@ -128,6 +138,7 @@ async def _decision_rows(
     effect: Effect,
     fields: list[tuple[int, str, EditableField]],
     switches: list[tuple[int, ProposalSwitch]],
+    actions: Sequence[Sequence[ProposalAction]] = (),
 ) -> list[list[InlineKeyboardButton]]:
     """Save, named for what it does to the item, and Discard; Edit above them when there is
     something to edit (PR-EDIT-033), and above Edit what the proposal may turn into
@@ -151,6 +162,13 @@ async def _decision_rows(
         else []
     )
     return [
+        *[
+            [await token_button(
+                session, services.owner_id, button.label, button.action,
+                {**button.payload, "id": proposal_id},
+            ) for button in row]
+            for row in actions
+        ],
         *turns,
         *edit,
         [

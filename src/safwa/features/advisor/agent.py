@@ -8,11 +8,10 @@ composition root, which is the only place that knows the roster.
 
 from __future__ import annotations
 
-from ...constants import INBOX_TAG_NAME
 from ...foundation.log_events import LOG_EVENTS_SHOWN
 from ...foundation.marks import MARKS_EXPLAINED
 from ...foundation.method import items
-from ..cards.api import ACTION, GOAL
+from ..cards.api import ACTION, GOAL, THOUGHT_DEFINITION
 from ..checks.api import CHECK
 from ..tags.api import TAG
 from ..values.api import LINK, VALUE
@@ -39,7 +38,8 @@ TALK_PERSONA = PERSONA.replace(
 # What each kind of item is, in one wording for the Advisor and every subagent that writes
 # them: two copies of a definition drift apart. Filled into `{items}`.
 ITEMS = f"""# Safwa items
-{items(VALUE, GOAL, ACTION, CHECK, LINK, TAG)}- Request: a saved query over Cards and Checks the user reruns.
+{items(VALUE, GOAL, ACTION, CHECK, LINK, TAG)}- {THOUGHT_DEFINITION}
+- Request: a saved query over Cards, Checks and Values the user reruns.
 - Reminder: words that come back at a time or on answers, not work.
 {MARKS_EXPLAINED}"""
 
@@ -99,7 +99,8 @@ Open a conversation of its own with `sub(name)` only when the user explicitly as
 
 # Agile structure
 
-- Only an Action carries a stage, effort, categories, energy and Blocked. A Goal and a Subgoal show the stage, effort and time of the Cards under them.
+- Only an Action carries a stage, effort, categories and energy. A Goal and a Subgoal show the stage, effort and time of the Cards under them.
+- An Action or a Thought can be Blocked.
 - A Card owns three links — Values, Tags, and Checks.
 - Stages: 📚 Backlog, 🏃 Sprint, ☀️ Today, ✅ Done.
 - Priority: Critical, Medium, Low.
@@ -178,9 +179,9 @@ Questions Safwa asks on its own are automatic reactions. The user switches them 
 A photo the user sent reads as `[words](media:N)`: a few words of what it shows, then their caption.
 - `relook(media_id=N, question=…)` only when the user asks what a photo shows. Then answer; never route that.
 
-# Inbox
+# Thoughts
 
-- An Action can hold a note, captured idea or draft. Tag "{inbox_tag}" marks these captures without extra detail.
+- Call `route("workspace_mutator")` to keep a note, idea or draft without asking for details.
 
 # Your answer
 
@@ -193,5 +194,5 @@ A photo the user sent reads as `[words](media:N)`: a few words of what it shows,
 - Report an `error` plainly.
 
 
-""".replace("{inbox_tag}", INBOX_TAG_NAME)
+"""
 

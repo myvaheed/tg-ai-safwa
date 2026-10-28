@@ -1,7 +1,6 @@
 ﻿Feature: Tags
   A Tag is a label the owner puts on Cards so they can find them together later. It has a name, a
-  description, and no focus, and it never goes on anything but a Card. The built-in Tag
-  "Inbox" marks a record the owner chose to save for later clarification.
+  description, and no focus, and it never goes on anything but a Card. All Tags follow the same rules; no Tag is built in.
 
   Numbers below name the constant they come from; the tests read the constant.
 
@@ -55,14 +54,14 @@
     And Safwa's tag tool says the limit in the description field
     And a call of Safwa's over it comes back to Safwa refused, with no screen shown
 
-  Scenario: TA-INBOX-010 — The Inbox Tag always exists and cannot be deleted or renamed
+  Scenario: TA-INBOX-010 — Inbox is an ordinary name, and no Tag is built in
     Given a new or an existing workspace
     When Safwa starts
-    Then it has one built-in Tag "Inbox", and a restart does not duplicate it
-    When the owner or Safwa tries to delete or rename that Tag
-    Then the change is refused, and its Cards keep their links
-    And its screen offers neither renaming nor deletion
-    But its description can be edited, and the Tag can be put on a Card and taken off it
+    Then it creates no Tag named "Inbox"
+    When the owner creates a Tag named "Inbox"
+    Then it can be renamed, described, linked and deleted like every other Tag
+    And Safwa can propose those changes with the ordinary tools
+    And that name exempts no Goal or Action from a review
 
   Scenario: TA-LINK-012 — A Tag's Linked Cards read as a Goal's children do, and open as a list
     Given a Tag on a Goal and on an Action

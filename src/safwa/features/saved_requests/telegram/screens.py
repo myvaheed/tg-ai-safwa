@@ -29,6 +29,7 @@ from ...cards.telegram import RESULT_LIMIT, item_button_label
 from ...cards.telegram.presentation import ITEM_BUTTON_LIMIT, result_order
 from ...checks.model import Check
 from ...checks.telegram.screens import CHECK_STATUS_EMOJIS
+from ...values.model import Value
 from ..api import RequestQueryError, explicit_order, request_items
 from ..model import SavedRequest
 
@@ -36,11 +37,14 @@ from ..model import SavedRequest
 _LIST = Place("request_list")
 
 
-def _result_summary(items: list[Card | Check]) -> str:
-    counts = Counter(item.kind if isinstance(item, Card) else "check" for item in items)
+def _result_summary(items: list[Card | Check | Value]) -> str:
+    counts = Counter(
+        item.kind if isinstance(item, Card) else "check" if isinstance(item, Check) else "value"
+        for item in items
+    )
     return " · ".join(
         f"{emoji}{counts[kind]}"
-        for kind, emoji in (("goal", "🎯"), ("action", "⭐️"), ("check", "☑️"))
+        for kind, emoji in (("goal", "🎯"), ("action", "⭐️"), ("thought", "💭"), ("check", "☑️"), ("value", "💎"))
         if counts[kind]
     ) or "0"
 
@@ -79,7 +83,7 @@ async def command_requests(message: Message, services: Services) -> None:
     await send_registered(
         message,
         services,
-        "<b>Requests</b>\nSaved Card and Check queries created by your advisor.",
+        "<b>Requests</b>\nSaved Card, Check and Value queries created by your advisor.",
         kind=MessageKind.DASHBOARD,
         markup=InlineKeyboardMarkup(inline_keyboard=rows + [menu_row()]),
     )
@@ -88,10 +92,10 @@ async def command_requests(message: Message, services: Services) -> None:
 # Written for the owner rather than for the model, so it is their language and their words.
 ABOUT_REQUESTS = (
     "<b>О Запросах</b>\n"
-    "Запрос — это подборка Карточек и Чеков по условию. Например, «Все цели» показывает ваши Цели, "
+    "Запрос — это подборка Карточек, Чеков и Ценностей по условию. Например, «Goals without children» показывает Цели без детей, "
     "а запрос «Дела дома» может находить Действия с Тегом «дом». При каждом открытии "
-    "подборка собирается заново. Иконки 🎯, ⭐️ и ☑️ после названия показывают количество "
-    "найденных Целей, Действий и Чеков.\n"
+    "подборка собирается заново. Иконки 🎯, ⭐️, 💭, ☑️ и 💎 после названия показывают количество "
+    "найденных Целей, Действий, Мыслей, Чеков и Ценностей.\n"
     "Теги помогают собрать карточки из разных Целей в одну подборку.\n"
     "Запросы пишет Safwa: попросите её собрать нужную подборку — после сохранения она "
     "открывается одной кнопкой."
@@ -131,18 +135,21 @@ async def render_saved_request(
         shown = matches
         if not explicit_order(request.query_sql):
             cards = await result_order(session, [item for item in matches if isinstance(item, Card)])
-            shown = [*cards, *(item for item in matches if isinstance(item, Check))]
+            shown = [*cards, *(item for item in matches if not isinstance(item, Card))]
         rows = []
         for item in shown[:RESULT_LIMIT]:
             if isinstance(item, Card):
                 label = await item_button_label(session, item)
                 view = "card_view"
-            else:
+            elif isinstance(item, Check):
                 marker = await title_marks(session, item)
                 suffix = f"{marker} · {CHECK_STATUS_EMOJIS[item.status]}"
                 title = item.title[:ITEM_BUTTON_LIMIT - len(suffix) - 3]
                 label = f"☑️ {title}{suffix}"
                 view = "check_view"
+            else:
+                label = f"💎 {item.name}"[:ITEM_BUTTON_LIMIT]
+                view = "value_view"
             rows.append(
                 [await place_button(
                     session, services.owner_id, label, here.child(view, id=item.id)

@@ -147,6 +147,8 @@ async def order_cards(
         return 1 if due <= today + timedelta(days=GOAL_QUARTER_DAYS) else 2
 
     def key(card: Card) -> tuple:
+        if card.kind == CardKind.THOUGHT:
+            return (2, card.created_at, card.id)
         priority = _PRIORITIES[card.priority]
         values = -score(card.id)
         tail = (card.created_at, card.id)

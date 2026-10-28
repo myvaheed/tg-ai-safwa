@@ -57,6 +57,7 @@ from .use_cases import (
     toggle_card_energy_type,
     update_card_fields,
     validate_parents,
+    validate_thought_fields,
 )
 
 CARD_SCALAR_FIELDS = frozenset(
@@ -96,14 +97,13 @@ def _refuse_wrong_tool(card: Card, addressed: str | None) -> None:
     """A call names the kind its tool writes; one on a Card of another kind goes back."""
     if addressed is None:
         return
-    is_action = card.kind == CardKind.ACTION.value
-    if is_action == (addressed == CardKind.ACTION.value):
+    if card.kind == addressed:
         return
-    article = "an" if is_action else "a"
+    article = "an" if card.kind == CardKind.ACTION.value else "a"
     raise ToolPreparationError(
         "wrong_tool",
         f"Card #{card.id} is {article} {card.kind.title()}.",
-        f"Call {'action' if is_action else 'goal'} with this id.",
+        f"Call {card.kind} with this id.",
     )
 
 
@@ -274,6 +274,12 @@ class CardProposalHandler:
         values = dict(change.values)
         if card is not None:
             _refuse_wrong_tool(card, values.pop("kind", None))
+        kind = card.kind if card is not None else values.get("kind")
+        if kind == CardKind.THOUGHT:
+            validate_thought_fields(kind, set(values) - {"kind"})
+            if change.action not in {ChangeAction.CREATE, ChangeAction.UPDATE, ChangeAction.DELETE}:
+                raise DomainError("A Thought has no workflow or relationships")
+            return PreparedChange(values=values, expected_version=expected_version)
         # Time and effort supplied after completion belong to the finished instance;
         # its successor was already copied, so other edits still target the open repeat.
         accounting_fields = {"tracked_mins", "effort_points"}
@@ -342,8 +348,8 @@ class CardProposalHandler:
                 kind=values["kind"],
                 title=values["title"],
                 note=values.get("note", ""),
-                stage=values.get("stage", CardStage.BACKLOG.value),
-                priority=values.get("priority", "medium"),
+                stage=values.get("stage"),
+                priority=values.get("priority"),
                 schedule=values.get("schedule"),
                 schedule_rule=values.get("schedule_rule"),
                 blocked_description=values.get("blocked_description") or "",
@@ -407,7 +413,8 @@ async def open_cards(session: AsyncSession) -> list[tuple[int, str]]:
     """Every Card not Done and not archived, whatever its kind (PR-SIMILAR-030)."""
     rows = await session.execute(
         select(Card.id, Card.title).where(
-            Card.effective_stage != CardStage.DONE.value, Card.archived_at.is_(None)
+            (Card.kind == CardKind.THOUGHT) | (Card.effective_stage != CardStage.DONE.value),
+            Card.archived_at.is_(None),
         )
     )
     return [(card_id, title) for card_id, title in rows]

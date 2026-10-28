@@ -283,6 +283,23 @@ async def test_a_reader_with_no_index_is_told_to_filter_instead(sessions, tmp_pa
     assert "filter with WHERE" in refused["error"]
 
 
+async def test_a_thought_is_searchable_without_a_stage_and_its_edits_refresh_the_index(sessions, tmp_path):
+    """CD-THOUGHT-074 — tests/brd/cards.feature"""
+    async with sessions() as session:
+        thought = await create_card(session, kind="thought", title="Идея", note="Больше прогулок")
+        await session.commit()
+        thought_id = thought.id
+    search_index = index(tmp_path)
+    sql = "SELECT id, kind, stage, priority FROM ai_cards WHERE relevance IS NOT NULL"
+    assert await read(tmp_path, search_index, sql, "прогулок") == [
+        {"id": thought_id, "kind": "thought", "stage": None, "priority": None},
+    ]
+    async with sessions() as session:
+        await edit_card_text(session, thought_id, "note", "Больше сна")
+        await session.commit()
+    assert await read(tmp_path, search_index, sql, "прогулок") == []
+
+
 def test_pr_similar_030_a_creating_screen_compares_only_a_field_the_index_holds():
     """PR-SIMILAR-030 — tests/brd/tg_agent_shell/proposals.feature"""
 

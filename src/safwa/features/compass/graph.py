@@ -8,11 +8,9 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...constants import INBOX_TAG_NAME
 from ..cards.api import forest_rows, parents_of
 from ..cards.model import TERMINAL_STAGES, Card, CardCheck, CardKind, card_kind_name
 from ..checks.model import Check
-from ..tags.model import CardTag, Tag
 from ..values.model import CardValue, CheckValue, Value
 
 # A Goal carrying this many Values or more serves none of them clearly.
@@ -39,7 +37,7 @@ NOT_PROBLEMS = (
 @dataclass(frozen=True, slots=True)
 class Tree:
     """Every Value, and the open Cards and Checks with what they carry — the finished
-    Cards too, when asked for. A Card carrying the Inbox Tag is a capture and is left out."""
+    Cards too, when asked for. Thoughts are captures and are left out."""
 
     values: list[Value]
     cards: list[Card]
@@ -52,15 +50,12 @@ class Tree:
 
 
 async def read_tree(session: AsyncSession, *, done: bool = False) -> Tree:
-    inbox = select(CardTag.card_id).join(Tag, Tag.id == CardTag.tag_id).where(
-        Tag.name == INBOX_TAG_NAME
-    )
     finished = [stage.value for stage in TERMINAL_STAGES]
     cards = list(await session.scalars(
         select(Card)
         .where(
             Card.archived_at.is_(None),
-            Card.id.not_in(inbox),
+            Card.kind.in_([CardKind.GOAL.value, CardKind.ACTION.value]),
             *(() if done else (Card.effective_stage.not_in(finished),)),
         )
         .order_by(Card.id)

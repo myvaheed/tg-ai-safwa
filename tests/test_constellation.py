@@ -15,7 +15,6 @@ from ui_harness import FakeCallback, FakeMessage, button_texts, place_of, servic
 
 import safwa.features.compass.agent as compass_agent
 from llm_gateway import ToolCall
-from safwa.constants import INBOX_TAG_NAME
 from safwa.features.cards.model import CardCheck
 from safwa.features.cards.telegram import render_board
 from safwa.features.cards.use_cases import finish_action, finish_card, toggle_card_parent
@@ -28,8 +27,6 @@ from safwa.features.compass.constellation import (
     Detail,
     read_sky,
 )
-from safwa.features.tags.model import Tag
-from safwa.features.tags.use_cases import seed_inbox_tag
 from safwa.features.values.model import CheckValue
 from safwa.features.values.use_cases import create_value
 from tg_agent_shell.foundation.kinds import MessageKind
@@ -44,8 +41,6 @@ async def tree(sessions) -> SimpleNamespace:
     """Get fit (Health) over Run 5 km over Run and Stretch, with Buy shoes beside them; Earn,
     a root Goal with no Value; Calm, which nothing carries; and what is not drawn."""
     async with sessions() as session:
-        await seed_inbox_tag(session)
-        inbox = await session.scalar(select(Tag.id).where(Tag.name == INBOX_TAG_NAME))
         calm = (await create_value(session, "Calm", "Quiet evenings")).id
         health = (await create_value(session, "Health", "Sleep and move")).id
         fit = await create_card(session, kind="goal", title="Get fit", value_ids={health})
@@ -55,7 +50,7 @@ async def tree(sessions) -> SimpleNamespace:
         shoes = await create_card(session, kind="action", title="Buy shoes", parent_ids={fit.id})
         earn = await create_card(session, kind="goal", title="Earn $20k")
         bob = await create_card(session, kind="action", title="Call Bob", parent_ids={earn.id})
-        await create_card(session, kind="goal", title="Some idea", tag_ids={inbox})
+        await create_card(session, kind="thought", title="Some idea")
         gone = await create_card(session, kind="action", title="Gone", parent_ids={fit.id})
         gone.archived_at = datetime.now(UTC)
         old = await create_card(session, kind="action", title="Old run", parent_ids={fit.id})

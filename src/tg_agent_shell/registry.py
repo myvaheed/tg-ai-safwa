@@ -33,6 +33,7 @@ from .media.library import MediaLibrary, relook_tool
 from .proposals.api import (
     EditableFields,
     MutationToolSpec,
+    ProposalActions,
     ProposalHandler,
     ProposalPresenter,
     ProposalRegistry,
@@ -310,6 +311,7 @@ def _proposals(
     similar: dict[str, SimilarItems] = {}
     editable: dict[str, EditableFields] = {}
     switches: dict[str, tuple[ProposalSwitch, ...]] = {}
+    actions: dict[str, ProposalActions] = {}
     # The whole of what may be saved without the owner seeing it. A feature that declares
     # nothing has nothing here, and every other change takes the review screen.
     rules: dict[tuple[str, str], AutoApprovalRule] = {}
@@ -338,6 +340,8 @@ def _proposals(
                 editable[entity] = contribution.editable
             if contribution.switches:
                 switches[entity] = contribution.switches
+            if contribution.actions is not None:
+                actions[entity] = contribution.actions
             rules.update(
                 ((entity, action), rule)
                 for action, rule in contribution.autoapprovals.items()
@@ -346,7 +350,7 @@ def _proposals(
             register_tool(tool)
     return ProposalRegistry(
         handlers=handlers, presenters=presenters, tools=tools, views=views, world=world,
-        similar=similar, autoapprovals=rules, editable=editable, switches=switches,
+        similar=similar, autoapprovals=rules, editable=editable, switches=switches, actions=actions,
     )
 
 

@@ -38,6 +38,7 @@ from .telegram import (
 )
 from .telegram.done_gate import CLOSING_TIME_INPUT
 from .telegram.effort_page import effort_points_label, open_effort_points_page
+from .telegram.thoughts import command_thoughts, on_thought_list, process_thought, thought_actions
 
 MODULE = FeatureModule(
     name="cards",
@@ -49,10 +50,11 @@ MODULE = FeatureModule(
             presenter=telegram.CardProposalPresenter(),
             similar=SimilarItems(field="title", open_items=proposal.open_cards),
             editable=telegram.card_review_fields,
+            actions=thought_actions,
         ),
     ),
     # A Goal and a Subgoal are Cards too: the same handler prepares and writes them.
-    mutation_tools=(agent.GOAL_TOOL,),
+    mutation_tools=(agent.GOAL_TOOL, agent.THOUGHT_TOOL),
     views=views.VIEWS,
     screens=(
         ScreenSpec(
@@ -77,7 +79,12 @@ MODULE = FeatureModule(
         ScreenCommand(
             handler=start_manual_card_creation, nav="add", title="➕ Add"
         ),
+        ScreenCommand(handler=command_thoughts, nav="thoughts", title="💭 Thoughts"),
     ),
-    callback_actions=CARD_CALLBACK_ACTIONS,
+    callback_actions={
+        **CARD_CALLBACK_ACTIONS,
+        "card_thought_process": process_thought,
+        "thought_list": on_thought_list,
+    },
     text_inputs=(*CARD_TEXT_INPUTS, CLOSING_TIME_INPUT),
 )

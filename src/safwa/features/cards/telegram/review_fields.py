@@ -131,7 +131,11 @@ GOAL_FIELDS = {
 
 
 def card_review_fields(call: AgentChange) -> Mapping[str, EditableField]:
-    """Every Card call names the kind it was made for, and the two kinds' screens differ."""
+    """Every Card call names the kind whose own controls it offers."""
+    if call.values.get("kind") == CardKind.THOUGHT.value:
+        return {} if call.action is ChangeAction.CREATE else {
+            name: ACTION_FIELDS[name] for name in ("title", "note", "blocked_description")
+        }
     if call.values.get("kind") != CardKind.ACTION.value:
         return GOAL_FIELDS
     if call.action in {ChangeAction.MOVE, ChangeAction.COMPLETE, ChangeAction.REOPEN}:

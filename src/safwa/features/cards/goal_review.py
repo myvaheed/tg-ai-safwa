@@ -23,9 +23,7 @@ from tg_agent_shell.ai.mini import TerminalTool, run_mini_session
 from tg_agent_shell.foundation.changes import Committed
 from tg_agent_shell.hooks.contracts import HookSpec, OnCommitted, RunAndAdvise, RunContext
 
-from ...constants import INBOX_TAG_NAME
 from ...foundation.method import review_prompt
-from ..tags.model import CardTag, Tag
 from .api import GOAL, parents_of
 from .model import TERMINAL_STAGES, Card, CardKind, card_kind_name
 from .use_cases import CARD_CREATED
@@ -90,10 +88,7 @@ async def created_card(event: Committed) -> tuple[int, ...]:
 
 
 async def open_card(session: AsyncSession, card_id: int, kind: CardKind) -> Card | None:
-    """The Card a new-item review reads: open, not archived, of this kind and not a capture.
-
-    A Card carrying the Inbox Tag is a capture, kept without detail on purpose.
-    """
+    """The open, unarchived Card of the kind this review owns."""
     card = await session.get(Card, card_id)
     if (
         card is None
@@ -102,12 +97,7 @@ async def open_card(session: AsyncSession, card_id: int, kind: CardKind) -> Card
         or card.effective_stage in {stage.value for stage in TERMINAL_STAGES}
     ):
         return None
-    inbox = await session.scalar(
-        select(CardTag.card_id)
-        .join(Tag, Tag.id == CardTag.tag_id)
-        .where(CardTag.card_id == card_id, Tag.name == INBOX_TAG_NAME)
-    )
-    return card if inbox is None else None
+    return card
 
 
 async def _read_goal(session: AsyncSession, card_id: int) -> dict[str, Any] | None:

@@ -48,7 +48,12 @@ def sanitize_card_creation_state(state: dict[str, Any]) -> dict[str, Any]:
         clean["stage"] = CardStage.BACKLOG.value
     if clean["stage"] == CardStage.DONE.value:
         clean["stage"] = CardStage.BACKLOG.value
-    if clean["kind"] != CardKind.ACTION.value:
+    if clean["kind"] == CardKind.THOUGHT.value:
+        clean.update(
+            stage=None, priority=None, schedule=None, schedule_rule=None,
+            effort_points=None, categories=[], energy_types=[], value_ids=[], tag_ids=[],
+        )
+    elif clean["kind"] == CardKind.GOAL.value:
         clean.update(
             stage=CardStage.BACKLOG.value,
             effort_points=None,

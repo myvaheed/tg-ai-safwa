@@ -44,7 +44,7 @@ REPEAT_INSTANCE = "For a finished repeat ` [✅2, 🔄#7]`, send it with that in
 
 
 def _validate_call(
-    call: GoalToolInput | ActionToolInput, *, label: str, only: dict[str, set[str]]
+    call: GoalToolInput | ActionToolInput | ThoughtToolInput, *, label: str, only: dict[str, set[str]]
 ) -> None:
     """What every mode of a Card tool needs, with the fields `only` limits each mode to."""
     supplied = set(call.model_fields_set) - {"mode", "id"}
@@ -134,7 +134,7 @@ class ActionToolInput(ToolInput):
     note: str | None = Field(
         default=None,
         description=(
-            "Details, a captured idea or a draft, and how it supports its Values. "
+            "Details and how it supports its Values. "
             + NOTE_REPLACED_WHOLE
         ),
     )
@@ -214,6 +214,25 @@ class ActionToolInput(ToolInput):
         )
         if self.mode == "move" and self.stage is None:
             raise ValueError("Action move needs a stage")
+        return self
+
+
+class ThoughtToolInput(ToolInput):
+    content_fields = frozenset({"title", "note", "blocked_description"})
+    semantic_null_fields = frozenset({"blocked_description"})
+
+    mode: Literal["create", "update"]
+    id: PositiveInt | None = None
+    title: str | None = None
+    note: str | None = Field(default=None, description=NOTE_REPLACED_WHOLE)
+    blocked_description: str | None = Field(
+        default=None,
+        description="What blocks it, in the user's words. On update, null unblocks it.",
+    )
+
+    @model_validator(mode="after")
+    def validate_target(self) -> ThoughtToolInput:
+        _validate_call(self, label="Thought", only={})
         return self
 
 
@@ -319,4 +338,11 @@ ACTION_TOOL = MutationToolSpec(
     description="Propose one Action: work that fits in one day.",
     to_change=_card_change(CardKind.ACTION),
     repair=_repair(ActionToolInput),
+)
+THOUGHT_TOOL = MutationToolSpec(
+    name="thought",
+    input_model=ThoughtToolInput,
+    description="Propose one Thought to keep for later.",
+    to_change=_card_change(CardKind.THOUGHT),
+    repair=_repair(ThoughtToolInput),
 )

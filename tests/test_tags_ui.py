@@ -14,14 +14,14 @@ from ui_harness import (
     tap_link,
 )
 
-from safwa.constants import DESCRIPTION_MAX_CHARS, INBOX_TAG_NAME
+from safwa.constants import DESCRIPTION_MAX_CHARS
 from safwa.features.cards.use_cases import create_card, toggle_card_tag
 from safwa.features.tags.agent import TAG_TOOL, TagToolInput
 from safwa.features.tags.model import Tag
 from safwa.features.tags.proposal import TagProposalHandler
 from safwa.features.tags.telegram import render_tag
 from safwa.features.tags.telegram.screens import render_tag_text_prompt
-from safwa.features.tags.use_cases import create_tag, seed_inbox_tag, update_tag_fields
+from safwa.features.tags.use_cases import create_tag, update_tag_fields
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.history import TelegramMessage
@@ -149,19 +149,17 @@ async def test_the_tag_screen_counts_its_cards_and_has_no_focus(sessions) -> Non
     assert ">⭐️2</a>" in message.edits[-1][0]
 
 
-async def test_the_inbox_tag_screen_offers_neither_rename_nor_delete(sessions) -> None:
+async def test_an_inbox_named_tag_screen_offers_rename_and_delete(sessions) -> None:
     """TA-INBOX-010 — tests/brd/tags.feature"""
     async with sessions() as session:
-        await seed_inbox_tag(session)
-        tag = await session.scalar(select(Tag).where(Tag.name == INBOX_TAG_NAME))
+        tag = await create_tag(session, "Inbox")
         await session.commit()
         tag_id = tag.id
-
     message = FakeMessage(99, bot_message=True)
     await render_tag(message, services_for(sessions), mode="view", item_id=tag_id)
     text, markup = message.edits[-1]
-    assert "cannot be renamed or deleted" in text
-    assert button_texts(markup) == ["📝 Description", "↩️ Menu"]
+    assert "cannot be renamed or deleted" not in text
+    assert "✏️ Name" in button_texts(markup) and "Delete Tag" in button_texts(markup)
 
 
 async def test_ta_link_012_a_tags_linked_cards_read_as_children_and_open_as_a_list(sessions, effort_on) -> None:

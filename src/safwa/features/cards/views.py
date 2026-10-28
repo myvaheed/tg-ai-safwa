@@ -88,11 +88,11 @@ AI_CARDS = SqlView(
                c.created_at, c.updated_at, relevance('card', c.id) AS relevance
         FROM cards c LEFT JOIN schedules s ON s.id=c.schedule_id""",
     doc="""- `ai_cards(id, title, note, kind, stage, priority, schedule, blocked_description, effort_points, tracked_mins, parent_ids, tree_level, series_id, categories, energy_types, direct_values, direct_tags, created_at, updated_at, relevance)`
-  - `kind` goal | action; a goal with `parent_ids` is displayed as a Subgoal
+   - `kind` goal | action | thought; a goal with `parent_ids` is displayed as a Subgoal
   - `parent_ids` are the comma-joined ids of the goals a card stands under, NULL at the root; match one with `',' || parent_ids || ',' LIKE '%,<id>,%'`
   - `tree_level` counts up from the bottom: an action is 0; a goal is 1 + the highest `tree_level` of its child goals, 1 with none. Goal → subgoal → action reads 2, 1, 0
-  - `stage` backlog | sprint | today | done
-  - `priority` critical | medium | low
+   - `stage` backlog | sprint | today | done; NULL on a thought
+   - `priority` critical | medium | low; NULL on a thought
   - `effort_points` 0.5 | 1 | 2 | 3 | 5 | 8 | 13, cost of one execution; NULL when unestimated or Effort Points are off
   - `tracked_mins` is the minutes the user spent on an action, NULL when not recorded
   - on a goal or a subgoal, `stage`, `effort_points` and `tracked_mins` are what the cards under it add up to, each action counted once

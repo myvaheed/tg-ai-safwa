@@ -55,8 +55,8 @@ Feature: Advisor
   Scenario: AD-CAPTURE-006 — A request to save a thought for later does not start its clarification
     Given the owner asks to record a note, idea or draft
     Then Safwa hands it to the workspace mutator without asking about details or Sprint relevance
-    And Cards carrying "Inbox" wait for the owner's decision before being recommended for work
-    But missing category, effort or Note never makes an ordinary Card an Inbox item
+    And Thoughts wait for the owner's decision before being recommended for work
+    But missing category, effort or Note never changes an ordinary Card into a Thought
     And "Prepare a draft contract" is ordinary work, not a request to capture a thought
 
   Scenario: AD-ASK-007 — Safwa hands over a change only when the owner asks for it

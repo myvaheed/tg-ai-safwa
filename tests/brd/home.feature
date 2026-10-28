@@ -11,6 +11,7 @@
   Scenario: HM-MENU-001 — The menu is every screen that gave itself a name
     Given a part of Safwa that named its screen
     Then that name is a button on the menu
+    And Thoughts is its own button, beside Add
     And the buttons are in the one order Home keeps, which no other part knows
     And a screen that named itself and has no place in that order would be missing without a
       word, so the two lists are the same list

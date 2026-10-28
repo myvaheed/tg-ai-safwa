@@ -37,7 +37,6 @@ from tg_agent_shell.hooks.contracts import (
     Tick,
 )
 
-from ...constants import INBOX_TAG_NAME
 from ...enums import ActorType
 from ..planning.api import SPRINT_STARTED, active_sprint_end_date, plan_load, sprint_is_active
 from ..profile.api import (
@@ -49,7 +48,6 @@ from ..profile.api import (
     today_capacity_ep,
 )
 from ..schedules.api import appointment_words, workspace_zone
-from ..tags.model import CardTag, Tag
 from .api import EFFORT_POINTS_ITEM, PLANNED_STAGES, actions_on_stages, order_cards, parents_of
 from .hierarchy import branch_actions, branch_ids, card_parent_ids
 from .model import (
@@ -209,6 +207,7 @@ async def blocker_request(session: AsyncSession, items: Sequence[int]) -> str | 
             select(Card)
             .where(
                 Card.id.in_([int(item) for item in items]),
+                Card.kind == CardKind.ACTION.value,
                 Card.blocked_description != "",
                 Card.archived_at.is_(None),
                 Card.effective_stage.not_in([stage.value for stage in TERMINAL_STAGES]),
@@ -728,10 +727,6 @@ async def empty_parents_request(
             Card.kind == CardKind.GOAL.value,
             Card.archived_at.is_(None),
             Card.created_at <= cutoff,
-            ~select(CardTag.card_id)
-            .join(Tag, Tag.id == CardTag.tag_id)
-            .where(CardTag.card_id == Card.id, Tag.name == INBOX_TAG_NAME)
-            .exists(),
         )
         .order_by(Card.id)
     )

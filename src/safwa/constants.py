@@ -8,7 +8,6 @@ both sides of a boundary, so it belongs to neither: this module imports nothing 
 from __future__ import annotations
 
 # The built-in Tag used by capture, its saved Request and the agents' instructions.
-INBOX_TAG_NAME = "Inbox"
 # How long a Value's or a Tag's description may be. Their tools tell the model the same.
 DESCRIPTION_MAX_CHARS = 400
 

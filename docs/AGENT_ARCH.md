@@ -617,6 +617,11 @@ flowchart LR
   in the same proposal rather than opening a new one: the model's call waits on its own id, and
   is answered with what Save wrote. A refusal leaves the proposal as it was. Once switched, the
   call's record names the other change, and nothing the owner set under Edit before it.
+- **Extra review actions belong to their feature** (`PR-ACTION-041`).
+  `ProposalContribution.actions` declares rows of `ProposalAction` buttons above the usual
+  controls; ordinary callback tokens carry the proposal id. The feature checks and performs
+  its transition. The shell names no application entity or agent, and a missing declaration
+  leaves the screen unchanged. This does not change `ProposalSwitch` or Save semantics.
 - **A screen that creates an item lists what is already there** (`PR-SIMILAR-030`). A feature's
   `ProposalContribution.similar` names the create value holding the new item's words and
   reads its open items; `SearchIndex.alike` compares that name with theirs by meaning, in the

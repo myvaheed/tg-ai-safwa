@@ -102,8 +102,7 @@ Goal says nothing; an unclear one is kept with its advice by the hook "Goal clar
 (`cards.goal_clarification`), rechecked before keeping, and one request asks about every
 Goal still open: the Advisor says it looked at the new Goals again and they could be
 improved, follows each advice, and writes the criterion in Note or proposes what the Goal
-should be instead. A Goal carrying the Inbox Tag is a
-capture and is not checked. Only creation starts the check: the Note written from the owner's
+should be instead. Only creation starts the check: the Note written from the owner's
 answer is an update, so the answer never asks again. Nothing changes before the owner answers.
 
 After an Action is created, by hand or by a saved proposal, the hook "Action review"
@@ -116,17 +115,17 @@ state to observe rather than work, one that does not move its Goals forward, a l
 clearly does not fit, a clearly missing main one, or Effort Points clearly apart from the
 similar Actions or not set. What the owner named in those
 messages is theirs and is never advised on. The Advisor says it looked at the new Actions
-again and they could be improved, names each change with its reason, and asks; an Action
-carrying the Inbox Tag is not checked, and only creation starts the check.
+again and they could be improved, names each change with its reason, and asks; only creation starts the check. Thoughts start neither review.
 
-- The two Card kinds are Goal and Action. A Card may stand under one Goal or several, its
+- The three Card kinds are Goal, Action and Thought. Thoughts have no workflow or relationships.
+  A Goal or Action may stand under one Goal or several, its
   parents, kept in `card_parents`. A Goal with no parent is root-level; one with a parent is
   displayed as a Subgoal, without changing its kind. An Action may be root-level or under any
   Goals and has no children. Cards stand at most 8 levels deep (`CARD_TREE_DEPTH_MAX`),
   counting the root as 1, a Card's level by its longest path up, and including Actions.
   Creating a Card or giving it a parent checks that limit for everything under it along every
-  path, and refuses self-parenting or a parent anywhere inside its branch. **Live stage**, effort, time spent, categories, energy and **Blocked** belong to an
-  Action alone. The model writes a Goal or a Subgoal with the `goal` tool, which has none of
+  path, and refuses self-parenting or a parent anywhere inside its branch. **Live stage**, effort, time spent, categories and energy belong to an
+  Action alone. **Blocked** also belongs to a Thought. The model writes a Goal or a Subgoal with the `goal` tool, which has none of
   them, and an Action with the `action` tool, whose call on a Goal or a Subgoal is refused before
   review; the domain strips them from a Goal. A Card's parents are set by proposal only, one
   per proposal: a new Card is proposed under one Goal at most, `link` gives it one more,
@@ -166,10 +165,10 @@ carrying the Inbox Tag is not checked, and only creation starts the check.
   and a Card created or reopened under closed Goals only queues one about reopening them
   (`cards.closed_parents`). Summing `effort_points` or `tracked_mins` over every row counts
   each Action again inside every Goal above it — a real total says `WHERE kind = 'action'`.
-- Only an Action is blocked, and it is blocked exactly while its `blocked_description` holds a
+- An Action or a Thought is blocked exactly while its `blocked_description` holds a
   reason; `Card.blocked` reads that. A Goal and a Subgoal are never blocked and derive nothing
-  from blocked Actions under them. `ai_cards` shows an empty reason as NULL, so blocked Actions
-  are `blocked_description IS NOT NULL`.
+  from blocked Actions under them. `ai_cards` shows an empty reason as NULL, so blocked Cards
+  are `blocked_description IS NOT NULL`; selecting Actions also requires `kind = 'action'`.
 - `manual_stage` is what the user set on an Action, or explicit Done on a parent; `effective_stage` is what
   dashboards and queries read.
 - Effort is optional for Actions and restricted to `EFFORT_POINTS` when supplied; the `Literal` in
@@ -294,14 +293,29 @@ and the Goals it stands under. A count of zero is left out. Screens keep the com
 
 ## Links
 
-An Action can hold a note, captured idea or draft. The built-in Tag **Inbox** marks these
-captures without requiring extra detail. It is seeded on startup and cannot be renamed or
-deleted; its links and description remain editable. Ordinary field edits leave the Tag
-attached; taking it off requires no particular set of filled fields.
-Request **Inbox**, supplied when the Tag is first installed, lists tagged Cards oldest
-first. It is an ordinary Request and stays deleted or renamed across restarts.
-Requests select Cards, Checks or both; their list counts Goals, Actions and Checks.
+A Thought keeps only Title, Note and Blocked description, with no Stage or Priority even in
+storage. The `thought` tool creates or updates it; ordinary Card deletion removes it. Thoughts
+are found by Card search and citations, but never enter working lists, the tree or its totals.
+**Menu → Thoughts** lists them oldest first; editing preserves that membership.
+All Tags are ordinary user labels.
+
+**Thoughts by default** in Profile is off initially and controls Mutator creation alone.
+On, new items are Thoughts unless the owner requests another type, accepts a Blueprint plan
+or chooses Direct Create. Tags, Requests and updates keep their ordinary behavior. Off, a
+request to capture a note, idea or draft creates a Thought; ordinary work uses its requested type.
+
+**Quality Plan** opens Blueprint with the Thought's contents; **Direct Create** asks Mutator
+to carry out the request in it, including several items. Both buttons are on its create proposal
+and saved screen. Choosing a path leaves an unsaved Thought unwritten and retains a saved one.
+New items still require Save. Thought capture starts no work-quality or blocker follow-up.
+
+Requests select Cards, Checks and Values; their list counts Goals, Actions, Thoughts, Checks and Values.
 When used as a Sprint plan filter, only their returned Actions participate.
+A new database starts with **Goals without children**, **Goals without Values** and
+**Values without Goals**. They check direct links and ignore Done and archived Goals, including
+as children; Done and archived Actions still count as children. They remain ordinary
+Requests: the owner may rename, re-aim or delete them; a restart does not restore them.
+The read view `ai_values.card_ids` lists directly linked Card ids, NULL with none.
 
 A Card owns four link sets of one shape — its parents, Values, Tags and Checks — and a Check owns
 one, its Values. All five are `ReferenceSpec`s: adding another means adding a spec, not a special

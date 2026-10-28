@@ -94,13 +94,24 @@ from .model import (
     effort_label,
 )
 
-# The fields an Action alone carries. On a Goal and a Subgoal two of them are derived, so
-# nothing outside `propagate_ancestors` may write one.
-ACTION_ONLY_FIELDS = (
+# A Goal derives effort and time from Actions and has no Blocked description.
+GOAL_EXCLUDED_FIELDS = (
     "effort_points",
     "tracked_mins",
     "blocked_description",
 )
+
+THOUGHT_FIELDS = frozenset({"title", "note", "blocked_description"})
+
+
+def validate_thought_fields(kind: CardKind | str, fields: Iterable[str]) -> None:
+    if kind == CardKind.THOUGHT and (set(fields) - THOUGHT_FIELDS):
+        raise DomainError("A Thought has only Title, Note and Blocked description")
+
+
+def _require_work_card(card: Card) -> None:
+    if card.kind == CardKind.THOUGHT:
+        raise DomainError("A Thought has no workflow or relationships")
 
 
 @dataclass
@@ -117,8 +128,8 @@ async def create_card(
     kind: CardKind | str,
     title: str,
     note: str = "",
-    stage: CardStage | str = CardStage.BACKLOG,
-    priority: Priority | str = Priority.MEDIUM,
+    stage: CardStage | str | None = None,
+    priority: Priority | str | None = None,
     schedule: str | None = None,
     schedule_rule: dict[str, Any] | None = None,
     blocked_description: str = "",
@@ -137,8 +148,8 @@ async def create_card(
     Scheduler read `schedule` as. An Action with a `blocked_description` is blocked.
     """
     card_kind = CardKind(kind)
-    card_stage = CardStage(stage)
-    card_priority = Priority(priority)
+    card_stage = CardStage(CardStage.BACKLOG if stage is None else stage)
+    card_priority = Priority(Priority.MEDIUM if priority is None else priority)
     clean_title = title.strip()
     clean_description = blocked_description.strip()
     if not clean_title:
@@ -147,7 +158,12 @@ async def create_card(
         raise DomainError("A new Card must start in Backlog, Sprint, or Today")
     category_values = {Category(item).value for item in (categories or set())}
     energy_values = {EnergyType(item).value for item in (energy_types or set())}
-    if card_kind is not CardKind.ACTION:
+    if card_kind is CardKind.THOUGHT:
+        if any((stage is not None, priority is not None, schedule is not None,
+                schedule_rule is not None, effort_points is not None,
+                parent_ids, categories, energy_types, value_ids, tag_ids, check_ids)):
+            raise DomainError("A Thought has only Title, Note and Blocked description")
+    elif card_kind is CardKind.GOAL:
         # A live stage belongs to an Action, like effort and Blocked: a parent shows what its
         # branch is in, so anything asked for here is dropped rather than refused.
         card_stage = CardStage.BACKLOG
@@ -175,15 +191,16 @@ async def create_card(
         kind=card_kind.value,
         title=clean_title,
         note=note.strip(),
-        manual_stage=card_stage.value,
-        effective_stage=card_stage.value,
-        priority=card_priority.value,
+        manual_stage=None if card_kind is CardKind.THOUGHT else card_stage.value,
+        effective_stage=None if card_kind is CardKind.THOUGHT else card_stage.value,
+        priority=None if card_kind is CardKind.THOUGHT else card_priority.value,
         blocked_description=clean_description,
         effort_points=effort_points,
     )
     session.add(card)
     await session.flush()
-    await set_schedule(session, card, schedule, schedule_rule)
+    if card_kind is not CardKind.THOUGHT:
+        await set_schedule(session, card, schedule, schedule_rule)
     for parent_id in sorted(parent_ids or set()):
         session.add(CardParent(card_id=card.id, parent_id=parent_id))
     for category in sorted(category_values):
@@ -196,7 +213,7 @@ async def create_card(
         session.add(CardCheck(card_id=card.id, check_id=check_id))
     await record_card_event(session, card, CREATE, actor)
     record_change(session, CARD_CREATED, card.id)
-    if card.blocked:
+    if card.blocked and card_kind is CardKind.ACTION:
         record_change(session, CARD_BLOCKED, card.id)
     if card_kind is CardKind.ACTION:
         if card_stage is CardStage.TODAY:
@@ -233,6 +250,7 @@ async def edit_card_schedule(
     card = await session.get(Card, card_id)
     if card is None or card.archived_at is not None:
         raise DomainError("Card does not exist or is archived")
+    _require_work_card(card)
     card = await _schedule_instance(session, card, rule)
     before = snapshot(card)
     await _write_schedule(session, card, text, rule)
@@ -291,11 +309,12 @@ async def update_card_fields(
     unknown = set(fields) - allowed
     if unknown:
         raise DomainError("Unsupported Card fields: " + ", ".join(sorted(unknown)))
-    if card.kind != CardKind.ACTION.value:
+    validate_thought_fields(card.kind, fields)
+    if card.kind == CardKind.GOAL.value:
         # `effort_points` and `tracked_mins` on a parent are derived values this walk
         # writes, and a parent is never blocked; a caller that set one by hand would be
         # overwritten at the next Action change.
-        for name in ACTION_ONLY_FIELDS:
+        for name in GOAL_EXCLUDED_FIELDS:
             fields.pop(name, None)
         if not fields:
             raise DomainError("Goal and Subgoal cards cannot have Action-only fields")
@@ -321,7 +340,7 @@ async def update_card_fields(
     card.version += 1
     await record_card_event(session, card, UPDATE, actor, before)
     await follow_remind(session, card, actor=actor)
-    if card.blocked and not before["blocked_description"]:
+    if card.kind == CardKind.ACTION and card.blocked and not before["blocked_description"]:
         record_change(session, CARD_BLOCKED, card.id)
     await propagate_ancestors(session, await card_parent_ids(session, card.id))
     await bump_workspace(session)
@@ -336,6 +355,7 @@ async def toggle_card_value(
     value = await session.get(Value, value_id)
     if card is None or card.archived_at is not None:
         raise DomainError("Card does not exist or is archived")
+    _require_work_card(card)
     if value is None:
         raise DomainError("Value does not exist")
     link = await session.scalar(
@@ -364,6 +384,7 @@ async def toggle_card_tag(
     tag = await session.get(Tag, tag_id)
     if card is None or card.archived_at is not None:
         raise DomainError("Card does not exist or is archived")
+    _require_work_card(card)
     if tag is None:
         raise DomainError("Tag does not exist")
     link = await session.scalar(
@@ -452,6 +473,7 @@ async def toggle_card_check(
     check = await session.get(Check, check_id)
     if card is None or card.archived_at is not None:
         raise DomainError("Card does not exist or is archived")
+    _require_work_card(card)
     if check is None or check.archived_at is not None:
         raise DomainError("Check does not exist or is archived")
     link = await session.get(CardCheck, (card_id, check_id))
@@ -488,6 +510,7 @@ async def toggle_card_parent(
     card = await session.get(Card, card_id)
     if card is None or card.archived_at is not None:
         raise DomainError("Card does not exist or is archived")
+    _require_work_card(card)
     link = await session.get(CardParent, (card_id, parent_id))
     before = snapshot(card)
     if link is None:
@@ -517,6 +540,7 @@ async def validate_parents(
         parent = await session.get(Card, parent_id)
         if parent is None or parent.archived_at is not None:
             raise DomainError("Parent does not exist or is archived")
+        _require_work_card(parent)
         if parent.kind == CardKind.ACTION.value:
             raise DomainError("An Action cannot have children")
     if card_id is not None and wanted & (await branch_ids(session, card_id) | {card_id}):
@@ -774,6 +798,7 @@ async def finish_card(
     card = await session.get(Card, card_id)
     if card is None:
         raise DomainError("Card does not exist")
+    _require_work_card(card)
     if card.kind == CardKind.ACTION.value:
         return await finish_action(
             session, card_id, actor=actor, check_outcomes=check_outcomes,
@@ -809,6 +834,7 @@ async def reopen_card(
     card = await session.get(Card, card_id)
     if card is None:
         raise DomainError("Card does not exist")
+    _require_work_card(card)
     if card.kind == CardKind.ACTION.value:
         return await move_card(session, card_id, stage, actor=actor)
     if stage is not CardStage.BACKLOG:
@@ -840,6 +866,7 @@ async def archive_subtree(
     card = await session.get(Card, card_id)
     if card is None:
         raise DomainError("Card does not exist")
+    _require_work_card(card)
     if archive and CardStage(card.effective_stage) not in TERMINAL_STAGES:
         raise DomainError("Only a Card that is Done may be archived")
     if archive and card.kind != CardKind.ACTION.value:

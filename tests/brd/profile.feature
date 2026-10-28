@@ -180,3 +180,15 @@ Feature: Profile
     But a Reminder at a clock time, such as every day at 23:00, rings at that time
     And a Reminder that Remind made rings at its item's moments
     And the review screen of a Reminder that repeats by an interval shows "💤 Don't disturb" with the windows
+
+  Scenario: PS-THOUGHT-026 — Thoughts by default controls only new items
+    Given a new workspace
+    Then Profile shows Thoughts by default, off independently of Time tracking and Effort Points
+    When the owner switches it by button or saves a Profile proposal
+    Then the setting takes effect without a restart and persists after one
+    And with it on, new items default to Thoughts
+    And Actions, Goals, Values and Checks are created only when the owner explicitly requests their type,
+      accepts a Blueprint plan or chooses Direct Create
+    And Tags, Requests and changes to existing items follow the owner's request in either mode
+    And with it off, a request to capture a note, idea or draft creates a Thought, and ordinary work creates the requested item type
+    And conversation alone creates no item

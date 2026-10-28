@@ -10,7 +10,6 @@ from sqlalchemy import select
 
 from llm_gateway import CompletionTurn, ToolCall
 from safwa.bootstrap.modules import REGISTRY
-from safwa.constants import INBOX_TAG_NAME
 from safwa.features.cards.action_review import (
     ACTION_REVIEW_EXCHANGES,
     ACTION_REVIEW_HOOK,
@@ -30,8 +29,6 @@ from safwa.features.onboarding.agent import MANUAL
 from safwa.features.profile.api import hook_switched_on, set_hook_switch
 from safwa.features.profile.model import ProfileField
 from safwa.features.profile.use_cases import set_profile_field
-from safwa.features.tags.model import Tag
-from safwa.features.tags.use_cases import seed_inbox_tag
 from telegram_llm import DialogueMessage
 from tg_agent_shell.cues.background import tick
 from tg_agent_shell.cues.initiatives import bind_committed
@@ -296,17 +293,13 @@ async def test_with_effort_points_on_the_review_compares_closest_estimates_finis
         await sink.close()
 
 
-async def test_a_goal_an_inbox_action_a_rollback_or_an_edit_starts_no_review(sessions):
+async def test_a_goal_a_thought_a_rollback_or_an_edit_starts_no_review(sessions):
     """CD-ACTION-052 — tests/brd/cards.feature"""
     provider = ReviewProvider()
     sink = bound(sessions, provider)
     try:
-        async with sessions() as session:
-            await seed_inbox_tag(session)
-            await session.commit()
-            inbox_id = await session.scalar(select(Tag.id).where(Tag.name == INBOX_TAG_NAME))
         await created(sessions, kind="goal", title="Learn Spanish")
-        await created(sessions, title="Some idea", tag_ids={inbox_id})
+        await created(sessions, kind="thought", title="Some idea")
         async with sessions() as session:
             await create_card(session, kind="action", title="Run 5 km")
             await session.rollback()

@@ -92,10 +92,11 @@ Feature: Onboarding
     When the owner's previous message is less than 14 days old, or there is none
     Then no such message comes
 
-  Scenario: OB-CAPTURE-008 — Onboarding recognizes a captured note, idea or draft
-    Given a created Card carries Tag "Inbox"
+  Scenario: OB-CAPTURE-008 — Onboarding recognizes a captured Thought
+    Given a created Thought
     Then the onboarding subagent is told that it is a captured note, idea or draft
-    And its manual explains that these captures are found in Requests → Inbox
+    And it is not told that the Thought has a stage
+    And its manual explains Menu → Thoughts, Quality Plan, Direct Create and Thoughts by default
 
   Scenario: OB-TIP-009 — A tip leaves the chat a minute after it comes
     Given a message of Safwa's holds only a tip

@@ -77,6 +77,12 @@ ordered walk over the changes it holds
 ([`ChangePreparer`](../src/tg_agent_shell/proposals/prepare.py),
 [proposals/use_cases.py](../src/tg_agent_shell/proposals/use_cases.py)).
 
+A feature can also declare `ProposalContribution.actions`: given one prepared change, it
+returns rows of `ProposalAction` buttons. Their tokens carry the proposal id and dispatch
+through `FeatureModule.callback_actions`; the feature owns the transition. A feature that
+declares none keeps its existing screen. This is separate from `ProposalSwitch`, which
+replaces one call before Save.
+
 ## Derived registries
 
 [`Registry.of`](../src/tg_agent_shell/registry.py) builds these from `MODULES` at import time and

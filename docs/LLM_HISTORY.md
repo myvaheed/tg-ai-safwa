@@ -70,6 +70,10 @@ receipts, progress lines and errors are not the conversation. `telegram_html_to_
 message's HTML back as the words it shows, and writes a link to one of Safwa's items back as the
 `[text](card:12)` citation it was rendered from.
 
+A Thought's Quality Plan or Direct Create button relays the selected request and its content
+through `send_owner_turn`, as `MessageKind.DIALOGUE_USER`, before the usual dialogue turn.
+The review it leaves keeps its actual queue outcome; its screen text is not the request source.
+
 ### 2.2 What an answer carries
 
 When the Advisor's turn ends, `ProposalMaterializer.answer` hands the answer on with its turn,

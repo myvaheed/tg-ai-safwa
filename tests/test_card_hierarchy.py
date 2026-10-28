@@ -52,7 +52,7 @@ async def _prepare(session, kind, arguments):
 @pytest.mark.parametrize("kind", ["goal", "action"])
 async def test_cd_tree_049_creation_counts_every_card_level(sessions, kind):
     """CD-TREE-049 — tests/brd/cards.feature"""
-    assert set(CardKind) == {CardKind.GOAL, CardKind.ACTION}
+    assert set(CardKind) == {CardKind.GOAL, CardKind.ACTION, CardKind.THOUGHT}
     async with sessions() as session:
         goals = await _goals(session, CARD_TREE_DEPTH_MAX)
         leaf = await create_card(session, kind=kind, title="Last level", parent_ids={goals[-2].id})

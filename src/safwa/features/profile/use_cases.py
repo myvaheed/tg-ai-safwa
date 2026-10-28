@@ -61,6 +61,9 @@ def validated_profile_value(field: ProfileField, value: ProfileValue) -> Profile
         case ProfileField.TIME_TRACKING:
             if not isinstance(value, bool):
                 raise DomainError("Time tracking is on or off")
+        case ProfileField.THOUGHTS_BY_DEFAULT:
+            if not isinstance(value, bool):
+                raise DomainError("Thoughts by default is on or off")
         case ProfileField.EFFORT_TRACKING:
             if not isinstance(value, bool):
                 raise DomainError("Effort Points are on or off")
