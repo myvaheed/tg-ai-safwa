@@ -42,6 +42,7 @@ from safwa.features.onboarding.model import OnboardingNotice, OwnerPresence
 from safwa.features.onboarding.proposal import OnboardingProposalHandler
 from safwa.features.planning.use_cases import start_sprint
 from safwa.features.profile.api import hook_switched_on, set_hook_switch
+from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.use_cases import create_value
 from safwa.foundation.workspace import Workspace
 from tg_agent_shell.ai.contracts import AgentChange, ChangeAction
@@ -314,6 +315,7 @@ async def test_ob_tip_002_each_item_is_one_line_with_its_state_as_it_is_now(sess
     async with sessions() as session:
         milk = await create_check(session, title="Milk")
         posture = await create_check(session, title="Posture straight?")
+        tag = await create_tag(session, "Errands")
         market = await create_card(
             session, kind="action", title="Go to the market", stage="today", effort_points=1,
             check_ids={milk.id},
@@ -330,6 +332,7 @@ async def test_ob_tip_002_each_item_is_one_line_with_its_state_as_it_is_now(sess
                 ["card.created", market.id], ["card.today", market.id],
                 ["check.answered", milk.id], ["card.done", market.id],
                 ["value.created", gone.id], ["check.answered", posture.id],
+                ["tag.created", tag.id],
             ],
         )
 
@@ -339,7 +342,8 @@ async def test_ob_tip_002_each_item_is_one_line_with_its_state_as_it_is_now(sess
         f"- created and finished a Card [Go to the market](card:{market.id}) — an Action in "
         f"Done, 1 Check, no Value; answered its Check [Milk](check:{milk.id}) Passed;",
         f"- answered a Check [Posture straight?](check:{posture.id}) — on no Card, "
-        "answered Missed.",
+        "answered Missed;",
+        f"- created a Tag [Errands](tag:{tag.id}).",
     ]
 
 

@@ -404,15 +404,18 @@ async def test_pl_end_013_a_midnight_safwa_slept_through_is_made_up_at_startup(s
         assert (await session.get(Workspace, 1)).active_sprint_id == running_id
 
 
-async def test_pl_end_015_an_ended_sprint_is_handed_to_safwa(sessions, effort_on):
+@pytest.mark.parametrize("still_open", [True, False], ids=["unfinished", "all-finished"])
+async def test_pl_end_015_an_ended_sprint_is_handed_to_safwa(sessions, effort_on, still_open):
     """PL-END-015 — tests/brd/planning.feature"""
     async with sessions() as session:
         done = await create_card(session, title="Shipped", stage="sprint", effort_points=5)
-        await create_card(session, title="Still open", stage="today", effort_points=3)
+        remaining = await create_card(session, title="Still open", stage="today", effort_points=3)
         sprint = await start_sprint(session, success_criteria="Ship v2")
         from safwa.features.cards.use_cases import finish_action
 
         await finish_action(session, done.id)
+        if not still_open:
+            await finish_action(session, remaining.id)
         take_changes(session.info)
         await finish_sprint(session, reason="finished_early")
         # The hand-over is no Reminder of any kind.
@@ -429,9 +432,9 @@ async def test_pl_end_015_an_ended_sprint_is_handed_to_safwa(sessions, effort_on
     assert f"Sprint {sprint.number} is over" in words
     assert "the user closed it" in words
     assert "Success criteria: Ship v2" in words
-    assert "committed 8, added 0, removed 0, done 5" in words
-    assert "1 finished, 1 still open" in words
-    assert "Still open: Still open" in words
+    assert f"committed 8, added 0, removed 0, done {5 if still_open else 8}" in words
+    assert ("1 finished, 1 still open" if still_open else "2 finished, 0 still open") in words
+    assert ("Still open: Still open" if still_open else "Still open: nothing") in words
     assert f"[Sprint retro](retro:{sprint.id})" in words
 
 

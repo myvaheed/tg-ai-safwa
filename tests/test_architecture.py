@@ -502,10 +502,12 @@ def test_the_declared_schema_is_what_a_fresh_database_gets(tmp_path):
     engine = keyed_engine(tmp_path / "fresh.db")
     try:
         built = set(inspect(engine).get_table_names())
+        indexes = {index["name"] for index in inspect(engine).get_indexes("agent_steps")}
     finally:
         engine.dispose()
 
-    assert set(Base.metadata.tables) <= built
+    assert set(Base.metadata.tables) | set(ShellBase.metadata.tables) <= built
+    assert "ix_agent_steps_kind" in indexes
 
 
 # ------------------------------------------------- the package names no application

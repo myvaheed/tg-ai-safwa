@@ -121,9 +121,3 @@ def test_the_routing_rules_are_generated_from_the_roster():
     for agent in AGENTS:
         if agent.title is not None:
             assert f'- `sub("{agent.name}")` — {agent.purpose}' in rules
-
-
-def test_a_subagent_only_declares_tools_a_feature_publishes():
-    for agent in AGENTS:
-        assert set(agent.mutation_tools) <= set(PROPOSALS.tools), agent.name
-

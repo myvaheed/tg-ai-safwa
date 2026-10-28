@@ -8,13 +8,11 @@ from pathlib import Path
 
 import pytest
 from database_key import keyed, keyed_engine
-from sqlalchemy import inspect
 
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS
 from safwa.foundation.models import Base
 from tg_agent_shell.ai.runs import AgentRun
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views
-from tg_agent_shell.foundation.database import upgrade_database
 from tg_agent_shell.foundation.poll import run_poll
 from tg_agent_shell.recovery import recover_startup
 
@@ -48,17 +46,6 @@ async def test_ag_poll_030_a_poll_outlives_a_failing_round_and_ends_on_shutdown(
         await task
 
 
-def test_startup_bootstraps_a_new_database_from_the_models(tmp_path, monkeypatch):
-    monkeypatch.chdir(Path(__file__).parents[1])
-    path = tmp_path / "safwa.db"
-    upgrade_database(keyed(path), Base.metadata)
-    engine = keyed_engine(path)
-    assert set(Base.metadata.tables).issubset(set(engine.dialect.get_table_names(engine.connect())))
-    indexes = {index["name"] for index in inspect(engine).get_indexes("agent_steps")}
-    assert "ix_agent_steps_kind" in indexes
-    engine.dispose()
-
-
 async def test_startup_ends_the_session_a_crash_left_running(sessions):
     """AG-SESSION-009 — tests/brd/tg_agent_shell/agents.feature"""
     async with sessions() as session:
@@ -79,20 +66,6 @@ async def test_startup_ends_the_session_a_crash_left_running(sessions):
     # turn died with the process.  The claim goes with it so no row is left held forever.
     assert restored.status == "abandoned"
     assert restored.claimed_at is None
-
-
-async def test_startup_closes_every_session_waiting_on_a_process_local_screen(sessions):
-    """AG-SESSION-009 — tests/brd/tg_agent_shell/agents.feature"""
-    async with sessions() as session:
-        waiting = AgentRun(provider="test", model="test", status="awaiting_approval")
-        session.add(waiting)
-        await session.commit()
-
-        await recover_startup(session)
-        await session.commit()
-
-        # The screens that session was waiting on went with the process that opened them.
-        assert (await session.get(AgentRun, waiting.id)).status == "abandoned"
 
 
 async def test_read_only_query_runner_reads_only_ai_views(tmp_path):

@@ -75,20 +75,6 @@ def test_every_scenario_reference_names_an_approved_scenario():
     assert not unknown, f"scenario references with no approved scenario: {unknown}"
 
 
-def test_every_cited_identifier_names_an_approved_scenario():
-    known = scenarios()
-
-    unknown = sorted(
-        {
-            (SCENARIO_ID.match(first).group("id"), test)
-            for first, test in citations()
-            if SCENARIO_ID.match(first).group("id") not in known
-        }
-    )
-
-    assert not unknown, f"tests citing no approved scenario: {unknown}"
-
-
 def test_a_citation_names_the_feature_file_that_carries_the_scenario():
     known = scenarios()
     wrong = []
