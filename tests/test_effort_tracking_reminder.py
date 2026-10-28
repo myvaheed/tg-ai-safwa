@@ -52,8 +52,11 @@ async def test_the_question_names_only_finished_actions_still_without_an_estimat
         await session.commit()
 
         others = [*ids[2:], estimated.id, opened.id, goal.id]
-        request = await effort_tracking_request(session, [*others, ids[1], ids[0]])
-        assert request is not None
+        shown = await effort_tracking_request(session, [*others, ids[1], ids[0]])
+        assert shown is not None
+        # The message opens with a link to the page on what each rung means (CD-EFFORT-073).
+        assert shown.block == "ℹ️ [What each Effort Points value means](effort_points:1)"
+        request = shown.request
         assert f"- #{ids[0]} «Run»\n- #{ids[1]} «Read»" in request
         assert "effort_points on that exact Card, not on its open repeat" in request
         assert "Do not estimate without their answer" in request

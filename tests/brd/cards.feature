@@ -160,6 +160,26 @@
     Then it is refused, in a proposal and on a screen alike
     And finishing it settles its Checks, its Sprint result and its repeat in the same act
 
+  Scenario: CD-DONE-071 — "✅ Done" opens a closing screen for the Checks, the time and the Effort Points
+    Given an Action with two Pending Checks, 3 Effort Points and no time, and Time tracking and Effort Points on in the Profile
+    When the owner presses "✅ Done" on it
+    Then "Done — <title>" takes the Card's place, and nothing is written until "✅ Save"
+    And it holds a row of answers for each Pending Check, none prefilled, by CH-GATE-007
+    And it holds "⌛ Time spent: —" and "🔢 Effort: 3": what the Action carries, "—" when it carries nothing
+    And "⌛ Time spent" asks for the time typed as on the Card's own screen by CD-TIME-039, and comes back with it
+    And "🔢 Effort" offers the Effort choices of the Card's own screen and the page of CD-EFFORT-073, and a choice comes back with it
+    And what was answered and set stays on the screen across both
+    When the owner presses "✅ Save" with a Check still unanswered
+    Then nothing is written and the screen asks for every answer
+    When the owner answers both, sets 45 minutes and 5 Effort Points, and presses "✅ Save"
+    Then the Action is Done with those answers, 45 minutes and 5 Effort Points
+    And a repeating Action's next copy keeps the estimate it had
+    When the owner presses "↩️ Back" instead
+    Then the Action is still live and nothing about it changed
+    And with Time tracking off there is no "⌛ Time spent", and with Effort Points off no "🔢 Effort"
+    And an Action with no Pending Check, with both off, is Done at once, and so is a Goal with no Pending Check
+    And a Goal's closing screen holds only its Checks
+
   Scenario: CD-STAGE-017 — Reopening an Action undoes what closing it did
     Given an Action the owner finished as Done, so it has a completion time
     When the owner reopens it
@@ -498,7 +518,16 @@
     And for a repeating Action the question and the saved estimate belong to the finished instance, not its open successor; its time and estimate may be proposed together
     And nothing is estimated without the owner's answer; if the owner does not know, the estimate stays empty
     And rolling back completion asks nothing
+    And the message the question is asked in opens with "ℹ️ What each Effort Points value means", a link to the page of CD-EFFORT-073
     But with Effort Points off, or the reminder switched off, nothing is asked, and a question not yet said is not said
+
+  Scenario: CD-EFFORT-073 — A page says what each Effort Points rung means
+    Given the Profile, whether Effort Points are on or off
+    Then "ℹ️ About Effort Points" stands under "🔢 Effort Points" and opens the page, and its "↩️ Back" returns to the Profile
+    And the page says what Effort Points measure, the words of each rung from 0.5 to 13 (EFFORT_RUNGS), that a new Action's Effort is an estimate and a Done one's is what it took, that a repeating Action rates one occurrence, and what Effort Points feed
+    And every Effort choice offers the page after its choices — on the Card's own screen, on a new Card and on the closing screen of CD-DONE-071 — and the page's "↩️ Back" returns to those choices
+    And under a proposal's Edit the page is drawn in place of the review by PR-EDIT-040
+    And the Effort Points reminder of CD-EFFORT-044 links to it, and the page that link opens leads back to the menu
 
   Scenario: CD-BOARD-046 — The Dashboard shows Sprint, Today and Done side by side
     Given Cards in the Backlog, the Sprint, Today and Done
@@ -679,7 +708,18 @@
     Then Save finishes the Action
     When they pick another stage
     Then Save moves the Action there, or reopens it there when the proposal reopened it
-    And "⌛ Time spent" is offered only while Save finishes the Action, and a time set there goes
-      once another stage is picked
+    And "⌛ Time spent" and "🔢 Effort" are offered only while Save finishes the Action, by
+      CD-DONE-072, and what was set there goes once another stage is picked
     And picking the stage Safwa proposed brings back the time Safwa proposed
     And finishing or reopening a Goal has no "📍 Stage"
+
+  Scenario: CD-DONE-072 — A proposal that finishes an Action shows its time and its Effort Points every time
+    Given Time tracking and Effort Points are on, and Safwa proposes to finish the Action "Run", which carries 3 Effort Points and no time
+    When its review screen is drawn
+    Then it shows "Effort: 3" and "Time spent: —" by PR-SCREEN-039, though the proposal changes neither
+    And Edit offers "🔢 Effort" and "⌛ Time spent" though Safwa set neither, each with what the Action carries now
+    And "🔢 Effort" there offers "ℹ️ About Effort Points" by PR-EDIT-040
+    When the owner sets 5 Effort Points there and saves
+    Then the finished Action carries 5, and a repeating Action's next copy keeps the estimate it had
+    And with Time tracking off no time is shown or offered unless Safwa proposed one, and with Effort Points off no Effort is
+    And a proposal that finishes copies of a series `times` over shows neither

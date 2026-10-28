@@ -20,7 +20,7 @@ from tg_agent_shell.telegram import (
 )
 
 from ...checks.use_cases import pending_checks
-from ...profile.api import effort_tracking_on
+from ...profile.api import effort_tracking_on, time_tracking_on
 from ...schedules.telegram import render_schedule
 from ..hierarchy import card_children
 from ..model import Card, CardKind, CardStage, minutes_label
@@ -35,6 +35,7 @@ from ..use_cases import (
 from .board import BOARD_ACTIONS
 from .creation import CARD_DRAFT_ACTIONS
 from .done_gate import CARD_DONE_ACTIONS, render_check_resolution
+from .effort_page import EFFORT_PAGE_ACTIONS
 from .lists import render_children
 from .screens import render_card
 from .selectors import (
@@ -289,10 +290,17 @@ async def _on_delete_confirm(context: CallbackContext) -> None:
 async def _on_finish(context: CallbackContext) -> None:
     card_id = int(context.payload["id"])
     async with context.sessions() as session:
-        blocking = await pending_checks(session, card_id)
-    if blocking:
-        # Done is gated: the user answers each Check on its own screen, and nothing
-        # is written until Save, so backing out leaves the Card live.
+        card = await session.get(Card, card_id)
+        if card is None:
+            raise DomainError("Card does not exist")
+        closing = bool(await pending_checks(session, card_id)) or (
+            card.kind == CardKind.ACTION.value
+            and (await time_tracking_on(session) or await effort_tracking_on(session))
+        )
+    if closing:
+        # Done opens the closing screen: the user answers each Check and sets the time and
+        # the estimate there, and nothing is written until Save, so backing out leaves the
+        # Card live (CD-DONE-071).
         await render_check_resolution(
             context.message,
             context.services,
@@ -330,5 +338,6 @@ CARD_CALLBACK_ACTIONS: dict[str, CallbackHandler] = {
     **dict.fromkeys(CARD_RELATION_TOGGLES, _on_toggle_relation),
     **CARD_DRAFT_ACTIONS,
     **CARD_DONE_ACTIONS,
+    **EFFORT_PAGE_ACTIONS,
     **BOARD_ACTIONS,
 }

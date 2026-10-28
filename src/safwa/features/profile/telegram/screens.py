@@ -27,6 +27,7 @@ from tg_agent_shell.telegram import (
     edit_registered_message,
     markdown_field,
     menu_row,
+    place_button,
     render_text_input,
     send_registered,
     token_button,
@@ -36,6 +37,7 @@ from tg_agent_shell.telegram.contributions import TextInputFlow
 from tg_agent_shell.telegram.model import UiSession
 
 from ....foundation.workspace import Workspace
+from ...cards.api import EFFORT_POINTS_ABOUT, EFFORT_POINTS_PAGE
 from ...reminders.api import parse_clock
 from ..api import EFFORT_TRACKING_REMINDER, TIME_TRACKING_REMINDER, TODAY_OVERLOAD, set_hook_switch
 from ..model import (
@@ -291,6 +293,13 @@ async def command_profile(
             await token_button(
                 session, services.owner_id, _effort_tracking_label(profile),
                 "profile_effort_tracking", {},
+            )
+        ])
+        # Readable before Effort Points are switched on, to choose whether to (CD-EFFORT-073).
+        rows.append([
+            await place_button(
+                session, services.owner_id, EFFORT_POINTS_ABOUT,
+                Place(EFFORT_POINTS_PAGE, {}, Place("profile_hooks_back")),
             )
         ])
         rows.append([

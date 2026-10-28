@@ -32,6 +32,7 @@ from tg_agent_shell.hooks.contracts import (
     Run,
     RunAndAdvise,
     RunContext,
+    Shown,
     Started,
     Tick,
 )
@@ -49,7 +50,7 @@ from ..profile.api import (
 )
 from ..schedules.api import appointment_words, workspace_zone
 from ..tags.model import CardTag, Tag
-from .api import PLANNED_STAGES, actions_on_stages, order_cards, parents_of
+from .api import EFFORT_POINTS_ITEM, PLANNED_STAGES, actions_on_stages, order_cards, parents_of
 from .hierarchy import branch_actions, branch_ids, card_parent_ids
 from .model import (
     TERMINAL_STAGES,
@@ -139,6 +140,8 @@ EFFORT_TRACKING_REQUEST = (
     "Card, not on its open repeat. Do not estimate without their answer. "
     "If they do not know, leave it."
 )
+# The Profile is row 1, so the page is cited by its id.
+EFFORT_POINTS_LINK = f"ℹ️ [What each Effort Points value means]({EFFORT_POINTS_ITEM}:1)"
 
 ENERGY_GAPS = (
     "The Sprint has no open Action for these, and the Backlog has:\n{kinds}\n"
@@ -536,8 +539,11 @@ TIME_TRACKING_REMINDER_HOOK = HookSpec(
 )
 
 
-async def effort_tracking_request(session: AsyncSession, items: Sequence[int]) -> str | None:
-    """The request about the Actions still Done, not archived and without an estimate."""
+async def effort_tracking_request(
+    session: AsyncSession, items: Sequence[int]
+) -> Shown | None:
+    """The request about the Actions still Done, not archived and without an estimate, under
+    a link to the page on what each rung means (CD-EFFORT-044)."""
     cards = await session.scalars(
         select(Card)
         .where(
@@ -550,7 +556,9 @@ async def effort_tracking_request(session: AsyncSession, items: Sequence[int]) -
         .order_by(Card.id)
     )
     lines = "\n".join(f"- #{card.id} «{card.title}»" for card in cards)
-    return EFFORT_TRACKING_REQUEST.format(cards=lines) if lines else None
+    if not lines:
+        return None
+    return Shown(block=EFFORT_POINTS_LINK, request=EFFORT_TRACKING_REQUEST.format(cards=lines))
 
 
 EFFORT_TRACKING_REMINDER_HOOK = HookSpec(

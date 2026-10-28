@@ -22,6 +22,7 @@ from ....constants import SELECTOR_PAGE_SIZE
 from ...profile.api import effort_tracking_on
 from ...tags.model import CardTag, Tag
 from ...values.model import CardValue, Value
+from ..api import EFFORT_POINTS_ABOUT, EFFORT_POINTS_PAGE
 from ..model import (
     CATEGORY_MEANINGS,
     EFFORT_RUNGS,
@@ -167,6 +168,12 @@ async def choice_options(session: AsyncSession, field: str) -> list[tuple[str, A
     return [(item.name, item.id) for item in items]
 
 
+def _effort_page(chooser: Place) -> tuple[str, Place]:
+    """The row that opens the page on what Effort Points mean, coming back to `chooser`
+    (CD-EFFORT-073)."""
+    return EFFORT_POINTS_ABOUT, chooser.child(EFFORT_POINTS_PAGE)
+
+
 def _selector_page(field: str, options: list[tuple[str, Any]], page: int) -> Page | None:
     """Page the Value and Tag lists; the fixed enumerations always fit one screen."""
     if field not in NAMED_CHOICE_FIELDS:
@@ -200,6 +207,8 @@ async def handle_card_creation_chooser(
                 return Place("card_create_set", {"field": state_field, "value": value})
 
         choices = choice_rows(current.items if current else options, selected, build)
+        if field == "effort":
+            choices.append(_effort_page(Place(action)))
         await session.commit()
     await choice_screen(
         message,
@@ -265,6 +274,8 @@ async def render_card_choices(
                 return Place("card_set_field", {"id": card.id, "field": column, "value": value}, back)
 
         choices = choice_rows(current.items if current else options, selected, build)
+        if field == "effort":
+            choices.append(_effort_page(Place(action, {"id": card_id}, back)))
         await session.commit()
     await choice_screen(
         message,

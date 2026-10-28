@@ -538,9 +538,9 @@ async def test_manual_done_button_opens_the_resolution_screen(e2e_harness):
     from safwa.features.cards.telegram import render_check_resolution
 
     await render_check_resolution(message, services, card_id, back=Place("card_view", {"id": card_id}))
-    assert "Pending Checks" in message.rendered[-1]
+    assert "Answer every Check before this Card is Done." in message.rendered[-1]
     # Nothing is prefilled.
-    assert message.rendered[-1].count("Pending") == len(check_ids) + 1
+    assert message.rendered[-1].count("— Pending") == len(check_ids)
 
     await _claim(
         e2e_harness,

@@ -32,6 +32,11 @@ from .ordering import order_cards as order_cards
 from .ordering import served_values as served_values
 
 PLANNED_STAGES = (CardStage.SPRINT, CardStage.TODAY)
+# The page on what Effort Points mean (CD-EFFORT-073): its button, the action that draws it, and
+# the item type a citation opens it by, with the Profile's id.
+EFFORT_POINTS_ABOUT = "ℹ️ About Effort Points"
+EFFORT_POINTS_PAGE = "card_effort_points"
+EFFORT_POINTS_ITEM = "effort_points"
 # A Done list reads newest first; a Goal Done through its children may have no completion time.
 FINISHED_LAST = (Card.completed_at.desc().nulls_last(), Card.updated_at.desc(), Card.id.desc())
 

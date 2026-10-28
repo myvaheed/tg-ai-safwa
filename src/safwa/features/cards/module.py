@@ -7,8 +7,10 @@ from tg_agent_shell.proposals.api import SimilarItems
 from tg_agent_shell.telegram.contributions import ScreenCommand
 from tg_agent_shell.telegram.manifest import FeatureModule, ProposalContribution
 
+from ..profile.model import UserProfile
 from . import agent, proposal, telegram, views
 from .action_review import ACTION_REVIEW_HOOK as ACTION_REVIEW_HOOK
+from .api import EFFORT_POINTS_ITEM, EFFORT_POINTS_PAGE
 from .goal_review import GOAL_CLARIFICATION_HOOK as GOAL_CLARIFICATION_HOOK
 from .hooks import BLOCKER_HOOK as BLOCKER_HOOK
 from .hooks import CLOSED_PARENTS_HOOK as CLOSED_PARENTS_HOOK
@@ -34,6 +36,8 @@ from .telegram import (
     render_card,
     start_manual_card_creation,
 )
+from .telegram.done_gate import CLOSING_TIME_INPUT
+from .telegram.effort_page import effort_points_label, open_effort_points_page
 
 MODULE = FeatureModule(
     name="cards",
@@ -58,6 +62,13 @@ MODULE = FeatureModule(
             label=card_citation_label,
             view="card_view",
         ),
+        ScreenSpec(
+            item_type=EFFORT_POINTS_ITEM,
+            model=UserProfile,
+            open=open_effort_points_page,
+            label=effort_points_label,
+            view=EFFORT_POINTS_PAGE,
+        ),
     ),
     commands=(
         # Every stage side by side, the Backlog one tap further; Today is on Home itself.
@@ -68,5 +79,5 @@ MODULE = FeatureModule(
         ),
     ),
     callback_actions=CARD_CALLBACK_ACTIONS,
-    text_inputs=CARD_TEXT_INPUTS,
+    text_inputs=(*CARD_TEXT_INPUTS, CLOSING_TIME_INPUT),
 )

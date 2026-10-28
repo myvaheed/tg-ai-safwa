@@ -43,6 +43,7 @@ from ..model import (
     CardStage,
     Priority,
     card_kind_name,
+    effort_label,
     minutes_label,
 )
 from ..references import CARD_REFERENCE_SPECS, PARENT_REFERENCE
@@ -97,9 +98,12 @@ def normalized_card_details(values: dict[str, Any], *, creating: bool) -> dict[s
 
 
 def _detail(field: str, value: Any) -> str:
-    """One side of a detail line; the time reads in hours and minutes."""
+    """One side of a detail line; the time reads in hours and minutes, and Effort Points as
+    their rung."""
     if field == "tracked_mins" and value:
         return minutes_label(value)
+    if field == "effort_points" and value is not None:
+        return effort_label(value)
     return detail_value(value)
 
 
@@ -233,6 +237,8 @@ async def _card_shown(
         return tuple(expression([item]) for item in value or ())
     if field == "tracked_mins":
         return minutes_label(value) if value else None
+    if field == "effort_points":
+        return None if value is None else effort_label(value)
     if field == "remind":
         return None if value is None else remind_label(value)
     if field in {"stage", "priority"} and value:
@@ -245,8 +251,10 @@ async def _card_fields(
     before: dict[str, Any],
     after: dict[str, Any],
     unresolved: list[tuple[str, str]],
+    always: frozenset[str] = frozenset(),
 ) -> tuple[ShownField, ...]:
-    """The Card before its changes and after them, in the order its own screen lists it."""
+    """The Card before its changes and after them, in the order its own screen lists it;
+    the fields in `always` stand there even when Save leaves them as they are."""
     action = (after.get("kind") or before.get("kind")) == CardKind.ACTION.value
     labels = {
         "kind": "Kind",
@@ -286,6 +294,7 @@ async def _card_fields(
                 await _card_shown(session, field, before),
                 new,
                 anchor=field in {"title", PARENT_REFERENCE.field},
+                always=field in always,
             )
         )
     return tuple(fields)
@@ -334,7 +343,7 @@ class CardProposalPresenter:
             proposed = {"stage": values.get("stage")}
         elif change.action is ChangeAction.COMPLETE:
             proposed = {"stage": CardStage.DONE.value}
-            for field in ("tracked_mins", "times"):
+            for field in ("tracked_mins", "effort_points", "times"):
                 if field in values:
                     proposed[field] = values[field]
         elif change.action is ChangeAction.REOPEN:
@@ -433,6 +442,15 @@ class CardProposalPresenter:
     ) -> ProposalScreen | None:
         states, unresolved = await _card_states(session, changes)
         after = states[-1]
+        # Finishing an Action keeps its time and estimate in the change while each is on, so
+        # the owner sees both before Save (CD-DONE-072).
+        always = frozenset(
+            field
+            for change in changes
+            if change.action is ChangeAction.COMPLETE
+            for field in ("tracked_mins", "effort_points")
+            if field in change.values
+        )
         reading = (
             rule_summary(after["schedule_rule"], await workspace_zone(session))
             if after.get("schedule_rule")
@@ -440,6 +458,6 @@ class CardProposalPresenter:
         )
         return ProposalScreen(
             item=card_kind_name(after.get("kind") or "card", bool(after.get(PARENT_REFERENCE.field))),
-            fields=await _card_fields(session, states[0], after, unresolved),
+            fields=await _card_fields(session, states[0], after, unresolved, always),
             blocks=(html.escape(reading),) if reading else (),
         )

@@ -25,7 +25,7 @@ from ...enums import ActorType
 from ...foundation.marks import closed_repeat_refusal
 from ..checks.model import Check
 from ..checks.use_cases import pending_checks
-from ..profile.api import effort_tracking_on
+from ..profile.api import effort_tracking_on, time_tracking_on
 from ..schedules.agent import read_proposed_remind, read_proposed_schedule
 from ..schedules.api import repeating, series_note
 from ..schedules.use_cases import set_remind
@@ -163,9 +163,32 @@ async def _open_copy(session: AsyncSession, card: Card | None) -> str | None:
     )
 
 
+async def _keep_closing_fields(
+    session: AsyncSession, card: Card | None, change: Any, values: dict[str, Any]
+) -> None:
+    """What a proposal that finishes an open Action shows every time (CD-DONE-072): the time
+    it took and its Effort Points, as the call says them or as the Action has them, each
+    while it is on. Copies closed `times` over take neither."""
+    if (
+        change.action is not ChangeAction.COMPLETE
+        or card is None
+        or card.kind != CardKind.ACTION.value
+        or card.effective_stage == CardStage.DONE.value
+        or (values.get("times") or 1) > 1
+    ):
+        return
+    if await time_tracking_on(session):
+        values.setdefault("tracked_mins", card.tracked_mins)
+    if await effort_tracking_on(session):
+        values.setdefault("effort_points", card.effort_points)
+
+
 async def _finish_copies(context: ApplyContext, card: Card, values: dict[str, Any]) -> list[int]:
     """Finish the open copy, then each next one, `times` in all (SCH-TIMES-032), and say
-    which copy a repeating Action left open (PR-NOTE-038)."""
+    which copy a repeating Action left open (PR-NOTE-038).
+
+    Effort Points are written on the finished copy once its next copy has taken the estimate,
+    so the next one keeps it."""
     session = context.session
     series = repeating(card)
     finished: list[int] = []
@@ -174,6 +197,10 @@ async def _finish_copies(context: ApplyContext, card: Card, values: dict[str, An
         result = await finish_card(
             session, current.id, actor=ActorType.AI, tracked_mins=values.get("tracked_mins")
         )
+        if "effort_points" in values and values["effort_points"] != current.effort_points:
+            await update_card_fields(
+                session, current.id, {"effort_points": values["effort_points"]}, actor=ActorType.AI
+            )
         finished.append(current.id)
         current = await session.get(Card, result.successor_ids[0]) if result.successor_ids else None
     if series:
@@ -303,6 +330,7 @@ class CardProposalHandler:
             context, values, "action" if proposed_kind == CardKind.ACTION.value else "deadline"
         )
         await read_proposed_remind(context, values, card)
+        await _keep_closing_fields(context.session, card, change, values)
         return PreparedChange(values=values, expected_version=expected_version)
 
     async def apply(self, context: ApplyContext, change: ProposalChange) -> list[int]:

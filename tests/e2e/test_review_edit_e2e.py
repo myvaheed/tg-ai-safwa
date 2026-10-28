@@ -18,8 +18,10 @@ from ui_harness import kind_of
 
 from safwa.bootstrap.modules import PROPOSALS
 from safwa.constants import DESCRIPTION_MAX_CHARS
+from safwa.features.cards.api import EFFORT_POINTS_ABOUT
 from safwa.features.cards.model import EFFORT_RUNGS, Card, effort_label
 from safwa.features.cards.telegram import render_card_choices
+from safwa.features.cards.telegram.effort_page import EFFORT_POINTS_TEXT
 from safwa.features.cards.telegram.selectors import CHOICE_TITLES
 from safwa.features.cards.use_cases import delete_card, finish_action, toggle_card_value
 from safwa.features.checks.telegram.handlers import NOTE_INSTRUCTION as CHECK_NOTE_INSTRUCTION
@@ -640,7 +642,8 @@ async def test_stage_turns_a_finish_into_a_move_and_back(e2e_harness):
     )
     change = advisor.reviews.proposal(proposal_id).changes[0]
     await press(services, message, "✏️ Edit")
-    assert message.buttons() == ["📍 Stage", "⌛ Time spent", "↩️ Back"]
+    # Finishing offers Effort too, though Safwa set none (CD-DONE-072).
+    assert message.buttons() == ["📍 Stage", "🔢 Effort", "⌛ Time spent", "↩️ Back"]
     await press(services, message, "📍 Stage")
     assert message.buttons() == ["Backlog", "Today", "✓ Done", "↩️ Back"]
 
@@ -659,6 +662,39 @@ async def test_stage_turns_a_finish_into_a_move_and_back(e2e_harness):
     async with e2e_harness.sessions() as session:
         card = await session.get(Card, card_id)
         assert (card.effective_stage, card.tracked_mins) == ("done", 15)
+
+
+async def test_cd_done_072_a_finish_shows_its_time_and_effort_and_edit_sets_them(e2e_harness):
+    """CD-DONE-072 — tests/brd/cards.feature"""
+    async with e2e_harness.sessions() as session:
+        await set_profile_field(session, ProfileField.EFFORT_TRACKING, True)
+        await set_profile_field(session, ProfileField.TIME_TRACKING, True)
+        card = await create_manual_card(session, title="Run", effort_points=3, stage="sprint")
+        await session.commit()
+        card_id = card.id
+    advisor, _provider, services, message, proposal_id = await review(
+        e2e_harness, [("action", {"mode": "complete", "id": card_id})], "Saved.", "Saved."
+    )
+    assert "<i>Effort:</i> 3" in message.rendered[-1]
+    assert "<i>Time spent:</i> —" in message.rendered[-1]
+
+    await press(services, message, "✏️ Edit")
+    assert message.buttons() == ["📍 Stage", "🔢 Effort", "⌛ Time spent", "↩️ Back"]
+    await press(services, message, "🔢 Effort")
+    offered = message.buttons()
+    assert f"✓ {rung(3)}" in offered and offered[-2:] == [EFFORT_POINTS_ABOUT, "↩️ Back"]
+    await press(services, message, EFFORT_POINTS_ABOUT)
+    assert message.rendered[-1] == EFFORT_POINTS_TEXT
+    await press(services, message, "↩️ Back")
+    assert message.buttons() == offered
+    await press(services, message, rung(5))
+    assert "<i>Effort:</i> <s>3</s> <b>5</b>" in message.rendered[-1]
+    assert advisor.reviews.proposal(proposal_id).changes[0].values["effort_points"] == 5
+
+    await press(services, message, "✅ Update")
+    async with e2e_harness.sessions() as session:
+        card = await session.get(Card, card_id)
+        assert (card.effective_stage, card.effort_points, card.tracked_mins) == ("done", 5, None)
 
 
 async def test_a_time_set_by_hand_goes_once_the_action_is_not_done(e2e_harness):

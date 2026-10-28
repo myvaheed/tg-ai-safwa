@@ -100,6 +100,7 @@ MANUAL = f"""# Safwa
 
 # Effort Points (EP)
 - "🔢 Effort Points" in the Profile switches the estimates, Sprint capacity, Today overload warnings and Effort Points reminder on or off. Switching off keeps saved estimates and capacity. It does not change Time tracking.
+- "ℹ️ About Effort Points" in the Profile explains each rung.
 - With EP off, Card screens and lists hide estimates, and Sprint and retro show Action counts. No estimate is saved: asked for one, the Advisor says to turn Effort Points on.
 - EP estimate how much an Action takes out of the user and what recovery they need afterwards. They measure physical, cognitive or emotional load, not hours or importance.
 {_EFFORT_SCALE}
@@ -115,7 +116,7 @@ MANUAL = f"""# Safwa
 - A Check asks whether something held: "posture straight?", or "milk" under "Go to the market". It is an observation, not a task: no effort, no stage.
 - It hangs on one Card or on none. It is Pending until it is answered Passed or Missed.
 - A Check with its own Schedule hangs on a Goal or on no Card. Its next copy opens when answered; on a Goal, only while the Goal is open, and finishing the Goal asks for its last answer. Checks on an Action follow that Action's cycle.
-- A Card is Done only when each Check on it has an answer; "✅ Done" asks for them.
+- A Card is Done only when each Check on it has an answer; "✅ Done" opens the closing screen: an answer for each Check, and "⌛ Time spent" and "🔢 Effort" when they are on. Nothing is written until "✅ Save".
 - In words: create, rename, put on a Card, answer, delete.
 - With buttons: "☑️ Checks" on its Card, counting answered of all; on the Check, "✅ Yes" answers Passed and "❌ No" answers Missed, "📝 Note", "⏱ Schedule", "💎 Values", "🗑 Delete". "Answered: ✅8 · ❌2" opens the series' answers, newest first.
 - Not with buttons: creating a Check, or putting it on a Card. Ask the Advisor.

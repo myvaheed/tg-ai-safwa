@@ -9,6 +9,7 @@ finishes or reopens an Action offers its Stage as where Save leaves it, Done inc
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,8 +20,10 @@ from tg_agent_shell.proposals.api import EditableField
 
 from ....constants import SELECTOR_PAGE_SIZE
 from ...schedules.telegram import REMIND_REVIEW_FIELD, schedule_review_field
+from ..api import EFFORT_POINTS_ABOUT
 from ..model import Card, CardKind, CardStage
 from ..references import TAG_REFERENCE, VALUE_REFERENCE
+from .effort_page import EFFORT_POINTS_TEXT
 from .selectors import CHOICE_TITLES, choice_options
 from .text_input import CARD_MARKDOWN_FIELDS, card_text_prompt, card_text_validator
 
@@ -49,6 +52,12 @@ def _chosen(
         reference=reference,
         page_size=SELECTOR_PAGE_SIZE if reference is not None else None,
     )
+
+
+def _finishes(call: AgentChange) -> bool:
+    """Whether Save finishes the Action: then its time and Effort are offered though Safwa
+    set neither (CD-DONE-072)."""
+    return call.action is ChangeAction.COMPLETE
 
 
 def _left_at(call: AgentChange) -> str:
@@ -90,7 +99,9 @@ ACTION_FIELDS = {
     "schedule": _typed("⏱ Schedule", "schedule"),
     "remind": REMIND_REVIEW_FIELD,
     "blocked_description": _typed("📝 Blocked reason", "blocked_description"),
-    "effort_points": _chosen("🔢 Effort", "effort"),
+    "effort_points": replace(
+        _chosen("🔢 Effort", "effort"), about=(EFFORT_POINTS_ABOUT, EFFORT_POINTS_TEXT)
+    ),
     "tracked_mins": _typed("⌛ Time spent", "tracked_mins"),
     "categories": _chosen("🏷 Categories", "categories", many=True),
     "energy_types": _chosen("⚡ Energy", "energy", many=True),
@@ -106,6 +117,8 @@ MOVE_FIELDS = {
         read=_left_at,
         write=_leave_at,
     ),
+    "effort_points": replace(ACTION_FIELDS["effort_points"], offered=_finishes),
+    "tracked_mins": replace(ACTION_FIELDS["tracked_mins"], offered=_finishes),
 }
 GOAL_FIELDS = {
     "title": _typed("✏️ Title", "title"),
