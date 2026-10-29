@@ -1,6 +1,6 @@
 # Test effectiveness review
 
-Status: batches 1 through 4 accepted; 4 of 10 batches accepted. Preparing this plan does not count
+Status: batches 1 through 5 accepted; 5 of 10 batches accepted. Preparing this plan does not count
 as reviewing the assigned tests. Follow [Test criteria](TEST_CRITERIA.md) throughout.
 
 ## Objective and scope
@@ -29,13 +29,13 @@ probes by behavior family and risk; a separate mutation for every test or parame
 | 2 | Runtime, turns, access and hooks | 19 | 282 | A stale lease publishes; cancellation leaves child work alive; locked access admits work | Accepted: quality-02, v9.277 |
 | 3 | Proposals and Save/Discard | 15 | 174 | Save applies a stale change or commits partly; Discard writes; repeated approval applies twice | Accepted: quality-03, v9.278 |
 | 4 | Cards, hierarchy and accounting | 18 | 257 | Completion loses a relationship or doubles totals; boundary ordering is reversed; reopening retains an incorrect stage | Accepted: quality-04, v9.279 |
-| 5 | Checks, Values, Tags and reviews | 23 | 270 | A repeat loses its links; a review is bypassed; unlink or delete changes the wrong objects | Planned |
+| 5 | Checks, Values, Tags and reviews | 23 | 270 | A repeat loses its links; a review is bypassed; unlink or delete changes the wrong objects | Accepted: quality-05, v9.280 |
 | 6 | Schedule calculations | 10 | 215 | Inclusive boundaries shift; local midnight or DST changes the day; a repeat consumes the wrong quota | Planned |
 | 7 | Reminders and delivery | 15 | 275 | A retry duplicates delivery; the schedule advances before its firing is durably recorded; owner activity permits stale publication | Planned |
 | 8 | Diary, memory, retro and helper | 13 | 147 | A stale write succeeds; unrelated memory observations are replaced; analysis alters a frozen result | Planned |
 | 9 | Planning, Home and owner workflows | 28 | 353 | A repeat is counted twice; a switch is ignored; an outdated screen overwrites the current one | Planned |
 | 10 | History, search, provider, voice and privacy | 25 | 319 | SQL escapes its scope; failed anonymization sends original text; a kept turn loses or duplicates content | Planned |
-| Total | Whole suite | 180 | 3230 | Review all families, with deeper execution evidence for high-risk invariants | 4/10 accepted |
+| Total | Whole suite | 180 | 3230 | Review all families, with deeper execution evidence for high-risk invariants | 5/10 accepted |
 
 ## Entry and baseline
 
@@ -396,6 +396,43 @@ against quality-03 or quality-baseline, using identical application/settings/dep
 hashes. Ruff and architecture pass with zero violations/cycles. Inventory remains
 3237 cases, 1681 functions and 180 files; opt-in IDs are unchanged. No application,
 schema, prompt or approved scenario changes.
+
+## Batch 5 review
+
+Accepted in v9.280; entry revision 1c40f51. All 23 assigned files reviewed; 270 cases retained.
+
+| Family | Decision |
+|---|---|
+| Checks and Check UI/E2E | Keep independent observations, corrections retaining observation time, Card completion gates, Goal versus Action repeats, fresh pending copies, archive/delete, series counts, escaped links, paging and manual answers. Domain, SQL, callback and Save paths establish different boundaries |
+| Values, ordering and Value UI | Keep independent links, transfer to the current Check, focus, deletion preserving Cards/Checks, case-insensitive storage uniqueness, dense priority orders, rollback and all live display surfaces. A shared implementation does not replace these consumer assertions |
+| Tags and Tag UI | Keep Unicode names, storage constraint, ordinary Inbox behavior, delete/unlink and editor navigation. Strengthen the existing overlong-description refusal with unchanged description and version before rollback |
+| Action, Goal, Check, Value and link/unlink reviews, including six hook E2E files | Keep commit-only triggering, changed/deleted/answered item races coordinated by Events, no review on repeat copies, switch/queue gates, current delivery and real Save after advice. Similar test shapes protect different owner data and events |
+| Habit tracker and three live test modules | Keep conversion, retry, limits, Values and real Save wiring. Preserve gated language/judgement examples; live providers were not executed |
+
+Five isolated faults were checked. Assigning a Tag or Value description before its validation
+raised passed each original overlong-description scenario; each strengthened scenario now fails
+on the changed description. Removing the late Check-review recheck fails all three existing
+edit/answer/delete races. Asking on every missed count at least three fails at the fourth
+answer. Omitting CheckValue transfer fails both independent-Check and repeating-Card scenarios.
+Every counted failure is an assertion of the named behavior, with no collection/setup errors.
+The probe preserves function identity so registered hook callbacks execute the substituted code;
+an earlier attempt that replaced only a module binding was discarded. A separate Value probe
+that failed on expired-object access was discarded as unrelated evidence.
+
+The two added state assertions belong to existing refusal cases; no test IDs or counts change.
+Other retained gaps include missing/archived targets, invalid tool modes, stale editor targets,
+empty selector pages and review work whose target vanished before it began. These are boundary
+guards, not dead-code evidence; this batch does not claim exhaustive race or provider coverage.
+
+Validation: 271 affected/BRD passed, 56 opt-in skipped. Accepted quality-05: 3031 passed,
+206 skipped in 134.98 seconds. No losses against quality-baseline. Against quality-04, the
+previously investigated Check-review line 119 trace anomaly recurs: the unchanged grouping
+test marked arcs 117→119→123 across a return, without the real 118→119 guard decision.
+There are no lost branches or other lines; this is the same tracing discrepancy recorded
+in batch 2, not evidence that the early-return guard is tested. Raw comparisons are retained
+separately. Application/settings/dependency hashes match. Ruff and architecture pass. Inventory stays
+3237 cases, 1681 functions, 180 files, with unchanged opt-in IDs. No application, prompt, schema
+or approved scenario changes.
 
 ## Assigned files
 

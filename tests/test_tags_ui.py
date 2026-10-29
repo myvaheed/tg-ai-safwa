@@ -87,8 +87,10 @@ async def test_a_tag_description_holds_at_most_description_max_chars(sessions) -
         tag = await create_tag(session, "Family", "People at home")
         await session.commit()
         tag_id = tag.id
+        before = (tag.description, tag.version)
         with pytest.raises(DomainError, match=refusal):
             await update_tag_fields(session, tag_id, description=too_long)
+        assert (tag.description, tag.version) == before
         with pytest.raises(DomainError, match=refusal):
             await create_tag(session, "Work", too_long)
         await session.rollback()

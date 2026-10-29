@@ -234,8 +234,10 @@ async def test_a_value_description_holds_at_most_description_max_chars(sessions)
         value = await create_value(session, "Health", "Body first")
         await session.commit()
         value_id = value.id
+        before = (value.description, value.version)
         with pytest.raises(DomainError, match=refusal):
             await update_value_fields(session, value_id, description=too_long)
+        assert (value.description, value.version) == before
         with pytest.raises(DomainError, match=refusal):
             await create_value(session, "Calm", too_long)
         await session.rollback()
