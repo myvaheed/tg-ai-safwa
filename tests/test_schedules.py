@@ -642,8 +642,9 @@ def _answering(name, arguments):
         ({"interval_minutes": 24 * 60 // ACTION_DAILY_EXECUTIONS_MAX - 1}, True),
     ],
 )
-async def test_an_action_repeats_at_most_ten_times_a_day(config, limited):
+async def test_an_action_repeats_at_most_five_times_a_day(config, limited):
     """SCH-LIMIT-015 — tests/brd/schedules.feature"""
+    assert ACTION_DAILY_EXECUTIONS_MAX == 5
     now, tz = datetime.now(UTC), ZoneInfo("Europe/Istanbul")
     provider, _ = _answering("set_schedule_config", config)
     rule, question = await ScheduleCompiler(provider).compile("often", now, tz, "action")
