@@ -308,7 +308,7 @@ async def test_the_board_owns_every_mutation_tool(e2e_harness):
 
 
 async def test_a_subagent_reads_the_tail_of_the_conversation_as_tagged_data(e2e_harness):
-    """AG-ROUTE-002 — tests/brd/tg_agent_shell/agents.feature"""
+    """WS-JUDGE-002 — tests/brd/workspace_mutator.feature"""
     dialogue = [
         DialogueMessage(role="user", content=f"[User]: сообщение {index}")
         if index % 2 == 0

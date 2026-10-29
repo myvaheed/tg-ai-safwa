@@ -776,7 +776,7 @@ async def test_pr_expire_029_a_review_nobody_answered_closes_the_request_for_goo
     queued = next(item for item in advisor.reviews.open_proposals if item is not review)
     # Only the screen on display is on the clock; the proposal queued behind it is not.
     assert review.shown_at is not None and queued.shown_at is None
-    review.shown_at -= timedelta(minutes=PROPOSAL_REVIEW_MINUTES - 1)
+    review.shown_at -= timedelta(minutes=29)
     assert advisor.reviews.expired(utcnow()) is None
     review.shown_at -= timedelta(minutes=1)
     assert advisor.reviews.expired(utcnow()) is review

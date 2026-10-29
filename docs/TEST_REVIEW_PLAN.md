@@ -1,6 +1,6 @@
 # Test effectiveness review
 
-Status: batches 1 and 2 accepted; 2 of 10 batches accepted. Preparing this plan does not count
+Status: batches 1 through 3 accepted; 3 of 10 batches accepted. Preparing this plan does not count
 as reviewing the assigned tests. Follow [Test criteria](TEST_CRITERIA.md) throughout.
 
 ## Objective and scope
@@ -27,7 +27,7 @@ probes by behavior family and risk; a separate mutation for every test or parame
 |---|---|---:|---:|---|---|
 | 1 | Infrastructure and structural contracts | 14 | 938 | A broken registration or schema passes its checker; backup validation accepts a wrong key or incomplete pair | Accepted: quality-01, v9.276 |
 | 2 | Runtime, turns, access and hooks | 19 | 282 | A stale lease publishes; cancellation leaves child work alive; locked access admits work | Accepted: quality-02, v9.277 |
-| 3 | Proposals and Save/Discard | 15 | 174 | Save applies a stale change or commits partly; Discard writes; repeated approval applies twice | Planned |
+| 3 | Proposals and Save/Discard | 15 | 174 | Save applies a stale change or commits partly; Discard writes; repeated approval applies twice | Accepted: quality-03, v9.278 |
 | 4 | Cards, hierarchy and accounting | 18 | 257 | Completion loses a relationship or doubles totals; boundary ordering is reversed; reopening retains an incorrect stage | Planned |
 | 5 | Checks, Values, Tags and reviews | 23 | 270 | A repeat loses its links; a review is bypassed; unlink or delete changes the wrong objects | Planned |
 | 6 | Schedule calculations | 10 | 215 | Inclusive boundaries shift; local midnight or DST changes the day; a repeat consumes the wrong quota | Planned |
@@ -35,7 +35,7 @@ probes by behavior family and risk; a separate mutation for every test or parame
 | 8 | Diary, memory, retro and helper | 13 | 147 | A stale write succeeds; unrelated memory observations are replaced; analysis alters a frozen result | Planned |
 | 9 | Planning, Home and owner workflows | 28 | 353 | A repeat is counted twice; a switch is ignored; an outdated screen overwrites the current one | Planned |
 | 10 | History, search, provider, voice and privacy | 25 | 319 | SQL escapes its scope; failed anonymization sends original text; a kept turn loses or duplicates content | Planned |
-| Total | Whole suite | 180 | 3230 | Review all families, with deeper execution evidence for high-risk invariants | 2/10 accepted |
+| Total | Whole suite | 180 | 3230 | Review all families, with deeper execution evidence for high-risk invariants | 3/10 accepted |
 
 ## Entry and baseline
 
@@ -300,6 +300,57 @@ Accepted quality-02: 3032 passed, 206 skipped, 137.38 seconds; 3238 collected ca
 Both comparisons use identical application/settings/dependency hashes. Ruff passes;
 architecture scan reports no violations or cycles. The complete inventory reconciles
 the one parameter rename and two additions, with no unexplained removal.
+
+## Batch 3 review
+
+Accepted in v9.278; entry revision 736c120e. All 15 assigned files were reviewed,
+with the existing subagent E2E scenario used to preserve a removed declaration check.
+
+| Family | Decision |
+|---|---|
+| test_proposal_batch, test_proposal_saves, test_proposals | Keep reducer transitions separate from actual transactions. Preserve stale-workspace refusal, ordered writes, commit-once, all-or-none rollback, hook facts, late decisions and retryable standalone Save. Replace mutation of an already-prepared effort value with an I/O failure after the second real domain write. Assert its specific error and that only the first two writes were attempted, alongside unchanged storage and no committed facts |
+| e2e/test_proposals_e2e | Keep grouping, dependencies, partial preparation failures, Save/Discard, interrupted/expired queues, destructive confirmation, callbacks, receipts and continuation failures. Fix the expiry oracle to explicit 29/30 minutes rather than deriving both input and expectation from the implementation's limit |
+| e2e/test_autoapproval_e2e, e2e/test_review_e2e | Keep allowlist, exact-request review, manual fallback, one head at a time, plan/response repair, held answers and discarded-request controls. Provider scripts establish adapter/runtime behavior; they do not establish model judgement |
+| e2e/test_review_edit_e2e, test_proposals_ui | Keep uncommitted edits, rejected values, kept fields, stage rewrites, schedule re-reading, user-edit receipts, marked fields, escaping and feature-specific controls. Similar screens cover different owning handlers and fields; no equivalent removal was established |
+| shell/test_preparation_conversation, shell/test_proposal_actions, shell/test_proposal_fields, shell/test_proposal_switch | Keep the second application's conversation handoff, consumed extra actions, kept fields/pages, switched entity Save/Discard and refused switch. Custom memo storage exercises the shell extension contract, not database transaction atomicity |
+| shell/test_wallet_flow, shell/test_wallet_restart | Keep actual ledger writes/balance, Discard, reader scope, stale buttons after restart, and manual input/refusal. These are application-independent composition checks |
+| test_workspace_mutator | Keep tool ownership, context content/order, scope, search selection and clocks. Remove the bare workspace_state flag assertion: the existing test_a_subagent_reads_the_tail_of_the_conversation_as_tagged_data checks the actual delivered workspace block before tagged conversation. Its first BRD citation now names WS-JUDGE-002; other conversation-window scenarios retain AG-ROUTE-002 |
+
+The only removed ID is tests/test_workspace_mutator.py::
+test_the_board_judges_a_change_against_the_state_it_is_given. Its surviving E2E test
+fails when workspace state is disabled in the declaration and composed roster; it
+also checks owner/Advisor roles and the conversation window. This verifies delivery,
+not a real model weighing its proposal. No new test functions or parameters were added.
+Batch cases fall from 174 to 173, functions from 1682 to 1681, total cases from 3238
+to 3237. All opt-in IDs and the 180-file assignment remain unchanged.
+
+Six isolated faults supplied detection evidence:
+
+| Fault | Observed result |
+|---|---|
+| Commit each queued Save separately | Existing rollback test finds Card One left written; the commit-count control also fails. The strengthened test retains this detection with valid prepared changes |
+| Ignore the workspace revision when writing kept Saves | Existing stale-queue test receives approved instead of failed results |
+| Accept a second decision on an already-answered item | Existing transition table and late-press state-identity assertions fail |
+| Replace the actual failing Save's error with Something went wrong | Old selected rollback test passed; strengthened test fails its disk I/O cause assertion |
+| Change review expiry from 30 to 31 minutes, including imported aliases | All 63 selected proposal/UI cases previously passed. The explicit expiry scenario now fails because the review remains open at 30 minutes |
+| Disable workspace state in the declaration and its composed roster | Both the removed flag check and surviving delivered-context E2E assertion fail before removal; the surviving E2E assertion still fails afterward |
+
+All counted probes fail on the named assertion/state with zero collection/fixture errors.
+Temporary faults exist only in isolated processes. Normal affected runs pass: 231 cases
+before the one removal (213 application/BRD, 18 shell), then 81 targeted runtime/context,
+rollback and BRD cases after removal. The final full suite includes every affected file.
+
+Initial gaps retained as boundary guards include missing/already-closed proposals during
+Edit/Switch/write, stale versions, late head/claim races, unknown presenters and error-label
+fallbacks. Abstract presenter methods and unsupported field-value representations are not
+evidence for dead-code deletion. Exact long-text and replacement-share marking boundaries
+are not exhaustively fault-probed. Live provider judgement and Telegram were not run.
+
+Accepted quality-03: 3031 passed, 206 skipped in 220.79 seconds. Both comparisons, against
+quality-02 and quality-baseline, report zero lost lines or branches on identical application,
+settings and dependency hashes. Raw reports are preserved by comparison label. Ruff and
+architecture checks pass, with no violations or cycles. No application, schema, prompt or
+approved scenario was changed.
 
 ## Assigned files
 

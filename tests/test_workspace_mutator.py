@@ -81,13 +81,6 @@ def test_every_mutation_tool_belongs_to_the_part_that_owns_what_it_changes():
     ]
 
 
-def test_the_board_judges_a_change_against_the_state_it_is_given():
-    """WS-JUDGE-002 — tests/brd/workspace_mutator.feature"""
-    # Its prompt tells it to weigh every proposal against the Sprint, the Success criteria
-    # and the active Values, which reach it only as the workspace state block.
-    assert MUTATOR_AGENT.workspace_state is True
-
-
 def test_ws_remove_003_one_way_to_delete_and_two_kinds_that_may_be_archived():
     """WS-REMOVE-003 — tests/brd/workspace_mutator.feature"""
     entities = set(get_args(RemoveToolInput.model_fields["entity"].annotation))

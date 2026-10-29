@@ -98,15 +98,25 @@ async def test_kept_saves_are_written_together_once_the_queue_ends(sessions, com
     assert reviews.open_proposals == () and reviews.open_batches == ()
 
 
-async def test_one_save_that_fails_leaves_the_whole_queue_unwritten(sessions, commits):
+async def test_one_save_that_fails_leaves_the_whole_queue_unwritten(sessions, commits, monkeypatch):
     """PR-FAIL-014 — tests/brd/tg_agent_shell/proposals.feature"""
     reviews = ProposalStore()
     async with sessions() as session:
         first = await _proposal(session, reviews, "action", {"mode": "create", "title": "One"})
         broken = await _proposal(session, reviews, "action", {"mode": "create", "title": "Two"})
         last = await _proposal(session, reviews, "action", {"mode": "create", "title": "Three"})
-    # Prepared, then made impossible: the rung does not exist, so its write fails.
-    broken.changes[0].values["effort_points"] = 4
+    handler = PROPOSALS.handler("card")
+    apply = handler.apply
+    attempted = []
+
+    async def fail_second(context, change):
+        affected = await apply(context, change)
+        attempted.append(change.values["title"])
+        if change.values["title"] == "Two":
+            raise OSError("disk I/O error while writing Two")
+        return affected
+
+    monkeypatch.setattr(handler, "apply", fail_second)
     batch = _queue(reviews, first, broken, last)
 
     for proposal in (first, broken, last):
@@ -115,9 +125,10 @@ async def test_one_save_that_fails_leaves_the_whole_queue_unwritten(sessions, co
     async with sessions() as session:
         assert list(await session.scalars(select(Card.title))) == []
     assert commits == []
+    assert attempted == ["One", "Two"]
     results = [tool["result"] for tool in batch.tool_calls]
     assert [result["status"] for result in results] == ["failed"] * 3
-    assert "error" in results[1]
+    assert "disk I/O error while writing Two" in results[1]["error"]
     assert results[0]["reason"] == results[2]["reason"] == NOT_WRITTEN
     assert [item.decision for item in batch.state.items] == [BatchDecision.FAILED] * 3
     assert reviews.open_proposals == () and reviews.open_batches == ()
