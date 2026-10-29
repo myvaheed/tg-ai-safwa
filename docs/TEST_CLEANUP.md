@@ -9,7 +9,7 @@
 Аудит всего набора завершён, когда для каждой группы поведения рассмотрены проверки всех
 уровней, решения записаны, у каждого удаления названо оставшееся покрытие, а итоговые
 проверки проходят. Зелёный набор и уменьшение количества тестов сами по себе этого не доказывают.
-Завершены инвентаризация, пилот и батчи 1–7 из 10. Батчи 8–10 ещё не выполнены.
+Завершены инвентаризация, пилот и батчи 1–8 из 10. Батчи 9–10 ещё не выполнены.
 
 ## Исходная точка — 28 октября 2026
 
@@ -633,3 +633,33 @@ stale lease, foreground abort, background loop и отмена дочерней 
 206 skipped, 132.63 секунды. С batch06 потерь нет; с baseline-original только разобранная
 отметка profile/api.py:138 без потери ветви. Ruff и архитектурный сканер проходят.
 Батч: 288 → 275 случаев, весь набор: 3259 → 3246.
+
+## Батч 8 — Diary, memory и retro
+
+Рассмотрены все 13 файлов, 151 исходный случай, по Diary/Memory/Retro/Heavy analyzer BRD и
+[контракту анализа и памяти](SPRINT_ANALYSE_TO_RETRO_AND_MEM.md). Все E2E оставлены:
+дневник и фото через read/Save, продолжение после отказа, восстановление сессии, границы reader,
+реальный matcher до Advisor, числа retro, открытие и ограниченные виды tools.
+
+| Удалено | Оставшиеся проверки |
+|---|---|
+| test_diary::test_di_mood_004_zero_requires_owner_words | Шкала всех 11 emoji и запрет выбирать 0 в prompt перенесены в `test_di_mood_004_score_is_optional_and_bounded` в [test_diary.py](../tests/test_diary.py). Ручной выбор 0 и 10 действительно сохраняется через кнопки в test_diary_ui |
+| test_diary::test_di_write_008_update_action_is_resolved_from_live_day | Проверял только начальную пересылку entity/action/id. `test_di_day_001_missing_day_is_created` и `test_di_day_002_existing_day_is_replaced` проверяют реальное разрешение create/update, target и expected version. E2E повторного Save проверяет единственную запись с тем же id и версией 2 |
+| test_diary::test_di_delete_005_delete_removes_the_existing_entry | `test_di_delete_005_a_deleted_day_takes_its_photos_with_it` в [test_diary_photos.py](../tests/test_diary_photos.py) вызывает ту же операцию и commit, проверяет отсутствие того же дня, его photo links и сохранение самой фотографии. E2E отдельно сохраняет удаление обычного дня без фото |
+| test_heavy_analyzer::test_call_helper_runs_inside_the_turn_and_never_becomes_a_proposal | `test_han_ask_007_the_rows_come_back_and_the_advisor_answers` в [test_heavy_analyzer_e2e.py](../tests/e2e/test_heavy_analyzer_e2e.py) действительно получает rows/sql, ANSWER и proposal_id=None. Там же `test_han_ask_008_cancelling_the_turn_stops_the_helper` проверяет остановку helper вместе с ходом. Прежнее тело лишь утверждало членство строки в IMMEDIATE_TOOLS |
+
+Сохранены близкие pure/DB семейства memory: первый проверяет выбор/сопоставление patterns,
+второй замену только собственных observations и атомарный stamp. Поздний анализ, повторный,
+исправленный, ещё не поглощённый и отменённый анализ не эквивалентны. Целиком сохранены
+разбиение длинной памяти и правильные виды сообщений. В retro оставлены frozen record,
+дни без Actions, missing EP/unknown quantity, настоящие фотоальбомы, выбор подходящих графиков,
+геометрия подписей, размеры PNG и снятие временного альбома при Back. Отдельные типы сложного
+SQL, экранированные слова, неправильный read и исчерпание бюджета helper не объединены.
+
+Исходные пропуски batch07 рассмотрены: stale Diary apply, исчезнувший день/фото, неполные
+argument JSON, memory debt между двумя чтениями, пустые наборы/нулевые доли и редкие подписи
+графиков. Guards и пользовательские пути сохранены; невыполнение не доказывает ненужность кода.
+Новых функций тестов нет, код приложения не менялся. Проверка области и BRD: 204 passed.
+Snapshot batch08: 3036 passed, 206 skipped, 133.02 секунды. С batch07 потерь нет;
+с baseline-original только разобранная отметка profile/api.py:138 без потери ветви.
+Ruff и архитектурный сканер проходят. Батч: 151 → 147 случаев, весь набор: 3246 → 3242.

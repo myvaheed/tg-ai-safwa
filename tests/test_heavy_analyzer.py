@@ -15,7 +15,6 @@ from tg_agent_shell.ai.contracts import (
     ROUTE_TOOL,
     open_tool,
 )
-from tg_agent_shell.ai.tools import IMMEDIATE_TOOLS
 from tg_agent_shell.hooks.contracts import BeforeTool, OnBeforeTool, RefuseTool
 
 HEAVY_ANALYZER_PROMPT = HELPERS[heavy_analyzer.NAME].instructions
@@ -317,8 +316,3 @@ def test_han_ask_010_no_routing_rule_names_a_helper() -> None:
     root_tools = (QUERY_TOOL, open_tool(SCREENS), ROUTE_TOOL)
     assert "call_helper" not in {tool["function"]["name"] for tool in root_tools}
     assert "call_helper" not in SYSTEM_PROMPT
-
-
-def test_call_helper_runs_inside_the_turn_and_never_becomes_a_proposal() -> None:
-    """AG-HELPER-025 — tests/brd/tg_agent_shell/agents.feature"""
-    assert "call_helper" in IMMEDIATE_TOOLS

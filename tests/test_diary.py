@@ -33,7 +33,6 @@ from safwa.features.diary.telegram import (
 )
 from safwa.features.diary.use_cases import (
     create_diary_entry,
-    delete_diary_entry,
     diary_entry_for,
     update_diary_entry,
 )
@@ -107,6 +106,8 @@ def test_di_mood_004_score_is_optional_and_bounded() -> None:
         {"mode": "update", "date": "2026-08-15", "body": "День.", "feeling_score": 0}
     )
     assert written.feeling_score == 0
+    assert set(FEELING_SCORE_EMOJI) == set(range(11))
+    assert "Never choose 0 yourself." in DIARY_PROMPT
     for out_of_scale in (-1, 11):
         with pytest.raises(ValueError):
             DiaryToolInput.model_validate(
@@ -121,26 +122,10 @@ def test_di_mood_004_score_is_optional_and_bounded() -> None:
         DiaryToolInput.model_validate({"mode": "delete", "date": "2026-08-15", "feeling_score": 7})
 
 
-def test_di_mood_004_zero_requires_owner_words() -> None:
-    """DI-MOOD-004 — tests/brd/diary.feature"""
-    assert set(FEELING_SCORE_EMOJI) == set(range(11))
-    assert "Never choose 0 yourself." in DIARY_PROMPT
-
-
 def test_di_link_007_heading_shows_optional_mood() -> None:
     """DI-LINK-007 — tests/brd/diary.feature"""
     assert diary_label(date(2026, 3, 4), 6) == "4 марта · 🙂6"
     assert diary_label(date(2026, 3, 4), None) == "4 марта"
-
-
-def test_di_write_008_update_action_is_resolved_from_live_day() -> None:
-    """DI-WRITE-008 — tests/brd/diary.feature"""
-    change = PROPOSALS.change_from_tool(
-        "diary",
-        {"mode": "update", "date": "2026-08-15", "body": "День.", "remark": "Held."},
-    )
-    assert (change.entity, change.action, change.id) == ("diary", "update", None)
-    assert "mode" not in change.values
 
 
 async def test_di_day_001_missing_day_is_created(sessions) -> None:
@@ -234,18 +219,6 @@ async def test_di_day_002_later_write_replaces_the_single_entry(sessions) -> Non
     assert same_day is not None
     assert same_day.body == "Долгий день, но закончился хорошо."
     assert same_day.version == 2
-
-
-async def test_di_delete_005_delete_removes_the_existing_entry(sessions) -> None:
-    """DI-DELETE-005 — tests/brd/diary.feature"""
-    async with sessions() as session:
-        entry = await create_diary_entry(
-            session, entry_date=date(2026, 8, 15), body="Запись на удаление."
-        )
-        await session.commit()
-        await delete_diary_entry(session, entry.id)
-        await session.commit()
-        assert await diary_entry_for(session, date(2026, 8, 15)) is None
 
 
 async def test_di_day_011_a_day_with_no_words_is_never_saved(sessions) -> None:
