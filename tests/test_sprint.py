@@ -111,18 +111,27 @@ async def plan_one(session, **overrides):
 async def test_pl_criteria_003_a_sprint_starts_with_words_and_with_work(sessions):
     """PL-CRITERIA-003 — tests/brd/planning.feature"""
     async with sessions() as session:
-        with pytest.raises(DomainError):
+        workspace = await session.get(Workspace, 1)
+        before = (workspace.sprint_success_criteria, workspace.revision)
+        with pytest.raises(DomainError, match="Success criteria cannot be empty"):
             await set_sprint_success_criteria(session, "   ")
+        assert (workspace.sprint_success_criteria, workspace.revision) == before
 
         # Words but no work.
+        before = (workspace.mode, workspace.active_sprint_id, workspace.revision)
         with pytest.raises(DomainError, match="at least one Action"):
             await start_sprint(session, success_criteria="Ship v2")
+        assert (workspace.mode, workspace.active_sprint_id, workspace.revision) == before
+        assert list(await session.scalars(select(Sprint.id))) == []
 
         await plan_one(session)
 
         # Work but no words.
-        with pytest.raises(DomainError):
+        before = (workspace.mode, workspace.active_sprint_id, workspace.revision)
+        with pytest.raises(DomainError, match="needs Success criteria"):
             await start_sprint(session, success_criteria="   ")
+        assert (workspace.mode, workspace.active_sprint_id, workspace.revision) == before
+        assert list(await session.scalars(select(Sprint.id))) == []
 
         sprint = await start_sprint(session, success_criteria="Ship v2")
 

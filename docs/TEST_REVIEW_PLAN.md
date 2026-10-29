@@ -1,6 +1,6 @@
 # Test effectiveness review
 
-Status: batches 1 through 8 accepted; 8 of 10 batches accepted. Preparing this plan does not count
+Status: batches 1 through 9 accepted; 9 of 10 batches accepted. Preparing this plan does not count
 as reviewing the assigned tests. Follow [Test criteria](TEST_CRITERIA.md) throughout.
 
 ## Objective and scope
@@ -33,9 +33,9 @@ probes by behavior family and risk; a separate mutation for every test or parame
 | 6 | Schedule calculations | 10 | 215 | Inclusive boundaries shift; local midnight or DST changes the day; a repeat consumes the wrong quota | Accepted: quality-06, v9.281 |
 | 7 | Reminders and delivery | 15 | 275 | A retry duplicates delivery; the schedule advances before its firing is durably recorded; owner activity permits stale publication | Accepted: quality-07, v9.282 |
 | 8 | Diary, memory, retro and helper | 13 | 147 | A stale write succeeds; unrelated memory observations are replaced; analysis alters a frozen result | Accepted: quality-08, v9.283 |
-| 9 | Planning, Home and owner workflows | 28 | 353 | A repeat is counted twice; a switch is ignored; an outdated screen overwrites the current one | Planned |
+| 9 | Planning, Home and owner workflows | 28 | 353 | A repeat is counted twice; a switch is ignored; an outdated screen overwrites the current one | Accepted: quality-09, v9.284 |
 | 10 | History, search, provider, voice and privacy | 25 | 319 | SQL escapes its scope; failed anonymization sends original text; a kept turn loses or duplicates content | Planned |
-| Total | Whole suite | 180 | 3230 | Review all families, with deeper execution evidence for high-risk invariants | 8/10 accepted |
+| Total | Whole suite | 180 | 3230 | Review all families, with deeper execution evidence for high-risk invariants | 9/10 accepted |
 
 ## Entry and baseline
 
@@ -530,6 +530,43 @@ Validation: 204 affected/BRD passed. Accepted quality-08: 3031 passed, 206 opt-i
 application/settings/dependency hashes. Ruff and architecture pass. Inventory stays 3237 cases,
 1681 functions and 180 files; opt-in IDs are unchanged. No application, prompt, schema or
 approved behavior changes.
+
+## Batch 9 review
+
+Accepted in v9.284; entry revision 5159c85. All 28 files and 353 cases retained. Review
+the assigned assertions, parameters and helpers across levels, with deeper setup/source
+inspection for refusal, accounting, currentness and switches. Family decisions:
+
+| Families | Decision |
+|---|---|
+| Advisor flow, blueprint, compass/method, constellation, life, motivator context and workspace focus | Keep session resumption, independent reader context, selected Values, actual relationships and stale-version checks. Scripted answers establish the wired path, not model judgement |
+| Home and shell navigation | Keep cache invalidation, owner activity during generation, current message identity, menu/back and quiet-time clearing. A successful dashboard render does not replace stale-publication checks |
+| Sprint, accounting, planning UI and Sprint E2E | Keep frozen versus actual effort, removed/rejoined work, scheduled successors, reopen, manual/AI boundaries, dates, capacity, Key Actions and stale answers. SQL, saved records and screen assertions observe separate consumers |
+| Profile, onboarding and their E2E/UI tests | Keep persisted switches/settings, refusal, prompt-context ordering, hook request cleanup, resumed onboarding and callbacks. Declaration checks complement execution rather than replace it |
+| Capture, Thought paths, Thoughts/UI and usage/E2E | Keep default capture, plan/direct-create, pagination, source identity, conversion, local accounting intervals and exclusion of forwarded voice. Shared setup does not establish equivalent preconditions or outputs |
+
+The existing PL-CRITERIA-003 scenario now identifies empty-criteria refusals and checks
+unchanged criteria/revision, unchanged workspace mode/active Sprint/revision and no Sprint
+row after the refused starts. Its valid start remains the positive control. Assigning the
+blank criteria before validation passed the old test and now fails its unchanged-state
+assertion. No new case or helper is needed.
+
+Four other process-local faults are already detected by retained assertions: publishing
+Home words after owner activity edits the chat unexpectedly; accepting the old title's Key
+Action answer overwrites the newer mark; omitting hook request cleanup retains the disabled
+hook's Cue; retaining the predecessor's reserved repeat count produces committed 25 instead
+of 15 and removed 10 instead of 0. Each failure is behavioral, without fixture/collection errors.
+
+Retain initial missing/deleted-target, stale-screen, no-work, unreadable classification and
+onboarding recovery guards. Missing execution does not justify deleting them. The probes
+sample concurrency and accounting risks; they do not enumerate every interleaving.
+
+Validation: the corrected planning/domain/UI/E2E group passes 69 cases; the other 341
+affected/BRD/shell controls pass. Accepted quality-09: 3031 passed, 206 opt-in skipped in
+206.15 seconds. Zero lost lines/branches against quality-08 and quality-baseline on identical
+application/settings/dependency hashes. Ruff and architecture pass. Inventory remains 3237
+cases, 1681 functions and 180 files; all opt-in IDs stay unchanged. No application, prompt,
+schema or approved scenario changes.
 
 ## Assigned files
 
