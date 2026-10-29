@@ -166,8 +166,12 @@ async def test_start_menu_and_card_commands_work_in_an_open_session(sessions, pr
         assert "Visible Card" in telegram.sent[-1].text and telegram.sent[-1].reply_markup is not None
 
 
-@pytest.mark.parametrize("authenticated", [False, True])
-@pytest.mark.parametrize("command, expected", [("/start", "🏠"), ("/tags", "Tags"), ("/start card-1", "Visible Card")])
+@pytest.mark.parametrize("command, expected, authenticated", [
+    ("/start", "🏠", False),
+    ("/start", "🏠", True),
+    ("/tags", "Tags", True),
+    ("/start card-1", "Visible Card", True),
+])
 async def test_commands_waiting_during_unlock_run_only_if_the_secret_was_already_verified(
     sessions, monkeypatch, authenticated, command, expected,
 ):

@@ -14,8 +14,8 @@ The exhaustive pass starts at ccf901e9: 3237 collected cases, 1680 test function
 180 files and 206 opt-in cases. Its baseline is quality-10-accepted. The frozen assignments
 contain 166 groups of at most 20 cases, including 48 groups and 944 cases in batch 1.
 Reports retain the original IDs even after a case is removed or consolidated.
-The earlier records below remain historical. Exhaustive batch 1 is accepted as luna-01 in
-v9.286; batches 2–10 are unfinished.
+The earlier records below remain historical. Exhaustive batches 1–2 are accepted as luna-01
+and luna-02 in v9.286–v9.287; batches 3–10 are unfinished.
 
 ## Exhaustive batch 1
 
@@ -61,6 +61,41 @@ Inventory reconciliation: 3237 to 2689 collected cases, with 1680 functions, 180
 all 206 opt-in IDs retained. The removed IDs are exactly the 547 empty cases and two old
 allowed-import examples; their one combined replacement retains both imports. Every removed
 ID belongs to the reviewed batch. Live/provider/model opt-ins were reviewed but not executed.
+
+## Exhaustive batch 2
+
+Accepted in v9.287, the commit carrying this record. All 284 original cases in 15 groups have explicit
+Luna/high verdicts with exact assignment IDs and no unreviewed cases.
+
+Remove two equivalent pre-verification parameters from
+test_commands_waiting_during_unlock_run_only_if_the_secret_was_already_verified: /tags and
+/start card-1. Their messages wait at the same outer access gate before routing. Keep the
+/start pre-verification refusal and all three post-verification command/deep-link routes,
+including their expected screens and buttons. An artificial loss of the authentication
+snapshot guard fails three old negative cases and still fails the surviving negative case;
+all three positive routes pass in both faulty runs.
+
+Parent checks rejected three proposed repairs. Replaying all locked attempts already fails
+two neighboring ordering cases. Removing the hook index's deduplication makes the existing
+two-subscription test fail with two evaluations instead of one; simultaneous daily/interval
+Tick data is not emitted by the real producer. The Blueprint consumer already sends a real
+sub call through ToolAdapters: bypassing its review fails
+test_sub_blueprint_runs_unless_the_review_says_not_asked's refusing case. Keep these existing
+boundaries and their current assertions instead of adding overlapping checks.
+
+Affected access checks: 50 passed. Hook, watcher and Blueprint checks: 65 passed after the
+fault processes ended. Snapshot luna-02: 2481 passed, 206 skipped in 228.12 seconds. Ruff and
+architecture checks passed; application/settings/dependency hashes match both baselines.
+Inventory: 2689 to 2687 cases, exactly the two removed parameters, with no new or renamed IDs.
+All 1680 functions, 180 files and 206 opt-in IDs remain. No application or approved behavior changed.
+
+Coverage investigation: no lines or branches were lost against quality-10-accepted. Against
+luna-01 only registry.py's interval-deduplication arc 181→179 was absent. That arc was not in
+the original baseline: luna-01 gained it incidentally when the unchanged startup search test's
+background poll ran. Its recorded context is that startup test, not either removed access
+case; the startup file is byte-identical to the accepted batch-1 version. Preserve both
+comparisons and the context evidence; this explains the fluctuation without restoring an
+unrelated parameter or adding a test solely for coverage.
 
 ## Objective and scope
 
