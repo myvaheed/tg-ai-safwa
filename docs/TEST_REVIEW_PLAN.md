@@ -1,6 +1,6 @@
 # Test effectiveness review
 
-Status: batches 1 through 7 accepted; 7 of 10 batches accepted. Preparing this plan does not count
+Status: batches 1 through 8 accepted; 8 of 10 batches accepted. Preparing this plan does not count
 as reviewing the assigned tests. Follow [Test criteria](TEST_CRITERIA.md) throughout.
 
 ## Objective and scope
@@ -32,10 +32,10 @@ probes by behavior family and risk; a separate mutation for every test or parame
 | 5 | Checks, Values, Tags and reviews | 23 | 270 | A repeat loses its links; a review is bypassed; unlink or delete changes the wrong objects | Accepted: quality-05, v9.280 |
 | 6 | Schedule calculations | 10 | 215 | Inclusive boundaries shift; local midnight or DST changes the day; a repeat consumes the wrong quota | Accepted: quality-06, v9.281 |
 | 7 | Reminders and delivery | 15 | 275 | A retry duplicates delivery; the schedule advances before its firing is durably recorded; owner activity permits stale publication | Accepted: quality-07, v9.282 |
-| 8 | Diary, memory, retro and helper | 13 | 147 | A stale write succeeds; unrelated memory observations are replaced; analysis alters a frozen result | Planned |
+| 8 | Diary, memory, retro and helper | 13 | 147 | A stale write succeeds; unrelated memory observations are replaced; analysis alters a frozen result | Accepted: quality-08, v9.283 |
 | 9 | Planning, Home and owner workflows | 28 | 353 | A repeat is counted twice; a switch is ignored; an outdated screen overwrites the current one | Planned |
 | 10 | History, search, provider, voice and privacy | 25 | 319 | SQL escapes its scope; failed anonymization sends original text; a kept turn loses or duplicates content | Planned |
-| Total | Whole suite | 180 | 3230 | Review all families, with deeper execution evidence for high-risk invariants | 7/10 accepted |
+| Total | Whole suite | 180 | 3230 | Review all families, with deeper execution evidence for high-risk invariants | 8/10 accepted |
 
 ## Entry and baseline
 
@@ -499,6 +499,37 @@ See batches 2 and 5. Both reports are preserved. Application/settings/dependency
 Ruff and architecture pass. Inventory stays
 3237 cases, 1681 functions, 180 files; opt-in IDs are unchanged. No application, prompt, schema
 or approved scenario changes.
+
+## Batch 8 review
+
+Accepted in v9.283; entry revision 9d81966. All 13 files and 147 cases reviewed; none removed.
+Keep Diary local-day reads, single-day replacement, optional Feeling, proposal versus manual
+editing, photo-only days, shared media rename/delete, album cleanup and navigation. Keep helper
+SQL refusal/repair, scoped tools, output forwarding, budget and cancellation. Keep memory
+observation identity, independent Sprint evidence, correction/idempotence, selection without
+deletion and the real tick-to-Advisor path. Keep retro frozen accounting, live Diary input,
+multi-stage analysis, owner cancellation, rerun/mark changes, aggregation and chart rendering.
+Their shared fixtures do not make the storage, adapter and E2E boundaries interchangeable.
+
+Three isolated faults: ignoring memory currentness fails the existing BUSY/unchanged-rows
+scenario; deleting every Sprint's observations fails the existing correction scenario's
+independent evidence count. Overwriting retro.done during record_analysis passed the existing
+analysis-completion scenario. That scenario now captures the frozen retro before analysis and
+compares it after the first analysis and after reruns; the same fault fails on the changed
+record. The surrounding valid analysis and mark/rerun assertions stay intact. These are
+behavioral failures, not collection/setup errors. The held AnalysisProvider now signals an
+Event; cancellation waits on it directly instead of polling requests 500 times with sleeps.
+
+Retain initial missing-target, malformed-read, stale-analysis and chart empty/fallback guards.
+In particular, empty work after taking a lease is still a concurrency guard, not dead code.
+Numeric/layout chart assertions validate rendered structure and sizes, not every visual detail;
+scripted model claims do not establish real model judgement. No live services were executed.
+
+Validation: 204 affected/BRD passed. Accepted quality-08: 3031 passed, 206 opt-in skipped in
+133.31 seconds. Zero lost lines/branches against quality-07 and quality-baseline with identical
+application/settings/dependency hashes. Ruff and architecture pass. Inventory stays 3237 cases,
+1681 functions and 180 files; opt-in IDs are unchanged. No application, prompt, schema or
+approved behavior changes.
 
 ## Assigned files
 

@@ -114,12 +114,14 @@ class AnalysisProvider:
         on_request: Callable[[str], object] | None = None,
     ) -> None:
         self.requests: list[CompletionRequest] = []
+        self.started = asyncio.Event()
         self.fails = fails
         self.hold = hold
         self.on_request = on_request
 
     async def complete(self, request: CompletionRequest) -> CompletionTurn:
         self.requests.append(request)
+        self.started.set()
         if self.hold is not None:
             await self.hold.wait()
         name = request.tools[0]["function"]["name"]
@@ -346,14 +348,6 @@ async def _analysis_of(sessions, sprint_id: int):
         return (await session.get(Sprint, sprint_id)).analysis
 
 
-async def _first_request(provider: AnalysisProvider) -> None:
-    for _ in range(500):
-        if provider.requests:
-            return
-        await asyncio.sleep(0.01)
-    raise AssertionError("the run never asked the model anything")
-
-
 async def test_rt_ai_005_analysing_is_one_run_watched_on_one_message(
     sessions, tmp_path, monkeypatch
 ) -> None:
@@ -396,7 +390,7 @@ async def test_rt_ai_005_analysing_is_one_run_watched_on_one_message(
     again = FakeMessage(341, bot_message=True, answer_as_new=True)
     await open_retro(again, services, sprint_id)
     pressing = asyncio.create_task(_press(again, services, "🔎 Analyse with AI"))
-    await _first_request(held)
+    await asyncio.wait_for(held.started.wait(), timeout=5)
     assert again.edits[-1][1] is None and services.turn.background
     handled: list[str] = []
 
@@ -613,6 +607,8 @@ async def test_rt_ai_008_what_the_run_leaves_behind(sessions, tmp_path) -> None:
     """RT-AI-008 — tests/brd/retro.feature"""
     # Six days are two batches, so a claim both make is confirmed.
     sprint_id = await _ended_sprint(sessions, criteria="Бегать каждое утро", days=6)
+    async with sessions() as session:
+        frozen = (await session.get(Sprint, sprint_id)).retro
     services = _services(sessions, AnalysisProvider(), tmp_path)
     message = FakeMessage(350, bot_message=True, answer_as_new=True)
     await open_retro(message, services, sprint_id)
@@ -621,7 +617,9 @@ async def test_rt_ai_008_what_the_run_leaves_behind(sessions, tmp_path) -> None:
     text, markup = message.edits[-1]
     # Headed by the six days the run read; the planned dates start today and run on.
     async with sessions() as session:
-        statistics = RetroStatistics.from_record((await session.get(Sprint, sprint_id)).retro)
+        sprint = await session.get(Sprint, sprint_id)
+        assert sprint.retro == frozen
+        statistics = RetroStatistics.from_record(sprint.retro)
     assert f"{_today() - timedelta(days=5)} – {_today()}" in text
     assert f"{statistics.first_day} – {statistics.last_day}" in text
     assert "the criteria then not marked" in text and "since" not in text
@@ -676,6 +674,7 @@ async def test_rt_ai_008_what_the_run_leaves_behind(sessions, tmp_path) -> None:
     assert "the criteria then met" in text and "since" not in text
     async with sessions() as session:
         assert (await session.get(Sprint, sprint_id)).analysis["met"] is True
+        assert (await session.get(Sprint, sprint_id)).retro == frozen
 
 
 async def test_rt_ai_008_the_screen_fits_one_message_at_every_limit(sessions, tmp_path) -> None:
