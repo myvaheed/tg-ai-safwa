@@ -155,10 +155,10 @@ snapshot or a review.
 
 ## Tests
 
-[Test quality criteria](docs/TEST_QUALITY.md) explain when a test earns its place and how
-to remove overlap. The ongoing audit and each removal's surviving coverage are recorded in
-[the cleanup log](docs/TEST_CLEANUP.md).
-The [ten-batch pipeline](docs/TEST_PIPELINE.md) assigns every test file and defines coverage comparisons.
+Read [Test criteria](docs/TEST_CRITERIA.md) before adding or changing tests.
+They define useful coverage, meaningful assertions and when existing tests are sufficient.
+For test inventories and coverage snapshots and comparisons, see
+`uv run python scripts/test_audit.py --help`.
 
 ```powershell
 uv run pytest -q -n auto

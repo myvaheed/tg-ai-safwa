@@ -1,4 +1,4 @@
-"""Inventory the ten cleanup batches and compare full-suite coverage snapshots."""
+"""Inventory tests and compare full-suite coverage snapshots."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ import os
 import re
 import subprocess
 import sys
-from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,24 +22,14 @@ def write_json(path: Path, value: object) -> None:
 def inventory() -> int:
     import pytest
 
-    batches = json.loads((ROOT / "docs/test_batches.json").read_text(encoding="utf-8"))
-    assigned = [file for batch in batches for file in batch["files"]]
-    found = {p.relative_to(ROOT).as_posix() for p in (ROOT / "tests").rglob("test_*.py")}
-    duplicates = [file for file, count in Counter(assigned).items() if count > 1]
-    if {b["batch"] for b in batches} != set(range(1, 11)) or len(batches) != 10 or duplicates or found != set(assigned):
-        print({"duplicates": duplicates, "unassigned": sorted(found - set(assigned)),
-               "absent": sorted(set(assigned) - found)})
-        return 1
-    owners = {file: batch["batch"] for batch in batches for file in batch["files"]}
     items = []
 
     class Collector:
         def pytest_collection_finish(self, session):
             for item in session.items:
-                file = item.path.relative_to(ROOT).as_posix()
                 doc = getattr(getattr(item, "obj", None), "__doc__", "") or ""
                 items.append({
-                    "id": item.nodeid, "batch": owners[file],
+                    "id": item.nodeid,
                     "scenario": re.findall(r"\b[A-Z]{2,3}-[A-Z-]+-\d{3}\b", doc),
                     "opt_in": sorted({m.name for m in item.iter_markers()} &
                                      {"live_provider", "live_telegram", "pii_model"}),
@@ -51,9 +40,6 @@ def inventory() -> int:
         return int(result)
     OUTPUT.mkdir(exist_ok=True)
     write_json(OUTPUT / "inventory.json", items)
-    counts = Counter(item["batch"] for item in items)
-    for batch in batches:
-        print(f"{batch['batch']:2}: {len(batch['files']):2} files, {counts[batch['batch']]:4} cases: {batch['scope']}")
     return 0
 
 

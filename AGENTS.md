@@ -64,8 +64,7 @@ Match existing style. All Python modules use `from __future__ import annotations
 A bug fix gets a reproducing test; other changes get checks proportionate to their effect.
 Choose implementation and test structure independently, preserving approved coverage:
 a batch that removes a test names what still covers its scenario.
-Follow [TEST_QUALITY.md](docs/TEST_QUALITY.md) when adding, changing or removing tests.
-A new function alone is not a reason for a new test; name the failure existing tests miss.
+Before adding, changing or removing tests, read and follow [TEST_CRITERIA.md](docs/TEST_CRITERIA.md).
 Ask only when new user-visible behavior has materially different reasonable interpretations.
 Explicit user instructions authorize that change; restoring an approved contract needs no
 repeated approval. Approved scenarios outrank code, tests and documents, subject to the user's
