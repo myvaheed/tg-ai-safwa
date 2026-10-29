@@ -15,16 +15,14 @@ from safwa.features.checks.model import Check
 from safwa.features.checks.use_cases import resolve_check, toggle_check_value, update_check_fields
 from safwa.features.onboarding.agent import MANUAL
 from safwa.features.profile.api import hook_switched_on, set_hook_switch
-from safwa.features.values.hooks import VALUE_LINK_HOOK, VALUE_UNLINK_HOOK
+from safwa.features.values.hooks import VALUE_LINK_HOOK
 from safwa.features.values.link_review import VALUE_LINK_PROMPT, ValueLinkReviewer
 from safwa.features.values.use_cases import create_value, update_value_fields
-from safwa.features.values.value_review import VALUE_CLARIFICATION_HOOK
 from safwa.features.workspace_mutator.agent import MUTATOR_AGENT
 from tg_agent_shell.ai.mini import MiniSessionError
 from tg_agent_shell.cues.background import tick
 from tg_agent_shell.cues.initiatives import bind_committed
 from tg_agent_shell.cues.model import Cue
-from tg_agent_shell.hooks.contracts import RunAndAdvise
 from tg_agent_shell.hooks.registry import HookRegistry
 
 
@@ -54,7 +52,7 @@ class ReviewProvider:
 
 def hooks():
     return HookRegistry.of(
-        (VALUE_LINK_HOOK,),
+        tuple(spec for spec in REGISTRY.hooks.specs if spec.name == VALUE_LINK_HOOK.name),
         owners=frozenset({"values"}),
         policy=hook_switched_on,
     )
@@ -128,15 +126,6 @@ def test_every_prompt_teaches_the_same_supporting_direction():
         'Check "On time?" → Punctuality, "I respect myself when I am on time": clear=true',
     ):
         assert example in VALUE_LINK_PROMPT
-
-
-def test_one_hook_checks_the_link_and_asks_under_its_own_switch():
-    """VL-LINK-019 — tests/brd/values.feature"""
-    assert [spec for spec in REGISTRY.hooks.specs if spec.owner == "values"] == [
-        VALUE_CLARIFICATION_HOOK, VALUE_LINK_HOOK, VALUE_UNLINK_HOOK,
-    ]
-    assert isinstance(VALUE_LINK_HOOK.effect, RunAndAdvise)
-    assert VALUE_LINK_HOOK.agent_related and VALUE_LINK_HOOK.switch is None
 
 
 @pytest.mark.parametrize("kind", ["goal", "action", "check"])

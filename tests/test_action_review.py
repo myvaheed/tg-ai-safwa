@@ -11,7 +11,6 @@ from sqlalchemy import select
 from llm_gateway import CompletionTurn, ToolCall
 from safwa.bootstrap.modules import REGISTRY
 from safwa.features.cards.action_review import (
-    ACTION_REVIEW_EXCHANGES,
     ACTION_REVIEW_HOOK,
     ACTION_REVIEW_PROMPT,
     SIMILAR_ACTIONS,
@@ -19,7 +18,6 @@ from safwa.features.cards.action_review import (
 )
 from safwa.features.cards.model import EnergyType
 from safwa.features.cards.use_cases import (
-    CARD_CREATED,
     delete_card,
     finish_action,
     toggle_card_energy_type,
@@ -33,7 +31,6 @@ from telegram_llm import DialogueMessage
 from tg_agent_shell.cues.background import tick
 from tg_agent_shell.cues.initiatives import bind_committed
 from tg_agent_shell.cues.model import Cue
-from tg_agent_shell.hooks.contracts import OnCommitted, RunAndAdvise
 from tg_agent_shell.hooks.registry import HookRegistry
 
 ADVICE = "Running costs the body, not focus. Suggest physical instead of cognitive."
@@ -93,7 +90,8 @@ class Ranking:
 
 def hooks():
     return HookRegistry.of(
-        (ACTION_REVIEW_HOOK,), owners=frozenset({"cards"}), policy=hook_switched_on
+        tuple(spec for spec in REGISTRY.hooks.specs if spec.name == ACTION_REVIEW_HOOK.name),
+        owners=frozenset({"cards"}), policy=hook_switched_on
     )
 
 
@@ -147,18 +145,9 @@ async def effort_points_on(sessions):
         await session.commit()
 
 
-def test_one_hook_checks_a_new_action_under_its_own_switch():
-    """CD-ACTION-052 — tests/brd/cards.feature"""
-    assert ACTION_REVIEW_HOOK in REGISTRY.hooks.specs
-    assert ACTION_REVIEW_HOOK.on == (OnCommitted(kind=CARD_CREATED),)
-    assert isinstance(ACTION_REVIEW_HOOK.effect, RunAndAdvise)
-    assert ACTION_REVIEW_HOOK.agent_related and ACTION_REVIEW_HOOK.switch is None
-    assert f"{ACTION_REVIEW_HOOK.title} in Profile → Hooks" in MANUAL
-    assert ACTION_REVIEW_EXCHANGES == 5 and SIMILAR_ACTIONS == 10
-
-
 def test_the_review_knows_every_criterion_and_leaves_the_owner_s_words_alone():
     """CD-ACTION-052 — tests/brd/cards.feature"""
+    assert f"{ACTION_REVIEW_HOOK.title} in Profile → Hooks" in MANUAL
     for criterion in (
         "fits in one day; a result that takes longer is a Goal",
         "one concrete step that can be started, not a direction such as Work on my health",

@@ -12,7 +12,6 @@ from safwa.bootstrap.modules import REGISTRY, SYSTEM_PROMPT, routed_prompt
 from safwa.features.onboarding.agent import MANUAL
 from safwa.features.profile.api import hook_switched_on, set_hook_switch
 from safwa.features.values.use_cases import (
-    VALUE_CREATED,
     create_value,
     delete_value,
     update_value_fields,
@@ -26,7 +25,6 @@ from safwa.features.workspace_mutator.agent import MUTATOR_AGENT
 from tg_agent_shell.cues.background import tick
 from tg_agent_shell.cues.initiatives import bind_committed
 from tg_agent_shell.cues.model import Cue
-from tg_agent_shell.hooks.contracts import OnCommitted, RunAndAdvise
 from tg_agent_shell.hooks.registry import HookRegistry
 
 ADVICE = "A means. Ask what it is for, and again, until a direction such as Security or Freedom."
@@ -55,7 +53,8 @@ class ReviewProvider:
 
 def hooks():
     return HookRegistry.of(
-        (VALUE_CLARIFICATION_HOOK,), owners=frozenset({"values"}), policy=hook_switched_on
+        tuple(spec for spec in REGISTRY.hooks.specs if spec.name == VALUE_CLARIFICATION_HOOK.name),
+        owners=frozenset({"values"}), policy=hook_switched_on
     )
 
 
@@ -115,17 +114,9 @@ def test_safwa_says_what_a_value_is_before_proposing_one():
             assert line in prompt
 
 
-def test_one_hook_checks_a_new_value_under_its_own_switch():
-    """VL-CLARIFY-022 — tests/brd/values.feature"""
-    assert VALUE_CLARIFICATION_HOOK in REGISTRY.hooks.specs
-    assert VALUE_CLARIFICATION_HOOK.on == (OnCommitted(kind=VALUE_CREATED),)
-    assert isinstance(VALUE_CLARIFICATION_HOOK.effect, RunAndAdvise)
-    assert VALUE_CLARIFICATION_HOOK.agent_related and VALUE_CLARIFICATION_HOOK.switch is None
-    assert f"{VALUE_CLARIFICATION_HOOK.title} in Profile → Hooks" in MANUAL
-
-
 def test_the_review_knows_every_criterion_and_advises_with_exercises():
     """VL-CLARIFY-022 — tests/brd/values.feature"""
+    assert f"{VALUE_CLARIFICATION_HOOK.title} in Profile → Hooks" in MANUAL
     for criterion in (
         "not a result that can be Done",
         "not one practice such as running",

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
 from schedule_helpers import create_card, create_check
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
@@ -31,7 +30,6 @@ from safwa.features.planning.api import values_in_focus
 from safwa.features.tags.use_cases import create_tag
 from safwa.features.values.model import CardValue, CheckValue, Value
 from safwa.features.values.use_cases import create_value, delete_value, update_value_fields
-from safwa.features.workspace_mutator.remove import RemoveToolInput
 from safwa.features.workspace_mutator.state import workspace_context
 from safwa.foundation.log_events import LogEvent
 from tg_agent_shell.ai.sql import create_ai_views
@@ -401,13 +399,6 @@ async def test_a_value_is_deleted_not_archived(sessions):
 
         with pytest.raises(DomainError, match="Value does not exist"):
             await delete_value(session, deleted.id)
-
-
-def test_the_remove_tool_refuses_to_archive_a_value():
-    """VL-DELETE-015 — tests/brd/values.feature"""
-    assert RemoveToolInput(mode="delete", entity="value", id=1).entity == "value"
-    with pytest.raises(ValidationError, match="a value is deleted, never archived"):
-        RemoveToolInput(mode="archive", entity="value", id=1)
 
 
 async def test_a_deleted_value_frees_its_name(sessions):

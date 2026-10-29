@@ -237,28 +237,15 @@ async def test_answering_a_scheduled_check_opens_one_independent_successor(sessi
     """CH-REPEAT-009 — tests/brd/checks.feature"""
     async with sessions() as session:
         check = await create_check(session, title="Posture straight?", schedule="after completion")
+        await session.commit()
         answered, successor = await resolve_check(session, check.id, CheckOutcome.MISSED)
+        await session.commit()
         assert answered.outcome == "missed" and successor.outcome is None
         assert successor.series_id == check.id and successor.source_instance_id == check.id
         assert await check_card_id(session, successor.id) is None
         _, again = await resolve_check(session, check.id, CheckOutcome.PASSED)
         assert again is None
         assert await live_repeat_instance_id(session, check) == successor.id
-
-
-
-
-async def test_a_repeating_check_on_no_card_opens_the_next_one_just_the_same(sessions):
-    """CH-REPEAT-009 — tests/brd/checks.feature"""
-    async with sessions() as session:
-        check = await create_check(session, title="Posture straight?", schedule="after completion")
-        await session.commit()
-
-        _, successor = await resolve_check(session, check.id, CheckOutcome.MISSED)
-        await session.commit()
-
-        assert successor is not None
-        assert await check_card_id(session, successor.id) is None
 
 
 async def test_a_scheduled_check_on_a_goal_watches_it_while_the_goal_is_open(sessions):

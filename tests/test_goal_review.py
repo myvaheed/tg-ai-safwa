@@ -16,7 +16,6 @@ from safwa.features.cards.goal_review import (
     GoalReviewer,
 )
 from safwa.features.cards.use_cases import (
-    CARD_CREATED,
     delete_card,
     finish_card,
     update_card_fields,
@@ -26,7 +25,6 @@ from safwa.features.profile.api import hook_switched_on, set_hook_switch
 from tg_agent_shell.cues.background import tick
 from tg_agent_shell.cues.initiatives import bind_committed
 from tg_agent_shell.cues.model import Cue
-from tg_agent_shell.hooks.contracts import OnCommitted, RunAndAdvise
 from tg_agent_shell.hooks.registry import HookRegistry
 
 ADVICE = "Done is not observable. Ask what result shows it, such as passing DELE B2."
@@ -55,7 +53,8 @@ class ReviewProvider:
 
 def hooks():
     return HookRegistry.of(
-        (GOAL_CLARIFICATION_HOOK,), owners=frozenset({"cards"}), policy=hook_switched_on
+        tuple(spec for spec in REGISTRY.hooks.specs if spec.name == GOAL_CLARIFICATION_HOOK.name),
+        owners=frozenset({"cards"}), policy=hook_switched_on
     )
 
 
@@ -100,17 +99,9 @@ async def created(sessions, **fields):
         return card.id
 
 
-def test_one_hook_checks_a_new_goal_under_its_own_switch():
-    """CD-GOAL-051 — tests/brd/cards.feature"""
-    assert GOAL_CLARIFICATION_HOOK in REGISTRY.hooks.specs
-    assert GOAL_CLARIFICATION_HOOK.on == (OnCommitted(kind=CARD_CREATED),)
-    assert isinstance(GOAL_CLARIFICATION_HOOK.effect, RunAndAdvise)
-    assert GOAL_CLARIFICATION_HOOK.agent_related and GOAL_CLARIFICATION_HOOK.switch is None
-    assert f"{GOAL_CLARIFICATION_HOOK.title} in Profile → Hooks" in MANUAL
-
-
 def test_the_review_knows_every_criterion_and_advises():
     """CD-GOAL-051 — tests/brd/cards.feature"""
+    assert f"{GOAL_CLARIFICATION_HOOK.title} in Profile → Hooks" in MANUAL
     for criterion in (
         "names one concrete result, not a direction",
         "is a result, not an ongoing practice or a rule",

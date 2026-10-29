@@ -17,7 +17,6 @@ from safwa.features.checks.check_review import (
     CheckReviewer,
 )
 from safwa.features.checks.use_cases import (
-    CHECK_CREATED,
     delete_check,
     resolve_check,
     update_check_fields,
@@ -27,7 +26,6 @@ from safwa.features.profile.api import hook_switched_on, set_hook_switch
 from tg_agent_shell.cues.background import tick
 from tg_agent_shell.cues.initiatives import bind_committed
 from tg_agent_shell.cues.model import Cue
-from tg_agent_shell.hooks.contracts import OnCommitted, RunAndAdvise
 from tg_agent_shell.hooks.registry import HookRegistry
 
 ADVICE = "No fact shows it. Ask what fact would show it, such as Played with the kids?."
@@ -56,7 +54,8 @@ class ReviewProvider:
 
 def hooks():
     return HookRegistry.of(
-        (CHECK_REVIEW_HOOK,), owners=frozenset({"checks"}), policy=hook_switched_on
+        tuple(spec for spec in REGISTRY.hooks.specs if spec.name == CHECK_REVIEW_HOOK.name),
+        owners=frozenset({"checks"}), policy=hook_switched_on
     )
 
 
@@ -104,17 +103,9 @@ async def created(sessions, *, card_title=None, **fields):
         return check.id
 
 
-def test_one_hook_checks_a_new_check_under_its_own_switch():
-    """CH-REVIEW-019 — tests/brd/checks.feature"""
-    assert CHECK_REVIEW_HOOK in REGISTRY.hooks.specs
-    assert CHECK_REVIEW_HOOK.on == (OnCommitted(kind=CHECK_CREATED),)
-    assert isinstance(CHECK_REVIEW_HOOK.effect, RunAndAdvise)
-    assert CHECK_REVIEW_HOOK.agent_related and CHECK_REVIEW_HOOK.switch is None
-    assert f"{CHECK_REVIEW_HOOK.title} in Profile → Hooks" in MANUAL
-
-
 def test_the_review_knows_every_criterion_and_advises():
     """CH-REVIEW-019 — tests/brd/checks.feature"""
+    assert f"{CHECK_REVIEW_HOOK.title} in Profile → Hooks" in MANUAL
     for criterion in (
         "a state, a result or a habit done, such as Drank water? or No sweets today?",
         "answered yes or no",

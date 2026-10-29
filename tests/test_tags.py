@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
-from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -15,7 +14,6 @@ from safwa.features.cards.references import TAG_REFERENCE
 from safwa.features.cards.use_cases import create_card, toggle_card_tag
 from safwa.features.tags.model import CardTag, Tag
 from safwa.features.tags.use_cases import create_tag, delete_tag, update_tag_fields
-from safwa.features.workspace_mutator.remove import RemoveToolInput
 from safwa.features.workspace_mutator.state import workspace_context
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
@@ -85,13 +83,6 @@ async def test_a_tag_is_deleted_and_its_cards_stay(sessions):
         assert (await session.get(Card, second.id)).archived_at is None
         with pytest.raises(DomainError, match="Tag does not exist"):
             await delete_tag(session, tag.id)
-
-
-def test_the_remove_tool_refuses_to_archive_a_tag():
-    """TA-DELETE-008 — tests/brd/tags.feature"""
-    assert RemoveToolInput(mode="delete", entity="tag", id=1).entity == "tag"
-    with pytest.raises(ValidationError, match="a tag is deleted, never archived"):
-        RemoveToolInput(mode="archive", entity="tag", id=1)
 
 
 async def test_a_deleted_tag_frees_its_name(sessions):

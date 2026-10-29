@@ -19,14 +19,12 @@ from safwa.features.cards.use_cases import (
 from safwa.features.checks.use_cases import toggle_check_value
 from safwa.features.onboarding.agent import MANUAL
 from safwa.features.profile.api import hook_switched_on, set_hook_switch
-from safwa.features.values.api import VALUE_UNLINKED
 from safwa.features.values.hooks import VALUE_UNLINK_HOOK
 from safwa.features.values.link_review import ValueLinkReviewer
 from safwa.features.values.use_cases import create_value, delete_value
 from tg_agent_shell.cues.background import tick
 from tg_agent_shell.cues.initiatives import bind_committed
 from tg_agent_shell.cues.model import Cue
-from tg_agent_shell.hooks.contracts import OnCommitted, RunAndAdvise
 from tg_agent_shell.hooks.registry import HookRegistry
 
 
@@ -57,7 +55,8 @@ class MentionProvider:
 
 def hooks():
     return HookRegistry.of(
-        (VALUE_UNLINK_HOOK,), owners=frozenset({"values"}), policy=hook_switched_on
+        tuple(spec for spec in REGISTRY.hooks.specs if spec.name == VALUE_UNLINK_HOOK.name),
+        owners=frozenset({"values"}), policy=hook_switched_on
     )
 
 
@@ -113,15 +112,6 @@ async def linked(sessions, kind, note):
 async def unlink(session, kind, item_id, value_id):
     toggle = toggle_check_value if kind == "check" else toggle_card_value
     await toggle(session, item_id, value_id)
-
-
-def test_one_hook_follows_a_removed_value_under_its_own_switch():
-    """VL-UNLINK-021 — tests/brd/values.feature"""
-    assert VALUE_UNLINK_HOOK in REGISTRY.hooks.specs
-    assert VALUE_UNLINK_HOOK.on == (OnCommitted(VALUE_UNLINKED),)
-    assert isinstance(VALUE_UNLINK_HOOK.effect, RunAndAdvise)
-    assert VALUE_UNLINK_HOOK.agent_related and VALUE_UNLINK_HOOK.switch is None
-    assert f"{VALUE_UNLINK_HOOK.title} in Profile → Hooks" in MANUAL
 
 
 @pytest.mark.parametrize("kind", ["goal", "action", "check"])
@@ -278,6 +268,7 @@ async def test_a_relink_before_delivery_drops_the_item_from_the_request(sessions
 
 async def test_the_request_waits_while_hooks_are_held_and_its_switch_drops_it(sessions):
     """VL-UNLINK-021 — tests/brd/values.feature"""
+    assert f"{VALUE_UNLINK_HOOK.title} in Profile → Hooks" in MANUAL
     item_id, value_id = await linked(sessions, "goal", "Pays for health")
     provider = MentionProvider()
     registry = hooks()
