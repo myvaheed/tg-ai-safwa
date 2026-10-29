@@ -80,8 +80,11 @@ async def two_requests(e2e_harness) -> tuple[list[dict], FakeMessage, int, list[
 
 
 async def test_the_next_request_carries_the_calls_the_last_answer_made(e2e_harness):
-    """TG-TOOLS-013 — tests/brd/tg_agent_shell/telegram_history.feature"""
-    request, _, card, _ = await two_requests(e2e_harness)
+    """TG-RECEIPT-009 — tests/brd/tg_agent_shell/telegram_history.feature
+
+    TG-TOOLS-013 and TG-THINK-017 share this same two-request conversation.
+    """
+    request, anchor, card, after_read = await two_requests(e2e_harness)
 
     shape = [
         (
@@ -105,20 +108,12 @@ async def test_the_next_request_carries_the_calls_the_last_answer_made(e2e_harne
     assert json.loads(request[3]["content"]) == CLEARED_READ
 
 
-async def test_what_the_change_did_comes_back_as_the_result_of_its_call(e2e_harness):
-    """TG-RECEIPT-009 — tests/brd/tg_agent_shell/telegram_history.feature"""
-    request, anchor, _, _ = await two_requests(e2e_harness)
-
     route = next(message for message in request if message.get("name") == "route")
     assert json.loads(route["content"])["did"] == ["✅ Saved — New Action “Buy milk” (1 EP)"]
     # The owner read the receipt above the answer; the answer's own words do not carry it.
     assert anchor.sent_messages[0].text.startswith("✅ Saved — New Action")
     assert "✅" not in request[-2]["content"]
 
-
-async def test_the_reasoning_goes_back_between_calls_and_is_never_kept(e2e_harness):
-    """TG-THINK-017 — tests/brd/tg_agent_shell/telegram_history.feature"""
-    request, _, _, after_read = await two_requests(e2e_harness)
 
     read = next(message for message in after_read if message.get("tool_calls"))
     assert read["reasoning_content"] == THOUGHT["reasoning_content"]

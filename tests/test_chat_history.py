@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import html
 import json
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -9,7 +8,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from telegram_fakes import QueueTestMessage, spawn_timer
-from ui_harness import FakeMessage, history_source
+from ui_harness import FakeMessage, history_source, services_for
 
 from safwa.bootstrap.modules import SCREENS
 from safwa.features.summary.window import SUMMARY_HEADER
@@ -27,6 +26,7 @@ from tg_agent_shell.history import (
     start_subsession,
 )
 from tg_agent_shell.telegram import SHELL_COMMANDS
+from tg_agent_shell.telegram.chat import send_summary
 from tg_agent_shell.telegram.dialogue import ordinary_text
 from tg_agent_shell.telegram.model import UiSession
 from tg_agent_shell.telegram.routing import build_router
@@ -339,10 +339,7 @@ async def test_a_summary_too_long_for_one_message_reads_as_one(sessions) -> None
     )
     body = "An earlier part of the conversation. " * 150
     anchor = FakeMessage(81, bot_message=True, chat_id=chat_id, answer_as_new=True)
-    last = await host.send_parts(
-        anchor, html.escape(f"{SUMMARY_HEADER}\n{body}"), kind=MessageKind.SUMMARY.value,
-        replace=False,
-    )
+    await send_summary(anchor, services_for(sessions), f"{SUMMARY_HEADER}\n{body}")
     await host.keep(
         owner_message(2_000, "After the Summary", chat_id), kind=MessageKind.DIALOGUE_USER.value
     )
@@ -354,7 +351,12 @@ async def test_a_summary_too_long_for_one_message_reads_as_one(sessions) -> None
     assert entries[0].text == f"[Summary]: {body.strip()}"
     # Kept once, on its first part; the others keep no words of their own.
     assert entries[0].message_id == anchor.sent_messages[0].message_id
-    assert (await TelegramNotes(sessions).note(chat_id, last.message_id)).text is None
+    notes = [
+        await TelegramNotes(sessions).note(chat_id, part.message_id)
+        for part in anchor.sent_messages
+    ]
+    assert [note.kind for note in notes] == [MessageKind.SUMMARY.value] * len(notes)
+    assert all(note.text is None for note in notes[1:])
     assert [entry.text for entry in entries[1:]] == ["Before the Summary", "After the Summary"]
 
 
@@ -467,7 +469,11 @@ async def test_an_answer_reads_back_as_its_calls_their_results_and_its_words(ses
     turn = (
         route_call("call-1"),
         route_result("call-1", "✅ Saved — New Action “Buy milk” (1 EP)"),
-        {"role": "assistant", "content": "Done — [Buy milk](card:1) is in your Backlog."},
+        {
+            "role": "assistant",
+            "content": "Done — [Buy milk](card:1) is in your Backlog. "
+            "Answer **[Milk](check:14)** first.",
+        },
     )
     await keep(
         sessions, chat_id, 2, "✅ Saved — New Action “Buy milk” (1 EP)\n\nDone — Buy milk.",
@@ -592,22 +598,6 @@ async def test_an_answer_is_read_whole_with_its_calls_or_not_at_all(sessions) ->
         ("Done.", 3),
         ("Newest words", 0),
     ]
-
-
-async def test_an_answer_reads_back_with_the_citations_the_model_wrote(sessions) -> None:
-    """TG-CITE-011 — tests/brd/tg_agent_shell/telegram_history.feature"""
-    chat_id = 125
-    words = "Answer **[Milk](check:14)** first."
-    await keep(
-        sessions, chat_id, 1,
-        'Answer <b><a href="https://t.me/safwa_ai_bot?start=check-14">Milk</a></b> first.',
-        MessageKind.DIALOGUE_ASSISTANT, datetime(2026, 8, 8, 12, 0, tzinfo=UTC),
-        reads_as=({"role": "assistant", "content": words},),
-    )
-
-    dialogue = await history_source(sessions).dialogue(chat_id)
-
-    assert [(item.role, item.content) for item in dialogue] == [("assistant", words)]
 
 
 async def test_screens_receipts_and_progress_notes_are_not_the_conversation(sessions) -> None:

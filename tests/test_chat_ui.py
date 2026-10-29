@@ -13,7 +13,6 @@ from ui_harness import (
     services_for,
 )
 
-from safwa.features.summary.window import SUMMARY_HEADER
 from telegram_llm import (
     TELEGRAM_TEXT_LIMIT,
     ChatHost,
@@ -70,25 +69,6 @@ async def test_an_over_long_answer_arrives_as_several_dialogue_messages(sessions
     # The words are kept once, on the first part, so the conversation reads one answer.
     assert [row.reads_as for row in rows] == [list(map(dict, turn))] + [None] * (len(rows) - 1)
     assert all(row.text is None for row in rows[1:])
-
-
-async def test_an_over_long_summary_is_split_and_every_part_is_registered(
-    sessions,
-) -> None:
-    """SC-SPLIT-004 — tests/brd/tg_agent_shell/screens.feature"""
-    import tg_agent_shell.telegram.chat as messaging
-
-    services = services_for(sessions)
-    message = FakeMessage(971, bot_message=False, answer_as_new=True)
-    text = f"{SUMMARY_HEADER}\n" + "\n".join(f"point {index}" for index in range(600))
-
-    await messaging.send_summary(message, services, text)
-
-    assert len(message.sent_messages) > 1
-    async with sessions() as session:
-        rows = list(await session.scalars(select(TelegramMessage)))
-    # Every part carries the kind, which is what the backwards read meets them as.
-    assert [row.kind for row in rows] == [MessageKind.SUMMARY.value] * len(rows)
 
 
 async def test_a_split_cue_is_delivered_only_once_its_last_part_is_in_the_chat(

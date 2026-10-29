@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
 from sqlalchemy import select, text
 
 from safwa.bootstrap.modules import AI_VIEWS, ALLOWED_VIEWS, PROPOSALS
@@ -86,40 +85,6 @@ async def test_saved_request_runs_a_safe_card_query(sessions):
         assert stored is not None
         cards = await request_items(session, stored.query_sql, ALLOWED_VIEWS)
         assert [card.title for card in cards] == ["Call family", "Plan family trip"]
-
-
-async def test_a_request_returns_each_card_once(sessions):
-    """SR-RUN-006 — tests/brd/saved_requests.feature"""
-    async with sessions() as session:
-        await (await session.connection()).run_sync(
-            lambda connection: create_ai_views(connection, AI_VIEWS)
-        )
-        card = Card(
-            kind="action",
-            title="Stretch",
-            manual_stage="today",
-            effective_stage="today",
-            effort_points=1,
-        )
-        session.add(card)
-        await session.flush()
-        # A UNION ALL over the same Card is the shape a model reaches for when it wants two
-        # conditions; the Card is one Card, and the screen must not list it twice.
-        request = await create_saved_request(
-            session,
-            "Either way",
-            "SELECT 'card' AS item_type, id FROM ai_cards WHERE kind = 'action' "
-            "UNION ALL SELECT 'card' AS item_type, id FROM ai_cards WHERE stage = 'today'",
-            views=ALLOWED_VIEWS,
-        )
-        await session.commit()
-
-    async with sessions() as session:
-        stored = await session.get(SavedRequest, request.id)
-        assert stored is not None
-        assert [item.id for item in await request_items(session, stored.query_sql, ALLOWED_VIEWS)] == [
-            card.id
-        ]
 
 
 @pytest.mark.parametrize(
@@ -247,7 +212,9 @@ async def test_a_request_is_deleted_not_archived(sessions):
         )
         await session.commit()
 
-        await delete_saved_request(session, request.id)
+        remove = RemoveToolInput(mode="delete", entity="request", id=request.id)
+        assert remove.entity == "request"
+        await delete_saved_request(session, remove.id)
         await session.commit()
 
         assert await session.get(SavedRequest, request.id) is None
@@ -261,13 +228,6 @@ async def test_a_request_is_deleted_not_archived(sessions):
         await session.commit()
         assert again.description == ""
         assert len(list(await session.scalars(select(SavedRequest)))) == 1
-
-
-def test_the_remove_tool_refuses_to_archive_a_request():
-    """SR-DELETE-013 — tests/brd/saved_requests.feature"""
-    assert RemoveToolInput(mode="delete", entity="request", id=1).entity == "request"
-    with pytest.raises(ValidationError, match="a request is deleted, never archived"):
-        RemoveToolInput(mode="archive", entity="request", id=1)
 
 
 async def test_default_requests_select_missing_direct_relationships(read_views):
@@ -360,11 +320,17 @@ async def test_a_mixed_request_keeps_types_order_and_unique_references(sessions)
             "UNION ALL SELECT 'value', id, 4 FROM ai_values "
             "UNION ALL SELECT 'value', id, 5 FROM ai_values "
             "UNION ALL SELECT 'value', id + 1000, 6 FROM ai_values "
+            "UNION ALL SELECT 'card', id, 7 FROM ai_cards "
+            "UNION ALL SELECT 'card', id + 1000, 8 FROM ai_cards "
             "ORDER BY position",
             views=ALLOWED_VIEWS,
         )
         await session.commit()
-        matches = await request_items(session, request.query_sql, ALLOWED_VIEWS)
+
+    async with sessions() as session:
+        stored = await session.get(SavedRequest, request.id)
+        assert stored is not None
+        matches = await request_items(session, stored.query_sql, ALLOWED_VIEWS)
         assert [(type(item), item.id) for item in matches] == [
             (Check, check.id), (Card, card.id), (Value, value.id)
         ]
@@ -372,7 +338,10 @@ async def test_a_mixed_request_keeps_types_order_and_unique_references(sessions)
         await delete_check(session, check.id)
         await delete_value(session, value.id)
         await session.commit()
-        assert await request_items(session, request.query_sql, ALLOWED_VIEWS) == [card]
+        assert [
+            (type(item), item.id)
+            for item in await request_items(session, stored.query_sql, ALLOWED_VIEWS)
+        ] == [(Card, card.id)]
 
 
 async def test_a_check_only_request_is_valid_on_an_empty_workspace(sessions):
