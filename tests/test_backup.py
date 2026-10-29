@@ -96,6 +96,8 @@ def test_a_backup_holds_the_encrypted_database_and_its_locked_key_and_nothing_re
 
 def test_a_backup_taken_while_the_database_is_written_holds_what_is_committed(tmp_path):
     live = _live(tmp_path, "before")
+    earlier = create_backup(live, tmp_path / "backups", now=NOW)
+    earlier_bytes = earlier.path.read_bytes()
     writer = live.connect()
     try:
         writer.execute("UPDATE state SET value = 'committed, still in the WAL'")
@@ -103,6 +105,12 @@ def test_a_backup_taken_while_the_database_is_written_holds_what_is_committed(tm
         backup = create_backup(live, tmp_path / "backups", now=NOW)
     finally:
         writer.close()
+
+    assert backup.path != earlier.path
+    assert earlier.path.read_bytes() == earlier_bytes
+    older_copy = tmp_path / "older" / "app.db"
+    restore_backup(earlier.path, older_copy, PASSPHRASE, tmp_path / "set-aside")
+    assert _read(unlock_database(older_copy, PASSPHRASE)) == "before"
 
     elsewhere = tmp_path / "elsewhere" / "app.db"
     restore_backup(backup.path, elsewhere, PASSPHRASE, tmp_path / "set-aside")

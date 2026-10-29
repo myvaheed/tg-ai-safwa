@@ -174,14 +174,23 @@ async def test_a_request_name_is_taken_whatever_its_case(sessions):
         )
         await session.commit()
 
+        before = (other.name, other.version)
         with pytest.raises(DomainError, match="already exists"):
             await update_saved_request(session, other.id, name="ALL GOALS", views=ALLOWED_VIEWS)
+        assert (other.name, other.version) == before
         with pytest.raises(DomainError, match="cannot be empty"):
             await update_saved_request(session, other.id, name="   ", views=ALLOWED_VIEWS)
+        assert (other.name, other.version) == before
         with pytest.raises(DomainError, match="cannot be empty"):
             await create_saved_request(
                 session, "  ", "SELECT 'card' AS item_type, id FROM ai_cards", views=ALLOWED_VIEWS
             )
+        assert list(await session.scalars(select(SavedRequest.name).order_by(SavedRequest.id))) == [
+            "All goals", "Open actions",
+        ]
+
+        await update_saved_request(session, other.id, name="Today actions", views=ALLOWED_VIEWS)
+        assert (other.name, other.version) == ("Today actions", before[1] + 1)
 
 
 def test_a_request_query_is_never_allowlisted_for_autoapproval():

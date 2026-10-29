@@ -15,7 +15,6 @@ from llm_gateway import (
     CompletionTurn,
     OpenAICompatibleConfig,
     OpenAICompatibleProvider,
-    ScriptedProvider,
     ToolCall,
     preset_config,
     standard_message,
@@ -462,16 +461,6 @@ async def test_a_deliberate_silent_stop_is_an_answer_not_a_failure():
     assert turn.content == ""
     assert turn.tool_calls == ()
     assert len(route.calls) == 1
-
-
-async def test_scripted_provider_needs_no_monkeypatching():
-    expected = CompletionTurn("Done.")
-    provider = ScriptedProvider((expected,))
-    request = _request()
-
-    assert await provider.complete(request) is expected
-    assert provider.requests == [request]
-    await provider.aclose()
 
 
 PACKAGE = Path(__file__).resolve().parents[1] / "src" / "llm_gateway"

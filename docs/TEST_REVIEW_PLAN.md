@@ -1,7 +1,7 @@
 # Test effectiveness review
 
-Status: batches 1 through 9 accepted; 9 of 10 batches accepted. Preparing this plan does not count
-as reviewing the assigned tests. Follow [Test criteria](TEST_CRITERIA.md) throughout.
+Status: all 10 batches accepted. The review records and completion reconciliation below
+describe the evidence and its limits. Follow [Test criteria](TEST_CRITERIA.md) throughout.
 
 ## Objective and scope
 
@@ -34,8 +34,8 @@ probes by behavior family and risk; a separate mutation for every test or parame
 | 7 | Reminders and delivery | 15 | 275 | A retry duplicates delivery; the schedule advances before its firing is durably recorded; owner activity permits stale publication | Accepted: quality-07, v9.282 |
 | 8 | Diary, memory, retro and helper | 13 | 147 | A stale write succeeds; unrelated memory observations are replaced; analysis alters a frozen result | Accepted: quality-08, v9.283 |
 | 9 | Planning, Home and owner workflows | 28 | 353 | A repeat is counted twice; a switch is ignored; an outdated screen overwrites the current one | Accepted: quality-09, v9.284 |
-| 10 | History, search, provider, voice and privacy | 25 | 319 | SQL escapes its scope; failed anonymization sends original text; a kept turn loses or duplicates content | Planned |
-| Total | Whole suite | 180 | 3230 | Review all families, with deeper execution evidence for high-risk invariants | 9/10 accepted |
+| 10 | History, search, provider, voice and privacy | 25 | 319 | SQL escapes its scope; failed anonymization sends original text; a kept turn loses or duplicates content | Accepted: quality-10-accepted, v9.285 |
+| Total | Whole suite | 180 | 3230 | Review all families, with deeper execution evidence for high-risk invariants | 10/10 accepted |
 
 ## Entry and baseline
 
@@ -567,6 +567,129 @@ affected/BRD/shell controls pass. Accepted quality-09: 3031 passed, 206 opt-in s
 application/settings/dependency hashes. Ruff and architecture pass. Inventory remains 3237
 cases, 1681 functions and 180 files; all opt-in IDs stay unchanged. No application, prompt,
 schema or approved scenario changes.
+
+## Batch 10 review
+
+Accepted in v9.285; entry revision b5ed570. All 25 assigned files
+reviewed by assertions, parameters, helpers and failure family, with deeper setup/source
+inspection for SQL, history, privacy, refusal and resource boundaries. Family decisions:
+
+| Families | Decision |
+|---|---|
+| Chat history/UI and history E2E | Keep whole turns, cleared reads, receipts, role/time/quote layout, edits, clear boundaries, subsession exclusion, long answers and delivery on the last part. Kept storage and the next provider request are distinct observations |
+| AI SQL, saved Requests, Request UI and Request E2E | Keep scanner versus actual encrypted reads, reader scopes, nested/recursive CTEs, typed references, missing items, SQL ordering versus display caps, refusal, stale Save and navigation. Different SQL parameters exercise different lexical/scope rules |
+| Search, similar items and search E2E | Keep word/meaning ranking, threshold boundaries, filters, index refresh, model changes, failure fallback, open-item selection and actual reader wiring. Controlled vectors establish ranking, not real embedding quality |
+| Provider, pseudonymization, Horizon and live provider | Keep wire/config overrides, raw invalid arguments, signatures, portable IDs, retries versus deliberate silence, returned identifiers, stable placeholders and fail-closed behavior. Keep live model/GPU checks gated; fake finder tests do not establish recognition accuracy |
+| ASR and voice UI | Keep API/CPU/CUDA boundaries, decode-time fallback, transcript joining, progress, refusal before download and exactly one owner turn. Transport fakes and script outputs are explicit boundaries |
+| Citations, formatting and screen E2E | Keep safe HTML, code versus prose, missing targets, compact saved labels, navigation, stale/single-use callbacks, rejected screen cleanup and real persisted claims. Similar rendering checks concern different surfaces |
+| Wallet photos and standalone chat package | Keep another application's photo labels/albums, stored media, rename Save/Discard, stale media, image-off behavior, tool grants and the example's next-turn history. Static package vocabulary/import checks protect the declared package boundary |
+| Diagnostics, log events and tracing | Keep real revision/mode, manual versus AI audit records, deleted-ID reuse, Sprint attribution, provider/tool trace ancestry, cancellation/error propagation and disabled-tracing controls |
+
+Strengthen the existing Request-name refusal scenario with unchanged name/version after
+duplicate and blank updates, the exact two stored names after refused creation, and an accepted
+rename. Assigning the refused name before validating passed the old test and now fails on
+the changed name.
+
+The argument-masking scenario becomes test_call_arguments_are_masked_in_valid_and_malformed_json
+with nested-json and malformed-json parameters. The nested case retains the original string
+and numeric assertions, adding a name inside an array of objects. The malformed case exercises
+a reachable gateway contract: invalid model argument JSON is retained raw for tool repair.
+Two faults, bypassing arrays and returning malformed arguments unchanged, each passed all
+eight original privacy cases. Each now fails its own outgoing-content assertion; the other
+eight pass. No real identifiers or external requests are used.
+
+Remove test_provider.py::test_scripted_provider_needs_no_monkeypatching: its result was the
+preconfigured fake answer's identity and its input was the fake's recorded request. Surviving
+test_pseudonymize.py::test_ag_privacy_063_the_provider_reads_placeholders_numbered_by_kind and
+test_placeholders_keep_their_numbers_as_the_transcript_grows assert actual transformed requests
+across messages/steps; test_tracing.py::test_disabled_tracing_keeps_the_existing_turn_and_produces_no_spans
+asserts the completed runtime answer and executed read. All use the same ScriptedProvider;
+coverage contexts confirm these consumers exercise its return path. The unused test import is removed.
+The only unique execution was its empty aclose method, discussed below; there was no close
+assertion or resource in that fake to preserve.
+
+Four other faults are detected by retained tests: widening a reader's SQL scope and allowing
+an inner CTE to authorize an outer base table each lose the required refusal; sending the
+original request after finder failure loses the required error; keeping old read results
+fails the cleared-result comparison in history and E2E. The storage-history scenario proves
+actual rows are cleared, while the E2E scenario proves the next request uses that representation.
+
+Completion reconciliation also revisits one batch-1 boundary: backup.py:68–69 and branch
+67→68 disappear from the intermediate quality-10-final snapshot. Their old contexts are
+unchanged backup/security tests which happen to make two archives in one wall-clock second.
+The existing committed-WAL scenario now takes two backups at the same explicit NOW, changes
+the committed data between them, asserts distinct paths and unchanged earlier archive bytes,
+and restores both independent contents. Disabling collision handling passed the old test and
+now fails on the reused path. This is a demonstrated oracle gap, not dead code or a reason to
+accept lost backup protection. The file remains assigned to batch 1; this completion finding
+does not create another batch or duplicate its assignment.
+
+All eight fault families fail for the stated behavior, without collection/setup errors.
+Keep initial SQL cap/authorizer and malformed-input guards, search load/refresh fallbacks,
+missing targets, transport/decode failures and delegated close paths. None is proven unused.
+Horizon model loading/inference remains opt-in. These probes do not establish all timing
+interleavings, real model judgement, recognition accuracy or live Telegram compatibility.
+
+Validation: 369 affected/BRD/shell controls pass with 7 opt-in skips before the final privacy
+extension; the 40 affected privacy/provider/tracing controls pass afterward. The 24 backup
+and security controls pass after the completion finding. Accepted quality-10-accepted:
+3031 passed, 206 opt-in skipped in 135.56 seconds. Ruff and architecture pass with no violations
+or cycles. Source/settings/dependency hashes match every accepted snapshot and the baseline.
+
+Against quality-09 and quality-baseline, the only lost execution is
+llm_gateway/testing.py:25, ScriptedProvider.aclose's return None. Its sole prior context is
+the removed fake echo test, with no assertion about close. This fake owns no client or other
+resource; the empty method fulfills LlmProvider's interface. Retain the method and accept
+that explained loss rather than add a test merely to execute it. There are no lost branches
+and no lost lines of product behavior. Both labeled comparison reports are preserved.
+
+## Completion reconciliation
+
+All ten batches are complete, each committed separately as v9.276 through v9.285. Their
+accepted snapshots are quality-01 through quality-09 and quality-10-accepted. Intermediate
+quality-10 and quality-10-final are retained as diagnostics, not the final accepted state.
+No extra batch is needed for the backup collision found by the completion comparison.
+
+- Every one of the 180 test files is assigned exactly once; the assignment lists, inventory
+  and checked-out file set agree. No test file was added or removed. Shared evidence and the
+  completion check do not change assignment ownership.
+- Inventory: 3230 to 3237 collected cases, 1682 to 1680 functions. Nine distinct parameters
+  were added: three restore refusals, three registry collision boundaries, two secret-like
+  input boundaries and malformed argument masking. Two functions were removed: the workspace
+  flag assertion in batch 3 and the fake echo test in batch 10. Their surviving protection is
+  named in those records. Counts are the result of those decisions, not an acceptance target.
+- Raw ID reconciliation contains eight absent old IDs and fifteen new IDs. Besides the two
+  removals, these are the backup, infrastructure, two Card and argument-masking function
+  renames/expansions, plus the None-to-no-request access parameter rename. Batches 1–4 and 10
+  explain every mapping. Existing flat argument assertions survive in nested-json; the added
+  malformed-json case protects a different parse path.
+- All 206 opt-in IDs and their gates are unchanged. No live Telegram/provider call or downloaded
+  PII-model execution was performed. Real model decisions and recognition quality remain
+  outside the local evidence.
+- Every accepted snapshot has identical application/example/settings/dependency hashes.
+  No product source, prompt, tool description, schema or approved scenario changed. Faults
+  were process-local and are absent from the committed tree.
+- Final coverage executes 12 additional lines and seven additional branches versus baseline;
+  the single lost fake close line is explained above. The Check-review line 119 trace anomaly
+  recorded in batches 2, 5 and 7 is not counted as improved protection. The earlier backup
+  collision loss was corrected with explicit state and time, not waived.
+
+Representative detection evidence spans the required invariants:
+
+| Invariant | Recorded evidence |
+|---|---|
+| Access and SQL isolation | Batch 2 foreground/locked hooks/scoped Advisor; batch 10 reader allowlists and nested CTE scope |
+| Cancellation and currentness | Batch 2 child cleanup, stale leases and publication; batches 5, 8 and 9 stale review, memory, Home and Key Action results |
+| Atomicity and repeated effects | Batch 1 pair replacement/refusal; batch 3 all-or-none Saves, stale/late decisions; batch 7 failed Cue persistence and retry |
+| Accounting and frozen state | Batches 4, 6 and 9 hierarchy, occurrence quotas and repeat transfer; batch 8 unchanged frozen retro |
+| Privacy and kept conversation | Batch 10 finder failure, nested/raw malformed argument masking and cleared read results; batch 2 access before media handling |
+
+The records distinguish faults already caught from faults that required stronger assertions.
+They sample plausible failures rather than claim an exhaustive mutation score. Remaining
+coverage gaps are retained guards, opt-in paths and named limits; missing execution did not
+justify deleting application code. No unresolved coverage loss is hidden by changing settings
+or resetting the baseline. The local final ID/coverage reconciliation is preserved in
+.test-audit/quality-final-reconciliation.json; full contexts and reports remain with snapshots.
 
 ## Assigned files
 

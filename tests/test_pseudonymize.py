@@ -114,13 +114,25 @@ async def test_ag_privacy_064_the_answer_and_the_tool_arguments_get_the_real_wor
     }
 
 
-async def test_the_arguments_of_a_call_in_the_transcript_go_as_placeholders_in_valid_json():
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    [
+        (
+            '{"text": "Позвонить Анне", "count": 2, "people": [{"name": "Анне"}]}',
+            {"text": "Позвонить [PERSON_1]", "count": 2, "people": [{"name": "[PERSON_1]"}]},
+        ),
+        ('{"text": "Позвонить Анне', '{"text": "Позвонить [PERSON_1]'),
+    ],
+    ids=("nested-json", "malformed-json"),
+)
+async def test_call_arguments_are_masked_in_valid_and_malformed_json(arguments, expected):
+    """AG-PRIVACY-063 — tests/brd/tg_agent_shell/agents.feature"""
     finder = Finder({"Анне": "PERSON"})
     provider, inner = _wrapped(finder)
     call = {
         "id": "call_1",
         "type": "function",
-        "function": {"name": "save", "arguments": '{"text": "Позвонить Анне", "count": 2}'},
+        "function": {"name": "save", "arguments": arguments},
     }
 
     await provider.complete(
@@ -132,7 +144,10 @@ async def test_the_arguments_of_a_call_in_the_transcript_go_as_placeholders_in_v
     )
 
     sent = inner.requests[0].messages[1]["tool_calls"][0]["function"]["arguments"]
-    assert json.loads(sent) == {"text": "Позвонить [PERSON_1]", "count": 2}
+    if isinstance(expected, dict):
+        assert json.loads(sent) == expected
+    else:
+        assert sent == expected
 
 
 async def test_ag_privacy_065_a_name_found_once_is_hidden_where_it_recurs():
