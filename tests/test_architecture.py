@@ -163,8 +163,10 @@ def test_rule_a_reads_the_settings_module_where_it_lives(source: str, caught: bo
         # A feature whose operations are two modules is still the operations layer: Cards
         # keeps its derived-value walk in `hierarchy.py`, and an agent may not reach it.
         ("from ..cards.hierarchy import propagate_ancestors", True),
-        ("from .model import DiaryEntry", False),
-        ("from .api import day_read_tool", False),
+        pytest.param(
+            "from .model import DiaryEntry\nfrom .api import day_read_tool", False,
+            id="allowed-data-and-api",
+        ),
     ],
 )
 def test_rule_k_catches_a_domain_call_however_it_is_imported(source: str, caught: bool):
@@ -514,7 +516,11 @@ def test_the_declared_schema_is_what_a_fresh_database_gets(tmp_path):
 
 
 SHELL = Path(__file__).resolve().parents[1] / "src" / "tg_agent_shell"
-SHELL_MODULES = sorted(path.relative_to(SHELL).as_posix() for path in SHELL.rglob("*.py"))
+SHELL_MODULES = sorted(
+    path.relative_to(SHELL).as_posix()
+    for path in SHELL.rglob("*.py")
+    if public_names(path)
+)
 
 # Safwa's vocabulary. `action`, `request`, `summary`, `value` and `workspace` are not on it:
 # generic code needs those words for its own things, and a list that cries wolf is not read.

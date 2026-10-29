@@ -213,9 +213,25 @@ async def test_ag_search_059_the_text_model_is_loaded_into_the_one_index(
 ):
     """AG-SEARCH-059 — tests/brd/tg_agent_shell/agents.feature"""
     database, settings = _prepared_startup(tmp_path, monkeypatch)
+    loaded = asyncio.Event()
+    loaded_indexes = []
+    load = SearchIndex.load
+    poll = FakeDispatcher.start_polling
+
+    async def observe_load(index):
+        await load(index)
+        loaded_indexes.append(index)
+        loaded.set()
+
+    async def poll_until_loaded(dispatcher, bot, *, allowed_updates):
+        await poll(dispatcher, bot, allowed_updates=allowed_updates)
+        await asyncio.wait_for(loaded.wait(), timeout=5)
+
+    monkeypatch.setattr(SearchIndex, "load", observe_load)
+    monkeypatch.setattr(FakeDispatcher, "start_polling", poll_until_loaded)
     await safwa_main.run(settings, database)
 
     services = FakeDispatcher.instances[0].data["services"]
     assert isinstance(services.search, SearchIndex)
-    await services.search.load()
+    assert loaded_indexes == [services.search]
     assert FakeEncoder.made[-1] == (TEXT_MODEL.name, settings.data_dir / "models")

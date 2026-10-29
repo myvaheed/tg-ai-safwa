@@ -1,7 +1,66 @@
 # Test effectiveness review
 
-Status: all 10 batches accepted. The review records and completion reconciliation below
-describe the evidence and its limits. Follow [Test criteria](TEST_CRITERIA.md) throughout.
+Status: reopened. The previous ten-batch pass used selective deep review and did not establish
+that every test was individually assessed. Its acceptance labels below describe that earlier
+pass, not completion of the exhaustive audit. The new pass assigns each Luna reviewer with
+high reasoning its own group of 20 collected cases; five reviewers divide 100 cases, subject
+to the available concurrent slots. Every case needs an explicit verdict based on its full
+test body, fixtures, parameters and neighboring tests. The first 20 cases received five
+reviews before the owner clarified this allocation; later groups need one complete review.
+The parent verifies questionable removal proposals against actual behavior. Follow
+[Test criteria](TEST_CRITERIA.md) throughout.
+
+The exhaustive pass starts at ccf901e9: 3237 collected cases, 1680 test functions,
+180 files and 206 opt-in cases. Its baseline is quality-10-accepted. The frozen assignments
+contain 166 groups of at most 20 cases, including 48 groups and 944 cases in batch 1.
+Reports retain the original IDs even after a case is removed or consolidated.
+The earlier records below remain historical. Exhaustive batch 1 is accepted as luna-01 in
+v9.286; batches 2–10 are unfinished.
+
+## Exhaustive batch 1
+
+Accepted in v9.286, the commit carrying this record. All 944 original cases in 48 groups have explicit
+Luna/high verdicts based on their full bodies, parameters, relevant fixtures and sources.
+The parent checked exact ID sets and questionable proposals against actual behavior.
+
+- Remove 547 executions with no asserted input: 15 empty public-name scans, 527 source
+  docstring scans with no links or module paths, two Markdown link scans with no links and
+  three document-name scans with no checked references. Keep all nonempty inputs in the
+  existing vocabulary and documentation tests. Collection automatically includes a file
+  when a relevant name or reference is added; all Python sources are still parsed.
+- Combine the allowed model/API import examples in the existing Rule K checker test as
+  allowed-data-and-api, retaining both imports and all forbidden-operation examples.
+- Strengthen test_ag_search_059_the_text_model_is_loaded_into_the_one_index to observe
+  startup's actual load of its own SearchIndex instead of manually initiating that load.
+- Strengthen test_links_with_anchors_still_check_their_target with a real temporary Python
+  source. Assert extraction from module, class, method and async-function docstrings, and
+  distinguish an existing anchored target from a missing one.
+
+Parent overrides: keep within-feature duplicate-agent refusal; a per-feature deduplication
+fault fails that case while the cross-feature case passes. Keep Home's independent document
+input despite a shared Menu token. Remove empty cases defended only by future references,
+because dynamic discovery preserves that scope. A reported missing condition-phrase test
+exists and resolves correctly; no repair. Bare filenames remain suffix checks, not proof
+of ownership by one package.
+
+Detection evidence: omitting automatic search loading passed the old test and fails its
+replacement. A false ban on model imports remains detected after combining the allowed
+examples. Returning no docstrings passed all 585 selected old checks; the strengthened
+control now fails on the missing texts. Keeping fragments in target filenames passed the
+old anchor example; the strengthened control rejects the extra false missing target.
+Both repaired controls pass without faults. Temporary-document/source probes also confirmed
+that adding references causes collection and that broken references are reported.
+
+Affected documentation/architecture checks: 245 passed; startup checks: 4 passed. Temporary
+discovery files were cleaned before the successful affected run. Snapshot luna-01: 2483 passed,
+206 skipped in 135.73 seconds; Ruff and architecture checks passed. Comparing against
+quality-10-accepted with identical source/settings/dependency hashes found no lost lines or
+branches. No application source, prompt, schema or approved behavior changed.
+
+Inventory reconciliation: 3237 to 2689 collected cases, with 1680 functions, 180 files and
+all 206 opt-in IDs retained. The removed IDs are exactly the 547 empty cases and two old
+allowed-import examples; their one combined replacement retains both imports. Every removed
+ID belongs to the reviewed batch. Live/provider/model opt-ins were reviewed but not executed.
 
 ## Objective and scope
 
@@ -9,7 +68,7 @@ Review whether the existing tests detect their claimed failures through justifie
 meaningful assertions and readable scenarios. Strengthen weak protection, consolidate proven
 overlap and preserve distinct boundary contracts. There is no deletion or mutation-score quota.
 
-The planning inventory contains 180 test files, 1682 test functions and 3230 collected cases,
+The earlier planning inventory contained 180 test files, 1682 test functions and 3230 collected cases,
 including 206 opt-in cases. Documentation checks contribute to the count. The file assignments
 below cover every current test file once. Read shared fixtures, helpers, approved BRD and
 application sources alongside them; using a test as evidence in another batch does not transfer

@@ -122,14 +122,27 @@ def source_docstrings(source: Path) -> list[str]:
     ]
 
 
-@pytest.mark.parametrize("doc", CHECKED, ids=lambda doc: str(doc.relative_to(ROOT)))
+@pytest.mark.parametrize(
+    "doc",
+    [doc for doc in CHECKED if LINK.search(doc.read_text(encoding="utf-8"))],
+    ids=lambda doc: str(doc.relative_to(ROOT)),
+)
 def test_every_link_names_something_that_exists(doc: Path) -> None:
     missing = missing_links(doc, doc.read_text(encoding="utf-8"))
 
     assert not missing, f"{doc.relative_to(ROOT)} links to nothing: {sorted(set(missing))}"
 
 
-@pytest.mark.parametrize("doc", CHECKED, ids=lambda doc: str(doc.relative_to(ROOT)))
+@pytest.mark.parametrize(
+    "doc",
+    [
+        doc
+        for doc in CHECKED
+        # Empty catalogues expose whether the document contains any checked reference.
+        if missing_code_references(doc.read_text(encoding="utf-8"), "", frozenset())
+    ],
+    ids=lambda doc: str(doc.relative_to(ROOT)),
+)
 def test_every_code_name_a_document_spells_still_exists(doc: Path) -> None:
     """A renamed class or a moved module leaves the prose around it standing and wrong.
 
@@ -147,6 +160,10 @@ def test_every_code_name_a_document_spells_still_exists(doc: Path) -> None:
         for folder in SOURCE
         for path in sorted((ROOT / folder).rglob("*.py"))
         if "__pycache__" not in path.parts
+        and any(
+            LINK.search(docstring) or MODULE_PATH.search(docstring)
+            for docstring in source_docstrings(path)
+        )
     ],
     ids=lambda source: str(source.relative_to(ROOT)),
 )
@@ -168,7 +185,24 @@ def test_explicit_docstring_links_and_paths_exist(source: Path) -> None:
 
 
 def test_links_with_anchors_still_check_their_target(tmp_path: Path) -> None:
-    assert missing_links(tmp_path / "note.md", "[missing](gone.md#part)") == ["gone.md#part"]
+    (tmp_path / "found.md").write_text("# Part\n", encoding="utf-8")
+    source = tmp_path / "module.py"
+    module_doc = "[existing](found.md#part) [missing](gone.md#part)"
+    source.write_text(
+        f'"""{module_doc}"""\n'
+        'class Screen:\n'
+        '    """Screen docs."""\n'
+        '    def render(self):\n'
+        '        """Render docs."""\n'
+        'async def refresh():\n'
+        '    """Refresh docs."""\n',
+        encoding="utf-8",
+    )
+
+    docstrings = source_docstrings(source)
+
+    assert set(docstrings) == {module_doc, "Screen docs.", "Render docs.", "Refresh docs."}
+    assert missing_links(source, "\n".join(docstrings)) == ["gone.md#part"]
 
 
 def test_multiline_inline_code_checks_each_name_and_exact_path() -> None:
