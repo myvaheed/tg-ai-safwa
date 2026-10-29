@@ -15,8 +15,6 @@ from safwa.features.reminders.api import (
 )
 from safwa.features.reminders.firing import (
     REMINDER_FIRE_BATCH,
-    prepare,
-    settle,
     tick,
 )
 from safwa.features.reminders.hooks import REMINDER_FIRE_HOOK
@@ -212,22 +210,6 @@ async def test_a_due_reminder_reaches_the_advisor_without_a_preflight_session(se
     words = (await said(sessions))[0]
     assert f"Reminder #{reminder_id}" in words
     assert "Review Card #88." in words
-
-
-# --- prepare / settle in isolation ----------------------------------------
-
-
-async def test_settle_advances_a_repeat(sessions):
-    """RM-FIRE-013 — tests/brd/reminders.feature"""
-    reminder_id = await make_reminder(sessions, remind_text="Review Card #88.")
-    async with sessions() as session:
-        reminder = await session.get(Reminder, reminder_id)
-        firings = await prepare(session, [reminder], now=NOW, tz=TZ)
-        await settle(session, firings, now=NOW, tz=TZ)
-        await session.commit()
-
-    reminder = await load(sessions, reminder_id)
-    assert reminder.next_fire_at > NOW
 
 
 # --- the tick -------------------------------------------------------------

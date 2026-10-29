@@ -144,41 +144,6 @@ async def test_the_proposal_carries_the_resolved_schedule_not_the_words(e2e_harn
     assert "Check my posture" not in told
 
 
-async def test_an_unresolvable_phrase_becomes_a_retryable_tool_error(e2e_harness):
-    """RM-SCHEDULE-002 — tests/brd/reminders.feature"""
-    # `not_clear_enough` must reach the model as a question, never as a guessed hour.
-    advisor, provider = e2e_harness.advisor(
-        [
-            route_turn("reminder"),
-            turn(
-                (
-                    "reminder",
-                    {"mode": "create", "remind_text": "Ask about Card #4.", "when": "sometimes"},
-                )
-            ),
-            "Sure.",
-            turn(("not_clear_enough", {"reason": "How often, and at what time?"}), prefix="setup"),
-            # The preparation error is retryable, so the model gets a repair round.
-            "How often should I remind you, and at what time?",
-            "How often should I remind you, and at what time?",
-        ]
-    )
-
-    outcome = await advisor.handle("remind me sometimes", source_message_id=1)
-
-    assert outcome.kind != "proposal"
-    async with e2e_harness.sessions() as session:
-        assert list(await session.scalars(select(Reminder))) == []
-    # The reason reaches the model verbatim so it can ask the owner that exact question.
-    last_tool_message = [
-        message
-        for call in provider.calls
-        for message in call
-        if message.get("role") == "tool"
-    ]
-    assert any("How often, and at what time?" in str(message) for message in last_tool_message)
-
-
 def refusals(provider, code: str = "schedule_unclear") -> list[dict[str, object]]:
     """Each refused `reminder` call with that code, as the model read it."""
     bodies = []
@@ -481,7 +446,10 @@ async def test_rm_unclear_028_words_that_count_answers_go_back_to_be_a_condition
 
 
 async def test_rm_unclear_028_words_that_meant_a_time_get_the_time_forms(e2e_harness):
-    """RM-UNCLEAR-028 — tests/brd/reminders.feature"""
+    """RM-SCHEDULE-002 — tests/brd/reminders.feature
+
+    The refusal also carries the time forms required by RM-UNCLEAR-028.
+    """
     advisor, provider = e2e_harness.advisor(
         unclear_script(
             turn(
@@ -492,7 +460,10 @@ async def test_rm_unclear_028_words_that_meant_a_time_get_the_time_forms(e2e_har
         )
     )
 
-    await advisor.handle("remind me next Thursday to see the dentist", source_message_id=1)
+    outcome = await advisor.handle("remind me next Thursday to see the dentist", source_message_id=1)
+    assert outcome.kind is AIOutcomeKind.ANSWER
+    assert outcome.message == "When should it fire?"
+    assert refusals(provider)[0]["retryable"] is True
 
     (error,) = unclear_errors(provider)
     assert error.splitlines()[0] == "No hour was given."

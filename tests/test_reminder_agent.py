@@ -206,16 +206,3 @@ async def test_rm_agent_041_the_reminder_of_a_remind_goes_back_to_remind(
         f"Reminder #{reminder.id} is the Remind of {named} #{item.id} «Читать».",
         f"Use remind on {named} #{item.id}.",
     )
-
-
-@pytest.mark.parametrize(("item", "entity"), [("action", "card"), ("goal", "card"), ("check", "check")])
-def test_remind_is_a_change_of_the_item_it_names(item, entity):
-    """SCH-REMIND-029 — tests/brd/schedules.feature"""
-    for lead in (45, 0, None):
-        change = PROPOSALS.change_from_tool("remind", {"item": item, "id": 7, "minutes_before": lead})
-        assert (change.entity, change.action, change.id, change.values) == (
-            entity,
-            ChangeAction.UPDATE,
-            7,
-            {"remind": lead},
-        )

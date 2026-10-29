@@ -9,7 +9,7 @@
 Аудит всего набора завершён, когда для каждой группы поведения рассмотрены проверки всех
 уровней, решения записаны, у каждого удаления названо оставшееся покрытие, а итоговые
 проверки проходят. Зелёный набор и уменьшение количества тестов сами по себе этого не доказывают.
-Завершены инвентаризация, пилот и батчи 1–6 из 10. Батчи 7–10 ещё не выполнены.
+Завершены инвентаризация, пилот и батчи 1–7 из 10. Батчи 8–10 ещё не выполнены.
 
 ## Исходная точка — 28 октября 2026
 
@@ -599,3 +599,37 @@ set_hook_switch при отсутствии профиля. Переход 137�
 206 skipped, 137.25 секунды. Относительно batch05 потерь нет; относительно baseline-original
 только разобранная в батче 5 отметка profile/api.py:138, без потери ветви. Ruff и архитектурный
 сканер проходят. Область осталась 215 случаев, весь набор — 3259; семь ID переименованы.
+
+## Батч 7 — Reminders и доставка
+
+Рассмотрены все 15 файлов, 288 исходных случаев. Сохранены семейства вычисления времени,
+quiet windows, DST, lead, total/last day, счётчиков ответов, сортировки open items, ручных экранов,
+Save/Discard и реального пути через Advisor. Две live-группы оставлены opt-in: перевод слов в
+условие и выбор item/lead настоящей моделью не доказываются scripted fixtures.
+
+| Удалено | Оставшееся покрытие и перенесённые утверждения |
+|---|---|
+| test_reminder_flow::test_reminder_mutations_bump_the_workspace_revision | `test_create_reminder_computes_its_first_fire` в [test_reminder_flow.py](../tests/test_reminder_flow.py) теперь проверяет и рост revision при том же create/commit. Прежнее имя обещало все mutations, но тело проверяло только создание |
+| test_reminder_flow::test_a_schedule_survives_the_proposal_json_round_trip — все 3 параметра | `test_a_schedule_survives_the_column_round_trip` в [test_reminders.py](../tests/test_reminders.py) имеет те же 3 расписания и теперь проверяет оба кодирования. Payload действительно проходит json.dumps/json.loads, затем восстанавливается и сравнивается с исходным объектом |
+| test_reminder_flow::test_the_proposal_payload_is_json_serializable | Предыдущая строка проверяет сериализуемость и точное сохранение полей. Старое утверждение проверяло лишь truthiness JSON-словаря; anchor проверяется one-time параметром, interval — своим |
+| test_reminder_flow::test_reconcile_rolls_a_long_overdue_repeat_forward | `test_rm_start_020_the_start_hook_reconciles_the_reminders` выполняет тот же трёхдневный overdue interval через настоящий startup hook и проверяет новую дату. In-grace, one-shot, timezone move/no-op оставлены отдельно |
+| test_reminder_flow::test_the_main_advisor_is_told_to_verify_named_items_first и test_an_on_time_firing_says_nothing_about_lateness | `test_one_firing_reads_as_one` проверяет тот же format_cue. В него перенесены обе фразы query_data/current state и отсутствие Was due. Для lead и настоящей задержки сохранены отдельные расчёты |
+| test_scheduler::test_settle_advances_a_repeat | `test_the_words_are_written_down_before_the_reminder_moves_on` в [test_scheduler.py](../tests/test_scheduler.py) проходит prepare/settle через tick и проверяет очередь вместе с сохранённой новой датой. `test_a_repeat_advances_from_its_scheduled_moment_not_the_tick_that_took_it` дополнительно проверяет точный момент при позднем tick |
+| test_reminder_agent::test_remind_is_a_change_of_the_item_it_names — action, goal, check | `test_safwa_turns_remind_on_with_the_remind_tool` в [test_remind_lead.py](../tests/test_remind_lead.py) проверяет те же 3 kind→entity через prepare, presenter и apply, с настоящим Reminder. Там же `test_remind_of_0_is_at_the_time_and_null_turns_it_off` проверяет 0/null по их результату. Прямое утверждение пересылки словаря ничего не добавляло |
+| test_reminder_e2e::test_an_unresolvable_phrase_becomes_a_retryable_tool_error | `test_rm_unclear_028_words_that_meant_a_time_get_the_time_forms` в [test_reminder_e2e.py](../tests/e2e/test_reminder_e2e.py) проверяет тот же not_clear_enough через routed session, точный reason, формы и отсутствие записи. Добавлены retryable, точный ANSWER и вопрос владельцу. Ссылка RM-SCHEDULE-002 перенесена в этот тест; остальные RM-UNCLEAR-028 случаи остались |
+
+Отдельно оставлены guards TurnManager из test_reminder_flow: синхронный вызов без event loop,
+stale lease, foreground abort, background loop и отмена дочерней работы защищают разные ошибки.
+Также оставлены похожие time/condition refusals: неправильные параметры, исчерпанные repair
+и явный not_clear_enough — разные выходы. Batch size и oldest-first проверяют разные свойства.
+
+Рассмотрены исходные пробелы batch06: parse_windows errors, ближайший год в обратную сторону,
+неполные schedules, исчезнувший Reminder в settle, stale apply, condition fallback и callback
+подтверждения ручного удаления. Это исходные guards и достижимые операции, не причина удалять код.
+Первая проверка области выявила потерю ссылки RM-SCHEDULE-002 при удалении дубля; ссылка
+перенесена в сохранённый сценарий того же отказа. Код приложения не менялся.
+Проверка области после удаления: 283 passed, 48 opt-in skipped; первоначальное падение BRD
+исправлено, повторно E2E+BRD: все проверки прошли. Snapshot batch07: 3040 passed,
+206 skipped, 132.63 секунды. С batch06 потерь нет; с baseline-original только разобранная
+отметка profile/api.py:138 без потери ветви. Ruff и архитектурный сканер проходят.
+Батч: 288 → 275 случаев, весь набор: 3259 → 3246.

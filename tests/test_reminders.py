@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from datetime import UTC, datetime, time
 from zoneinfo import ZoneInfo
@@ -15,7 +16,9 @@ from safwa.features.reminders.api import (
     resolve,
     roll_forward,
     schedule_columns,
+    schedule_from_payload,
     schedule_of,
+    schedule_payload,
 )
 from safwa.features.reminders.model import ScheduleKind
 
@@ -335,6 +338,7 @@ def test_a_schedule_survives_the_column_round_trip(kwargs):
     """RM-WRITE-008 — tests/brd/reminders.feature"""
     schedule = resolve(now=NOW, tz=TZ, **kwargs)
     assert schedule_of(FakeRow(**schedule_columns(schedule))) == schedule
+    assert schedule_from_payload(json.loads(json.dumps(schedule_payload(schedule)))) == schedule
 
 
 # --- describing -----------------------------------------------------------

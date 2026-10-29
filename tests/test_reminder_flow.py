@@ -12,9 +12,7 @@ from safwa.features.reminders.api import (
     REMINDER_CATCHUP_GRACE_MINUTES,
     resolve,
     schedule_columns,
-    schedule_from_payload,
     schedule_of,
-    schedule_payload,
 )
 from safwa.features.reminders.firing import Firing, format_cue
 from safwa.features.reminders.hooks import REMINDER_START_HOOK
@@ -53,12 +51,14 @@ async def test_create_reminder_computes_its_first_fire(sessions):
     """RM-WRITE-008 — tests/brd/reminders.feature"""
     schedule = resolve(days=["Mon"], clock="08:30", now=NOW, tz=TZ)
     async with sessions() as session:
+        before = (await session.get(Workspace, 1)).revision
         reminder = await create_reminder(
             session, remind_text="Review Card #88.", schedule=schedule, tz=TZ
         )
         await session.commit()
         assert reminder.next_fire_at > datetime.now(UTC)
         assert schedule_of(reminder) == schedule
+        assert (await session.get(Workspace, 1)).revision > before
 
 
 async def test_create_reminder_rejects_empty_text(sessions):
@@ -123,45 +123,6 @@ async def test_deleting_a_reminder_removes_the_row(sessions):
         assert await session.get(Reminder, reminder.id) is None
 
 
-async def test_reminder_mutations_bump_the_workspace_revision(sessions):
-    async with sessions() as session:
-        before = (await session.get(Workspace, 1)).revision
-        await create_reminder(
-            session,
-            remind_text="Ping.",
-            schedule=resolve(interval_minutes=120, now=NOW, tz=TZ),
-            tz=TZ,
-        )
-        await session.commit()
-        assert (await session.get(Workspace, 1)).revision > before
-
-
-# --- proposal payload round trip ------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "kwargs",
-    [
-        {"interval_minutes": 120},
-        {"days": ["Mon", "Wed"], "clock": "08:30"},
-        {"clock": "09:00", "day": "20.08.2026"},
-    ],
-)
-def test_a_schedule_survives_the_proposal_json_round_trip(kwargs):
-    """RM-WRITE-008 — tests/brd/reminders.feature"""
-    # The resolved schedule travels through the proposal, not the words the model used.
-    schedule = resolve(now=NOW, tz=TZ, **kwargs)
-    assert schedule_from_payload(schedule_payload(schedule)) == schedule
-
-
-def test_the_proposal_payload_is_json_serializable():
-    """RM-WRITE-008 — tests/brd/reminders.feature"""
-    import json
-
-    schedule = resolve(interval_minutes=120, clock="09:00", day="20.08.2026", now=NOW, tz=TZ)
-    assert json.loads(json.dumps(schedule_payload(schedule)))
-
-
 # --- startup reconciliation -----------------------------------------------
 
 
@@ -200,15 +161,6 @@ async def test_reconcile_leaves_an_in_grace_overdue_repeat_for_the_poll(sessions
         await reconcile_reminders(session, now=NOW)
         await session.commit()
         assert (await session.get(Reminder, reminder_id)).next_fire_at == due
-
-
-async def test_reconcile_rolls_a_long_overdue_repeat_forward(sessions):
-    """RM-START-020 — tests/brd/reminders.feature"""
-    reminder_id = await _add(sessions, due=NOW - timedelta(days=3), interval_minutes=120)
-    async with sessions() as session:
-        await reconcile_reminders(session, now=NOW)
-        await session.commit()
-        assert (await session.get(Reminder, reminder_id)).next_fire_at > NOW
 
 
 async def test_reconcile_never_moves_a_one_shot(sessions):
@@ -326,6 +278,9 @@ def test_one_firing_reads_as_one():
     text = format_cue([_firing()], now=NOW)
     assert text.startswith("1 Reminder triggered.")
     assert "Reminder #7" in text
+    assert "Was due" not in text
+    assert "check their current state with query_data" in text
+    assert "it may no longer apply" in text
     assert "   The user asked to be reminded of: Ask me what to start with today." in text
 
 
@@ -340,24 +295,12 @@ def test_a_batch_is_numbered():
     assert "3. Reminder #19" in text
 
 
-def test_the_main_advisor_is_told_to_verify_named_items_first():
-    """RM-FIRE-011 — tests/brd/reminders.feature"""
-    text = format_cue([_firing(remind_text="Review Card #88.")], now=NOW)
-    assert "check their current state with query_data" in text
-    assert "it may no longer apply" in text
-
-
 def test_a_late_firing_says_how_late():
     """RM-FIRE-016 — tests/brd/reminders.feature"""
     text = format_cue(
         [_firing(due_at=NOW - timedelta(hours=4))], now=NOW
     )
     assert "Was due 4 hours ago." in text
-
-
-def test_an_on_time_firing_says_nothing_about_lateness():
-    """RM-FIRE-011 — tests/brd/reminders.feature"""
-    assert "Was due" not in format_cue([_firing()], now=NOW)
 
 
 async def test_reminder_advisor_receives_canonical_dialogue(sessions, monkeypatch):
