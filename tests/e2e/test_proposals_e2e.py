@@ -1181,8 +1181,8 @@ async def test_new_message_discarding_a_queue_reports_what_was_already_saved(e2e
     assert titles == {"First"}
 
 
-async def test_proposal_ui_queues_mutations_and_reports_dependency_failure(e2e_harness):
-    """PR-FAIL-014 — tests/brd/tg_agent_shell/proposals.feature"""
+async def test_discarding_a_tag_proposal_skips_its_queued_link_without_failure(e2e_harness):
+    """PR-SAVE-010 — tests/brd/tg_agent_shell/proposals.feature"""
     async with e2e_harness.sessions() as session:
         card = await create_manual_card(session, title="Release VrWalk", effort_points=3)
         await session.commit()

@@ -14,8 +14,8 @@ The exhaustive pass starts at ccf901e9: 3237 collected cases, 1680 test function
 180 files and 206 opt-in cases. Its baseline is quality-10-accepted. The frozen assignments
 contain 166 groups of at most 20 cases, including 48 groups and 944 cases in batch 1.
 Reports retain the original IDs even after a case is removed or consolidated.
-The earlier records below remain historical. Exhaustive batches 1–2 are accepted as luna-01
-and luna-02 in v9.286–v9.287; batches 3–10 are unfinished.
+The earlier records below remain historical. Exhaustive batches 1–3 are accepted as luna-01
+through luna-03 in v9.286–v9.288; batches 4–10 are unfinished.
 
 ## Exhaustive batch 1
 
@@ -60,7 +60,7 @@ branches. No application source, prompt, schema or approved behavior changed.
 Inventory reconciliation: 3237 to 2689 collected cases, with 1680 functions, 180 files and
 all 206 opt-in IDs retained. The removed IDs are exactly the 547 empty cases and two old
 allowed-import examples; their one combined replacement retains both imports. Every removed
-ID belongs to the reviewed batch. Live/provider/model opt-ins were reviewed but not executed.
+ID belongs to the reviewed batch. Live/provider/model opt-ins stayed gated and were not executed.
 
 ## Exhaustive batch 2
 
@@ -96,6 +96,32 @@ background poll ran. Its recorded context is that startup test, not either remov
 case; the startup file is byte-identical to the accepted batch-1 version. Preserve both
 comparisons and the context evidence; this explains the fluctuation without restoring an
 unrelated parameter or adding a test solely for coverage.
+
+## Exhaustive batch 3
+
+Accepted in v9.288, the commit carrying this record. All 173 original cases in nine groups have explicit
+Luna/high verdicts with exact assignment IDs and no unreviewed cases.
+
+Keep the Save/Discard, dependency, refusal, rollback, callback and standalone-shell boundaries.
+Correct the misleading name and PR-FAIL-014 citation of the existing Tag-discard callback
+case: test_discarding_a_tag_proposal_skips_its_queued_link_without_failure now cites
+PR-SAVE-010. Its assertions are unchanged: no Tag or CardTag is written, the queued link is
+not reported as failed, and the request continues to its answer. Actual Save-failure checks,
+including the standalone failed-save screen, retain their own PR-FAIL-014 coverage.
+
+The renamed case and BRD traceability checks pass: 58 passed. Snapshot luna-03: 2481 passed,
+206 skipped in 224.03 seconds; Ruff and architecture checks passed. Source/settings/dependency
+hashes match. Inventory reconciliation confirms exactly one old ID replaced by its new name:
+2687 cases, 1680 functions, 180 files and all 206 opt-in IDs remain. No test body assertion,
+application source or approved behavior changed.
+
+No lines or branches were lost against quality-10-accepted. Against luna-02, check_review.py
+line 119 was absent: it returns before reviewing a Check that is already gone or answered.
+This line was absent in the original baseline and gained in luna-01/luna-02 only under the
+unchanged unclear-Checks test's asynchronous work. Both that source and test are byte-identical;
+the Tag-discard rename removed no assertion that supplied it. Preserve the context and both
+comparisons as an explained incidental gain fluctuation. The Check review batch will assess
+that test's coordination; no check is added merely to restore the number.
 
 ## Objective and scope
 
