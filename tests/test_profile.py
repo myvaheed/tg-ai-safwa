@@ -204,19 +204,6 @@ async def test_ps_summary_014_the_daily_summary_reads_the_evening_time_and_share
         assert list(await session.scalars(select(Cue))) == []
 
 
-async def test_profile_update_bumps_workspace_revision_once(sessions) -> None:
-    """PS-REVISION-011 — tests/brd/profile.feature"""
-    async with sessions() as session:
-        workspace = await session.get(Workspace, 1)
-        revision = workspace.revision
-
-        await set_profile_field(
-            session, ProfileField.EVENING_TIME, time(8, 15)
-        )
-
-        assert workspace.revision == revision + 1
-
-
 async def test_today_capacity_is_positive_finite_and_kept_while_its_hook_is_off(sessions, effort_on):
     """PS-CAPACITY-024 — tests/brd/profile.feature"""
     async with sessions() as session:
@@ -284,7 +271,10 @@ async def test_ag_hook_038_switching_a_hook_off_drops_its_pending_request_for_go
 async def test_ps_ai_019_every_field_is_set_in_words_through_the_screens_check(
     sessions, name, sent, stored
 ):
-    """PS-AI-019 — tests/brd/profile.feature"""
+    """PS-REVISION-011 — tests/brd/profile.feature
+
+    PS-AI-019: each accepted field is saved through the proposal boundary.
+    """
     handler = ProfileProposalHandler()
     change = PROPOSALS.change_from_tool("profile", {name: sent})
     async with sessions() as session:

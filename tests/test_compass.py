@@ -155,21 +155,6 @@ async def test_each_step_compass_is_told_what_sql_finds(sessions):
 # ----------------------------------------------------------------------- the review
 
 
-def test_one_hook_looks_at_the_tree_in_the_morning_under_its_own_switch():
-    """CMP-REVIEW-003 — tests/brd/compass.feature"""
-    assert GRAPH_REVIEW_HOOK in REGISTRY.hooks.specs
-    assert GRAPH_REVIEW_HOOK.owner == "compass"
-    assert GRAPH_REVIEW_HOOK.on == (OnTick(at=morning_time),)
-    assert isinstance(GRAPH_REVIEW_HOOK.effect, RunAndAdvise)
-    assert GRAPH_REVIEW_HOOK.agent_related and GRAPH_REVIEW_HOOK.switch is None
-    assert f"{GRAPH_REVIEW_HOOK.title} in Profile → Hooks" in MANUAL
-    for line in (*PROBLEMS, *NOT_PROBLEMS):
-        assert line in GRAPH_REVIEW_PROMPT
-    assert f"Call findings with at most {COMPASS_FINDINGS_MAX}, the most important first" in (
-        GRAPH_REVIEW_PROMPT
-    )
-
-
 @pytest.mark.parametrize("days", [0, 1, COMPASS_REVIEW_DAYS - 1, COMPASS_REVIEW_DAYS,
                                   COMPASS_REVIEW_DAYS + 1, 2 * COMPASS_REVIEW_DAYS])
 async def test_the_review_falls_on_every_ninth_day_after_the_first(sessions, days):
@@ -200,6 +185,11 @@ async def test_the_mini_session_reads_the_tree_and_hands_its_findings_to_compass
     assert items == tuple(found)
     [request] = provider.calls
     assert request.messages[0]["content"] == GRAPH_REVIEW_PROMPT
+    for line in (*PROBLEMS, *NOT_PROBLEMS):
+        assert line in request.messages[0]["content"]
+    assert f"Call findings with at most {COMPASS_FINDINGS_MAX}, the most important first" in (
+        request.messages[0]["content"]
+    )
     assert [tool["function"]["name"] for tool in request.tools] == ["clear", "findings"]
     findings = request.tools[1]["function"]["parameters"]["properties"]["findings"]
     assert findings["maxItems"] == COMPASS_FINDINGS_MAX
@@ -278,8 +268,13 @@ async def test_the_request_waits_while_hooks_are_held_and_its_switch_drops_it(se
     async with sessions() as session:
         await create_card(session, kind="goal", title="Earn $20k")
         await session.commit()
+    assert GRAPH_REVIEW_HOOK.on == (OnTick(at=morning_time),)
+    assert isinstance(GRAPH_REVIEW_HOOK.effect, RunAndAdvise)
+    assert GRAPH_REVIEW_HOOK.agent_related and GRAPH_REVIEW_HOOK.switch is None
+    assert f"{GRAPH_REVIEW_HOOK.title} in Profile → Hooks" in MANUAL
     registry = HookRegistry.of(
-        (GRAPH_REVIEW_HOOK,), owners=frozenset({"compass"}), policy=hook_switched_on
+        tuple(spec for spec in REGISTRY.hooks.specs if spec.name == GRAPH_REVIEW_HOOK.name),
+        owners=frozenset({"compass"}), policy=hook_switched_on,
     )
     provider = GraphProvider(["Earn $20k serves no Value."])
     await queue_advice(registry, sessions, MORNING, work=work(sessions, provider))

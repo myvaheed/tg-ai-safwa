@@ -144,16 +144,6 @@ def _drawn(rows) -> list[tuple[int, str, list[str]]]:
     return [(row.depth, row.card.title, [parent.title for parent in row.also_under]) for row in rows]
 
 
-async def test_pl_key_025_a_card_under_several_goals_stands_under_the_higher_on_a_tie(sessions) -> None:
-    """PL-KEY-025 — tests/brd/planning.feature"""
-    async with sessions() as session:
-        _blog, _audience, _post, write = await _shared_post(session)
-        rows = await goal_tree(session, [write])
-    assert _drawn(rows) == [
-        (0, "Launch the blog", []), (1, "First post", ["Grow audience"]), (2, "Write it", []),
-    ]
-
-
 @pytest.mark.parametrize("higher,first,third", [
     ("A", "X", False), ("B", "X", False), ("A", "Y", False), ("A", "X", True),
 ])

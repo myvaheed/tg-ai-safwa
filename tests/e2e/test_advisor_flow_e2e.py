@@ -183,6 +183,11 @@ async def test_ai_card_proposal_reaches_the_sprint_it_was_planned_into(e2e_harne
         assert successor.effective_stage == CardStage.TODAY.value
         await session.commit()
 
+    async with e2e_harness.sessions() as session:
+        assert await session.get(
+            CardTag, {"card_id": successor.id, "tag_id": family.id}
+        ) is not None
+
 
 async def test_ai_read_query_round_trip_uses_safe_view(e2e_harness):
     async with e2e_harness.sessions() as session:
@@ -304,29 +309,6 @@ async def test_read_and_mutation_in_one_turn_rejects_only_the_mutation(e2e_harne
     assert isinstance(tool_results["query_data"], list)
     assert tool_results["goal"]["code"] == "mixed_read_and_mutation_tools"
     assert tool_results["goal"]["retryable"] is True
-
-
-async def test_scheduled_action_preserves_tags_in_e2e_flow(e2e_harness):
-    async with e2e_harness.sessions() as session:
-        tag = Tag(name="Health")
-        session.add(tag)
-        action = await create_manual_card(
-            session,
-            title="Run outside",
-            stage=CardStage.TODAY.value,
-            effort_points=2,
-            schedule="after completion",
-        )
-        session.add(CardTag(card_id=action.id, tag_id=tag.id))
-        await session.flush()
-        completion = await finish_action(session, action.id)
-        await session.commit()
-
-    async with e2e_harness.sessions() as session:
-        successor = await session.get(Card, completion.successor_ids[0])
-        assert successor is not None
-        copied_tag = await session.get(CardTag, {"card_id": successor.id, "tag_id": tag.id})
-        assert copied_tag is not None
 
 
 async def test_cacheable_prefix_is_byte_stable_across_turns(e2e_harness):

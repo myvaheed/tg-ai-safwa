@@ -9,7 +9,7 @@
 Аудит всего набора завершён, когда для каждой группы поведения рассмотрены проверки всех
 уровней, решения записаны, у каждого удаления названо оставшееся покрытие, а итоговые
 проверки проходят. Зелёный набор и уменьшение количества тестов сами по себе этого не доказывают.
-Завершены инвентаризация, пилот и батчи 1–8 из 10. Батчи 9–10 ещё не выполнены.
+Завершены инвентаризация, пилот и батчи 1–9 из 10. Батч 10 ещё не выполнен.
 
 ## Исходная точка — 28 октября 2026
 
@@ -663,3 +663,37 @@ argument JSON, memory debt между двумя чтениями, пустые 
 Snapshot batch08: 3036 passed, 206 skipped, 133.02 секунды. С batch07 потерь нет;
 с baseline-original только разобранная отметка profile/api.py:138 без потери ветви.
 Ruff и архитектурный сканер проходят. Батч: 151 → 147 случаев, весь набор: 3246 → 3242.
+
+## Батч 9 — Planning, Home, Profile и разговоры
+
+Рассмотрены 28 файлов, 357 случаев: Planning/Sprint и его учёт, Home и motivation,
+Profile, workspace context, Thoughts/capture, Blueprint, Compass/constellation,
+Life in weeks, onboarding, usage и shell navigation. Решения сверены с их BRD и
+[Home dashboard](HOME_DASHBOARD.md).
+
+| Удалено | Оставшиеся проверки |
+|---|---|
+| test_advisor_flow_e2e::test_scheduled_action_preserves_tags_in_e2e_flow | В `test_ai_card_proposal_reaches_the_sprint_it_was_planned_into` в [test_advisor_flow_e2e.py](../tests/e2e/test_advisor_flow_e2e.py) перенесено чтение CardTag повторного Action после commit в новой сессии. Теперь этот результат проверяется после настоящего route/prepare/Save, начала и окончания Sprint. Старый тест вызывал операции напрямую |
+| test_home::test_pl_key_025_a_card_under_several_goals_stands_under_the_higher_on_a_tie | `test_a_card_under_two_goals_stands_once_and_names_the_other` в [test_home.py](../tests/test_home.py) использует тот же _shared_post: два равных Goal, общий Subgoal и Today Action. Проверяет те же порядок, глубину, отсутствие дубля и другой Goal после ↖ в настоящем dashboard. Отдельная параметризация priority/count/order сохранена |
+| test_profile::test_profile_update_bumps_workspace_revision_once | `test_ps_ai_019_every_field_is_set_in_words_through_the_screens_check` в [test_profile.py](../tests/test_profile.py) уже проверяет revision +1 для каждого из 8 полей, включая evening_time, после prepare/apply/commit вместе с сохранённым значением. PS-REVISION-011 перенесён туда; PS-AI-019 остаётся также у проверки отказа |
+| test_compass::test_one_hook_looks_at_the_tree_in_the_morning_under_its_own_switch | `test_the_request_waits_while_hooks_are_held_and_its_switch_drops_it` в [test_compass.py](../tests/test_compass.py) теперь берёт hook из настоящего REGISTRY: отсутствие регистрации ломает сценарий. Сохранены проверки clock/effect/switch и упоминания в MANUAL. Критерии и лимит findings перенесены в `test_the_mini_session_reads_the_tree_and_hands_its_findings_to_compass`, где проверяется реально отправленный prompt |
+
+Сохранены разные границы Blueprint: текст правил, выбор review asked/not asked, отказ провайдера
+и целый разговор с последующим Save не заменяют друг друга. В onboarding оставлены первый
+notice, повторный вход, гонка с владельцем, ожидание tip, сочетание с blocker и возвращение
+после отсутствия; прямой formatter и настоящий hook проверяют разные последствия.
+Оставлены пустой Today и отсутствие открытых Goals: у второго есть завершённый Goal,
+поэтому это разные предусловия. В Profile сохранены проверки ручного ввода, AI prepare,
+тихих окон, switches и недопустимых значений. В Planning оставлены frozen estimates,
+scope removal/return, backlog completion, reservations повторов, перегрузка и unknown load.
+Usage сохраняет разные причины окончания ожидания и владельцев; совпадающие суммы не дубли.
+Графики Life/constellation сохраняют расчёты, фильтры, геометрию и UI-публикацию раздельно.
+
+Исходные пробелы batch08 разобраны: validation пустых/неправильных аргументов, исчезнувшие
+объекты и stale UI, неполные оценки/неизвестное количество, редкие Energy/legend ветви,
+onboarding для Request/Reminder/Diary/Sprint/retro и недоступные сейчас кнопки.
+Это guards и поддерживаемые пути; невыполнение не доказывает ненужность. Код не удалён.
+Новых функций тестов нет, код приложения не менялся. Область и BRD: 410 passed.
+Snapshot batch09: 3032 passed, 206 skipped, 136.81 секунды. С batch08 потерь нет;
+с baseline-original только разобранная отметка profile/api.py:138 без потери ветви.
+Ruff и архитектурный сканер проходят. Батч: 357 → 353 случая, весь набор: 3242 → 3238.
