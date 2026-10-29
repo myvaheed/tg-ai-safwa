@@ -15,8 +15,9 @@ Be able to answer all three questions:
    persisted change, unwanted side effect or boundary contract. The assertion must fail
    when the named bug is present. Derive the expectation independently of the code under test.
 3. **What do existing tests miss?** Read the nearest tests across domain, UI, shell and E2E
-   levels, including their fixtures and parameters. Prefer extending an existing scenario
-   when it already has the necessary conditions.
+   levels, including their fixtures and parameters. Inspect the checked-out implementation
+   for actual entry points and signatures rather than relying on remembered APIs. Prefer
+   extending an existing scenario when it already has the necessary conditions.
 
 If there is no distinct failure or useful diagnostic advantage, do not add another test.
 A new function, class, branch or file alone does not justify one. These questions guide the
@@ -24,8 +25,11 @@ decision; they do not require a new comment, docstring template or document for 
 
 ## Exercise meaningful behavior
 
-- Use plausible inputs and the smallest setup that reproduces the failure. Realistic does
-  not mean E2E: a date calculation often needs only a few explicit examples.
+- Use plausible inputs and the smallest setup that reproduces the failure. Establish how
+  the state can arise through supported operations. A direct internal call or database write
+  is appropriate for a named internal contract, storage invariant, corrupt-data guard or
+  dependency failure; do not bypass invariants merely to manufacture an exception.
+  Realistic does not mean E2E: a date calculation often needs only a few explicit examples.
 - Use the narrowest level that can prove the contract. Test database constraints and
   transactions against a real test database. Exercise actual UI or runtime boundaries when
   the risk is their wiring, cancellation, ordering or state across turns.
@@ -41,8 +45,13 @@ decision; they do not require a new comment, docstring template or document for 
 - Keep a test focused on one behavior. Several assertions may describe its result. Share one
   realistic flow when the same setup and action establish related results; do not combine
   unrelated scenarios to reduce the count.
+- Name the situation and expected behavior. Make setup, action and observations easy to
+  distinguish. Explain non-obvious ordering, state transitions and special input values
+  with meaningful names or a short comment. Minimize complex inputs without removing the
+  property that exposes the failure.
 - Keep execution deterministic. Coordinate concurrency explicitly rather than relying on
-  arbitrary sleeps, and keep live services opt-in.
+  arbitrary sleeps, isolate mutable state and clean up owned resources. Keep live services
+  opt-in.
 
 ## Avoid equivalent cases
 
@@ -59,8 +68,21 @@ remove redundant execution.
 ## Verify the decision
 
 For a bug fix, reproduce the failure before the fix and verify the corrected result afterward;
-an existing test can be strengthened for this purpose. For other changes, use checks
-proportionate to their effect, following [repository verification rules](../AGENTS.md).
+an existing test can be strengthened for this purpose. Confirm that the original failure
+comes from the named behavior, not a broken fixture, wrong API call, missing dependency or
+unrelated exception. A crash reproducer is evidence for diagnosis; a permanent regression
+test must assert the approved behavior after the fix, including an intended refusal when
+that is the contract. Do not preserve a bug by making its accidental exception the expectation.
+
+For a refusal, check enough evidence to identify the intended cause: a specific exception,
+structured error code, relevant validation field or essential message fragment. If the operation
+can change state, assert that the refused attempt left it unchanged. A neighboring valid case
+may be needed to show the operation is not simply rejecting everything. Do not require exact
+wording unless wording is a contract.
+
+For other changes, use checks proportionate to their effect, following
+[repository verification rules](../AGENTS.md). If a result is unexpected, investigate it
+against the approved contract before changing assertions or application behavior to get green.
 
 When removing or consolidating tests, name the remaining tests and the conditions and
 assertions they preserve in the change description. Transfer unique assertions first.
@@ -71,5 +93,9 @@ does not prove that assertions still protect behavior. Unexecuted code is not au
 unnecessary code. Do not delete it merely to improve a percentage.
 
 Run affected tests first and the broader checks required by the change. Use a targeted fault
-injection only when overlap is uncertain or the risk warrants it; no separate full-suite run
-or mutation exercise is required for every deleted test. Report what was actually verified.
+injection when assertion strength or overlap is uncertain, or the risk warrants it. Choose a
+plausible fault such as dropping a write, weakening a guard or allowing a stale publication;
+verify that a relevant test fails for that reason and passes with the correct code restored.
+A syntax, import or setup failure does not demonstrate detection. Keep temporary faults out
+of commits. No separate full-suite run or mutation exercise is required for every test.
+Report what was actually verified and what remains uncertain.

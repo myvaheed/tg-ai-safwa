@@ -157,6 +157,8 @@ snapshot or a review.
 
 Read [Test criteria](docs/TEST_CRITERIA.md) before adding or changing tests.
 They define useful coverage, meaningful assertions and when existing tests are sufficient.
+The [test effectiveness review plan](docs/TEST_REVIEW_PLAN.md) assigns the suite to ten batches
+and defines checks for failure detection, realistic setup and assertion quality.
 For test inventories and coverage snapshots and comparisons, see
 `uv run python scripts/test_audit.py --help`.
 
