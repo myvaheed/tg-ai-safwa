@@ -1,6 +1,6 @@
 # Test effectiveness review
 
-Status: batch 1 accepted; 1 of 10 batches accepted. Preparing this plan does not count
+Status: batches 1 and 2 accepted; 2 of 10 batches accepted. Preparing this plan does not count
 as reviewing the assigned tests. Follow [Test criteria](TEST_CRITERIA.md) throughout.
 
 ## Objective and scope
@@ -26,7 +26,7 @@ probes by behavior family and risk; a separate mutation for every test or parame
 | Batch | Area | Files | Cases at planning | Representative faults | Status |
 |---|---|---:|---:|---|---|
 | 1 | Infrastructure and structural contracts | 14 | 938 | A broken registration or schema passes its checker; backup validation accepts a wrong key or incomplete pair | Accepted: quality-01, v9.276 |
-| 2 | Runtime, turns, access and hooks | 19 | 282 | A stale lease publishes; cancellation leaves child work alive; locked access admits work | Planned |
+| 2 | Runtime, turns, access and hooks | 19 | 282 | A stale lease publishes; cancellation leaves child work alive; locked access admits work | Accepted: quality-02, v9.277 |
 | 3 | Proposals and Save/Discard | 15 | 174 | Save applies a stale change or commits partly; Discard writes; repeated approval applies twice | Planned |
 | 4 | Cards, hierarchy and accounting | 18 | 257 | Completion loses a relationship or doubles totals; boundary ordering is reversed; reopening retains an incorrect stage | Planned |
 | 5 | Checks, Values, Tags and reviews | 23 | 270 | A repeat loses its links; a review is bypassed; unlink or delete changes the wrong objects | Planned |
@@ -35,7 +35,7 @@ probes by behavior family and risk; a separate mutation for every test or parame
 | 8 | Diary, memory, retro and helper | 13 | 147 | A stale write succeeds; unrelated memory observations are replaced; analysis alters a frozen result | Planned |
 | 9 | Planning, Home and owner workflows | 28 | 353 | A repeat is counted twice; a switch is ignored; an outdated screen overwrites the current one | Planned |
 | 10 | History, search, provider, voice and privacy | 25 | 319 | SQL escapes its scope; failed anonymization sends original text; a kept turn loses or duplicates content | Planned |
-| Total | Whole suite | 180 | 3230 | Review all families, with deeper execution evidence for high-risk invariants | 1/10 accepted |
+| Total | Whole suite | 180 | 3230 | Review all families, with deeper execution evidence for high-risk invariants | 2/10 accepted |
 
 ## Entry and baseline
 
@@ -217,6 +217,89 @@ Accepted snapshot quality-01: 3030 passed, 206 skipped, 205.00 seconds; 3236 cas
 Batch 1 grows from 938 to 944 cases. Comparison with quality-baseline reports no lost lines
 or branches on identical application/settings/dependency hashes. Ruff passes; architecture
 scan reports no violations and no cycles. The final inventory agrees with all 180 assignments.
+
+## Batch 2 review
+
+Status: accepted in v9.277, the commit carrying this record. Entry revision: bc860f6c.
+All 19 assigned files were reviewed: 282 cases before the batch, 284 afterward.
+
+### Family decisions
+
+| Files | Decision and scope of the evidence |
+|---|---|
+| test_agent_runtime | Keep standalone execution, suspend/resume tokens and transcripts, interrupted adoption, child cleanup, exclusive ending tools, repair/tool budgets and child deadlines. The small custom host tests the reusable runtime without Safwa. Its memory-store assertions complement actual persisted sessions in E2E; they do not replace them |
+| e2e/test_subagent_e2e, test_subagents | Keep routing ownership, fresh versus adopted sessions, receipt/forward rules, scoped SQL reads and conversation windows. Similar interrupted-Diary setup establishes different contracts: caller continuation, receipt, retained draft and interruption notice. Prompt/declaration checks protect published contracts; scripted providers do not prove real model choices |
+| test_access, e2e/test_access_dispatcher_e2e | Keep exact salted-secret matching, gate order before handlers/downloads, edited-message privacy, lock/retry/startup and command races. Replace expectations derived from production length/distance constants with explicit five/six-character and three/four-edit examples. Extend the existing real-dispatcher replay scenario to preserve ordinary inputs just outside both guess boundaries. Synchronize unlock/reminder waiting at the actual idle wait and clean up the task even on assertion failure |
+| e2e/test_access_e2e, shell/test_access_shell | Keep reminder delivery while locked, deferred hook preparation, locked proposal Discard and normal review after entry. The wallet callback test verifies another application's access integration; Safwa's settings/UI tests cannot replace it |
+| test_summary, test_cues, e2e/test_cue_turn_e2e | Keep owner precedence, stale-history/currentness checks, background cancellation, release of claims/reviews and already-saved changes after failure. Queue tests distinguish registered-but-unsettled delivery, new rows, SQLite ID reuse, deferred hooks and expired reviews. Integration failures after Save and before screen drawing protect different cleanup points |
+| test_hooks, test_initiatives, test_tool_watchers | Keep invalid wiring, switch ownership, matching boundaries, cancellation propagation, commit versus rollback, delayed wording and schedule semantics. RefuseTool failure must stop the call; ReviewTool failure lets it run and logs the cause. Identical-looking refusal cases exercise different effects and grants. Clock examples use explicit moments; source constants only generate configurable intervals, with approved limits asserted independently |
+| test_interruptions_ui, test_turn_ui, test_progress, e2e/test_turn_steps_e2e | Keep foreground rejection, undeletable input, screen interruption/freezing, notice/progress lifecycle, step order and answer preservation after optional work fails. UI checks cover rendering and registration rather than only the runtime's return value. The typing/deadline tests retain real short waits where elapsed time is the tested behavior |
+| shell/test_mini_plan, shell/test_wallet_subsession | Keep required-plan repair and the explicit no-plan control. Preserve the second application's multi-turn subsession, Save/Discard, cancelled continuation, expiry, exit, durable one-time result and history isolation. A subsession surviving lock/cancellation is distinct from an ordinary routed child ending with its request |
+
+No test function or assertion is removed; no overlap was proven equivalent across all these
+boundaries. The function count remains 1682. The existing replay scenario gains two parameters:
+six-characters and four-edits. Its old [None] ID becomes [no-request] with the same absence-of-request
+assertions; [text] and [recording] remain unchanged. No other existing IDs change. Total inventory:
+3236 to 3238 cases; all 206 opt-in IDs and all 180 file assignments remain unchanged.
+Application sources, prompts, schema and approved scenarios are unchanged.
+
+### Detection probes
+
+Eleven distinct faults were applied in isolated test processes. They changed no application
+file. A passing affected-suite run on the restored application is the control. The two
+constant probes also update direct imports in collected test modules, emulating a source
+constant change before import; leaving the old imported value would hide the shared-oracle flaw.
+
+| Temporary fault | Observed detection |
+|---|---|
+| Classify six-character text as a secret-word attempt | All 55 original access cases passed. After strengthening, the literal longer example and the six-characters dispatcher parameter fail; the latter exposes deletion of the legitimate attempted message. Other 55 cases pass |
+| Accept four character edits as a secret-word attempt | All 55 original access cases passed. After strengthening, the literal XXXX sesame example and the four-edits dispatcher parameter fail for the same lost-message behavior. Other 55 cases pass |
+| Let background work take an owner's foreground lease | Existing test_background_gate_does_not_start_work_while_foreground_is_active fails because the supposedly postponed callback returns a result |
+| Release an owner's new lease when old background work finishes | Existing test_new_owner_turn_cancels_the_hook_without_losing_its_lease fails because source_message_id becomes None instead of 12 |
+| Publish after-turn words without checking currentness | The same existing cancellation scenario fails its empty sent-messages assertion, even though the hook deliberately swallows cancellation |
+| Stop closing unfinished children when a request ends | Existing runtime cancellation parameters start, resume and interrupted fail their expected ABANDONED child status; the completed-child control still passes |
+| Finish a stored session without releasing its claim | Existing cue-turn failure-after-Save regression cannot resume the already-claimed child and fails its required outcome assertion; it never reaches its later final claim checks |
+| Evaluate turn hooks while access is locked | All three existing locked-hook parameters fail on leaked publication/error text; their unlocked positive control remains part of the normal passing run |
+| Swallow cancellation as a hook evaluation error | Existing test_check_failure_isolated_but_cancellation_propagates fails because CancelledError is no longer raised |
+| Keep recorded changes after transaction rollback | Existing commit/rollback test finds a cue for rolled-back subject 1 beside committed subject 3 |
+| Give the Advisor the workspace reader's SQL permissions | Existing AG-READ-027 E2E scenario fails: the Advisor's actual restricted query succeeds instead of being refused; the workspace reader still succeeds |
+
+Nine faults were already detected; two survived the original selected suites and are now
+detected at both function and dispatcher boundaries. All counted failures have zero fixture
+or collection errors and concern the named result, refusal or state. No new framework or
+per-test mutation requirement is introduced.
+
+### Initial gaps and coverage decisions
+
+The credentials module already had complete line/branch execution, yet the two changed
+boundaries were undetected. The strengthened assertions address that gap without using
+coverage percentage as an oracle.
+
+Other initial gaps remain named limits, not dead-code evidence: invalid or competing claims,
+missing/dangling stored sessions, resuming an interrupted caller after an exception, generic
+multi-level caller delivery, unusual transcript layouts, direct TurnManager.begin conflicts
+and cancellation of run_background's waiting caller. Access has unexecuted callback-at-unlock
+and replay-handler-error fallbacks; the Cue queue has a default no-words preparer. These
+guards are retained. The probes establish representative cleanup, access, transaction and
+SQL isolation failures, not exhaustive scheduling or storage interleavings. No live Telegram,
+provider or downloaded PII model execution is claimed.
+
+Full snapshot quality-02 has no line or branch loss against quality-baseline. Against
+quality-01, there are no lost branches and one lost line mark: checks/check_review.py:119,
+outside this batch. Its former context is the unchanged
+test_unclear_checks_are_asked_together_and_an_answered_one_is_left_out. The old data records
+arcs 117 -> 119 -> 123, although line 119 returns from the function; the actual decision
+arc 118 -> 119 is missing in both reports. Three isolated runs of that unchanged test pass
+and leave line 119 unmarked. This is a line-trace anomaly, not evidence that this batch
+removed protection. The early-return guard remains unproven; do not count the former mark
+as behavioral coverage. Raw comparisons are preserved separately as
+.test-audit/quality-02/losses-from-quality-01.json and losses-from-quality-baseline.json.
+
+Validation: 341 affected/BRD cases pass (321 application/traceability and 20 shell).
+Accepted quality-02: 3032 passed, 206 skipped, 137.38 seconds; 3238 collected cases.
+Both comparisons use identical application/settings/dependency hashes. Ruff passes;
+architecture scan reports no violations or cycles. The complete inventory reconciles
+the one parameter rename and two additions, with no unexplained removal.
 
 ## Assigned files
 

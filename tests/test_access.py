@@ -23,8 +23,6 @@ from safwa.features.profile.telegram import command_profile
 from safwa.features.profile.use_cases import set_secret_word
 from tg_agent_shell.access import manager
 from tg_agent_shell.access.credentials import (
-    SECRET_LIKE_DISTANCE,
-    SECRET_LIKE_LENGTH,
     hash_secret_word,
     matches_secret_word,
     resembles_secret_word,
@@ -365,7 +363,7 @@ async def test_a_failed_unlock_keeps_access_closed_until_the_next_entry(sessions
     assert not services.access.blocked and failures == 0
 
 
-async def test_unlock_waits_for_a_running_reminder_and_leaves_its_words(sessions):
+async def test_unlock_waits_for_a_running_reminder_and_leaves_its_words(sessions, monkeypatch):
     """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
     await set_word(sessions)
     services = protected_services(sessions)
@@ -373,15 +371,25 @@ async def test_unlock_waits_for_a_running_reminder_and_leaves_its_words(sessions
     await services.access.lock(anchor)
     assert services.turn.try_begin_background()
     revision = services.turn.dialogue_revision
+    waiting = asyncio.Event()
+    wait_idle = services.turn.wait_idle
+
+    async def wait_for_reminder():
+        waiting.set()
+        await wait_idle()
+
+    monkeypatch.setattr(services.turn, "wait_idle", wait_for_reminder)
     unlocking = asyncio.create_task(services.access.intercept(incoming(anchor, "x")))
-    for _ in range(100):
-        if services.access.unlocking:
-            break
-        await asyncio.sleep(0.005)
-    assert services.access.unlocking and anchor.rendered == []
-    await notification(services, anchor, "Finished during entry")
-    services.turn.end_background(revision)
-    await asyncio.wait_for(unlocking, 5)
+    try:
+        await asyncio.wait_for(waiting.wait(), 5)
+        assert not unlocking.done() and services.access.unlocking and anchor.rendered == []
+        await notification(services, anchor, "Finished during entry")
+        services.turn.end_background(revision)
+        await asyncio.wait_for(unlocking, 5)
+    finally:
+        services.turn.end_background(revision)
+        unlocking.cancel()
+        await asyncio.gather(unlocking, return_exceptions=True)
     assert anchor.rendered == ["Finished during entry"]
     assert anchor.sent[0].message_id not in anchor.bot.deleted
 
@@ -437,15 +445,14 @@ async def test_turn_hooks_are_not_evaluated_while_locked(sessions, when):
 def test_a_try_at_the_word_is_a_short_text_or_one_a_few_edits_from_it():
     """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
     word = "open sesame"
-    assert resembles_secret_word("q" * SECRET_LIKE_LENGTH, word)
-    assert not resembles_secret_word("q" * (SECRET_LIKE_LENGTH + 1), word)
-    replaced = "X" * SECRET_LIKE_DISTANCE + word[SECRET_LIKE_DISTANCE:]
-    assert resembles_secret_word(replaced, word)
-    assert not resembles_secret_word("X" + replaced[1:] + "X", word)
-    assert resembles_secret_word(word[SECRET_LIKE_DISTANCE:], word)
-    assert not resembles_secret_word(word[SECRET_LIKE_DISTANCE + 1 :], word)
-    assert resembles_secret_word(word + "!" * SECRET_LIKE_DISTANCE, word)
-    assert not resembles_secret_word(word + "!" * (SECRET_LIKE_DISTANCE + 1), word)
+    assert resembles_secret_word("short", word)
+    assert not resembles_secret_word("longer", word)
+    assert resembles_secret_word("XXXn sesame", word)
+    assert not resembles_secret_word("XXXX sesame", word)
+    assert resembles_secret_word("n sesame", word)
+    assert not resembles_secret_word(" sesame", word)
+    assert resembles_secret_word("open sesame!!!", word)
+    assert not resembles_secret_word("open sesame!!!!", word)
 
 
 @pytest.mark.parametrize("wrong_first", [False, True])

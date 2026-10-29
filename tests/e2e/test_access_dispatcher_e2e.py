@@ -22,7 +22,6 @@ from ui_harness import ScriptedTranscriber
 
 from safwa.features.cards.use_cases import create_card
 from tg_agent_shell.access import manager
-from tg_agent_shell.access.credentials import SECRET_LIKE_DISTANCE, SECRET_LIKE_LENGTH
 from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.kinds import MessageKind
 from tg_agent_shell.history import register_message
@@ -215,9 +214,15 @@ async def test_commands_waiting_during_unlock_run_only_if_the_secret_was_already
             assert telegram.sent == []
 
 
-@pytest.mark.parametrize("words", ["text", "recording", None])
+@pytest.mark.parametrize("words, owner_words", [
+    pytest.param("text", "What is due today?", id="text"),
+    pytest.param("recording", "What is due today?", id="recording"),
+    pytest.param(None, None, id="no-request"),
+    pytest.param("text", "longer", id="six-characters"),
+    pytest.param("text", "XXXX sesame", id="four-edits"),
+])
 async def test_the_last_words_sent_while_locked_are_answered_once_the_word_matches(
-    e2e_harness, monkeypatch, words,
+    e2e_harness, monkeypatch, words, owner_words,
 ):
     """TG-LOCK-031 — tests/brd/tg_agent_shell/telegram_history.feature"""
     sessions = e2e_harness.sessions
@@ -244,13 +249,13 @@ async def test_the_last_words_sent_while_locked_are_answered_once_the_word_match
         updates = dispatcher(services)
         await services.access.lock(owner_anchor(bot, 42))
         said = {
-            "text": [message(bot, 1, "First try"), message(bot, 2, "What is due today?")],
+            "text": [message(bot, 1, "First try"), message(bot, 2, owner_words)],
             "recording": [message(bot, 1, "First try"), voice(bot, 2)],
             None: [],
         }[words]
         tries = [
-            message(bot, 3, "q" * SECRET_LIKE_LENGTH),
-            message(bot, 4, "X" * SECRET_LIKE_DISTANCE + word[SECRET_LIKE_DISTANCE:]),
+            message(bot, 3, "short"),
+            message(bot, 4, "XXXn sesame"),
             message(bot, 5, word),
         ]
         for update_id, owner_message in enumerate([*said, *tries], 1):
@@ -265,9 +270,9 @@ async def test_the_last_words_sent_while_locked_are_answered_once_the_word_match
         return
     assert 1 in telegram.deleted() and 2 not in telegram.deleted() and resumed == []
     [call] = provider.calls
-    assert "What is due today?" in str(call[-1]["content"])
+    assert owner_words in str(call[-1]["content"])
     assert telegram.sent[-1].text == "Here is your answer."
-    assert ["What is due today?" in item.content for item in dialogue] == [True, False]
+    assert [owner_words in item.content for item in dialogue] == [True, False]
     assert dialogue[-1].content.endswith("Here is your answer.")
 
 
@@ -313,7 +318,7 @@ async def test_unlock_processes_only_the_last_message_including_commands(
             ))
         assert services.access.blocked and taken_up == [] and provider.calls == []
         assert all(item.text == manager.ENTER_SECRET_WORD for item in telegram.sent)
-        for message_id, text in ((10, "q" * SECRET_LIKE_LENGTH), (11, word)):
+        for message_id, text in ((10, "short"), (11, word)):
             await updates.feed_update(bot, Update(
                 update_id=message_id, message=message(bot, message_id, text),
             ))
