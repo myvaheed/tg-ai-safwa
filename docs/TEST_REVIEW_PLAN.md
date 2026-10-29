@@ -1,7 +1,7 @@
 # Test effectiveness review
 
-Status: planned; 0 of 10 batches accepted. Preparing this plan does not count as reviewing
-the assigned tests. Follow [Test criteria](TEST_CRITERIA.md) throughout.
+Status: batch 1 accepted; 1 of 10 batches accepted. Preparing this plan does not count
+as reviewing the assigned tests. Follow [Test criteria](TEST_CRITERIA.md) throughout.
 
 ## Objective and scope
 
@@ -25,7 +25,7 @@ probes by behavior family and risk; a separate mutation for every test or parame
 
 | Batch | Area | Files | Cases at planning | Representative faults | Status |
 |---|---|---:|---:|---|---|
-| 1 | Infrastructure and structural contracts | 14 | 938 | A broken registration or schema passes its checker; backup validation accepts a wrong key or incomplete pair | Planned |
+| 1 | Infrastructure and structural contracts | 14 | 938 | A broken registration or schema passes its checker; backup validation accepts a wrong key or incomplete pair | Accepted: quality-01, v9.276 |
 | 2 | Runtime, turns, access and hooks | 19 | 282 | A stale lease publishes; cancellation leaves child work alive; locked access admits work | Planned |
 | 3 | Proposals and Save/Discard | 15 | 174 | Save applies a stale change or commits partly; Discard writes; repeated approval applies twice | Planned |
 | 4 | Cards, hierarchy and accounting | 18 | 257 | Completion loses a relationship or doubles totals; boundary ordering is reversed; reopening retains an incorrect stage | Planned |
@@ -35,7 +35,7 @@ probes by behavior family and risk; a separate mutation for every test or parame
 | 8 | Diary, memory, retro and helper | 13 | 147 | A stale write succeeds; unrelated memory observations are replaced; analysis alters a frozen result | Planned |
 | 9 | Planning, Home and owner workflows | 28 | 353 | A repeat is counted twice; a switch is ignored; an outdated screen overwrites the current one | Planned |
 | 10 | History, search, provider, voice and privacy | 25 | 319 | SQL escapes its scope; failed anonymization sends original text; a kept turn loses or duplicates content | Planned |
-| Total | Whole suite | 180 | 3230 | Review all families, with deeper execution evidence for high-risk invariants | 0/10 accepted |
+| Total | Whole suite | 180 | 3230 | Review all families, with deeper execution evidence for high-risk invariants | 1/10 accepted |
 
 ## Entry and baseline
 
@@ -136,6 +136,87 @@ rtk proxy uv run python scripts/architecture_metrics.py
 - Report the accepted snapshots and commits, strengthened tests, justified reductions, findings
   about product code and checks that were not run. A second full audit should not be necessary
   merely because unreviewed files or unresolved decisions were deferred.
+
+## Batch 1 review
+
+Status: accepted in v9.276, the commit carrying this record. Entry revision: 770c8bc. Fresh quality-baseline:
+3024 passed, 206 skipped, 146.42 seconds; 3230 cases. Its inventory is preserved as
+.test-audit/quality-baseline-inventory.json. All 180 file assignments were checked for
+omissions and duplicates before review.
+
+### Family decisions
+
+| Files | Decision and scope of the evidence |
+|---|---|
+| test_backup, test_database, test_security | Preserve actual encrypted files/WAL, wrong-key refusal, locking in another process, key authentication and interrupted pair replacement. Expand the existing restore-refusal scenario to missing key, changed database and an intact but mismatched pair. Each refusal checks its cause, unchanged file hashes and readable original data. Synchronize connection cancellation on the worker entering the real open operation instead of sleeping; assert cancellation and thread cleanup |
+| shell/test_registry, test_feature_modules | Preserve real catalogue construction, fresh-process table discovery and handler/tool/presenter identities. Extend existing duplicate registration cases to views, callback actions and text-input flows: names in those separate catalogues could otherwise silently overwrite another feature. Keep the no-database-read sentinel during registration |
+| test_architecture | Preserve positive and negative checker examples, feature map, provider schema contract, fresh database tables/index and prompt/schema snapshots. Dynamic prefix tests retain the volatile block and compare multiple turns; empty inputs would not establish prefix stability. These checks prove their stated structural properties, not semantic agreement of code with BRD |
+| test_docs, test_brd_traceability | Preserve real document/source enumeration, scenario/file connections, prefix/identifier checks and checker counterexamples. Different document parameters concern different files. The checkers establish references and syntax, not the correctness of the referenced behavior |
+| test_config, test_qa | Preserve provider defaults, explicit overrides, normalization, privacy selection and production/QA separation. QA resolution uses explicit fake credentials and never contacts Telegram or a provider. Distinct configuration doors are not interchangeable |
+| test_infrastructure, e2e/test_startup_e2e | Preserve fresh-process import, crash recovery, actual startup storage/views, seed-once and privacy refusal before provider construction. Wait for the poll's second failed round with an event and always stop its task. Rename the view-read test to describe its positive result without claiming to prove all read isolation |
+| test_shell_wiring, shell/test_standalone | Preserve button/flow/command discovery, Command filters, independent routers and the wallet subprocess with Safwa unimportable. Real screen navigation and catalogue discovery protect different boundaries; keep both. Fake remote interfaces do not establish live integration |
+
+The test-function count remains 1682. Existing restore refusal gains three cases; existing
+registration refusal gains three cases. The view-read test and restore-refusal function are
+renamed to match their actual assertions. No assertion is discarded, and no application,
+prompt, schema or approved scenario is changed.
+
+ID reconciliation:
+
+- tests/test_backup.py::test_a_wrong_passphrase_refuses_a_restore_before_any_live_file_is_touched
+  is retained as test_a_refused_restore_changes_no_live_files[wrong-passphrase-passphrase].
+  The same function gains missing-key, changed-database and mixed-pair parameters.
+- tests/test_infrastructure.py::test_read_only_query_runner_reads_only_ai_views is renamed
+  to test_read_only_query_runner_reads_published_views_without_notice with its assertions intact.
+- shell/test_registry adds modules5-ai_entries, modules6-entry_note and modules7-entry_note
+  to test_registration_refuses_duplicate_names. Existing five parameter IDs are unchanged.
+- Raw inventory: 2 old IDs replaced by 8 IDs, net +6 cases. All 206 opt-in IDs and the
+  assignment of every test file are unchanged.
+
+### Detection probes
+
+All faults below were applied only in independent test processes. Application files remained
+unchanged. A normal affected-suite run is the passing control after the faulty processes end.
+
+| Temporary fault | Observed detection |
+|---|---|
+| Ignore archive checksums | Before strengthening: all 15 backup cases passed. Afterward: changed-database fails because restore did not raise BackupError; the other 17 pass |
+| Skip proving the archive's database opens with its key | Before: all 15 backup cases passed. Afterward: mixed-pair fails because restore did not refuse; the other 17 pass. Its updated key checksum ensures this exercises pair validation rather than the checksum guard |
+| Allow duplicate views, callback actions or text-input flows | Three independent probes each passed all 6 original registry cases. After strengthening, each fails its own new collision case with the missing RuntimeError; the other 8 cases pass |
+| Give Card proposals the Tag presenter | Existing registration-responsibility test fails the expected presenter identity assertion |
+| Omit the fresh database's agent-step kind index | Existing fresh-schema test fails its index assertion |
+| Allow duplicate module/agent/command/navigation names | All 5 existing duplicate-name cases fail because registration no longer refuses |
+| Make the business-import checker report no violations | All 4 forbidden examples fail their assertions; the 2 allowed examples still pass |
+| Make the documentation link checker accept a broken target | Existing anchor example fails its expected missing-link assertion |
+| Skip finishing interrupted pair replacement on unlock | Existing interruption-at-step-4 test cannot unlock with the newly published passphrase, exposing the incomplete pair |
+| Ignore the supplied database key and reuse a previously valid key | Both existing read-only and writable wrong-key cases fail because opening is no longer refused |
+| Dispose without waiting for connection-opening workers | The synchronized cancellation test fails its final assertion with a still-live connection thread |
+
+These are 13 distinct faults, including the three separate collision probes. Five faults
+survived the old selected suites and are now detected. Compilation, import and fixture errors
+were not counted as detection. The recovery probe fails on the expected readable-pair outcome;
+the temporary interrupted write itself still occurs as configured.
+
+### Initial gaps and limits
+
+Initial backup gaps included archive shape, checksum and pair-opening refusals. Representative
+reachable failures now exercise all three. Invalid ZIP/manifest versions, copy/integrity failures,
+malformed key files and the POSIX lock implementation remain guards or platform paths, not
+proven dead code. Other registry-construction refusals, unknown readers/tools and conflicting
+proposal declarations remain supported boundary validation; these probes do not establish
+exhaustive coverage of every invalid manifest.
+
+Startup's successful downloaded PII model, image/transcriber/tracing integration, QA user
+authorization and its live Telegram paths are not exercised by this batch. Local startup
+failure and fake remote boundaries are retained without claiming those external paths ran.
+Other initial gaps, including foreign-owner startup refusal, malformed configuration and
+database argument/error fallbacks, are retained as untested guards rather than removed.
+
+Validation: affected area 944 passed (934 application/structural checks and 10 shell checks).
+Accepted snapshot quality-01: 3030 passed, 206 skipped, 205.00 seconds; 3236 cases in total.
+Batch 1 grows from 938 to 944 cases. Comparison with quality-baseline reports no lost lines
+or branches on identical application/settings/dependency hashes. Ruff passes; architecture
+scan reports no violations and no cycles. The final inventory agrees with all 180 assignments.
 
 ## Assigned files
 

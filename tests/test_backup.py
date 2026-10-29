@@ -5,6 +5,7 @@ step leaves a pair that opens."""
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import zipfile
 from datetime import UTC, datetime
@@ -124,15 +125,43 @@ def test_a_restore_takes_the_backups_passphrase_and_sets_aside_what_was_there(tm
     assert _read(DatabaseFile(result.set_aside / "app.db", kept_key)) == "changed"
 
 
-def test_a_wrong_passphrase_refuses_a_restore_before_any_live_file_is_touched(tmp_path):
+@pytest.mark.parametrize("problem, refusal", [
+    ("wrong-passphrase", "passphrase"),
+    ("missing-key", "does not hold exactly"),
+    ("changed-database", "checksum failed"),
+    ("mixed-pair", "database does not open"),
+])
+def test_a_refused_restore_changes_no_live_files(tmp_path, problem, refusal):
     live = _live(tmp_path, "original")
     backup = create_backup(live, tmp_path / "backups", now=NOW)
+    archive_path = backup.path
+    passphrase = NEW_PASSPHRASE if problem == "wrong-passphrase" else PASSPHRASE
+    if problem != "wrong-passphrase":
+        with zipfile.ZipFile(backup.path) as archive:
+            members = {name: archive.read(name) for name in archive.namelist()}
+        if problem == "missing-key":
+            del members["app.key"]
+        elif problem == "changed-database":
+            members["app.db"] += b"unrecorded bytes"
+        elif problem == "mixed-pair":
+            other = _live(tmp_path / "other", "unrelated")
+            members["app.key"] = key_path(other.path).read_bytes()
+            # Both members are intact; only opening the pair can expose the mismatch.
+            manifest = json.loads(members["manifest.json"])
+            manifest["files"]["app.key"]["sha256"] = hashlib.sha256(members["app.key"]).hexdigest()
+            manifest["files"]["app.key"]["size"] = len(members["app.key"])
+            members["manifest.json"] = json.dumps(manifest).encode()
+        archive_path = tmp_path / "damaged.zip"
+        with zipfile.ZipFile(archive_path, "w") as archive:
+            for name, data in members.items():
+                archive.writestr(name, data)
     before = _digests(tmp_path)
 
-    with pytest.raises(BackupError, match="passphrase"):
-        restore_backup(backup.path, live.path, NEW_PASSPHRASE, tmp_path / "backups")
+    with pytest.raises(BackupError, match=refusal):
+        restore_backup(archive_path, live.path, passphrase, tmp_path / "backups")
 
     assert _digests(tmp_path) == before
+    assert _read(unlock_database(live.path, PASSPHRASE)) == "original"
 
 
 def test_a_passphrase_change_replaces_the_key_and_backs_up_under_the_new_passphrase(tmp_path):

@@ -115,7 +115,9 @@ def _connection_threads() -> list[threading.Thread]:
     ]
 
 
-async def test_a_connection_cancelled_while_opening_leaves_no_thread_after_dispose(tmp_path):
+async def test_a_connection_cancelled_while_opening_leaves_no_thread_after_dispose(
+    tmp_path, monkeypatch,
+):
     file = _with_marker(tmp_path / "app.db")
     already_running = set(_connection_threads())
     # A writer holding the file locked in rollback-journal mode keeps the next open waiting.
@@ -123,18 +125,33 @@ async def test_a_connection_cancelled_while_opening_leaves_no_thread_after_dispo
     holder.execute("PRAGMA journal_mode=DELETE")
     holder.execute("BEGIN EXCLUSIVE")
     database = Database(file)
+    opening = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    connect = file.connect
+
+    def connect_with_signal():
+        loop.call_soon_threadsafe(opening.set)
+        return connect()
+
+    monkeypatch.setattr(file, "connect", connect_with_signal)
 
     async def read() -> None:
         async with database.engine.connect() as connection:
             await connection.execute(text("SELECT count(*) FROM notes"))
 
     task = asyncio.create_task(read())
-    await asyncio.sleep(0.2)
-    task.cancel()
-    await asyncio.gather(task, return_exceptions=True)
-    holder.rollback()
-    holder.close()
-    await database.dispose()
+    try:
+        await asyncio.wait_for(opening.wait(), 2)
+        assert not task.done()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        holder.rollback()
+        holder.close()
+        await database.dispose()
 
     assert set(_connection_threads()) - already_running == set()
 
