@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import pytest
 from sqlalchemy import select
 
 from safwa.constants import SCHEDULER_POLL_SECONDS
@@ -55,15 +56,29 @@ async def said(sessions) -> list[str]:
 # --- writing the words down -----------------------------------------------
 
 
-async def test_the_words_are_written_down_before_the_reminder_moves_on(sessions):
+async def test_the_words_are_written_down_before_the_reminder_moves_on(sessions, monkeypatch):
     """RM-FIRE-013 — tests/brd/reminders.feature"""
     reminder_id = await make_reminder(sessions)
+
+    async def failed_write(session, **kwargs):
+        await add_cue(session, **kwargs)
+        raise OSError("disk I/O error while writing Reminder words")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(firing, "add_cue", failed_write)
+        with pytest.raises(OSError, match="disk I/O error while writing Reminder words"):
+            await tick(sessions, tz=TZ, now=NOW)
+    assert await said(sessions) == []
+    assert (await load(sessions, reminder_id)).next_fire_at == NOW
 
     assert await tick(sessions, tz=TZ, now=NOW) is True
 
     assert len(await said(sessions)) == 1
     reminder = await load(sessions, reminder_id)
     assert reminder.next_fire_at > NOW
+
+    assert await tick(sessions, tz=TZ, now=NOW) is False
+    assert len(await said(sessions)) == 1
 
 
 async def test_nothing_is_written_while_something_is_still_waiting(sessions):

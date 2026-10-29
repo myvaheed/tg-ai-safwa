@@ -16,7 +16,7 @@ from safwa.features.reminders.api import (
 )
 from safwa.features.reminders.firing import Firing, format_cue
 from safwa.features.reminders.hooks import REMINDER_START_HOOK
-from safwa.features.reminders.model import Reminder, ScheduleKind
+from safwa.features.reminders.model import Reminder
 from safwa.features.reminders.use_cases import (
     create_reminder,
     delete_reminder,
@@ -104,8 +104,7 @@ async def test_rescheduling_replaces_every_schedule_column(sessions):
 
     async with sessions() as session:
         stored = schedule_of(await session.get(Reminder, reminder.id))
-        assert stored.kind is ScheduleKind.WEEKLY
-        assert stored.interval_minutes is None
+        assert stored == weekly
 
 
 async def test_deleting_a_reminder_removes_the_row(sessions):

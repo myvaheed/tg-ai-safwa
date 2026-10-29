@@ -1,6 +1,6 @@
 # Test effectiveness review
 
-Status: batches 1 through 6 accepted; 6 of 10 batches accepted. Preparing this plan does not count
+Status: batches 1 through 7 accepted; 7 of 10 batches accepted. Preparing this plan does not count
 as reviewing the assigned tests. Follow [Test criteria](TEST_CRITERIA.md) throughout.
 
 ## Objective and scope
@@ -31,11 +31,11 @@ probes by behavior family and risk; a separate mutation for every test or parame
 | 4 | Cards, hierarchy and accounting | 18 | 257 | Completion loses a relationship or doubles totals; boundary ordering is reversed; reopening retains an incorrect stage | Accepted: quality-04, v9.279 |
 | 5 | Checks, Values, Tags and reviews | 23 | 270 | A repeat loses its links; a review is bypassed; unlink or delete changes the wrong objects | Accepted: quality-05, v9.280 |
 | 6 | Schedule calculations | 10 | 215 | Inclusive boundaries shift; local midnight or DST changes the day; a repeat consumes the wrong quota | Accepted: quality-06, v9.281 |
-| 7 | Reminders and delivery | 15 | 275 | A retry duplicates delivery; the schedule advances before its firing is durably recorded; owner activity permits stale publication | Planned |
+| 7 | Reminders and delivery | 15 | 275 | A retry duplicates delivery; the schedule advances before its firing is durably recorded; owner activity permits stale publication | Accepted: quality-07, v9.282 |
 | 8 | Diary, memory, retro and helper | 13 | 147 | A stale write succeeds; unrelated memory observations are replaced; analysis alters a frozen result | Planned |
 | 9 | Planning, Home and owner workflows | 28 | 353 | A repeat is counted twice; a switch is ignored; an outdated screen overwrites the current one | Planned |
 | 10 | History, search, provider, voice and privacy | 25 | 319 | SQL escapes its scope; failed anonymization sends original text; a kept turn loses or duplicates content | Planned |
-| Total | Whole suite | 180 | 3230 | Review all families, with deeper execution evidence for high-risk invariants | 6/10 accepted |
+| Total | Whole suite | 180 | 3230 | Review all families, with deeper execution evidence for high-risk invariants | 7/10 accepted |
 
 ## Entry and baseline
 
@@ -461,6 +461,44 @@ Validation: 186 affected/BRD passed, 86 opt-in skipped. Accepted quality-06: 303
 on matching application/settings/dependency hashes. Ruff and architecture pass. Inventory and
 opt-in IDs stay unchanged: 3237 cases, 1681 functions, 180 files. No application, prompt, schema
 or approved behavior changes.
+
+## Batch 7 review
+
+Accepted in v9.282; entry revision edc45b2. All 15 files, 275 cases reviewed and retained.
+Keep schedule resolution, quiet-window/DST and lead boundaries, finite reminders, condition
+counts, corrected/batched answers, fixed series membership, manual editing, proposal/Save,
+startup reconciliation, polling recovery and effort questions on the finished copy. Unit date,
+real-storage, Telegram and scripted-provider tests exercise distinct contracts. Two live phrase
+modules remain gated. Background owner precedence and queue delivery also retain the shared
+runtime evidence reviewed in batch 2; cancellation tests here are not substitutes for it.
+
+The existing scheduler scenario claimed atomic persistence but checked only final success.
+It now lets the real Cue insert happen, raises a named disk I/O failure, verifies no Cue or
+schedule advance persisted, then retries successfully and verifies another tick adds nothing.
+A temporary implementation that settles and commits before adding the Cue passed the old
+scenario and fails the new unchanged-time assertion. The real operations and database stay in
+the test; only the storage failure is injected.
+
+A second existing scenario now compares the whole persisted Schedule with the requested one,
+instead of checking only weekly kind and absence of the old interval. A Friday-for-Monday
+substitution previously passed and now fails on weekdays. Remove the unused ScheduleKind
+import. Two other faults were already detected: advancing from pickup time fails the exact
+next-fire assertion; bypassing the waiting-words gate fails the no-second-batch scenario.
+All four probe failures identify the named behavior, with no setup/collection failures.
+
+Initial gaps retained include missing/deleted targets, malformed condition/config fallbacks,
+unreadable tracker responses, exhausted first occurrences and stale UI controls. They are
+boundary guards, not evidence of unused code. This review does not execute real Telegram,
+providers or all possible interleavings.
+
+Validation: 284 affected/BRD passed, 48 opt-in skipped. Accepted quality-07: 3031 passed,
+206 skipped in 138.29 seconds. No losses against quality-baseline. Against quality-06 only
+the known Check-review line 119 trace anomaly recurs, without any lost branches or other
+lines; its prior raw arcs again cross the return (117→119→123), not the actual guard decision.
+See batches 2 and 5. Both reports are preserved. Application/settings/dependency hashes match.
+Ruff and architecture pass. Inventory stays
+3237 cases, 1681 functions, 180 files; opt-in IDs are unchanged. No application, prompt, schema
+or approved scenario changes.
 
 ## Assigned files
 
