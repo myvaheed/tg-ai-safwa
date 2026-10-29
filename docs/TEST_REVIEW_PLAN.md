@@ -1,6 +1,6 @@
 # Test effectiveness review
 
-Status: batches 1 through 3 accepted; 3 of 10 batches accepted. Preparing this plan does not count
+Status: batches 1 through 4 accepted; 4 of 10 batches accepted. Preparing this plan does not count
 as reviewing the assigned tests. Follow [Test criteria](TEST_CRITERIA.md) throughout.
 
 ## Objective and scope
@@ -28,14 +28,14 @@ probes by behavior family and risk; a separate mutation for every test or parame
 | 1 | Infrastructure and structural contracts | 14 | 938 | A broken registration or schema passes its checker; backup validation accepts a wrong key or incomplete pair | Accepted: quality-01, v9.276 |
 | 2 | Runtime, turns, access and hooks | 19 | 282 | A stale lease publishes; cancellation leaves child work alive; locked access admits work | Accepted: quality-02, v9.277 |
 | 3 | Proposals and Save/Discard | 15 | 174 | Save applies a stale change or commits partly; Discard writes; repeated approval applies twice | Accepted: quality-03, v9.278 |
-| 4 | Cards, hierarchy and accounting | 18 | 257 | Completion loses a relationship or doubles totals; boundary ordering is reversed; reopening retains an incorrect stage | Planned |
+| 4 | Cards, hierarchy and accounting | 18 | 257 | Completion loses a relationship or doubles totals; boundary ordering is reversed; reopening retains an incorrect stage | Accepted: quality-04, v9.279 |
 | 5 | Checks, Values, Tags and reviews | 23 | 270 | A repeat loses its links; a review is bypassed; unlink or delete changes the wrong objects | Planned |
 | 6 | Schedule calculations | 10 | 215 | Inclusive boundaries shift; local midnight or DST changes the day; a repeat consumes the wrong quota | Planned |
 | 7 | Reminders and delivery | 15 | 275 | A retry duplicates delivery; the schedule advances before its firing is durably recorded; owner activity permits stale publication | Planned |
 | 8 | Diary, memory, retro and helper | 13 | 147 | A stale write succeeds; unrelated memory observations are replaced; analysis alters a frozen result | Planned |
 | 9 | Planning, Home and owner workflows | 28 | 353 | A repeat is counted twice; a switch is ignored; an outdated screen overwrites the current one | Planned |
 | 10 | History, search, provider, voice and privacy | 25 | 319 | SQL escapes its scope; failed anonymization sends original text; a kept turn loses or duplicates content | Planned |
-| Total | Whole suite | 180 | 3230 | Review all families, with deeper execution evidence for high-risk invariants | 3/10 accepted |
+| Total | Whole suite | 180 | 3230 | Review all families, with deeper execution evidence for high-risk invariants | 4/10 accepted |
 
 ## Entry and baseline
 
@@ -351,6 +351,51 @@ quality-02 and quality-baseline, report zero lost lines or branches on identical
 settings and dependency hashes. Raw reports are preserved by comparison label. Ruff and
 architecture checks pass, with no violations or cycles. No application, schema, prompt or
 approved scenario was changed.
+
+## Batch 4 review
+
+Accepted in v9.279; entry revision 24d42be. All 18 assigned files were reviewed.
+
+| Family | Decision |
+|---|---|
+| test_card_creation, test_cards | Preserve kind/field validation, atomic creation with relationships, explicit completion, reopening, archive, deletion, repeat identity and audit facts. Strengthen unknown-Priority refusal: name the invalid enum value and assert the old Priority and version before a valid update can overwrite the evidence. Remove obsolete root_confirmed/expected_parent_version setup fields that the test helper silently discarded |
+| test_card_hierarchy, test_goal_markers, test_card_ordering | Preserve multi-parent DAG paths, cycles/depth, distinct Action totals, closed ancestors, deletion preserving other parents, live SQL tree levels and rendered markers. Ordering examples independently establish date-window boundaries, nearest Value inheritance, focus, tie-breaks and SQL-owned LIMIT/OFFSET. Shared scalar outputs alone do not replace the separate SQL/Telegram boundaries |
+| test_cards_ui, test_card_closing | Preserve real callback/input navigation, draft versus persisted changes, Check answers, closing-time/effort choices, Back, selectors, paging, citations, escaped titles and archived/repeating controls. Prepared editor rows name persisted UI state; remote calls alone are fake |
+| test_effort_tracking, test_time_tracking, test_repeat_times | Preserve opt-out state retention, old buttons after a switch, independent time/effort axes, accounting on finished instances, no duplicate completion, unchanged open successors, exact multi-copy counts, ended series and frozen Sprint statistics. These paths have different state and transaction boundaries despite shared setup |
+| e2e/test_blocker_hook_e2e, e2e/test_empty_parents_hook_e2e, e2e/test_parent_completion_hook_e2e, e2e/test_parent_hooks_e2e, e2e/test_time_tracking_e2e, test_parent_completion, test_parent_hooks | Preserve commit-to-hook-to-queue integration and late rechecks after user changes. A completed Action does not close its Goal; reopening it does not reopen a closed Goal. Shared-parent and orphan questions name only eligible current items |
+| e2e/test_done_words_live | Keep gated realistic Russian/English completion phrases, reminder replies and repeated-count requests. Review only; no live-provider execution is claimed |
+
+Five isolated faults establish detection:
+
+| Fault | Observed result |
+|---|---|
+| Permit depth 9, updating imported limit aliases | Existing maximum-depth SQL/marker test fails: the SQL root reads 8 while the new nine-level domain tree reads 9 |
+| Ignore a Goal's explicit Done during ancestor propagation | Existing closed-Goal scenario reads today instead of done |
+| Omit ancestor propagation after field updates | Existing shared-Action effort scenario retains 5/8/8 instead of updated 8/11/11 |
+| Use UTC instead of the owner's local day in ordering | Existing local-date scenario reverses the expected order. The valid probe preserves the fixture clock: 1 failure, 53 passing ordering cases |
+| Assign invalid Priority before enum validation raises | All 8 original creation cases pass; the strengthened refusal fails on urgent replacing medium. The valid update remains a positive control |
+
+The first four faults were already detected; the fifth exposes why an exception alone
+was insufficient. All counted results have zero collection/fixture errors. No function
+is added or removed. Two misleading IDs are renamed with their assertions intact:
+test_ui_mutations_use_domain_services_and_are_audited becomes
+test_card_changes_are_persisted_and_audited; and
+test_committed_card_relationships_are_validated_propagated_and_audited becomes
+test_card_relationship_changes_propagate_and_are_audited. The former uses domain calls,
+not UI dispatch; the latter does not establish every refusal its old name implied.
+
+Initial gaps retained include missing/archived targets, unsupported direct text fields,
+invalid relationship kinds, empty tree queries and already-open/terminal operations.
+They remain boundary guards, not deletion candidates. No new test is added merely to
+execute them. Hook no-op fallbacks and quantitative limits outside the chosen probes
+remain explicit limits of this review.
+
+Validation: 305 affected/BRD cases pass; 9 live-provider cases remain skipped.
+Accepted quality-04: 3031 passed, 206 skipped in 135.62 seconds. No lost lines or branches
+against quality-03 or quality-baseline, using identical application/settings/dependency
+hashes. Ruff and architecture pass with zero violations/cycles. Inventory remains
+3237 cases, 1681 functions and 180 files; opt-in IDs are unchanged. No application,
+schema, prompt or approved scenario changes.
 
 ## Assigned files
 

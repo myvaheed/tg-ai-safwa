@@ -43,8 +43,10 @@ def test_user_item_timestamp_columns_are_timezone_aware(model):
 async def test_card_field_updates_reject_an_unknown_priority(sessions):
     async with sessions() as session:
         card = await create_card(session, kind="action", title="Validated", effort_points=1)
-        with pytest.raises(ValueError):
+        before = (card.priority, card.version)
+        with pytest.raises(ValueError, match="'urgent' is not a valid Priority"):
             await update_card_fields(session, card.id, {"priority": "urgent"})
+        assert (card.priority, card.version) == before
         await update_card_fields(session, card.id, {"priority": Priority.CRITICAL})
         assert card.priority == Priority.CRITICAL.value
 

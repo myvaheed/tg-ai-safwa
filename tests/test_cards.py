@@ -1103,8 +1103,6 @@ async def a_card(session, **overrides):
     """An Action with every required field filled, for a test that is about the tree."""
     payload = {"title": "Action", "kind": "action", "stage": "backlog", "effort_points": 3}
     payload.update(overrides)
-    payload.pop("root_confirmed", None)
-    payload.pop("expected_parent_version", None)
     return await create_card(session, **payload)
 
 
@@ -1153,7 +1151,7 @@ async def test_a_closed_repeat_cannot_be_reopened_and_points_at_the_open_one(ses
         assert (await session.get(Card, plain.id)).effective_stage == CardStage.TODAY.value
 
 
-async def test_ui_mutations_use_domain_services_and_are_audited(sessions):
+async def test_card_changes_are_persisted_and_audited(sessions):
     """PR-SAVE-009 — tests/brd/tg_agent_shell/proposals.feature"""
     async with sessions() as session:
         tag = await create_tag(session, "Personal")
@@ -1177,7 +1175,7 @@ async def test_ui_mutations_use_domain_services_and_are_audited(sessions):
         assert {event.operation for event in events} >= {"edit_title", "archive"}
 
 
-async def test_committed_card_relationships_are_validated_propagated_and_audited(sessions):
+async def test_card_relationship_changes_propagate_and_are_audited(sessions):
     """VL-LINK-004 — tests/brd/values.feature"""
     async with sessions() as session:
         first_goal = await a_card(session, title="First goal", kind="goal", effort_points=None)
@@ -1188,8 +1186,6 @@ async def test_committed_card_relationships_are_validated_propagated_and_audited
             session,
             title="Move me",
             parent_ids={first_goal.id},
-            expected_parent_version=first_goal.version,
-            root_confirmed=False,
         )
         value = await create_value(session, "Health", "What matters to me")
         await move_card(session, action.id, CardStage.TODAY)
