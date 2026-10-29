@@ -1,6 +1,6 @@
 # Test effectiveness review
 
-Status: batches 1 through 5 accepted; 5 of 10 batches accepted. Preparing this plan does not count
+Status: batches 1 through 6 accepted; 6 of 10 batches accepted. Preparing this plan does not count
 as reviewing the assigned tests. Follow [Test criteria](TEST_CRITERIA.md) throughout.
 
 ## Objective and scope
@@ -30,12 +30,12 @@ probes by behavior family and risk; a separate mutation for every test or parame
 | 3 | Proposals and Save/Discard | 15 | 174 | Save applies a stale change or commits partly; Discard writes; repeated approval applies twice | Accepted: quality-03, v9.278 |
 | 4 | Cards, hierarchy and accounting | 18 | 257 | Completion loses a relationship or doubles totals; boundary ordering is reversed; reopening retains an incorrect stage | Accepted: quality-04, v9.279 |
 | 5 | Checks, Values, Tags and reviews | 23 | 270 | A repeat loses its links; a review is bypassed; unlink or delete changes the wrong objects | Accepted: quality-05, v9.280 |
-| 6 | Schedule calculations | 10 | 215 | Inclusive boundaries shift; local midnight or DST changes the day; a repeat consumes the wrong quota | Planned |
+| 6 | Schedule calculations | 10 | 215 | Inclusive boundaries shift; local midnight or DST changes the day; a repeat consumes the wrong quota | Accepted: quality-06, v9.281 |
 | 7 | Reminders and delivery | 15 | 275 | A retry duplicates delivery; the schedule advances before its firing is durably recorded; owner activity permits stale publication | Planned |
 | 8 | Diary, memory, retro and helper | 13 | 147 | A stale write succeeds; unrelated memory observations are replaced; analysis alters a frozen result | Planned |
 | 9 | Planning, Home and owner workflows | 28 | 353 | A repeat is counted twice; a switch is ignored; an outdated screen overwrites the current one | Planned |
 | 10 | History, search, provider, voice and privacy | 25 | 319 | SQL escapes its scope; failed anonymization sends original text; a kept turn loses or duplicates content | Planned |
-| Total | Whole suite | 180 | 3230 | Review all families, with deeper execution evidence for high-risk invariants | 5/10 accepted |
+| Total | Whole suite | 180 | 3230 | Review all families, with deeper execution evidence for high-risk invariants | 6/10 accepted |
 
 ## Entry and baseline
 
@@ -433,6 +433,34 @@ in batch 2, not evidence that the early-return guard is tested. Raw comparisons 
 separately. Application/settings/dependency hashes match. Ruff and architecture pass. Inventory stays
 3237 cases, 1681 functions, 180 files, with unchanged opt-in IDs. No application, prompt, schema
 or approved scenario changes.
+
+## Batch 6 review
+
+Accepted in v9.281; entry revision 66059aa. All ten assigned files and their 215 cases reviewed.
+Keep independent literal calendar examples for short/leap months, inclusive last days, quota
+starts, local week/DST, current periods, interval early answers, finite totals and revision
+history. Keep planning-load and midnight/restart tests: they exercise reserved executions,
+frozen effort, SQL/UI counts, hook order and exclusion of unrelated work. They are not replaced
+by the smaller date calculations. Scripted compiler/E2E paths establish preparation and Save;
+the two live phrase modules remain gated and were not executed.
+
+Four isolated faults: UTC instead of local date fails the existing DST/week assertion; moving
+quota rollover from >= to > fails the fifth-completion boundary; moving the total guard from
+>= to > opens an unwanted Check and fails the existing finite-total scenario. Replacing query
+validation details with Something went wrong passes all five original malformed-query cases.
+Those cases now assert invalid_arguments, the relevant date/range/type/missing-field cause and
+the essential correction hint; all five fail on that substitution. Explicit parameter IDs keep
+the original arguments0 through arguments4 IDs. No new tests or removals.
+
+Retain initial gaps in uncompiled direct scheduling, already-expired windows, missing targets,
+clipped-summary fallbacks and Remind boundary guards. They are not evidence for deleting code.
+Monthly/DST examples cover specific transitions, not every timezone or calendar input.
+
+Validation: 186 affected/BRD passed, 86 opt-in skipped. Accepted quality-06: 3031 passed,
+206 skipped in 131.12 seconds. Zero lost lines/branches against quality-05 and quality-baseline
+on matching application/settings/dependency hashes. Ruff and architecture pass. Inventory and
+opt-in IDs stay unchanged: 3237 cases, 1681 functions, 180 files. No application, prompt, schema
+or approved behavior changes.
 
 ## Assigned files
 

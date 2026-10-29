@@ -397,21 +397,25 @@ async def test_compiler_repairs_clock_arguments_without_asking_the_owner(session
 
 
 @pytest.mark.parametrize(
-    "arguments",
+    "arguments, cause",
     [
-        {"start_date": "03.10.2026", "end_date": "03.10.2026", "type": "check"},
-        {"start_date": "2026-10-03", "end_date": "2026-10-01", "type": "check"},
-        {"start_date": "2026-10-03", "end_date": "2027-10-01", "type": "check"},
-        {"start_date": "2026-10-03", "end_date": "2026-10-03", "type": "other"},
-        {},
+        ({"start_date": "03.10.2026", "end_date": "03.10.2026", "type": "check"}, "03.10.2026"),
+        ({"start_date": "2026-10-03", "end_date": "2026-10-01", "type": "check"}, "ordered date range"),
+        ({"start_date": "2026-10-03", "end_date": "2027-10-01", "type": "check"}, "ordered date range"),
+        ({"start_date": "2026-10-03", "end_date": "2026-10-03", "type": "other"}, "type"),
+        ({}, "start_date"),
     ],
+    ids=[f"arguments{index}" for index in range(5)],
 )
-async def test_read_argument_errors_are_repairable(sessions, arguments):
+async def test_read_argument_errors_are_repairable(sessions, arguments, cause):
     """SCH-READ-011 — tests/brd/schedules.feature"""
     result = await scheduled_tool(sessions).run(
         ToolCall(id="read", name="get_scheduled", arguments_json=json.dumps(arguments))
     )
     assert result["status"] == "error" and result["retryable"] is True
+    assert result["code"] == "invalid_arguments"
+    assert cause in result["error"]
+    assert "YYYY-MM-DD" in result["hint"] and "type card or check" in result["hint"]
 
 
 async def test_one_compact_item_per_series_with_range_sprint_and_lifetime_counts(
