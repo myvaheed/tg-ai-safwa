@@ -149,9 +149,13 @@ async def test_saved_link_reviews_only_the_pair_and_asks_only_when_unclear(sessi
         assert request.reasoning_effort == "none"
         assert [tool["function"]["name"] for tool in request.tools] == ["value_link_review"]
         context = json.loads(request.messages[1]["content"])
-        assert set(context) == {"kind", "title", "note", "value", "value_description"}
-        assert context["value_description"] == "Money for care"
-        assert context["note"] == "Monthly result"
+        assert context == {
+            "kind": kind,
+            "title": "Earned $4k?" if kind == "check" else "Earn $4k",
+            "note": "Monthly result",
+            "value": "Health",
+            "value_description": "Money for care",
+        }
         cues = await pending(sessions)
         assert len(cues) == (0 if clear else 1)
         if not clear:

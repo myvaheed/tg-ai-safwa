@@ -139,9 +139,7 @@ async def test_the_tag_screen_counts_its_cards_and_has_no_focus(sessions) -> Non
     # A Tag has no focus, and it never goes on a Check.
     assert "Linked Checks" not in text
     assert not [name for name in button_texts(markup) if "Focus" in name]
-    assert [name for name in CALLBACK_ACTIONS if name.startswith("check_choose")] == [
-        "check_choose_values"
-    ]
+    assert "check_choose_tags" not in CALLBACK_ACTIONS
 
     async with sessions() as session:
         await toggle_card_tag(session, card_id, tag_id)

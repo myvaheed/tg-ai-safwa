@@ -119,7 +119,7 @@ async def test_a_new_value_can_be_inserted_at_a_given_place(sessions, place):
         assert [value.order for value in values] == list(range(1, 7))
 
 
-@pytest.mark.parametrize("place", [0, -1, 4, 1.5, True])
+@pytest.mark.parametrize("place", [0, 4, 1.5, True])
 async def test_an_invalid_order_leaves_all_values_unchanged(sessions, place):
     """VL-ORDER-026 — tests/brd/values.feature"""
     async with sessions() as session:

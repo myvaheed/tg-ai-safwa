@@ -173,7 +173,7 @@ async def test_safwa_refuses_invalid_and_stale_value_orders(sessions):
             await approve_proposal(session, store, PROPOSALS, proposal.id)
 
 
-@pytest.mark.parametrize("order", [0, -1, 1.5, True])
+@pytest.mark.parametrize("order", [0, 1.5, True])
 def test_the_value_tool_accepts_only_positive_integer_orders(order):
     """VL-ORDER-028 — tests/brd/values.feature"""
     from pydantic import ValidationError

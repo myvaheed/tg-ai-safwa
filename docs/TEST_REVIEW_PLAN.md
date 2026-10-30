@@ -14,8 +14,8 @@ The exhaustive pass starts at ccf901e9: 3237 collected cases, 1680 test function
 180 files and 206 opt-in cases. Its baseline is quality-10-accepted. The frozen assignments
 contain 166 groups of at most 20 cases, including 48 groups and 944 cases in batch 1.
 Reports retain the original IDs even after a case is removed or consolidated.
-The earlier records below remain historical. Exhaustive batches 1–4 are accepted as luna-01
-through luna-04 in v9.286–v9.289; batches 5–10 are unfinished.
+The earlier records below remain historical. Exhaustive batches 1–5 are accepted as luna-01
+through luna-05 in v9.286–v9.290; batches 6–10 are unfinished.
 
 ## Exhaustive batch 1
 
@@ -139,6 +139,32 @@ Snapshot luna-04: 2481 passed, 206 skipped in 165.23 seconds; Ruff and architect
 passed. Source/settings/dependency hashes match. No line or branch loss against luna-03 or
 quality-10-accepted. Inventory is identical: 2687 cases, 1680 functions, 180 files and all
 206 opt-in IDs. No scenario attribution changed.
+
+## Exhaustive batch 5
+
+Accepted in v9.290, the commit carrying this record. All 270 original cases in 14 groups have explicit
+Luna/high verdicts with exact assignment IDs and no unreviewed cases.
+
+Remove the -1 parameters from test_an_invalid_order_leaves_all_values_unchanged and
+test_the_value_tool_accepts_only_positive_integer_orders. Keep zero at both distinct
+boundaries: the domain still checks refusal before any name/order mutation, and the tool
+still checks strict positive-integer input. Actual validators give identical lower-bound
+refusals for -1 and zero. Keep the domain's N+1 upper boundary and the float/bool cases.
+
+Strengthen the existing saved-link review matrix with exact expected kind, title, Note,
+Value and description. A temporary wrong-kind context passed all six old cases; the revised
+Action/Check cases fail on the wrong kind and the Goal cases still pass. Narrow the Tag UI's
+global chooser assertion to the forbidden Check-Tag route, preserving the no-Focus/current
+Card-count checks without rejecting unrelated future Check selectors. No new test case.
+
+All 71 affected checks pass normally. The answered-Check test's useful claim remains the
+queued-but-answered-before-prepare filter. Prompt-only checks establish supplied instructions,
+not actual model understanding; opt-in provider examples retain distinct language/input
+classes and remain unexecuted locally. No application, prompt or approved behavior changed.
+Snapshot luna-05: 2479 passed, 206 skipped in 137.02 seconds; Ruff and architecture checks
+passed. Source/settings/dependency hashes match. No line or branch loss against luna-04 or
+quality-10-accepted. Reconciliation finds exactly the two removed -1 IDs and no additions
+or renames: 2685 cases, 1680 functions, 180 files and all 206 opt-in IDs remain.
 
 ## Objective and scope
 
