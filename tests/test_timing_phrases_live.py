@@ -85,7 +85,7 @@ CASES = (
     Case("now", "schedule", "каждые 2 часа", {"form": "fixed", "interval": 120}),
     Case(
         "now", "schedule", "every evening at 20:00 from 1 November, 20 times",
-        {"days": EVERY_DAY, "time": "20:00", "date": "01.11.2026", "limit": 20},
+        {"days": EVERY_DAY, "time": "20:00", "date": "01.11.2026", "limit": 20, "until": None},
     ),
     Case("now", "reminder", "через 2 часа", {"kind": "once", "date": "17.10.2026", "time": "14:00"}),
     Case("now", "schedule", "в четверг в 10", {"kind": "once", "date": "22.10.2026", "time": "10:00"}),

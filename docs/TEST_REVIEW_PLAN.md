@@ -14,8 +14,8 @@ The exhaustive pass starts at ccf901e9: 3237 collected cases, 1680 test function
 180 files and 206 opt-in cases. Its baseline is quality-10-accepted. The frozen assignments
 contain 166 groups of at most 20 cases, including 48 groups and 944 cases in batch 1.
 Reports retain the original IDs even after a case is removed or consolidated.
-The earlier records below remain historical. Exhaustive batches 1–5 are accepted as luna-01
-through luna-05 in v9.286–v9.290; batches 6–10 are unfinished.
+The earlier records below remain historical. Exhaustive batches 1–6 are accepted as luna-01
+through luna-06 in v9.286–v9.291; batches 7–10 are unfinished.
 
 ## Exhaustive batch 1
 
@@ -165,6 +165,35 @@ Snapshot luna-05: 2479 passed, 206 skipped in 137.02 seconds; Ruff and architect
 passed. Source/settings/dependency hashes match. No line or branch loss against luna-04 or
 quality-10-accepted. Reconciliation finds exactly the two removed -1 IDs and no additions
 or renames: 2685 cases, 1680 functions, 180 files and all 206 opt-in IDs remain.
+
+## Exhaustive batch 6
+
+Accepted in v9.291, the commit carrying this record. All 215 original cases in 11 groups have
+explicit Luna/high verdicts with exact assignment IDs. The parent reconciled all 70 live
+timing examples against their actual phrases and expected fields, correcting an initially
+misidentified candidate before editing it.
+
+Strengthen existing clock-normalization cases to preserve the submitted 09:00/20:00 and
+weekdays. Serializing timed schedules as midnight passed all nine selected old cases;
+the revised timed cases fail six assertions while the three untimed cases still pass.
+Extend test_a_proposal_may_start_an_ended_series_again through the actual Action tool,
+CardProposalHandler preparation and application, and caller commit. It now checks the new
+open instance, shared series, unchanged completed predecessor and reset total. Forcing the
+handler's starts_again flag off passed the old helper-only test and fails the revised path
+on the intended closed-series refusal. The correct handler passes.
+
+In the existing live timing example now-schedule-20, assert that a start date and total do
+not invent a last day. A local scripted compiler/oracle probe passes normally; injecting an
+unrequested last day passes the old expectation and fails the revised expectation. This is
+oracle evidence, not a live model result: provider opt-ins remain unexecuted. Keep the
+fixed-window Action load test for its exact-one/no-double-count boundary; its minimum-one
+rule does not independently prove appointment inclusion.
+
+All 90 affected local tests pass. Snapshot luna-06: 2479 passed, 206 skipped in 139.00 seconds;
+Ruff and architecture checks pass. Source/settings/dependency hashes match; no line or branch
+loss against luna-05 or quality-10-accepted. Inventory remains exactly 2685 cases, 1680
+functions, 180 files and 206 opt-in IDs, with no renamed, added or removed ID. No application,
+prompt, schema or approved behavior changed.
 
 ## Objective and scope
 

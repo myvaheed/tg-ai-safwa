@@ -270,6 +270,9 @@ async def test_a_monthly_count_beside_as_many_days_is_those_days(config):
     )
     assert question is None and len(requests) == 1
     assert rule["kind"] == "fixed" and rule["timing"]["month_days"] == [1, 15]
+    assert rule.get("all_day", False) is ("time" not in config)
+    if "time" in config:
+        assert rule["timing"]["at_time"] == config["time"]
 
 
 @pytest.mark.parametrize(

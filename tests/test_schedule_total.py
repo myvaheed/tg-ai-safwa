@@ -13,7 +13,9 @@ from hook_helpers import changes_of
 
 from llm_gateway import CompletionTurn, ToolCall
 from safwa.enums import ActorType
+from safwa.features.cards.agent import ACTION_TOOL
 from safwa.features.cards.model import Card
+from safwa.features.cards.proposal import CardProposalHandler
 from safwa.features.cards.use_cases import create_card, finish_action, update_card_fields
 from safwa.features.checks.model import CheckOutcome
 from safwa.features.checks.use_cases import create_check, resolve_check, update_check_fields
@@ -32,6 +34,8 @@ from safwa.foundation.marks import closed_repeat_refusal
 from tg_agent_shell.foundation.changes import Committed
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.hooks.contracts import Advise, OnCommitted
+from tg_agent_shell.proposals.api import ApplyContext, PreparationContext
+from tg_agent_shell.proposals.model import ChangeAction, ProposalChange
 
 TZ = ZoneInfo("Europe/Istanbul")
 QUOTA = {"kind": "quota", "period": "day", "count": 5}
@@ -245,3 +249,28 @@ async def test_a_proposal_may_start_an_ended_series_again(sessions):
         await finish_action(session, second)
         assert await closed_repeat_refusal(session, live, "card", starts_again=True) is None
         assert await closed_repeat_refusal(session, live, "card") is not None
+
+        provider, _ = scripted({"after_completion": True, "limit": 2})
+        handler = CardProposalHandler()
+        requested = ACTION_TOOL.change_from({
+            "mode": "update", "id": live.id, "schedule": "after completion, 2 times in total",
+        })
+        prepared = await handler.prepare(
+            PreparationContext(
+                session, SimpleNamespace(timezone=TZ.key), provider, None, frozenset()
+            ),
+            requested,
+        )
+        change = ProposalChange(
+            entity=requested.entity, action=ChangeAction.UPDATE, entity_id=requested.id,
+            expected_version=prepared.expected_version, values=prepared.values,
+        )
+        [saved] = await handler.apply(
+            ApplyContext(session, frozenset()), change,
+        )
+        await session.commit()
+        restarted = await session.get(Card, saved)
+        assert restarted.id != live.id and restarted.completed_at is None
+        assert restarted.repeat_series_id == live.repeat_series_id
+        assert live.completed_at is not None
+        assert await total_count(session, restarted) == 0

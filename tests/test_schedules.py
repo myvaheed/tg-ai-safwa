@@ -394,6 +394,7 @@ async def test_compiler_repairs_clock_arguments_without_asking_the_owner(session
     assert len(calls) == 2
     assert json.loads(calls[1].messages[-1]["content"])["retryable"] is True
     assert question is None and rule["timing"]["weekdays"] == ["Mon"]
+    assert rule["timing"]["at_time"] == "09:00"
 
 
 @pytest.mark.parametrize(
@@ -566,6 +567,8 @@ async def test_once_a_day_beside_weekdays_or_a_clock_is_read_as_the_days(config,
     assert question is None and len(requests) == 1
     assert rule["kind"] == "fixed" and rule["timing"]["weekdays"] == weekdays
     assert rule.get("all_day", False) is all_day
+    if "time" in config:
+        assert rule["timing"]["at_time"] == config["time"]
 
 
 @pytest.mark.parametrize(
@@ -597,6 +600,8 @@ async def test_a_count_that_equals_the_total_is_the_total_alone():
     )
     assert question is None and len(requests) == 1
     assert rule["kind"] == "fixed" and rule["limit"] == 10
+    assert rule["timing"]["weekdays"] == ["Mon"]
+    assert rule["timing"]["at_time"] == "09:00"
 
 
 async def test_any_other_count_without_a_period_is_told_a_total_is_limit():
