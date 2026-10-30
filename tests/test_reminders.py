@@ -59,6 +59,8 @@ def test_interval_with_time_starts_at_that_clocks_next_occurrence():
     # 09:00 UTC is 12:00 local, so 08:00 local is tomorrow.
     schedule = resolve(interval_minutes=120, clock="08:00", now=NOW, tz=TZ)
     assert schedule.anchor_at == utc(2026, 8, 14, 5, 0)
+    upcoming = resolve(interval_minutes=120, clock="13:00", now=NOW, tz=TZ)
+    assert upcoming.anchor_at == utc(2026, 8, 13, 10, 0)
 
 
 def test_interval_with_date_and_time_starts_at_that_exact_moment():

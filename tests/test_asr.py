@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import sys
 from types import SimpleNamespace
 
@@ -147,6 +148,7 @@ def test_an_explicit_cpu_device_never_touches_cuda(monkeypatch) -> None:
 
 async def test_segments_join_into_one_transcript_and_report_progress(monkeypatch) -> None:
     built: list = []
+    monkeypatch.setattr(asr_module, "time", SimpleNamespace(monotonic=lambda: 100.0))
     monkeypatch.setattr(
         asr_module,
         "_whisper_model_class",
@@ -258,7 +260,18 @@ def test_the_cuda_wheels_are_registered_before_the_engine_imports(monkeypatch, t
 
     monkeypatch.setenv("PATH", "C:\\already")
 
-    asr_module._register_cuda_runtime()
+    engine = object()
+    original_import = builtins.__import__
+
+    def import_engine(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "faster_whisper":
+            assert registered == [str(binaries)]
+            assert asr_module.os.environ["PATH"].startswith(f"{binaries};C:\\already")
+            return SimpleNamespace(WhisperModel=engine)
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", import_engine)
+    assert asr_module._whisper_model_class() is engine
 
     assert registered == [str(binaries)]
     # CTranslate2 loads cuBLAS with its first kernel, through the ordinary search order.

@@ -295,10 +295,6 @@ WIRE = {
 }
 
 
-def test_every_row_states_what_it_puts_on_the_wire():
-    assert set(WIRE) == set(PRESETS)
-
-
 @pytest.mark.parametrize("preset", sorted(PRESETS))
 async def test_a_request_goes_out_as_its_row_says(preset):
     expected = WIRE[preset]
@@ -502,7 +498,15 @@ def test_openai_sdk_is_imported_only_by_the_gateway_adapter():
     for path in source_root.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         if any(
-            isinstance(node, ast.ImportFrom) and node.module == "openai" for node in ast.walk(tree)
+            (
+                isinstance(node, ast.ImportFrom) and node.level == 0
+                and (node.module or "").split(".")[0] == "openai"
+            )
+            or (
+                isinstance(node, ast.Import)
+                and any(alias.name.split(".")[0] == "openai" for alias in node.names)
+            )
+            for node in ast.walk(tree)
         ):
             importers.append(path.relative_to(source_root).as_posix())
 

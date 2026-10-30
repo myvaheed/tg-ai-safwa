@@ -100,11 +100,6 @@ async def test_ai_request_update_is_rejected_when_the_request_becomes_stale(e2e_
     [
         "SELECT id FROM cards",
         "SELECT 'tag' AS item_type, id FROM ai_checks",
-        "SELECT 'check' AS item_type, 'wrong' AS id FROM ai_checks",
-        # The id is real and belongs to a CTE nobody selects it from, so the Request would
-        # answer with amounts; the Cards here are named inside a string and read nowhere.
-        "WITH c AS (SELECT 'card' AS item_type, id FROM ai_cards) SELECT 1 AS amount FROM c",
-        "SELECT id FROM ai_values WHERE name <> 'ai_cards'",
     ],
 )
 async def test_ai_request_with_unsafe_sql_never_becomes_a_proposal(e2e_harness, sql):

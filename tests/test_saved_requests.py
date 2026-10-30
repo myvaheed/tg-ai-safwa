@@ -99,9 +99,6 @@ async def test_saved_request_runs_a_safe_card_query(sessions):
         # A Request runs on the ordinary session, under no authorizer, so the shared
         # validator is the whole of what stops it naming a table nothing published.
         "SELECT id FROM cards WHERE 'WITH cards AS (' <> ''",
-        # Both rules are asked of the statement, not of its text: the id here belongs to a
-        # CTE nobody selects it from, and the Cards here are named inside a string.
-        "WITH c AS (SELECT 'card' AS item_type, id FROM ai_cards) SELECT 1 AS amount FROM c",
         "SELECT id FROM ai_values WHERE name <> 'ai_cards'",
         "SELECT id, missing FROM ai_cards",
     ],

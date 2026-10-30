@@ -296,8 +296,6 @@ def test_query_tool_rejects_null_empty_and_extra_arguments():
         "SELECT count(*) FROM 'sqlite_master'",
         "SELECT count(*) FROM[sqlite_master]",
         "SELECT count(*) FROM ai_cards, sqlite_master",
-        "SELECT count(*) FROM ai_cards, (sqlite_master)",
-        "SELECT count(*) FROM ai_cards, sqlite_master NOT INDEXED",
         "SELECT count(*) FROM ((sqlite_master))",
         "SELECT count(*) FROM main.sqlite_master",
         "SELECT id FROM ai_cards JOIN (sqlite_master) ON 1 = 1",
@@ -478,11 +476,12 @@ async def test_query_result_reports_the_character_budget(tmp_path):
 
 
 async def test_query_result_reports_shortened_text_values(tmp_path):
-    runner = _runner_over_cards(tmp_path, 1, note="y" * 500, cell_limit=100)
+    note = "Call Alice only after confirmation. " + "Keep the agreed date. " * 20
+    runner = _runner_over_cards(tmp_path, 1, note=note, cell_limit=100)
 
     outcome = await runner.run("SELECT note FROM ai_cards")
 
-    assert len(outcome.rows[0]["note"]) == 100
+    assert outcome.rows[0]["note"] == note[:100]
     assert "cut to 100 characters" in outcome.notice
 
 

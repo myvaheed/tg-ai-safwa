@@ -178,7 +178,7 @@ async def test_the_example_answers_and_reads_its_own_answer_back() -> None:
 
 async def test_the_example_splits_an_answer_too_long_for_one_message() -> None:
     bot = _load_example()
-    long_answer = "word " * (TELEGRAM_TEXT_LIMIT // 2)
+    long_answer = " ".join(f"word-{index}" for index in range(TELEGRAM_TEXT_LIMIT // 2))
     talker = bot.Talker(ScriptedProvider([CompletionTurn(content=long_answer)]))
     telegram = FakeTelegram()
 
@@ -186,4 +186,5 @@ async def test_the_example_splits_an_answer_too_long_for_one_message() -> None:
 
     parts = [message for message in telegram.sent if message.from_user.is_bot]
     assert len(parts) > 1
-    assert all(len(part.text) <= TELEGRAM_TEXT_LIMIT + 200 for part in parts)
+    assert all(len(part.text) <= TELEGRAM_TEXT_LIMIT for part in parts)
+    assert " ".join(part.text for part in parts).split() == long_answer.split()

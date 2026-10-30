@@ -1,6 +1,7 @@
 # Test effectiveness review
 
-Status: reopened. The previous ten-batch pass used selective deep review and did not establish
+Status: exhaustive audit complete and accepted in v9.286–v9.295.
+The previous ten-batch pass used selective deep review and did not establish
 that every test was individually assessed. Its acceptance labels below describe that earlier
 pass, not completion of the exhaustive audit. The new pass assigns each Luna reviewer with
 high reasoning its own group of 20 collected cases; five reviewers divide 100 cases, subject
@@ -14,8 +15,9 @@ The exhaustive pass starts at ccf901e9: 3237 collected cases, 1680 test function
 180 files and 206 opt-in cases. Its baseline is quality-10-accepted. The frozen assignments
 contain 166 groups of at most 20 cases, including 48 groups and 944 cases in batch 1.
 Reports retain the original IDs even after a case is removed or consolidated.
-The earlier records below remain historical. Exhaustive batches 1–9 are accepted as luna-01
-through luna-09 in v9.286–v9.294; batch 10 is unfinished.
+The earlier records below remain historical. All ten exhaustive batches are accepted:
+luna-01 through luna-09 and luna-10-final, in v9.286–v9.295. The intermediate luna-10 snapshot
+is diagnostic evidence, not an accepted final result.
 
 ## Exhaustive batch 1
 
@@ -303,6 +305,92 @@ or approved behavior change. Snapshot luna-09: 2475 passed, 206 skipped in 175.5
 Ruff and architecture pass. Source/settings/dependency hashes match. No line or branch loss
 against luna-08 or quality-10-accepted. Reconciliation finds one removed parameter and two
 function renames: 2681 cases, 1680 functions, 180 files and all 206 opt-in IDs.
+
+## Exhaustive batch 10
+
+Accepted in v9.295, the commit carrying this record. All 319 original cases in 16 groups
+have explicit Luna/high verdicts. The parent validated
+the exact IDs and report fields for all 166 groups and 3237 original cases across the pass.
+
+Remove six repeated parameter executions and one test function:
+
+- Keep the static table-access and dynamic invalid-item-type parameters of
+  test_ai_request_with_unsafe_sql_never_becomes_a_proposal. Remove its invalid-ID, CTE-output
+  and missing-item-type variants. Their validation and no-write assertions remain in
+  test_invalid_references_are_refused_before_a_request_is_saved,
+  test_a_query_is_checked_by_its_columns_and_not_by_what_it_matches and the missing-item-type
+  parameter of test_saved_request_rejects_non_read_or_non_card_queries. Replacing only the
+  proposal handler's full normalization with syntax validation passes the static case but
+  fails all four old semantic cases. Keep one semantic E2E, which still fails after merging;
+  removing all four as proposed would lose that proposal-wiring protection.
+- Remove the parenthesized and NOT INDEXED suffixes after the comma in the unsafe-SQL
+  matrix. The common guard rejects before either suffix is read. Keep the canonical
+  ai_cards, sqlite_master case and all distinct parenthesis, quoting, JOIN and CTE scopes.
+  Disabling the comma guard fails three old cases and the surviving canonical case.
+- Remove the generic CTE-output refusal parameter already exercised with the exact SQL by
+  test_a_query_is_checked_by_its_columns_and_not_by_what_it_matches. Its missing-id cause,
+  absent saved row and valid empty-result control remain.
+- Remove test_every_row_states_what_it_puts_on_the_wire, which compares test-oracle keys
+  with preset keys. Both test_a_request_goes_out_as_its_row_says parameters inspect actual
+  outgoing requests and require an oracle for every preset. A missing oracle still fails
+  there; an unused extra oracle row has no product effect. Incorrect OpenRouter temperature
+  passes the removed check and fails the retained wire consumer before and after removal.
+
+Strengthen existing boundaries: preserve the exact stored text prefix after a cell cap;
+control ASR's own clock; observe CUDA directory/PATH registration before the engine import;
+recognize plain and dotted SDK imports as well as absolute from-imports; and require the
+standalone example's long answer to fit every part and preserve all ordered words. Tail
+instead of prefix, omitted CUDA registration, three escaped SDK import forms, a dropped
+answer tail and 4100-character parts each passed the relevant old test and fail the revised
+observation. Temporary import sources are removed; no real GPU/model/provider is exercised.
+
+Reject the proposed removal of the search test's status assertion: read_query returns SQL
+errors as rows with status=error. A query-error probe fails that existing assertion, so it
+stays. Narrow the five-type dispatcher test's name to its real scope; the formatter and
+Diary citation cases also use the actual dispatcher for Diary/Reminder. Keep supported
+nullish spellings and the distinct scope, privacy, history, transport and standalone-shell
+contracts. Correct the live Requests expectation to include Values; live Telegram remains
+unexecuted. The 262 affected local tests pass; Ruff passes.
+
+The first full snapshot, luna-10, passed 2468 tests with 206 opt-in skips in 217.83 seconds,
+but lost _next_clock's same-day branch against the original baseline. Its only old context
+was the unchanged Don't-disturb UI test using the actual clock and asserting hours, not the
+date. It stopped taking that branch once 23:00 had passed. The nearby fixed-clock tests
+only checked an already-passed clock. Forcing every clock onto tomorrow passed all three
+old tests, exposing a real assertion gap. Extend the existing interval-clock case to also
+assert today's upcoming 13:00, retaining its next-day 08:00 example. The wrong-day fault now
+fails its date assertion; all 72 Reminder/quiet-window checks pass normally. This completion
+finding stays in batch 10; the original file assignment and case count remain unchanged.
+Keep luna-10 as diagnostics and take a new final snapshot after this repair.
+
+Accepted luna-10-final: 2468 passed, 206 skipped in 220.99 seconds. Ruff and architecture
+checks pass. Source/settings/dependency hashes match the original baseline. No lines or
+branches are lost against quality-10-accepted; the repaired same-day branch is reached by
+the fixed-clock test itself. Against luna-09, Check review line 119 and registry arc 181→179
+lose incidental gains absent from the original baseline. Their recorded contexts are the
+unchanged answered-Check and startup tests, and their source/test bodies are unchanged since
+luna-09. Both comparisons and context evidence are retained as an explained fluctuation;
+the actual clock-branch gap was repaired rather than exempted.
+
+## Exhaustive completion reconciliation
+
+The frozen 3237 IDs are assigned exactly once across 166 groups. Every original case has an
+explicit Luna/high verdict after full-body review; the parent checks questionable proposals
+and records overrides. The first group's five calibration reviews are not counted as five
+different assigned groups. Report serialization and exact ID/schema checks pass.
+
+The inventory is 3237 to 2674 cases, a net reduction of 563 executions; 1680 to 1679 test
+functions, with the preset-oracle key-set check the only removed function in this pass.
+All 180 test files remain. The raw ID difference is 572 absent and nine new IDs, including
+renames and the combined allowed-import example; the ten transition records explain every
+ID, and each absent ID belongs to its declared batch. All 206 opt-ins remain, with one
+accurately renamed live case. No application source, prompt, schema or approved behavior
+changed. All ten accepted snapshots retain the original baseline's covered lines and
+branches. Intermediate losses and prior-only asynchronous gains have explicit decisions;
+the final clock finding has a demonstrated failing/passing repair. Named faults establish
+the tested failures, not the absence of every bug. The 206 opt-in paths were reviewed but
+not executed; controlled encoders, providers and ASR stubs do not establish live model,
+recognition or Telegram accuracy.
 
 ## Objective and scope
 
