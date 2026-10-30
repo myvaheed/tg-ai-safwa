@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import date, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import text
@@ -13,6 +14,7 @@ from ui_harness import services_for
 
 from llm_gateway import ToolCall
 from safwa.bootstrap.modules import PROPOSALS
+from safwa.features.cards.use_cases import create_card
 from safwa.features.diary.agent import DiaryToolInput, day_read_tool
 from safwa.features.diary.api import day_media
 from safwa.features.diary.hooks import DAY_NOT_READ, unread_days
@@ -24,10 +26,11 @@ from safwa.features.diary.use_cases import (
     diary_entry_for,
     update_diary_entry,
 )
-from safwa.features.planning.closing import DayTally
+from safwa.features.planning.use_cases import finish_sprint, start_sprint
 from safwa.features.retro.analysis import days_text
-from safwa.features.retro.use_cases import DiaryDay
+from safwa.features.retro.use_cases import analysis_input
 from telegram_llm import TELEGRAM_ALBUM_LIMIT
+from tg_agent_shell.foundation.clock import utcnow
 from tg_agent_shell.foundation.errors import DomainError
 from tg_agent_shell.hooks.contracts import BeforeProposals, ProposedCall, SessionRead
 from tg_agent_shell.media.library import DESCRIPTION_MAX_WORDS, ChatMedia, MediaLibrary, Photo
@@ -338,9 +341,21 @@ async def test_di_read_023_new_words_come_only_after_the_day_was_read() -> None:
     assert await unread_days(before(photo)) == ()
 
 
-def test_a_day_of_photos_alone_reads_as_nothing_written_to_the_retro() -> None:
-    tally = DayTally(day="2026-09-26", planned=0, done=0)
-    assert "- Diary: nothing written" in days_text([(tally, DiaryDay(DAY, None, ""))])
+async def test_a_day_of_photos_alone_reads_as_nothing_written_to_the_retro(sessions) -> None:
+    (photo,) = await keep_photos(sessions, "Анна в парке")
+    day = utcnow().astimezone(ZoneInfo("Europe/Istanbul")).date()
+    async with sessions() as session:
+        await create_card(session, kind="action", title="Walk in the park", stage="sprint")
+        sprint = await start_sprint(session, success_criteria="Spend time outside")
+        await create_diary_entry(session, entry_date=day, body=None, media=[photo])
+        await finish_sprint(session)
+        await session.commit()
+        given = await analysis_input(session, sprint.id)
+    tally = next(tally for tally in given.sprint.statistics.days if tally.day == day.isoformat())
+    assert given.diary[day].body == ""
+    text = days_text([(tally, given.diary[day])])
+    assert "- Diary: nothing written" in text
+    assert "Анна в парке" not in text
 
 
 async def test_di_photo_024_a_corrected_photo_is_called_by_the_new_words_everywhere(

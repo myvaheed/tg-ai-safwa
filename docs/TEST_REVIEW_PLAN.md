@@ -14,8 +14,8 @@ The exhaustive pass starts at ccf901e9: 3237 collected cases, 1680 test function
 180 files and 206 opt-in cases. Its baseline is quality-10-accepted. The frozen assignments
 contain 166 groups of at most 20 cases, including 48 groups and 944 cases in batch 1.
 Reports retain the original IDs even after a case is removed or consolidated.
-The earlier records below remain historical. Exhaustive batches 1–7 are accepted as luna-01
-through luna-07 in v9.286–v9.292; batches 8–10 are unfinished.
+The earlier records below remain historical. Exhaustive batches 1–8 are accepted as luna-01
+through luna-08 in v9.286–v9.293; batches 9–10 are unfinished.
 
 ## Exhaustive batch 1
 
@@ -236,6 +236,32 @@ original baseline. Recorded contexts are the unchanged parent-completion, answer
 and startup tests respectively, not the removed three-Check cases. Application hashes and
 those test bodies are unchanged. Preserve both comparisons and context evidence rather
 than restoring an unrelated parameter to chase their execution timing.
+
+## Exhaustive batch 8
+
+Accepted in v9.293, the commit carrying this record. All 147 original cases in eight groups
+have explicit Luna/high verdicts with exact assignment IDs. Keep the distinct diary/media,
+memory, retro-analysis and helper boundaries.
+
+Remove the bare sum(effort_points) parameter from test_han_offer_002_a_flat_read_earns_nothing.
+The retained count(*) parameter exercises the same aggregate-without-grouping classification
+through complex_read and is_complex_read. Neither function distinguishes aggregate names;
+the clause scanner treats both as flat reads. Keep the simple projection and the distinct
+literal, escaped-quote and quoted-name controls, plus all complex-read refusals.
+
+Replace the synthetic empty DiaryDay in the existing photo-only retro test with an actual
+stored photo-only day and an ended Sprint, then read analysis_input and days_text. Assert
+empty prose and no photo-caption substitution. Inventing fallback prose passed the old
+test and fails the revised empty-body assertion. Extend the existing palette test to inspect
+actual chart patch colours for Category, Energy, mix and Category→Energy, including grey
+unclassified work. Painting the Category/Energy bars grey passed the old palette-only test
+and fails the revised drawn-colour assertion. No new test function or application change.
+
+All 49 affected tests pass. Snapshot luna-08: 2476 passed, 206 skipped in 134.40 seconds;
+Ruff and architecture checks pass. No line or branch loss against luna-07 or the original
+quality-10-accepted baseline; source/settings/dependency hashes match. Reconciliation finds
+only the removed sum parameter: 2682 cases, 1680 functions, 180 files and all 206 opt-in IDs.
+Provider/Telegram/model opt-ins remain unexecuted.
 
 ## Objective and scope
 

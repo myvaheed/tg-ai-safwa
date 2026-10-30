@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 import re
 import warnings
+from dataclasses import replace
 from datetime import date, timedelta
 from io import BytesIO
 
 from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.colors import to_rgba
 from PIL import Image
 from telegram_fakes import QueueTestMessage
 from ui_harness import FakeCallback, services_for
@@ -293,6 +295,24 @@ def test_rt_chart_020_a_category_and_an_energy_type_look_the_same_on_every_chart
     assert NONE_COLOR not in named
     for emoji in (*CATEGORY_EMOJIS.values(), *ENERGY_EMOJIS.values(), PASSED_EMOJI, MISSED_EMOJI):
         assert emoji_file(emoji).is_file(), emoji
+
+    for category, energy in (("work", "cognitive"), (NONE_BUCKET, NONE_BUCKET)):
+        statistics = _statistics(date(2026, 9, 1))
+        bucket = statistics.by_category["work"]
+        statistics = replace(
+            statistics, by_category={category: bucket}, by_energy={energy: bucket},
+            by_category_energy={category: {energy: bucket}},
+        )
+        sprint = ChartSprint("26.09-01", statistics, met=True, capacity=5)
+        category_color = CATEGORY_COLORS.get(category, NONE_COLOR)
+        energy_color = ENERGY_COLORS.get(energy, NONE_COLOR)
+        for name, expected in (
+            ("category", (category_color,)), ("mix", (category_color,)),
+            ("energy", (energy_color,)), ("category_energy", (category_color, energy_color)),
+        ):
+            figure = dict(CHARTS)[name](ChosenSprints((sprint, sprint), effort_tracking=False))
+            drawn = {patch.get_facecolor()[:3] for axes in figure.axes for patch in axes.patches}
+            assert drawn == {to_rgba(color)[:3] for color in expected}, name
 
 
 async def test_rt_chart_021_charts_asked_for_in_words_go_to_the_chat_before_safwas_line(
