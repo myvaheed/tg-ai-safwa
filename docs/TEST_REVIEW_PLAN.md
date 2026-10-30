@@ -14,8 +14,8 @@ The exhaustive pass starts at ccf901e9: 3237 collected cases, 1680 test function
 180 files and 206 opt-in cases. Its baseline is quality-10-accepted. The frozen assignments
 contain 166 groups of at most 20 cases, including 48 groups and 944 cases in batch 1.
 Reports retain the original IDs even after a case is removed or consolidated.
-The earlier records below remain historical. Exhaustive batches 1–3 are accepted as luna-01
-through luna-03 in v9.286–v9.288; batches 4–10 are unfinished.
+The earlier records below remain historical. Exhaustive batches 1–4 are accepted as luna-01
+through luna-04 in v9.286–v9.289; batches 5–10 are unfinished.
 
 ## Exhaustive batch 1
 
@@ -122,6 +122,23 @@ unchanged unclear-Checks test's asynchronous work. Both that source and test are
 the Tag-discard rename removed no assertion that supplied it. Preserve the context and both
 comparisons as an explained incidental gain fluctuation. The Check review batch will assess
 that test's coordination; no check is added merely to restore the number.
+
+## Exhaustive batch 4
+
+Accepted in v9.289, the commit carrying this record. All 257 original cases in 13 groups have explicit
+Luna/high verdicts with exact assignment IDs and no unreviewed cases. Keep the distinct Card,
+hierarchy, completion, time-accounting and UI boundaries; no removal is justified here.
+
+Strengthen test_cd_blocked_020_being_blocked_does_not_stop_anything to observe that the blocked
+Action actually reaches Sprint before it is finished. A temporary early return from move_card
+after its warning passed the old test, which later finished the still-unmoved Action. The
+new assertion fails on Today instead of Sprint; the correct implementation passes all 52
+Cards checks. No added test case, application change or approved behavior change.
+
+Snapshot luna-04: 2481 passed, 206 skipped in 165.23 seconds; Ruff and architecture checks
+passed. Source/settings/dependency hashes match. No line or branch loss against luna-03 or
+quality-10-accepted. Inventory is identical: 2687 cases, 1680 functions, 180 files and all
+206 opt-in IDs. No scenario attribution changed.
 
 ## Objective and scope
 

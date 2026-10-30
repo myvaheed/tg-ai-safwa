@@ -783,6 +783,7 @@ async def test_cd_blocked_020_being_blocked_does_not_stop_anything(sessions):
 
         moved = await move_card(session, action.id, CardStage.SPRINT)
         assert moved.warnings == ["Blocked: Shop is shut"]
+        assert (await session.get(Card, action.id)).effective_stage == CardStage.SPRINT.value
         finished = await finish_action(session, action.id)
         await session.commit()
 
