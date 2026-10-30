@@ -212,6 +212,26 @@ async def tree_level(session: AsyncSession, kind: str | None, card_id: int | Non
     return 1 + max([await tree_level(session, kind, child) for child in children], default=0)
 
 
+async def tree_levels(session: AsyncSession) -> dict[int, int]:
+    """Every Goal's `tree_level` at once, by its id, for a reader that needs them all."""
+    goals = list(await session.scalars(select(Card.id).where(Card.kind == CardKind.GOAL.value)))
+    below: dict[int, list[int]] = {}
+    for parent, child in await session.execute(
+        select(CardParent.parent_id, CardParent.card_id)
+        .join(Card, Card.id == CardParent.card_id)
+        .where(Card.kind == CardKind.GOAL.value)
+    ):
+        below.setdefault(parent, []).append(child)
+    levels: dict[int, int] = {}
+
+    def level(goal: int) -> int:
+        if goal not in levels:
+            levels[goal] = 1 + max((level(child) for child in below.get(goal, ())), default=0)
+        return levels[goal]
+
+    return {goal: level(goal) for goal in goals}
+
+
 async def parents_of(
     session: AsyncSession, card_ids: Iterable[int] | None = None
 ) -> dict[int, list[int]]:

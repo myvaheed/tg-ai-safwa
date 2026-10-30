@@ -178,6 +178,17 @@ def repeating(entity: Card | Check) -> bool:
     return bool(definition and definition.rule and repeats(definition.rule))
 
 
+def planned_runs(
+    entity: Card | Check, start: datetime, end: datetime, tz: ZoneInfo
+) -> int | None:
+    """How many times a repeating item's Schedule plans it in [start, end); None for one that
+    repeats after each completion, which plans no time ahead."""
+    rule = entity.schedule_record.rule
+    if rule["kind"] == "after_completion":
+        return None
+    return sum(count for _, _, count in windows(rule, start, end, tz))
+
+
 def series_note(closed: int, verb: str, opened: str | None) -> str:
     """What a Save that closed copies of a series tells the model it left open
     (PR-NOTE-038): `opened` is the open copy's link, None when the series ended."""

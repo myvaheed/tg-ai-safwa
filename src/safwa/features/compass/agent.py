@@ -1,5 +1,6 @@
 """Compass as the Advisor routes to it: a subagent that reads the owner's whole tree, asks
-about what could be set better and shows the tree as one picture; and the tool that hands it
+about what could be set better and draws the Values, one Value or one Goal's branch; and the
+tool that hands it
 — or onboarding — the method for one item kind, in the wording each feature's check on a new
 item reads."""
 
@@ -25,12 +26,11 @@ from ...foundation.method import Method, bullets, explanation, lines
 from ..cards.api import ACTION, GOAL
 from ..cards.model import TERMINAL_STAGES, Card, CardKind
 from ..checks.api import CHECK
-from ..schedules.api import workspace_zone
 from ..tags.api import TAG
 from ..values.api import LINK, VALUE
 from ..values.model import Value
-from .charts import draw_sky
-from .constellation import Detail, read_sky
+from .charts import draw
+from .constellation import read_branch, read_orbits, read_sky
 from .graph import COMPASS_FINDINGS_MAX, NOT_PROBLEMS, PROBLEMS, plain_findings, read_tree
 
 # What `get_more_about` may be asked about, by the word it asks with.
@@ -83,33 +83,14 @@ SHOW_CONSTELLATION_TOOL: dict[str, Any] = {
     "function": {
         "name": "show_constellation",
         "description": (
-            "Send the user's tree to the chat as one picture: the Values as stars above, "
-            "Goals and Subgoals under them, Actions at the bottom, and what Compass would ask "
-            "about ringed in red."
+            "Send one picture to the chat. No arguments: every Value as a star sized by its "
+            "open work. value: that Value with what carries it. goal: that Goal's open branch."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "value": {
-                    "type": "string",
-                    "description": "Only the part of the tree one Value is on, by its name.",
-                },
-                "goal": {
-                    "type": "integer",
-                    "description": "Only one Goal's branch, by its id.",
-                },
-                "detail": {
-                    "type": "string",
-                    "enum": [detail.value for detail in Detail],
-                    "description": (
-                        "goals: Values, Goals and Subgoals. actions: and Actions; the default. "
-                        "all: and Checks."
-                    ),
-                },
-                "done": {
-                    "type": "boolean",
-                    "description": "Also the finished Goals and Actions, drawn faint.",
-                },
+                "value": {"type": "string", "description": "One Value, by its name."},
+                "goal": {"type": "integer", "description": "One Goal or Subgoal, by its id."},
             },
             "required": [],
         },
@@ -138,19 +119,12 @@ def show_constellation_tool(context: AgentContext) -> ReadToolSpec:
             arguments = {}
         if not isinstance(arguments, dict):
             arguments = {}
-        detail = arguments.get("detail", Detail.ACTIONS.value)
         named = arguments.get("value")
         goal = arguments.get("goal")
-        done = bool(arguments.get("done"))
-        if detail not in {each.value for each in Detail}:
-            return _refused(
-                f"There is no detail {detail!r}.",
-                f'Retry with "detail" one of: {", ".join(Detail)}, or without it.',
-            )
         if named and goal is not None:
             return _refused("Give value or goal, not both.", "Retry with one of them, or none.")
+        now = utcnow()
         async with context.sessions() as session:
-            value = None
             if named:
                 values = {
                     each.name.casefold(): each
@@ -161,31 +135,32 @@ def show_constellation_tool(context: AgentContext) -> ReadToolSpec:
                         f"There is no Value named {named!r}.",
                         f'Retry with "value" one of: {", ".join(each.name for each in values.values())}.',
                     )
-                value = values[str(named).casefold()].id
-            if goal is not None:
+                picture = await read_orbits(session, values[str(named).casefold()].id, now)
+            elif goal is not None:
                 card = await session.get(Card, goal) if isinstance(goal, int) else None
                 if card is None or card.kind != CardKind.GOAL.value or card.archived_at is not None:
                     return _refused(
                         f"There is no Goal with id {goal!r}.",
                         "Find its id in ai_cards with kind = 'goal', or call without goal.",
                     )
-                if card.effective_stage in {stage.value for stage in TERMINAL_STAGES} and not done:
-                    return _refused("That Goal is finished.", 'Retry with "done": true.')
-            sky = await read_sky(session, value=value, goal=goal, detail=Detail(detail), done=done)
-            today = utcnow().astimezone(await workspace_zone(session)).date()
-        if sky is None:
+                if card.effective_stage in {stage.value for stage in TERMINAL_STAGES}:
+                    return _refused("That Goal is finished.", "Call with an open Goal, or without goal.")
+                picture = await read_branch(session, goal, now)
+            else:
+                picture = await read_sky(session, now)
+        if picture is None:
             return {"sent": None, "note": "Nothing to draw yet: no Value and no open Goal or Action."}
         anchor = owner_anchor(bot, context.owner_id)
         await bot.send_chat_action(anchor.chat.id, ChatAction.UPLOAD_DOCUMENT)
-        picture = await asyncio.to_thread(draw_sky, sky, today)
-        # A document keeps every pixel, so the owner can zoom into a wide tree.
+        image = await asyncio.to_thread(draw, picture)
+        # A document keeps every pixel, so the owner can zoom into a wide branch.
         await chat.send_document(
             anchor,
-            BufferedInputFile(picture, filename="constellation.png"),
+            BufferedInputFile(image, filename="constellation.png"),
             kind=MessageKind.RECEIPT.value,
         )
         return {
-            "sent": sky.title,
+            "sent": picture.title,
             "next": "The picture is in the chat. Do not call show_constellation again. Answer "
             "in one short line.",
         }
@@ -205,7 +180,7 @@ Answer about the items asked about, or about the whole tree when asked about all
 Name at most {COMPASS_FINDINGS_MAX} findings, the most important first. Cite each item, and ask one short question about each.
 Offer every change as a possibility. The user decides; leaving it as it is is fine.
 Asked what makes a good Value, Goal, Action, Check or Value link: call `get_more_about` with that topic.
-Asked to see the tree, or the part of it one Value or Goal is on, as a picture: call `show_constellation`.
+Asked to see their Values, one Value or one Goal as a picture: call `show_constellation`.
 Nothing stands out: say the tree looks right.
 Never promise to change anything yourself. A change is proposed once the user agrees.
 Your answer goes to the user as you wrote it.

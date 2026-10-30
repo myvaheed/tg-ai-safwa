@@ -55,13 +55,21 @@ the hook "Compass review" (`compass.graph_review`) writes the tree out for one m
 hands what it finds to Compass; a clear answer still keeps what SQL found, and nothing found asks
 nothing.
 
-Compass also draws the tree as one picture, the Constellation
-([compass/constellation.py](../src/safwa/features/compass/constellation.py)): the Values as stars
-across the top of a night sky, each Goal as high as its `tree_level`, the Actions at the bottom,
-lines from each parent to its child and from each Value to what carries it, and what SQL finds
-ringed in red. A Card under several Goals is drawn once, with a line from each. It goes to the chat as a file, at full size, so zooming loses nothing. Compass sends
-it when asked, for the whole tree, one Value or one Goal's branch; the Dashboard's
-"🌌 Constellation" sends the whole tree.
+Compass also draws the Constellation, three pictures of the tree
+([compass/constellation.py](../src/safwa/features/compass/constellation.py)). The sky of Values
+puts each Value on one arc in the owner's order as a star whose area is its weight: the open
+work that carries it ([compass/weight.py](../src/safwa/features/compass/weight.py)), where a
+Goal weighs one more than its `tree_level` and a repeating Action or Check the square root of
+its runs planned in the next `SKY_WINDOW_DAYS`. A Value's orbits put what counts for it around
+it, the highest items nearest, with a solid line to each item that carries it itself, as thick
+as the weight it brings. A Goal's branch reads from left to right, with the Goals above it
+dashed to its left. Each picture has a panel of what was done and what is left
+([compass/panels.py](../src/safwa/features/compass/panels.py)), and what SQL finds is ringed in
+red. The light is matplotlib's; the glow, the nebula and the frosted panel are composed with
+Pillow ([compass/effects.py](../src/safwa/features/compass/effects.py)). A picture goes to the
+chat as a file, at full size, so zooming loses nothing. Compass sends one when asked; the
+Dashboard's "🌌 Constellation" sends the sky, with a button down to each Value's orbits and from
+there to each Goal's branch.
 
 Blueprint ([blueprint/agent.py](../src/safwa/features/blueprint/agent.py)) is where a new
 item is worked out before anything is proposed. The Advisor opens it with `sub("blueprint")`

@@ -539,7 +539,7 @@
     And on Goals that button reads "⭐️ Actions | 🎯 Goals ✓" and switches back
     And an archived Card is in no column
     And the Backlog is no column: its 📚 Backlog button says how many Cards it holds and opens it
-    And its 🌌 Constellation button sends the whole tree as one picture (CMP-SKY-005)
+    And its 🌌 Constellation button sends the sky of Values as a picture (CMP-SKY-005)
 
   Scenario: CD-BACKLOG-047 — The Backlog is a numbered list, ten to a page
     Given Actions in the Backlog
