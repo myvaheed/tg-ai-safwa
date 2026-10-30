@@ -39,7 +39,7 @@ from tg_agent_shell.turn import TurnManager
 pytestmark = pytest.mark.e2e
 
 
-async def test_placeholder_heavy_card_tool_payload_stays_a_root_action(e2e_harness):
+async def test_placeholder_fields_leave_the_proposed_action_without_a_parent(e2e_harness):
     response = mutation_turn(
         (
             "action",
@@ -74,7 +74,7 @@ async def test_placeholder_heavy_card_tool_payload_stays_a_root_action(e2e_harne
 
 
 async def test_ai_card_proposal_reaches_the_sprint_it_was_planned_into(e2e_harness):
-    """PL-SCOPE-007 — tests/brd/planning.feature"""
+    """PL-SCOPE-006 — tests/brd/planning.feature"""
     async with e2e_harness.sessions() as session:
         await set_profile_field(session, ProfileField.EFFORT_TRACKING, True)
         goal = await create_manual_card(

@@ -643,6 +643,8 @@ async def test_pl_end_014_a_sprint_ending_is_when_the_workspace_is_tidied(sessio
     """PL-END-014 — tests/brd/planning.feature"""
     from safwa.features.cards.model import Card
     from safwa.features.cards.use_cases import finish_action
+    from safwa.features.checks.model import Check, CheckOutcome
+    from safwa.features.checks.use_cases import create_check, resolve_check
     from safwa.features.planning.use_cases import ARCHIVE_AFTER_SPRINTS
 
     async with sessions() as session:
@@ -650,8 +652,16 @@ async def test_pl_end_014_a_sprint_ending_is_when_the_workspace_is_tidied(sessio
         await plan_one(session, title="Carries the Sprints")
         await start_sprint(session, success_criteria="Ship v1")
         await finish_action(session, closed.id)
-        await finish_sprint(session)
+        answered = await create_check(session, title="Sent the release note?")
+        await resolve_check(session, answered.id, CheckOutcome.PASSED)
+        ended = await finish_sprint(session)
         await session.commit()
+        assert closed.archived_at is None and answered.archived_at is None
+        later = datetime.combine(
+            ended.planned_end_date + timedelta(days=365), datetime.min.time(), tzinfo=ZoneInfo("Europe/Istanbul")
+        )
+        assert await expire_due_sprint(session, now=later) is None
+        assert closed.archived_at is None and answered.archived_at is None
 
         for index in range(ARCHIVE_AFTER_SPRINTS):
             await start_sprint(session, success_criteria=f"Ship v{index + 2}")
@@ -668,8 +678,11 @@ async def test_pl_end_014_a_sprint_ending_is_when_the_workspace_is_tidied(sessio
             else:
                 await finish_sprint(session)
             await session.commit()
+            if index < ARCHIVE_AFTER_SPRINTS - 1:
+                assert closed.archived_at is None and answered.archived_at is None
 
         assert (await session.get(Card, closed.id)).archived_at is not None
+        assert (await session.get(Check, answered.id)).archived_at is not None
 
 
 async def test_pl_scope_007_work_that_joins_a_running_sprint_is_counted_apart(sessions):

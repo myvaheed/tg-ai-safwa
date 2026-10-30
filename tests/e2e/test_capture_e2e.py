@@ -45,7 +45,7 @@ async def test_a_capture_request_reaches_save_with_only_the_thought(e2e_harness)
         assert list(await session.scalars(select(CardEnergyType))) == []
 
 
-async def test_an_ordinary_edit_keeps_the_thought_in_its_selection(e2e_harness):
+async def test_manual_note_and_proposed_title_edits_keep_the_card_a_thought(e2e_harness):
     """WS-CAPTURE-008 — tests/brd/workspace_mutator.feature"""
     async with e2e_harness.sessions() as session:
         card = await create_card(session, kind="thought", title="Идея", note="Исходная мысль")

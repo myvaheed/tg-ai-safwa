@@ -101,6 +101,13 @@ async def test_thought_paths_keep_content_decisions_and_the_saved_source(e2e_har
     all_messages = json.dumps(provider.calls, ensure_ascii=False)
     for value in fields.values():
         assert value in all_messages
+    requests = [
+        str(message.get("content", ""))
+        for call in provider.calls for message in call if message.get("role") == "user"
+    ]
+    chosen, other = ("Quality Plan.", "Direct Create.") if plan else ("Direct Create.", "Quality Plan.")
+    assert any(chosen in request for request in requests)
+    assert not any(other in request for request in requests)
     async with e2e_harness.sessions() as session:
         thoughts = list(await session.scalars(select(Card).where(Card.kind == "thought")))
         assert [item.id for item in thoughts] == ([source_id] if saved else [])

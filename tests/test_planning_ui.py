@@ -376,9 +376,20 @@ async def test_pl_criteria_003_the_planning_screen_refuses_an_empty_plan(session
     assert "🗓 Plan" in button_texts(markup)
 
 
+async def extra_backlog(sessions, count):
+    async with sessions() as session:
+        for index in range(count):
+            await create_card(
+                session, kind="action", title=f"Pick extra {index:02}",
+                priority="critical", effort_points=1,
+            )
+        await session.commit()
+
+
 async def test_pl_plan_016_the_plan_is_a_table_and_the_backlog_is_the_keyboard(sessions, effort_on):
     """PL-PLAN-016 — tests/brd/planning.feature"""
     await seed_plan(sessions)
+    await extra_backlog(sessions, 10)
     services = services_for(sessions)
     screen = FakeMessage(100, bot_message=True)
     await render_plan(screen, services)
@@ -390,19 +401,27 @@ async def test_pl_plan_016_the_plan_is_a_table_and_the_backlog_is_the_keyboard(s
     assert "<table bordered striped>" in body
     assert "<i>In Sprint:</i> 1 Actions" in body
     labels = button_texts(markup)
-    assert all(len(row) == 1 for row in markup.inline_keyboard[:2])
-    assert "Pick me (1)" in labels
-    assert "Skip me (2)" in labels
+    assert all(len(row) == 1 for row in markup.inline_keyboard[:10])
+    assert len([label for label in labels if label.startswith("Pick extra")]) == 10
+    assert "1/2" in labels
+    assert "Pick me (1)" not in labels
+    assert "Skip me (2)" not in labels
     assert "Ship it (3)" not in labels
     assert "Apply filter" in " ".join(labels)
+    await press(services, screen, markup, "➡️")
+    labels = button_texts(screen.edits[-1][1])
+    assert "2/2" in labels
+    assert "Pick me (1)" in labels and "Skip me (2)" in labels
+    assert not any(label.startswith("Pick extra") for label in labels)
 
 
 async def test_tapping_a_backlog_item_plans_it_and_preserves_filters(sessions, effort_on):
     """PL-PLAN-016 — tests/brd/planning.feature"""
     ids = await seed_plan(sessions)
+    await extra_backlog(sessions, 11)
     async with sessions() as session:
         request = await create_saved_request(
-            session, "Only Pick me", "SELECT 'card' AS item_type, id FROM ai_cards WHERE title = 'Pick me'",
+            session, "Pick Actions", "SELECT 'card' AS item_type, id FROM ai_cards WHERE title LIKE 'Pick%'",
             views=ALLOWED_VIEWS,
         )
         await session.commit()
@@ -410,18 +429,20 @@ async def test_tapping_a_backlog_item_plans_it_and_preserves_filters(sessions, e
 
     services = services_for(sessions)
     screen = FakeMessage(100, bot_message=True)
-    await render_plan(screen, services, filters=[request_id])
-    row = screen.edits[-1][1].inline_keyboard[0]
-    assert len(row) == 1
-    assert row[0].text == "Pick me (1)"
+    await render_plan(screen, services, page=1, filters=[request_id])
+    markup = screen.edits[-1][1]
+    assert "2/2" in button_texts(markup)
+    pick = next(button for row in markup.inline_keyboard for button in row if button.text == "Pick me (1)")
     await callback_token_handler(
-        FakeCallback(row[0].callback_data.split(":", 1)[1], screen), services
+        FakeCallback(pick.callback_data.split(":", 1)[1], screen), services
     )
     body, markup = screen.edits[-1]
     assert "<table bordered striped>" in body
     assert re.search(r'\?start=go-[\w-]+">Pick me</a>', body)
     assert "Pick me (1)" not in button_texts(markup)
     assert "Skip me (2)" not in button_texts(markup)
+    assert "2/2" in button_texts(markup)
+    assert (await place_of(sessions, markup, "2/2")).args["page"] == 1
     assert await plan_filters(sessions, markup) == [request_id]
     async with sessions() as session:
         assert (await session.get(Card, ids["pick"])).effective_stage == CardStage.SPRINT.value
@@ -445,9 +466,10 @@ async def test_pl_plan_016_a_return_tap_moves_the_card_back_and_redraws_the_same
 
 async def test_opening_a_card_from_the_plan_comes_back_to_the_same_page_and_filters(sessions, effort_on):
     await seed_plan(sessions)
+    await extra_backlog(sessions, 11)
     async with sessions() as session:
         request = await create_saved_request(
-            session, "Only Pick me", "SELECT 'card' AS item_type, id FROM ai_cards WHERE title = 'Pick me'",
+            session, "Pick Actions", "SELECT 'card' AS item_type, id FROM ai_cards WHERE title LIKE 'Pick%'",
             views=ALLOWED_VIEWS,
         )
         await session.commit()
@@ -455,7 +477,8 @@ async def test_opening_a_card_from_the_plan_comes_back_to_the_same_page_and_filt
 
     services = services_for(sessions)
     screen = FakeMessage(103, bot_message=True)
-    await render_plan(screen, services, filters=[request_id])
+    await render_plan(screen, services, page=1, filters=[request_id])
+    assert "2/2" in button_texts(screen.edits[-1][1])
     assert "Skip me (2)" not in button_texts(screen.edits[-1][1])
 
     await tap_link(services, screen.edits[-1][0], "Ship it", screen.bot)
@@ -476,6 +499,8 @@ async def test_opening_a_card_from_the_plan_comes_back_to_the_same_page_and_filt
     assert "Pick me (1)" in labels
     assert "Skip me (2)" not in labels
     assert "Apply filter (1)" in " ".join(labels)
+    assert "2/2" in labels
+    assert (await place_of(sessions, screen.edits[-1][1], "2/2")).args["page"] == 1
 
 
 async def test_pl_plan_017_a_filter_that_matches_nothing_says_so_instead_of_going_blank(sessions):
@@ -562,6 +587,7 @@ async def test_pl_plan_019_a_burst_of_link_taps_earns_a_warning(sessions, monkey
     import tg_agent_shell.telegram.chat as messaging
 
     monkeypatch.setattr(messaging, "TOAST_SECONDS", 0)
+    monkeypatch.setattr("tg_agent_shell.telegram.callbacks.monotonic", lambda: 100.0)
     await seed_plan(sessions)
     services = services_for(sessions)
     screen = FakeMessage(106, bot_message=True, answer_as_new=True)

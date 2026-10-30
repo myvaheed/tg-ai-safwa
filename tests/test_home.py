@@ -145,7 +145,7 @@ def _drawn(rows) -> list[tuple[int, str, list[str]]]:
 
 
 @pytest.mark.parametrize("higher,first,third", [
-    ("A", "X", False), ("B", "X", False), ("A", "Y", False), ("A", "X", True),
+    ("A", "X", False), ("A", "Y", False), ("A", "X", True),
 ])
 async def test_pl_key_025_a_card_stands_under_the_goal_with_most_of_today(
     sessions, higher, first, third

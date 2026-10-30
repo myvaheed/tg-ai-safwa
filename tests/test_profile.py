@@ -97,7 +97,6 @@ async def test_profile_rejects_an_undeclared_field_without_changes(sessions) -> 
 def test_the_declared_fields_are_exactly_the_editable_settings() -> None:
     """PS-FIELD-002 — tests/brd/profile.feature"""
     # The feature switches are pressed rather than typed.
-    assert len(ProfileField) == 12
     assert {field.value for field in ProfileField} == set(PROFILE_FIELDS) | {
         ProfileField.TIME_TRACKING.value, ProfileField.EFFORT_TRACKING.value,
         ProfileField.THOUGHTS_BY_DEFAULT.value,

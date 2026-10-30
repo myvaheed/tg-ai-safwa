@@ -14,8 +14,8 @@ The exhaustive pass starts at ccf901e9: 3237 collected cases, 1680 test function
 180 files and 206 opt-in cases. Its baseline is quality-10-accepted. The frozen assignments
 contain 166 groups of at most 20 cases, including 48 groups and 944 cases in batch 1.
 Reports retain the original IDs even after a case is removed or consolidated.
-The earlier records below remain historical. Exhaustive batches 1–8 are accepted as luna-01
-through luna-08 in v9.286–v9.293; batches 9–10 are unfinished.
+The earlier records below remain historical. Exhaustive batches 1–9 are accepted as luna-01
+through luna-09 in v9.286–v9.294; batch 10 is unfinished.
 
 ## Exhaustive batch 1
 
@@ -262,6 +262,47 @@ Ruff and architecture checks pass. No line or branch loss against luna-07 or the
 quality-10-accepted baseline; source/settings/dependency hashes match. Reconciliation finds
 only the removed sum parameter: 2682 cases, 1680 functions, 180 files and all 206 opt-in IDs.
 Provider/Telegram/model opt-ins remain unexecuted.
+
+## Exhaustive batch 9
+
+Accepted in v9.294, the commit carrying this record. All 353 original cases in 18 groups have
+explicit Luna/high verdicts with exact assignment IDs. The parent rejected a false root-tool
+diagnosis: the placeholder-input E2E already routes through workspace_mutator. Its reviewer
+reread all 20 assigned cases and corrected the report. Rename that case to say parentless
+Action, and correct the adjacent Sprint test's PL-SCOPE-007 citation to PL-SCOPE-006.
+
+Remove the aligned-priority B-X-False parameter from the Goal-parent choice matrix. Retain
+A-X-False, which asserts the same count-first result against a conflicting Goal priority,
+the reversed Action order and the equal-count tie. Prioritizing Goal rank over Action count
+fails two old cases and still fails both after consolidation; the removed case passes that
+fault. Rename the existing manual-Note/AI-title Thought edit test to its actual kind-preserving
+contract. Its scripted known-ID edit does not establish automatic Thought selection, which
+the approved WS-CAPTURE-008 does not require.
+
+The eight existing Thought decision paths now assert the chosen Quality Plan/Direct Create
+intent in user-side provider messages and absence of the opposite intent. Dropping the
+instruction passed all eight old cases and fails all eight revised cases; the correct path
+passes. These checks establish the request boundary, not live model judgment.
+
+Extend the three existing plan tests across the actual ten-item page boundary and page 2,
+including a filtered move and a Card's Back navigation. Resetting the page to zero passed all
+three old cases and fails all three revised cases. Control monotonic time in the burst-tap
+test. Remove the incidental Profile enum length assertion while retaining exact agreement
+between declared fields, editable controls and pressed switches; PS-THOUGHT-026 explicitly
+authorizes the Thoughts switch despite PS-FIELD-002's older count wording.
+
+The existing Sprint-expiry archive scenario now includes an answered Check, a future expiry
+query while in Planning, and assertions before and at the archive threshold. Omitting the
+Check archiver passed the old Card-only case and fails the revised Check assertion. The
+automatic path calls the same finish_sprint operation as manual completion, so no duplicate
+reason-only parameter is added. The original Card assertion remains.
+
+The first affected/traceability run passes 116 cases; the additional Planning, Profile, Sprint
+and Check run passes 103. Ruff passes. No added test function or application, prompt, schema
+or approved behavior change. Snapshot luna-09: 2475 passed, 206 skipped in 175.51 seconds;
+Ruff and architecture pass. Source/settings/dependency hashes match. No line or branch loss
+against luna-08 or quality-10-accepted. Reconciliation finds one removed parameter and two
+function renames: 2681 cases, 1680 functions, 180 files and all 206 opt-in IDs.
 
 ## Objective and scope
 
