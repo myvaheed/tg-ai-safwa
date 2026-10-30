@@ -137,10 +137,16 @@ async def test_windows_that_leave_no_time_of_day_are_refused():
 async def test_windows_that_leave_no_time_of_day_are_never_stored(sessions):
     """PS-QUIET-025 — tests/brd/profile.feature"""
     async with sessions() as session:
+        await set_profile_field(session, ProfileField.DONT_DISTURB, ["13:00-14:00"])
+        await session.commit()
         with pytest.raises(DomainError, match="no time of day"):
             await set_profile_field(
                 session, ProfileField.DONT_DISTURB, ["08:00-20:00", "20:00-08:00"]
             )
+        assert await dont_disturb(session) == ["13:00-14:00"]
+        await session.commit()
+    async with sessions() as session:
+        assert await dont_disturb(session) == ["13:00-14:00"]
 
 
 async def test_hours_asked_for_in_words_are_read_before_the_screen(sessions):

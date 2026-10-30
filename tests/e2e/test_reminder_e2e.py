@@ -111,6 +111,7 @@ async def test_discarding_the_proposal_leaves_no_reminder(e2e_harness):
 
     outcome = await advisor.handle("nudge me about posture", source_message_id=1)
 
+    assert outcome.proposal_id is not None
     async with e2e_harness.sessions() as session:
         advisor.reviews.end_proposal(outcome.proposal_id)
         await session.commit()

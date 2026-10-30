@@ -60,6 +60,7 @@ async def test_the_reminders_screen_lists_opens_and_confirms_a_delete(sessions) 
     empty = FakeMessage(60, bot_message=True)
     await render_reminders(empty, services)
     assert "Ask your advisor" in empty.edits[-1][0]  # no creation button, and it says why
+    last_day = f"{datetime.now(UTC) + timedelta(days=30):%d.%m.%Y}"
 
     async with sessions() as session:
         soon = await create_reminder(
@@ -68,20 +69,24 @@ async def test_the_reminders_screen_lists_opens_and_confirms_a_delete(sessions) 
             schedule=resolve(interval_minutes=120, now=datetime.now(UTC), tz=ZoneInfo("UTC")),
             tz=ZoneInfo("UTC"),
         )
-        await create_reminder(
+        later = await create_reminder(
             session,
             remind_text="Review the launch plan.",
-            schedule=resolve(days=["Mon"], clock="08:30", now=datetime.now(UTC), tz=ZoneInfo("UTC")),
+            schedule=resolve(
+                days=["Mon"], clock="08:30", until=last_day, limit=10,
+                now=datetime.now(UTC), tz=ZoneInfo("UTC"),
+            ),
             tz=ZoneInfo("UTC"),
         )
         await session.commit()
         soon_id = soon.id
+        later_id = later.id
 
     listing = FakeMessage(61, bot_message=True)
     await render_reminders(listing, services)
     labels = button_texts(listing.edits[-1][1])
     assert labels[0] == "Take a walk. · every 2 hours"  # what it is about, then when
-    assert labels[1].startswith("Review the launch plan. · every Mon at 08:30")  # soonest first
+    assert labels[1] == f"Review the launch plan. · every Mon at 08:30, until {last_day}, 10 times"
 
     detail = FakeMessage(62, bot_message=True)
     await render_reminder(detail, services, soon_id)
@@ -113,6 +118,14 @@ async def test_the_reminders_screen_lists_opens_and_confirms_a_delete(sessions) 
     async with sessions() as session:
         assert await session.get(Reminder, soon_id) is not None  # one confirmation, not none
 
+    confirm = prompt_markup.inline_keyboard[0][0]
+    await callback_token_handler(
+        FakeCallback(confirm.callback_data.split(":", 1)[1], detail), services
+    )
+    async with sessions() as session:
+        assert await session.get(Reminder, soon_id) is None
+        assert await session.get(Reminder, later_id) is not None
+
 
 async def test_a_reminder_remind_made_is_named_by_its_item(sessions) -> None:
     """RM-UI-023 — tests/brd/reminders.feature"""
@@ -142,7 +155,11 @@ async def test_a_reminder_remind_made_is_named_by_its_item(sessions) -> None:
 async def test_a_reminder_proposal_reads_as_its_words_and_its_times(sessions) -> None:
     """RM-WRITE-008 — tests/brd/reminders.feature"""
     now = datetime.now(UTC)
-    schedule = resolve(clock="09:00", days=WEEKDAY_NAMES, now=now, tz=ZoneInfo("UTC"))
+    last_day = f"{now + timedelta(days=30):%d.%m.%Y}"
+    schedule = resolve(
+        clock="09:00", days=WEEKDAY_NAMES, until=last_day, limit=10, now=now, tz=ZoneInfo("UTC")
+    )
+    schedule_text = f"every day at 09:00, until {last_day}, 10 times"
     async with sessions() as session:
         created = await ReminderProposalPresenter().screen(
             session,
@@ -153,7 +170,7 @@ async def test_a_reminder_proposal_reads_as_its_words_and_its_times(sessions) ->
                     values={
                         "remind_text": "Call mum.",
                         "schedule": schedule_payload(schedule),
-                        "schedule_text": "every day at 09:00",
+                        "schedule_text": schedule_text,
                     },
                 )
             ],
@@ -176,7 +193,7 @@ async def test_a_reminder_proposal_reads_as_its_words_and_its_times(sessions) ->
 
     assert created.item == "Reminder"
     when, first, words = (field_line(field, Effect.CREATE) for field in created.fields)
-    assert when == "<i>🔁 When:</i> every day at 09:00" and first.startswith("<i>⏭ First:</i> ")
+    assert when == f"<i>🔁 When:</i> {schedule_text}" and first.startswith("<i>⏭ First:</i> ")
     assert words == "<i>Words:</i> Call mum."
     assert not any("interval" in line or "{" in line for line in (when, first, words))
     assert [field_line(field, Effect.UPDATE) for field in edited.fields] == [

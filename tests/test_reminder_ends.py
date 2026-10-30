@@ -132,7 +132,7 @@ def test_a_bound_that_cannot_end_a_repeat_is_refused(kwargs, message):
         resolve(now=NOW, tz=TZ, **kwargs)
 
 
-def test_the_screens_say_the_last_day_and_the_total():
+def test_the_schedule_description_and_payload_preserve_the_last_day_and_total():
     """RM-END-036 — tests/brd/reminders.feature"""
     schedule = resolve(
         days=EVERY_DAY, clock="09:00",

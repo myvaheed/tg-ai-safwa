@@ -394,15 +394,14 @@ async def test_a_corrected_answer_says_nothing(sessions):
     assert len(await said(sessions)) == 1
 
 
-@pytest.mark.parametrize("checks", [3, 4])
 @pytest.mark.parametrize(("answer", "in_row"), [("any", False), ("yes", True)])
-async def test_answers_saved_together_count_one_by_one(sessions, checks, answer, in_row):
+async def test_answers_saved_together_count_one_by_one(sessions, answer, in_row):
     """RM-COND-032 — tests/brd/reminders.feature"""
     sink = hook_sink(sessions)
     async with sessions() as session:
         card = await create_card(session, kind="action", title="Go to the market", stage="today")
         check_ids = []
-        for title in ("Milk", "Bread", "Eggs", "Tea")[:checks]:
+        for title in ("Milk", "Bread", "Eggs", "Tea"):
             check = await create_check(session, title=title)
             await toggle_card_check(session, card.id, check.id)
             check_ids.append(check.id)

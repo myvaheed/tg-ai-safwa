@@ -108,6 +108,21 @@ async def test_one_cue_carries_at_most_the_batch_size(sessions):
     waiting = await said(sessions)
     assert len(waiting) == 1
     assert waiting[0].startswith(f"{REMINDER_FIRE_BATCH} Reminders triggered.")
+    async with sessions() as session:
+        still_due = list(await session.scalars(select(Reminder).where(Reminder.next_fire_at <= NOW)))
+        assert len(still_due) == 2
+        pending_ids = {reminder.id for reminder in still_due}
+        for cue in await session.scalars(select(Cue)):
+            await session.delete(cue)
+        await session.commit()
+
+    assert await tick(sessions, tz=TZ, now=NOW) is True
+    (following,) = await said(sessions)
+    assert following.startswith("2 Reminders triggered.")
+    for reminder_id in pending_ids:
+        assert f"Reminder #{reminder_id}\n" in following
+    async with sessions() as session:
+        assert list(await session.scalars(select(Reminder).where(Reminder.next_fire_at <= NOW))) == []
 
 
 async def test_the_oldest_due_reminders_go_first(sessions):

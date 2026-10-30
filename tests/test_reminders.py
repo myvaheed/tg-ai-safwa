@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from datetime import UTC, datetime, time
+from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -297,8 +297,8 @@ def test_a_quiet_window_edge_survives_a_daylight_saving_shift():
 
 
 def test_roll_forward_skips_every_missed_interval_at_once():
-    schedule = resolve(interval_minutes=120, now=NOW, tz=TZ)
     missed = utc(2026, 8, 10, 9, 0)  # three days of two-hour slots
+    schedule = resolve(interval_minutes=120, now=missed, tz=TZ)
     landed = roll_forward(schedule, previous=missed, now=NOW, tz=TZ)
     assert landed == utc(2026, 8, 13, 11, 0)
     assert (landed - missed).total_seconds() % (120 * 60) == 0  # still on the anchor's grid
@@ -311,16 +311,17 @@ def test_roll_forward_skips_missed_weekly_occurrences():
 
 
 def test_roll_forward_leaves_a_one_shot_where_it_is():
-    schedule = resolve(clock="09:00", day="20.08.2026", now=NOW, tz=TZ)
     overdue = utc(2026, 8, 12, 6, 0)
+    schedule = resolve(clock="09:00", day="12.08.2026", now=overdue - timedelta(hours=1), tz=TZ)
     assert roll_forward(schedule, previous=overdue, now=NOW, tz=TZ) == overdue
 
 
 def test_roll_forward_respects_quiet_windows():
-    schedule = quiet(resolve(interval_minutes=120, now=NOW, tz=TZ), "22:00-09:00")
-    landed = roll_forward(schedule, previous=utc(2026, 8, 1, 3, 0), now=NOW, tz=TZ)
+    missed = utc(2026, 8, 1, 3, 0)
+    schedule = quiet(resolve(interval_minutes=120, now=missed, tz=TZ), "22:00-09:00")
+    landed = roll_forward(schedule, previous=missed, now=NOW, tz=TZ)
     local = landed.astimezone(TZ).time()
-    assert time(9, 0) <= local < time(22, 0)
+    assert local == time(14, 0)
 
 
 # --- persistence round trip -----------------------------------------------

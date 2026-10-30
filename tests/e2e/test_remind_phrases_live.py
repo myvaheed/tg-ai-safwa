@@ -194,8 +194,9 @@ async def test_the_model_proposes_a_new_item_with_its_remind(settings, e2e_harne
     assert sent[-1].get("remind") == case.minutes
 
 
-async def test_the_model_asks_when_a_new_item_to_remind_of_has_no_time(settings, e2e_harness) -> None:
+async def test_no_time_for_a_new_items_remind_is_answered_without_a_proposal(settings, e2e_harness) -> None:
     """SCH-REMIND-029 — tests/brd/schedules.feature"""
     _, outcome = await _ask_live(settings, e2e_harness, NO_TIME)
     print(f"{NO_TIME!r} came back as {outcome.kind}: {outcome.message!r}")
     assert outcome.kind is AIOutcomeKind.ANSWER
+    assert outcome.proposal_id is None

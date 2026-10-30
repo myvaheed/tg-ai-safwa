@@ -278,8 +278,7 @@ def test_one_firing_reads_as_one():
     assert text.startswith("1 Reminder triggered.")
     assert "Reminder #7" in text
     assert "Was due" not in text
-    assert "check their current state with query_data" in text
-    assert "it may no longer apply" in text
+    assert "query_data" in text
     assert "   The user asked to be reminded of: Ask me what to start with today." in text
 
 

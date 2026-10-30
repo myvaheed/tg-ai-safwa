@@ -14,8 +14,8 @@ The exhaustive pass starts at ccf901e9: 3237 collected cases, 1680 test function
 180 files and 206 opt-in cases. Its baseline is quality-10-accepted. The frozen assignments
 contain 166 groups of at most 20 cases, including 48 groups and 944 cases in batch 1.
 Reports retain the original IDs even after a case is removed or consolidated.
-The earlier records below remain historical. Exhaustive batches 1–6 are accepted as luna-01
-through luna-06 in v9.286–v9.291; batches 7–10 are unfinished.
+The earlier records below remain historical. Exhaustive batches 1–7 are accepted as luna-01
+through luna-07 in v9.286–v9.292; batches 8–10 are unfinished.
 
 ## Exhaustive batch 1
 
@@ -194,6 +194,48 @@ Ruff and architecture checks pass. Source/settings/dependency hashes match; no l
 loss against luna-05 or quality-10-accepted. Inventory remains exactly 2685 cases, 1680
 functions, 180 files and 206 opt-in IDs, with no renamed, added or removed ID. No application,
 prompt, schema or approved behavior changed.
+
+## Exhaustive batch 7
+
+Accepted in v9.292, the commit carrying this record. All 275 original cases in 14 groups have
+explicit Luna/high verdicts with exact assignment IDs; the parent checked every proposed
+merge or repair and the reported setup uncertainties.
+
+Keep only the four-Check setup in test_answers_saved_together_count_one_by_one, at both
+any-answer and yes-streak boundaries. It retains the third-answer cue with the exact count
+and absence of a fourth-answer duplicate. A fault counting the final commit state instead
+of each answer's position passes both three-Check cases and fails both four-Check cases;
+the two retained cases still fail after consolidation. Net removal: two collected cases.
+
+Strengthen the existing delete-screen flow through its confirmation callback, asserting the
+selected Reminder disappears and its neighbor remains. Extend the existing batch-size test
+to assert that two excess Reminders stay due and actually enter the next Cue after the first
+is consumed. No-op deletion and dropping excess rows each passed the respective old test;
+the revised tests fail on the remaining row and zero pending rows respectively.
+
+The quiet-window refusal now verifies that a nondefault saved setting survives the refusal
+and caller commit. The Discard flow establishes a proposal existed. Repair contradictory
+interval/one-shot anchors, and assert the quiet-window interval's exact 14:00 grid result.
+Keep the cue's query_data boundary identifier without pinning its surrounding prose.
+Rename the helper-only bounds check to describe its actual formatter/payload contract;
+extend the existing list and proposal screens with bounds instead. The fired-total detail
+already has an assertion in test_it_fires_its_total_and_then_deletes_itself. Keep the empty
+schedule formatter as an incomplete-storage guard.
+
+The no-time live example now asserts no proposal and has a name limited to the observable
+answer/no-proposal result. It does not establish the semantics of a live clarification.
+All 184 affected local tests pass; 18 live-provider cases remain skipped. No new function or
+application, prompt, schema or approved behavior change. Snapshot luna-07: 2477 passed,
+206 skipped in 164.70 seconds; Ruff and architecture checks pass. Inventory is 2683 cases,
+1680 functions and 180 files. The two retained condition cases lose their checks=4 suffix;
+the formatter and one live case are renamed, retaining all 206 opt-ins.
+
+There is no line or branch loss against quality-10-accepted. Against luna-06, Cards line 568,
+Check review line 119 and the registry arc 181→179 lose incidental gains absent from the
+original baseline. Recorded contexts are the unchanged parent-completion, answered-Check
+and startup tests respectively, not the removed three-Check cases. Application hashes and
+those test bodies are unchanged. Preserve both comparisons and context evidence rather
+than restoring an unrelated parameter to chase their execution timing.
 
 ## Objective and scope
 
