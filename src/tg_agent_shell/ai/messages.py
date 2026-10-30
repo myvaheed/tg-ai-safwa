@@ -115,7 +115,7 @@ class ContextBuilder:
         so it stands before the state, which a Save changes, and the head stays cached for
         the whole subsession.
         """
-        messages: list[dict[str, Any]] = [{"role": "system", "content": talk.prompt}]
+        messages: list[dict[str, Any]] = [{"role": "system", "content": await talk.resolve_prompt()}]
         opened_from = (
             conversation_for(await talk.conversation(), talk.history_messages)
             if talk.conversation is not None
@@ -150,7 +150,7 @@ class ContextBuilder:
         byte-identical and the volatile part stays last.  The receipts sit outside the
         conversation, so the window the subagent declared never trims them away.
         """
-        messages: list[dict[str, Any]] = [{"role": "system", "content": routed.prompt}]
+        messages: list[dict[str, Any]] = [{"role": "system", "content": await routed.resolve_prompt()}]
         if routed.workspace_state:
             async with self.sessions() as session:
                 context = await self.workspace_state(session)

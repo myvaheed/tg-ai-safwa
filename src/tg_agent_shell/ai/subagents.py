@@ -29,7 +29,7 @@ class RoutedSubagent:
     name: str
     # The whole of what this subagent reads before the conversation, composed by the
     # application: no voice of any product is written here.
-    prompt: str
+    prompt: str | Callable[[], Awaitable[str]]
     # `query_data` for this reader alone, over the views it declared. The prompt says what
     # they are and this refuses everything else, out of the one declaration.
     query_runner: ReadOnlyQueryRunner | None = None
@@ -52,3 +52,6 @@ class RoutedSubagent:
     # The conversation a subsession with it was opened from, read again at every step: it
     # does not change while the subsession is open.
     conversation: Callable[[], Awaitable[list[dict[str, Any]]]] | None = field(default=None)
+
+    async def resolve_prompt(self) -> str:
+        return await self.prompt() if callable(self.prompt) else self.prompt

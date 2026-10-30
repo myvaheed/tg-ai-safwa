@@ -392,6 +392,18 @@ the tested failures, not the absence of every bug. The 206 opt-in paths were rev
 not executed; controlled encoders, providers and ASR stubs do not establish live model,
 recognition or Telegram accuracy.
 
+Acceptance establishes completion of the assigned per-case review and verification of the
+recorded changes. It does not establish global minimality of the remaining suite. Of the
+563 fewer executions, 547 were empty parameter inputs. No complete failure-to-test map was
+built across all batches; a KEEP verdict names useful protection and nearby comparisons,
+but is not proof that every retained scenario is independently necessary. Preserved coverage
+does not prove that no cross-file duplication remains.
+
+The audit counts and coverage snapshots above describe revision 6cbcde6. Integration with
+main also includes its separately developed live creation-policy selection change; its
+additional cases are outside the frozen audit inventory. Integration validation is recorded
+with the merge commit.
+
 ## Objective and scope
 
 Review whether the existing tests detect their claimed failures through justified setup,

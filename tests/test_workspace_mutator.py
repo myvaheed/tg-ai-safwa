@@ -24,6 +24,7 @@ from safwa.bootstrap.modules import (
     PROPOSALS,
     SCREENS,
     SYSTEM_PROMPT,
+    routed_prompt,
 )
 from safwa.features.advisor.agent import ADVISOR_VIEWS
 from safwa.features.cards.use_cases import create_card, finish_action
@@ -136,6 +137,40 @@ async def test_ws_context_004_the_advisor_reads_it_always_and_a_subagent_only_wh
     assert "Workspace mode: sprint" in asked
     assert "Workspace mode: sprint" not in did_not
     assert DIARY_AGENT.workspace_state is False
+
+
+async def test_mutator_selects_one_creation_rule_from_the_live_profile(read_views):
+    """PS-THOUGHT-026 — tests/brd/profile.feature"""
+    sessions, runner = read_views
+    spec = next(agent for agent in AGENTS if agent.name == "workspace_mutator")
+    routed = spec.bind(
+        AgentContext(owner_id=42, timezone="Europe/Istanbul", query_runner=runner,
+                     history=SimpleNamespace(), sessions=sessions),
+        prompt=routed_prompt(spec),
+    )
+    builder = ContextBuilder(
+        sessions, _NoMemory(), workspace_context, system_prompt=SYSTEM_PROMPT,
+        subagents={routed.name: routed},
+    )
+    prefixes = []
+    for on in (False, True, True, False):
+        async with sessions() as session:
+            await set_profile_field(session, ProfileField.THOUGHTS_BY_DEFAULT, on)
+            await session.commit()
+        messages = await builder.messages_for(routed.name, [])
+        prefix = messages[0]["content"]
+        prefixes.append(prefix)
+        assert messages[0]["role"] == "system"
+        assert ("Otherwise, create a Thought" in prefix) is on
+        assert ("Otherwise, create the requested type" in prefix) is not on
+        assert "read Thoughts by default" not in prefix
+        for context in (messages, await builder.root([])):
+            serialized = json.dumps(context)
+            assert "Thoughts by default:" not in serialized
+            assert "thoughts_by_default" not in serialized
+    assert prefixes[0] == prefixes[3]
+    assert prefixes[1] == prefixes[2]
+    assert prefixes[0] != prefixes[1]
 
 
 async def test_ws_context_005_the_mode_comes_first_and_the_owner_next(sessions):

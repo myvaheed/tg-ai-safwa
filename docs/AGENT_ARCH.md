@@ -325,6 +325,12 @@ closest to that conversation's end first (`RM-AGENT-041`). An empty block adds n
 told only while a switch is on, such as Blueprint's Effort, costs nothing while it is off. Putting
 them in the prompt would break the byte-stable prefix.
 
+Stable configuration may select a system prompt. `RoutedSubagent.prompt` accepts a string
+or an async supplier, resolved before each step for routed agents and subsessions alike.
+Mutator's own `AgentSpec.bind` reads Profile through that supplier and selects one of two
+creation rules. Each variant is byte-stable while the setting is unchanged and is covered
+by the prompt snapshot; the raw switch is absent from the shared workspace context.
+
 ## `route` — one turn handed to a subagent
 
 ```mermaid

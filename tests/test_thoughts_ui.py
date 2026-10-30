@@ -169,7 +169,7 @@ async def test_thought_default_switch_is_persisted_and_read_live(sessions):
             profile = await session.get(UserProfile, 1)
             assert profile.thoughts_by_default is on
             assert (profile.time_tracking, profile.effort_tracking) == (time, effort)
-            assert f"Thoughts by default: {'on' if on else 'off'}" in (await workspace_context(session)).state
+            assert "Thoughts by default:" not in (await workspace_context(session)).state
         assert f"thoughts_by_default: {'on' if on else 'off'}" in await profile_now(SimpleNamespace(sessions=sessions, switches=()), "")
     with pytest.raises(DomainError):
         validated_profile_value(ProfileField.THOUGHTS_BY_DEFAULT, "yes")
