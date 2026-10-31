@@ -127,8 +127,10 @@ relevant is lost to a top-k taken before the filter. Until the text model has lo
 failed, the meaning half is empty and a search ranks by words alone. An application with no index
 answers a read with `search` as a retryable error that tells the model to filter with WHERE.
 
-The rule a model needs — what `search` does and how to order by it — is written once, in the
-description of `QueryToolInput.search`; a view's `doc` only lists `relevance` among its columns.
+What `search` does and how to order by it is written in the description of
+`QueryToolInput.search`; a view's `doc` only lists `relevance` among its columns. Safwa's
+prompts that read the workspace — the Advisor, the Diary and `READING_THE_WORKSPACE` — add one
+line on when to use it.
 
 ### `alike`: the creating screen (shell)
 
@@ -173,7 +175,7 @@ Safwa's choices sit in [modules.py](../src/safwa/bootstrap/modules.py):
   | View | Item type | Table | Fields |
   |---|---|---|---|
   | `ai_cards` | `card` | `cards` | title, note, blocked_description |
-  | `ai_checks` | `check` | `checks` | title |
+  | `ai_checks` | `check` | `checks` | title, note |
   | `ai_values` | `value` | `values` | name, description |
   | `ai_tags` | `tag` | `tags` | name, description |
   | `ai_requests` | `request` | `saved_requests` | name, description |

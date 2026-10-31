@@ -29,6 +29,7 @@ from llm_gateway import LlmProvider, OpenAICompatibleConfig, OpenAICompatiblePro
 from telegram_llm import ChatHost
 from tg_agent_shell.ai.messages import StateBlocks
 from tg_agent_shell.ai.sql import ReadOnlyQueryRunner, create_ai_views, view_catalogue
+from tg_agent_shell.cues.module import CUE_QUEUE, BackgroundContext
 from tg_agent_shell.foundation.database import Database, DatabaseFile, upgrade_database
 from tg_agent_shell.foundation.key_file import create_key, key_path, unlock_database
 from tg_agent_shell.history import TelegramHistorySource, TelegramNotes
@@ -266,12 +267,24 @@ async def main() -> None:
     dispatcher.include_router(build_router(services.commands))
     dispatcher["services"] = services
     await sync_bot_commands(bot, services.commands)
+    # No hook here, so no tick poll; the Cue poll is what closes a review nobody answered.
+    background = BackgroundContext(
+        owner_id=owner_id,
+        timezone=timezone,
+        scheduler_enabled=True,
+        poll_seconds=30.0,
+        sessions=prepared.database.sessions,
+        bot=bot,
+        services=services,
+    )
+    cue_queue = asyncio.create_task(CUE_QUEUE.run(background), name=CUE_QUEUE.name)
     try:
         await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
     finally:
+        cue_queue.cancel()
         for timer in tuple(timers):
             timer.cancel()
-        await asyncio.gather(*timers, return_exceptions=True)
+        await asyncio.gather(cue_queue, *timers, return_exceptions=True)
         await provider.aclose()
         await bot.session.close()
         await prepared.database.dispose()

@@ -18,8 +18,8 @@ Every owner update reaches the shell's access gate before command parsing, edito
 media download or background cancellation. Locked commands, callbacks, links, edits and
 media cannot invoke their handlers, so an item link in a message shown while locked opens
 nothing. A new text message matching the word exactly unlocks; other inputs receive
-“Сначала введите Secret word.” Attempts retain only operational message identifiers, never
-their text, and do not cancel background work. After unlocking, only the last eligible
+“Сначала введите Secret word.” The database keeps only an attempt's operational message
+identifiers, never its text, and attempts do not cancel background work. After unlocking, only the last eligible
 message is processed: words for the Advisor enter conversation history, and commands reach
 their ordinary handlers.
 

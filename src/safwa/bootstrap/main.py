@@ -46,7 +46,7 @@ from ..features.checks.check_review import CheckReviewer
 from ..features.compass.graph_review import GraphReviewer
 from ..features.diagnostics.module import SHOW_ANSWER_SOURCE
 from ..features.home.motivation import Motivator
-from ..features.memory.absorb import PatternReviewer
+from ..features.memory.pattern_review import PatternReviewer
 from ..features.memory.use_cases import BackgroundRunner, MemoryReader
 from ..features.planning.key_actions import KeyActions
 from ..features.profile.api import secret_word_verifier

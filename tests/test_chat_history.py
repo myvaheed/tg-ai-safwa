@@ -504,6 +504,14 @@ async def test_a_read_comes_back_as_its_call_and_a_receipt_comes_back_whole(sess
         ],
     }
     rows = {"role": "tool", "tool_call_id": "read-1", "name": "query_data", "content": "[{\"id\": 1}]"}
+    own_read = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {"id": "read-2", "type": "function", "function": {"name": "get_scheduled", "arguments": "{}"}}
+        ],
+    }
+    own_rows = {"role": "tool", "tool_call_id": "read-2", "name": "get_scheduled", "content": "[{\"id\": 7}]"}
     receipt = route_result("call-1", "✅ Saved — Edit Action “Buy milk”")
     # An order a result gave at its step is never obeyed again from a later turn.
     ordered = {
@@ -514,11 +522,17 @@ async def test_a_read_comes_back_as_its_call_and_a_receipt_comes_back_whole(sess
         ),
     }
 
-    turn = kept_turn([read, rows, route_call("call-1"), ordered], "Renamed it.")
+    turn = kept_turn(
+        [read, rows, own_read, own_rows, route_call("call-1"), ordered],
+        "Renamed it.",
+        reads=frozenset({"get_scheduled"}),
+    )
 
     assert turn == (
         read,
         {**rows, "content": json.dumps(CLEARED_READ)},
+        own_read,
+        {**own_rows, "content": json.dumps(CLEARED_READ)},
         route_call("call-1"),
         receipt,
         {"role": "assistant", "content": "Renamed it."},

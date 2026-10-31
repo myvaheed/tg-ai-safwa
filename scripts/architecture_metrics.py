@@ -51,7 +51,10 @@ ENTITIES = tuple(
 # a business file that reads it takes its decisions from the environment instead of from
 # its arguments; `safwa/config.py` is where this application keeps it.
 DELIVERY_PACKAGES = ("aiogram", "openai", "telethon", "telegram_llm", "llm_gateway")
-BUSINESS_FILES = ("rules.py", "model.py", "use_cases.py", "hierarchy.py", "ordering.py", "data.py")
+BUSINESS_FILES = (
+    "rules.py", "model.py", "use_cases.py", "hierarchy.py", "ordering.py", "closing.py", "weeks.py",
+    "absorb.py", "render.py",
+)
 SETTINGS_MODULE = "safwa.config"
 
 # Rule F: packages that import no Safwa. That is what the rule proves — not that the
@@ -75,9 +78,16 @@ PROCESS_PACKAGES = (
 )
 
 # Rule E: how deep into a feature a door reaches, and how deep a module is allowed to reach.
-# Anything not named here is assembly, which is the top and may open every door.
-DOOR_LAYERS = {"api": 1, "ordering": 1, "use_cases": 2, "hierarchy": 2, "telegram": 3}
-MODULE_LAYERS = {"model.py": 1, "api.py": 1, "ordering.py": 1, "use_cases.py": 2, "hierarchy.py": 2, "hooks.py": 3}
+# Anything not named here is assembly, which is the top: it may open every door, and only
+# assembly may open it.
+DOOR_LAYERS = {
+    "model": 1, "api": 1, "ordering": 1, "rules": 1, "closing": 1, "weeks": 1,
+    "use_cases": 2, "hierarchy": 2, "absorb": 2, "render": 2, "telegram": 3,
+}
+MODULE_LAYERS = {
+    "model.py": 1, "api.py": 1, "ordering.py": 1, "rules.py": 1, "closing.py": 1, "weeks.py": 1,
+    "use_cases.py": 2, "hierarchy.py": 2, "absorb.py": 2, "render.py": 2, "hooks.py": 3,
+}
 
 # Rule K: the doors at the operations layer, which is what an `agent.py` may not reach
 # for.  Read from `DOOR_LAYERS` rather than spelled again, so a feature that splits its
@@ -271,12 +281,12 @@ def _union_members(tree: ast.Module) -> set[str]:
 def rule_c() -> list[Violation]:
     """Process state is frozen: every variant of a State, Action or Effect union.
 
-    Scope: `manager.py` and `model.py` inside a feature or inside one of
+    Scope: `manager.py`, `model.py` and `reducer.py` inside a feature or inside one of
     `PROCESS_PACKAGES`. `agent_runtime/` is not under it — a session accumulator is a
     running total, not a transition, and copying it at every step would say nothing.
     """
     out = []
-    for module in process_modules("manager.py", "model.py"):
+    for module in process_modules("manager.py", "model.py", "reducer.py"):
         named = _union_members(module.tree)
         for node in ast.walk(module.tree):
             if isinstance(node, ast.ClassDef) and (
@@ -349,7 +359,7 @@ def rule_e() -> list[Violation]:
             if not parts[index + 1 : index + 2]:
                 continue
             door = parts[index + 2 : index + 3]
-            depth = DOOR_LAYERS.get(door[0], 0) if door else 0
+            depth = DOOR_LAYERS.get(door[0], DOOR_LAYERS["telegram"]) if door else 0
             if depth > layer:
                 out.append(
                     Violation("Rule E", module.rel, line, f"layer {layer} opens {door[0]}: {path}")

@@ -92,7 +92,8 @@ rtk proxy uv run pytest --brd=DI-DAY-001 -q
 
 The feature map shows sources, callers, views, scenarios and tests. The scanner checks structural
 rules; documentation tests check links and spelled names, not semantic agreement with the code.
-Live Telegram/provider checks are opt-in and use QA configuration, never production state;
+Live Telegram/provider checks are opt-in and never touch production state: the Telegram check
+uses QA configuration, the provider check the `.env` provider settings;
 [resolve_qa_config](src/safwa/qa.py) rejects reuse of the production bot token.
 E2E tests use real storage and services, replacing remote boundaries.
 Never edit `telegram-bot-exampler/`, the local reference.

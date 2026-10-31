@@ -979,10 +979,8 @@ async def test_single_tag_proposal_save_and_discard_callbacks_resume_agent(
 
 
 async def test_read_queries_beside_a_proposal_still_resume_the_agent(e2e_harness):
-    """PR-QUEUE-007 — tests/brd/tg_agent_shell/proposals.feature
-
-    A read call in the same turn stores rows, not an outcome; the receipt must survive it.
-    """
+    """PR-QUEUE-007 — tests/brd/tg_agent_shell/proposals.feature"""
+    # A read call in the same turn stores rows, not an outcome; the receipt must survive it.
     async with e2e_harness.sessions() as session:
         await create_manual_card(session, title="Выпустить в прод VrWalk")
         await session.commit()

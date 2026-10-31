@@ -12,10 +12,10 @@ declares the same `FeatureModule`, and a role is only what its declaration turns
 
 | Role | What one owns | In `MODULES` |
 |---|---|---|
-| a domain feature | its own rows, the operations every adapter calls, its screens, and the `ai_*` views it publishes | `cards`, `checks`, `values`, `tags`, `planning`, `retro`, `life`, `diary`, `profile`, `reminders`, `saved_requests`, `memory` |
+| a domain feature | its own rows, the operations every adapter calls, its screens, and the `ai_*` views it publishes | `cards`, `checks`, `values`, `tags`, `planning`, `life`, `diary`, `profile`, `schedules`, `reminders`, `saved_requests`, `memory`; and `retro`, which keeps its analysis on Planning's Sprint row |
 | a reader or a writer for the model | a subagent or a helper, the views its own list names and the tools it may call — no rows of its own | `workspace_mutator`, `heavy_analyzer`, the subagent `diary` declares beside its rows, `onboarding` — a subagent and hooks, with only the rows those hooks keep — and `compass`, a subagent and a hook that read the whole tree, the picture of it the Dashboard's button sends, and the method each feature words for its items, explained when asked; `blueprint`, the agent of one subsession that works new items out with the owner and changes nothing |
 | a screen with no rows behind it | a command, the menu, a report the owner reads | `home`, `diagnostics`, `summary` |
-| a process of the shell | a flow the shell runs for every feature, registered the way a feature is | `proposals` |
+| a process of the shell | a flow the shell runs for every feature, registered the way a feature is | `proposals`, and `media`, the photos the chat keeps |
 
 `features/advisor` is in none of them: it is the persona, the root prompt and `ADVISOR_VIEWS`,
 which [`bootstrap/modules.py`](../src/safwa/bootstrap/modules.py) assembles itself rather than
@@ -123,13 +123,18 @@ safwa/features/<feature>/
 These are the names that recur, not a closed list. A whole responsibility may take a name of its
 own — that is what the last line is — and the question to answer before adding one is whether the
 contents are a responsibility or the leftovers of one of the names above. What a new name costs is
-concrete: **Rules A, E and K reach a file by name**, so a module the scanner's lists do not know
-is a module those rules stop asking about. Splitting the operations layer is three lines in
+concrete: **Rules A, E and K reach a file by name**. A module the scanner's lists do not know is
+assembly to Rule E — only assembly may open it — and Rules A and K stop asking about it.
+Splitting the operations layer is three lines in
 [architecture_metrics.py](../scripts/architecture_metrics.py) — the name in `BUSINESS_FILES`, in
 `MODULE_LAYERS` and in `DOOR_LAYERS` — and `hierarchy.py` is the one that has been paid for: Cards
 keeps the walk that writes the derived columns of every Goal above a Card apart from the
 operations that end at it. Cards' `ordering.py` is declared in the same three lists at layer 1:
-it reads the graph and current Sprint once for a list and writes nothing. `api.py` exports
+it reads the graph and current Sprint once for a list and writes nothing. So are Schedules'
+`rules.py`, Planning's `closing.py` and Life's `weeks.py`, which compute and write nothing.
+Memory's `absorb.py` and `render.py` are declared at layer 2: they take a Sprint into memory and
+say what it shows, and the model's answer reaches them as numbered pairs, so its call stays in
+`pattern_review.py`, assembly. `api.py` exports
 `order_cards`; screens and context builders call it explicitly before their display caps.
 
 **A reducer is a mechanism, not a file every feature owns.** `reduce(state, action) -> (state,
@@ -142,7 +147,7 @@ one of `PROCESS_PACKAGES`.
 
 **The adapter is one file until it is more than one file's worth**, and the rest of Safwa
 writes `from .telegram import ...` either way, so the import does not say which it is. Memory's
-one command is one file; Cards is ten modules. Two names recur inside a package: `screens.py`
+one command is one file; Cards is fourteen modules. Two names recur inside a package: `screens.py`
 is what the owner is taken to, and `handlers.py` is the callback actions the feature publishes.
 `review.py` is the `ProposalPresenter` and the citation label. Everything else is the feature's own,
 because there is no shared vocabulary of screens to hold it to:
@@ -160,6 +165,10 @@ safwa/features/cards/telegram/
   text_input.py    # the typed-value flows
   handlers.py      # CARD_CALLBACK_ACTIONS
   review.py        # ProposalPresenter
+  review_fields.py # what Edit offers on a Card proposal
+  board.py         # the Dashboard and its Backlog
+  thoughts.py      # a Thought's two explicit requests
+  effort_page.py   # the page on what Effort Points mean
 ```
 
 **A screen's address is a `Place`, and the way back travels with it.** A Place is the callback
@@ -222,8 +231,9 @@ directly. The dependency points down throughout; no extra facade is needed.
 
 The consequence is what a door may not hold: **the entity's own operation, which is asked for at
 the operations layer.** So `checks/model.py` says what a Check is called — a name another feature
-has to type comes from `model.py`, which every layer may reach, and its `api.py` holds only the
-method a Check is worded by, not a door in front of the model — while closing an Action asks
+has to type comes from `model.py`, which every layer may reach, and its `api.py` holds the method
+a Check is worded by and the reads of its answers that need no operation, `newest_answers` and
+`answer_run`, not a door in front of the model — while closing an Action asks
 `checks/use_cases.py` to answer one. Screens are the
 top door because a screen is public already: `FeatureModule.screens` hands `render_card` to the
 composition root. Planning reads Cards through their API and draws the Sprint's selected list itself.
@@ -262,9 +272,9 @@ One rule, because the alternative is a reentrancy question with no good answer:
   one — an operation a use case has to call takes the session it was given, and a nested block
   would have no savepoint to roll a caught inner failure back to.
 - A use case whose **answer** turns on the time **takes it as an argument**, and one that only
-  records when something happened does not. Profile and Reminders take a `Clock` the composition
-  root binds to `SystemClock()`, because the scheduled hour and the next fire are decided against
-  the owner's local midnight and timezone. Cards, Checks and Planning call `utcnow()` where they
+  records when something happened does not. Reminders take an optional `now`, because the next
+  fire is decided against the owner's local midnight and timezone, and the Diary agent takes a
+  `Clock` that defaults to `SystemClock()`. Cards, Checks and Planning call `utcnow()` where they
   stamp `archived_at`, `resolved_at` or `actual_ended_at`; later queries may use those recorded facts.
   `sprint_is_due` is the line between the two: it takes an optional `now`, because whether
   a Sprint is over is a decision.

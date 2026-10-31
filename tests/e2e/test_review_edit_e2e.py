@@ -532,7 +532,7 @@ async def test_a_tag_proposal_is_edited_with_the_tags_own_controls(e2e_harness):
 
 
 async def test_a_value_proposal_is_edited_with_the_values_own_controls(e2e_harness):
-    """VL-EDIT-030 — tests/brd/values.feature"""
+    """VL-EDIT-031 — tests/brd/values.feature"""
     ids = await values(e2e_harness, "Old", "Other")
     advisor, _provider, services, message, proposal_id = await review(
         e2e_harness,

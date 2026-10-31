@@ -409,17 +409,22 @@ class AgentManager:
     async def close(self, ref: InteractionRef, results: Mapping[str, Any]) -> list[str] | None:
         """End this session's wait because nobody answered it in time.
 
-        Nothing comes back to it: the session and every caller above it are ended together,
-        so the person's next words start a new request rather than continuing this one. Its
-        own calls are answered in its transcript first, as `interrupt` answers them. Returns
-        what the session had already told the person before it stopped; ``None`` means the
-        reference names nothing.
+        Nothing comes back to it: the session, every caller above it and whatever the root
+        left unfinished below are ended together, so the person's next words start a new
+        request rather than continuing this one. Its own calls are answered in its transcript
+        first, as `interrupt` answers them. Returns what the session had already told the
+        person before it stopped; ``None`` means the reference names nothing.
         """
         record = await self.store.get(ref.run_id)
         if record is None or record.state.get("interaction_token") != ref.token:
             return None
         state, prior = _answered(record, results)
         await self.store.close_chain(ref.run_id, state)
+        root_id = ref.run_id
+        while record is not None and record.parent_run_id is not None:
+            root_id = record.parent_run_id
+            record = await self.store.get(root_id)
+        await self._close_unfinished_children(root_id)
         return prior
 
     async def _hand_up(self, agent: AgentSession, outcome: TurnOutcome) -> TurnOutcome | None:

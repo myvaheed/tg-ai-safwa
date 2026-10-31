@@ -279,7 +279,7 @@ class ToolAdapters:
             )
         # No helper tool: a helper is offered by a complex read, and only the root
         # session's reads are ever offered one.
-        reads_views = routed.query_runner is None or bool(routed.query_runner.views)
+        reads_views = routed.query_runner is not None and bool(routed.query_runner.views)
         talks = routed.title is not None
         first_call_required = not (routed.answers_questions or talks)
         return AgentDefinition(

@@ -197,12 +197,14 @@ flowchart LR
     API["retro/api.py<br/><i>analysed_sprints · mark_absorbed</i>"]
     BG["memory/hooks.py<br/><i>memory.retro, a tick every 60 s</i>"]
     MU["memory/use_cases.py<br/><i>absorb_due, under the lease</i>"]
-    AB["memory/absorb.py<br/><i>the one question, the selection, and the rest</i>"]
+    AB["memory/absorb.py<br/><i>the selection, and what a match is</i>"]
+    PR["memory/pattern_review.py<br/><i>the one question, as numbered pairs</i>"]
     MI["tg_agent_shell/ai/mini.py<br/><i>pattern_review, one call</i>"]
     DB[("memory_pattern<br/>memory_observation")]
     RD["memory/render.py<br/><i>the text the Advisor and /memory read</i>"]
     UC --> API --> MU
-    BG --> MU --> AB --> MI
+    BG --> MU --> AB
+    BG --> PR --> MI
     MU --> DB
     DB --> RD
     API --> RD
@@ -284,14 +286,15 @@ flowchart TD
     T --> P
 ```
 
-**One question, and the rest is code** (`absorb.py`). The Sprint's confirmed `helped` and
+**One question, and the rest is code** (`absorb.py`, with the question in `pattern_review.py`). The Sprint's confirmed `helped` and
 `hurt` items are its candidates, each once. A candidate the Sprint already made last time —
 the same words, the same effect — is not a question: it keeps the pattern it had. The new ones
 are matched against the patterns the *other* Sprints taken in show — `active` over their
 observations, at most 20, and this Sprint left out of the count of Sprints that could have
 confirmed a pattern, so a pattern one Sprint observed is still there for this one to confirm.
 The model is asked once, `pattern_review`, and only when there are both: which candidate names
-the same thing as which pattern, in the same or other words, whatever the effect. The code then
+the same thing as which pattern, in the same or other words, whatever the effect. Its answer
+reaches `absorb.py` as numbered pairs. The code then
 decides what a match is — a number off either list counts for nothing, the first pair about a
 candidate counts — and writes each candidate as an observation of this Sprint's: of the pattern
 it matched, or of a pattern of its own.

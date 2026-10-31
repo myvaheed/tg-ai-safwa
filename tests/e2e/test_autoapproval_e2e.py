@@ -304,10 +304,8 @@ async def test_a_requested_move_is_autoapproved(e2e_harness):
 
 
 async def test_autoapproval_that_cannot_decide_leaves_the_screen_standing(e2e_harness):
-    """PR-AUTO-026 — tests/brd/tg_agent_shell/proposals.feature
-
-    The branch exists so a failure here costs the owner a button press, not their data.
-    """
+    """PR-AUTO-026 — tests/brd/tg_agent_shell/proposals.feature"""
+    # The branch exists so a failure here costs the owner a button press, not their data.
     card = await action(e2e_harness)
     advisor, provider = e2e_harness.advisor(
         [

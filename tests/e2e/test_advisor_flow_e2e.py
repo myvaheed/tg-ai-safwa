@@ -448,10 +448,8 @@ async def test_mixed_query_and_mutation_resumes_only_after_approval(e2e_harness)
 
 
 async def test_resumed_request_replays_its_own_intermediate_steps(e2e_harness):
-    """PR-RESULT-011 — tests/brd/tg_agent_shell/proposals.feature
-
-    A multi-step request must keep every step it already took across each approval.
-    """
+    """PR-RESULT-011 — tests/brd/tg_agent_shell/proposals.feature"""
+    # A multi-step request must keep every step it already took across each approval.
     advisor, provider = e2e_harness.advisor(
         [
             route_turn("workspace_mutator"),
@@ -705,11 +703,9 @@ async def test_a_session_can_only_be_claimed_once(e2e_harness):
 
 
 async def test_ending_a_session_ends_every_unfinished_one_below_it(e2e_harness):
-    """AG-WORDS-020 — tests/brd/tg_agent_shell/agents.feature
-
-    A subagent holds no `route`, so nothing routes three deep today. The store closes the
-    branch whole anyway: the depth of a chain is its business, not its caller's.
-    """
+    """AG-WORDS-020 — tests/brd/tg_agent_shell/agents.feature"""
+    # A subagent holds no `route`, so nothing routes three deep today. The store closes the
+    # branch whole anyway: the depth of a chain is its business, not its caller's.
     advisor, _provider = e2e_harness.advisor(["Готово."])
     root = await advisor.store.create(kind="advisor")
     child = await advisor.store.create(kind="workspace_mutator", parent_run_id=root.id)

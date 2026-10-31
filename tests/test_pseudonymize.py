@@ -44,8 +44,8 @@ def _request(*messages: dict) -> CompletionRequest:
     return CompletionRequest(messages=tuple(messages))
 
 
-async def test_ag_privacy_063_the_provider_reads_placeholders_numbered_by_kind():
-    """AG-PRIVACY-063 — tests/brd/tg_agent_shell/agents.feature"""
+async def test_ag_privacy_076_the_provider_reads_placeholders_numbered_by_kind():
+    """AG-PRIVACY-076 — tests/brd/tg_agent_shell/agents.feature"""
     finder = Finder({"Анне": "PERSON", "Анны": "PERSON", "+7 916 123-45-67": "PHONE"})
     provider, inner = _wrapped(finder)
 
@@ -90,8 +90,8 @@ async def test_a_text_is_looked_through_once():
     assert finder.calls == ["Позвони Анне.", "Ещё раз."]
 
 
-async def test_ag_privacy_064_the_answer_and_the_tool_arguments_get_the_real_words():
-    """AG-PRIVACY-064 — tests/brd/tg_agent_shell/agents.feature"""
+async def test_ag_privacy_077_the_answer_and_the_tool_arguments_get_the_real_words():
+    """AG-PRIVACY-077 — tests/brd/tg_agent_shell/agents.feature"""
     finder = Finder({"Анне": "PERSON", 'ООО "Ромашка"': "ORGANIZATION"})
     arguments = '{"name": "[PERSON_1]", "company": "[ORGANIZATION_1]", "note": "[PERSON_9]"}'
     provider, _ = _wrapped(
@@ -126,7 +126,7 @@ async def test_ag_privacy_064_the_answer_and_the_tool_arguments_get_the_real_wor
     ids=("nested-json", "malformed-json"),
 )
 async def test_call_arguments_are_masked_in_valid_and_malformed_json(arguments, expected):
-    """AG-PRIVACY-063 — tests/brd/tg_agent_shell/agents.feature"""
+    """AG-PRIVACY-076 — tests/brd/tg_agent_shell/agents.feature"""
     finder = Finder({"Анне": "PERSON"})
     provider, inner = _wrapped(finder)
     call = {

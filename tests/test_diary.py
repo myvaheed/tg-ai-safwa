@@ -289,11 +289,9 @@ async def test_di_read_016_a_named_day_runs_from_local_midnight_to_local_midnigh
 async def test_di_read_013_the_entry_and_what_was_said_are_read_apart_and_nothing_else(
     sessions, tmp_path
 ) -> None:
-    """DI-READ-013 — tests/brd/diary.feature
-
-    What the session is given, not what the feature declares: besides its two reads, the
-    adapters hand it `query_data` over its own days alone (DI-FIND-025).
-    """
+    """DI-READ-013 — tests/brd/diary.feature"""
+    # What the session is given, not what the feature declares: besides its two reads, the
+    # adapters hand it `query_data` over its own days alone (DI-FIND-025).
     async with sessions() as session:
         await create_diary_entry(
             session, entry_date=date(2026, 8, 22), body="Уже записано.", feeling_score=7

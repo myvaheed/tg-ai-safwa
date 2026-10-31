@@ -129,7 +129,7 @@ class Recording:
 
 @pytest.mark.pii_model
 async def test_the_configured_model_keeps_the_placeholders_and_the_owner_reads_the_words():
-    """AG-PRIVACY-064 — tests/brd/tg_agent_shell/agents.feature"""
+    """AG-PRIVACY-077 — tests/brd/tg_agent_shell/agents.feature"""
     recording = Recording(OpenAICompatibleProvider(Settings().ai_config()))
     finder = HorizonPiiFinder.load(
         Path(__file__).parents[1] / "data" / "models", kept=PII_KEPT, birth_words=BIRTH_WORDS

@@ -93,7 +93,7 @@ While there is value in the items on the right, we value the items on the left m
   check quietly and raise what needs the Owner.
 - **Events.** Planning, the Sprint, Today each morning, the Diary each day, the retro at the end of
   each Sprint.
-- **Artifacts.** Values; the Goals, Subgoals and Actions, each under the Goals it serves; Checks; Memory; Life in weeks.
+- **Artifacts.** Values; the Goals, Subgoals and Actions, each under the Goals it serves; Thoughts; Checks; Memory; Life in weeks.
 
 The rules behind each of these are in [DOMAIN.md](DOMAIN.md) and in the scenarios under `tests/brd/`.
 

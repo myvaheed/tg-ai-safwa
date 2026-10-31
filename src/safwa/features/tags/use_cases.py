@@ -1,6 +1,6 @@
 """Writing a Tag.
 
-A Tag's name is unique without regard to Unicode case. Deleting an ordinary Tag takes
+A Tag's name is unique without regard to Unicode case. Deleting a Tag takes
 it off every Card and frees its name. Every Tag follows the same rules.
 """
 

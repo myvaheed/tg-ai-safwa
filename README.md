@@ -44,7 +44,8 @@ Every value a row derives (`SAFWA_AI_BASE_URL`, `SAFWA_AI_MAX_RETRIES`,
 `SAFWA_AI_SEND_TEMPERATURE`, `SAFWA_AI_CACHE_BREAKPOINTS`) can still be set explicitly, and
 `SAFWA_AI_REASONING_EFFORT` sets the model's effort; Safwa is tuned with it "none", reasoning off, since a step the owner waits 5-10 seconds for is no use. Which models are known to work, and what
 breaks on which, is [docs/LLM_GATEWAY.md](docs/LLM_GATEWAY.md);
-`uv run pytest tests/test_provider_live.py --live-provider` checks the one `.env` configures. Set the
+`uv run pytest tests/test_provider_live.py --live-provider` checks the one `.env` configures, with
+Safwa's own `SAFWA_AI_*` settings. Set the
 model and Telegram credentials in `.env`. Set `SAFWA_TELEGRAM_BOT_USERNAME` without `@`; Safwa uses
 it to build `t.me` links for Card, Check, Tag, Value, Saved Request, Reminder, Diary and retro
 citations.
@@ -143,9 +144,9 @@ snapshot or a review.
 | 3 | A module over 600 lines is reviewed for what it owns | counted by the scanner, which also lists the largest. A count, not a limit: the answer can be that the module is right as it is |
 | 4 | No module holds two of rules, data, use cases, manager, adapter | Rules A and K |
 | 5 | Process state is a frozen union with one writer | Rule C |
-| 6 | One Manager per process, each with a named identity | review: `AgentManager` (a session), `TurnManager` (the turn), `CueRuntime` (what Safwa still owes) |
+| 6 | One Manager per process, each with a named identity | review: `AgentManager` (a session), `TurnManager` (the turn), `CueRuntime` (what Safwa still owes), `AccessManager` (the lock on the chat) |
 | 7 | A reducer only where a pure function simplifies the transitions | review — no quota, and none added without one |
-| 8 | The shared packages work without Safwa | Rule F proves they import no Safwa, which is all an import graph can show. That a second application runs on them is shown by `examples/plain_chat_bot/` on the three libraries, `examples/note_keeper/` on the runtime, and `examples/wallet/` on the whole shell — a ledger of wallets and entries whose read, proposal, Save, restart and stale button `tests/shell/` runs with `safwa` unimportable |
+| 8 | The shared packages work without Safwa | Rule F proves they import no Safwa, which is all an import graph can show. That a second application runs on them is shown by `examples/plain_chat_bot/` on `llm_gateway` and `telegram_llm`, `examples/note_keeper/` on the runtime, and `examples/wallet/` on the whole shell — a ledger of wallets and entries whose read, proposal, Save, restart and stale button `tests/shell/` runs with `safwa` unimportable |
 | 9 | Every rule cites a scenario | `tests/test_brd_traceability.py` |
 | 10 | A test is replaced only on the owner's decision | review — the one nothing measures: the batch that drops a test names what still covers its scenario |
 | 11 | The schema did not change outside a schema batch | Rule J, snapshot under `tests/snapshots/` |
@@ -157,8 +158,6 @@ snapshot or a review.
 
 Read [Test criteria](docs/TEST_CRITERIA.md) before adding or changing tests.
 They define useful coverage, meaningful assertions and when existing tests are sufficient.
-The [test effectiveness review plan](docs/TEST_REVIEW_PLAN.md) assigns the suite to ten batches
-and defines checks for failure detection, realistic setup and assertion quality.
 For test inventories and coverage snapshots and comparisons, see
 `uv run python scripts/test_audit.py --help`.
 
@@ -175,7 +174,8 @@ the imports and collection once, so a single file or test runs faster without it
 built once per process (`workspace_file` in `tests/conftest.py`) instead of building the schema.
 
 The E2E suite uses a real SQLite database and real Safwa application services while replacing
-Telegram and the AI provider at their network boundaries. It never reads `.env` or contacts live services.
+Telegram and the AI provider at their network boundaries. It never reads `.env` or contacts live
+services, except the tests marked `live_provider`, which run only with `--live-provider`.
 
 ### Live Safwa-QA integration tests
 
@@ -222,8 +222,9 @@ Automatic clearing leaves only the hooks you have not answered; `/clear` empties
 `/start` opens Home with one Menu button.
 See [CHAT_ACCESS.md](docs/CHAT_ACCESS.md).
 
-Use `/start`, `/sprint`, `/values`, `/tags`, `/requests`, `/reminders`, `/memory`,
-`/summarize`, `/status`, `/clear` and `/cancel`. The Dashboard, its Backlog, the Diary and the
+Use `/start`, `/sprint`, `/retro`, `/values`, `/tags`, `/requests`, `/reminders`, `/memory`,
+`/summarize`, `/status`, `/clear`, `/lock`, `/cancel` and, inside a conversation with an agent,
+`/exit`. The Dashboard, its Backlog, the Diary and the
 Profile and Thoughts are menu buttons only; Today is on the Home dashboard.
 
 The advisor reads a window of the chat bounded by a token budget, so nothing has to be started or

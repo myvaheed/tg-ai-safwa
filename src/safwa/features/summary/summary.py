@@ -18,6 +18,7 @@ from typing import Any, Protocol
 from llm_gateway import CompletionRequest, LlmProvider
 from tg_agent_shell.ai.conversation import receipt_lines
 from tg_agent_shell.foundation.kinds import MessageKind
+from tg_agent_shell.telegram import Services
 
 from ...constants import SUMMARY_TRIGGER_TOKENS
 from ...foundation.tokens import TOKEN_CHARS_ESTIMATE, estimate_tokens
@@ -99,3 +100,8 @@ class DialogueSummary:
             return False
         await write(f"{SUMMARY_HEADER}\n{summary}")
         return True
+
+
+def dialogue_summary(services: Services) -> DialogueSummary:
+    """The one Summary writer, off the bag the composition root filled."""
+    return services.features.summary

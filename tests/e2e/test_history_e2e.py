@@ -80,10 +80,8 @@ async def two_requests(e2e_harness) -> tuple[list[dict], FakeMessage, int, list[
 
 
 async def test_the_next_request_carries_the_calls_the_last_answer_made(e2e_harness):
-    """TG-RECEIPT-009 — tests/brd/tg_agent_shell/telegram_history.feature
-
-    TG-TOOLS-013 and TG-THINK-017 share this same two-request conversation.
-    """
+    """TG-RECEIPT-009 — tests/brd/tg_agent_shell/telegram_history.feature"""
+    # TG-TOOLS-013 and TG-THINK-017 share this same two-request conversation.
     request, anchor, card, after_read = await two_requests(e2e_harness)
 
     shape = [

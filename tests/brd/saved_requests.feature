@@ -100,7 +100,7 @@ Feature: Saved Requests
     And a Card, Check or Value opened from that list comes back to the Request it was opened from
     And Refresh runs the Request again
 
-  Scenario: SR-DELETE-013 — A Request is deleted, not archived
+  Scenario: SR-DELETE-015 — A Request is deleted, not archived
     Given a saved Request that a Plan filter is using
     When the owner or Safwa asks for it to be removed
     Then it is deleted, and the filter stops using it without an error anywhere

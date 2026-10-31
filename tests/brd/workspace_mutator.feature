@@ -72,7 +72,7 @@
     And a Deadline is counted from today as an appointment is (WS-CONTEXT-010), with its time only when the Deadline names one
     And a list with no Goal has no heading
 
-  Scenario: WS-CAPTURE-008 — A captured record waits for a decision, not for filled fields
+  Scenario: WS-CAPTURE-015 — A captured record waits for a decision, not for filled fields
     Given the owner asks to record a note, idea or draft
     Then it is proposed as a Thought, without asking for extra detail
     And editing its content keeps it a Thought

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import importlib
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -33,15 +34,8 @@ from safwa.bootstrap.modules import (
     SYSTEM_PROMPT,
 )
 from safwa.features.advisor.agent import ITEMS, PERSONA, TALK_PERSONA
-from safwa.features.blueprint.hooks import ASKED_PROMPT
 from safwa.features.compass.agent import MORE_ABOUT_TOOL, SHOW_CONSTELLATION_TOOL
-from safwa.features.reminders.agent import REMINDER_CONDITION_PROMPT
-from safwa.features.schedules.agent import (
-    DEADLINE_PARSER_PROMPT,
-    SCHEDULE_PARSER_PROMPT,
-    scheduled_tool,
-)
-from safwa.features.values.link_review import VALUE_LINK_PROMPT, VALUE_LINK_TERMINAL
+from safwa.features.schedules.agent import scheduled_tool
 from safwa.features.workspace_mutator.agent import thoughts_default_prompt
 from safwa.foundation.models import Base
 from scripts.architecture_metrics import (
@@ -70,7 +64,7 @@ from tg_agent_shell.ai.contracts import (
     open_tool,
 )
 from tg_agent_shell.ai.messages import ContextBuilder, StateBlocks
-from tg_agent_shell.ai.mini import PLAN_FIRST
+from tg_agent_shell.ai.mini import PLAN_FIRST, TerminalTool
 from tg_agent_shell.ai.subagents import RoutedSubagent
 from tg_agent_shell.foundation.models import Base as ShellBase
 from tg_agent_shell.media.library import relook_tool
@@ -296,12 +290,47 @@ def _tool_schemas() -> dict[str, dict]:
         # The schema names no photo, so it is read without a library to read one from.
         "relook": relook_tool(None).schema,
         "get_scheduled": scheduled_tool(None).schema,
-        "value_link_review": VALUE_LINK_TERMINAL.schema(),
         "get_more_about": MORE_ABOUT_TOOL,
         "show_constellation": SHOW_CONSTELLATION_TOOL,
     }
     tools.update({name: tool.schema() for name, tool in PROPOSALS.tools.items()})
     return tools
+
+
+def _written_prompts() -> dict[str, str]:
+    """Every prompt and terminal tool a module declares at its top, keyed by where it lives.
+
+    Read off the source rather than listed, so a prompt or a short session added anywhere is
+    in the snapshot without a line here.
+    """
+    produced: dict[str, str] = {}
+    for path in sorted(SRC.rglob("*.py")):
+        names = [
+            target.id
+            for node in ast.parse(path.read_text(encoding="utf-8")).body
+            if isinstance(node, ast.Assign)
+            for target in node.targets
+            if isinstance(target, ast.Name)
+            and (
+                "PROMPT" in target.id
+                or (
+                    isinstance(node.value, ast.Call)
+                    and isinstance(node.value.func, ast.Name)
+                    and node.value.func.id == "TerminalTool"
+                )
+            )
+        ]
+        if not names:
+            continue
+        dotted = ".".join(path.relative_to(SRC).with_suffix("").parts)
+        module = importlib.import_module(dotted)
+        for name in names:
+            value = getattr(module, name)
+            if isinstance(value, TerminalTool):
+                produced[f"terminal:{dotted}.{name}"] = _digest(json.dumps(value.schema(), sort_keys=True))
+            elif isinstance(value, str):
+                produced[f"prompt:{dotted}.{name}"] = _digest(value)
+    return produced
 
 
 def test_rule_i_prompt_prefix_is_byte_stable(request):
@@ -313,13 +342,9 @@ def test_rule_i_prompt_prefix_is_byte_stable(request):
         "PERSONA": _digest(PERSONA),
         "TALK_PERSONA": _digest(TALK_PERSONA),
         "ITEMS": _digest(ITEMS),
-        "HEAVY_ANALYZER_PROMPT": _digest(HELPERS["heavy_analyzer"].instructions),
-        "SCHEDULE_PARSER_PROMPT": _digest(SCHEDULE_PARSER_PROMPT),
-        "DEADLINE_PARSER_PROMPT": _digest(DEADLINE_PARSER_PROMPT),
-        "REMINDER_CONDITION_PROMPT": _digest(REMINDER_CONDITION_PROMPT),
         "PLAN_FIRST": _digest(PLAN_FIRST),
-        "VALUE_LINK_PROMPT": _digest(VALUE_LINK_PROMPT),
-        "BLUEPRINT_ASKED_PROMPT": _digest(ASKED_PROMPT),
+        **{f"helper:{name}": _digest(helper.instructions) for name, helper in HELPERS.items()},
+        **_written_prompts(),
     }
     # The instructions as assembled, not as written: `{views}` is filled in at import
     # time, so the raw constant is not what any subagent reads.

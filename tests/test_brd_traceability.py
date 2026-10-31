@@ -116,6 +116,18 @@ def test_a_feature_file_numbers_each_scenario_once_per_identifier(path: Path):
     assert len(titles) == len(set(titles)), f"repeated scenario titles in {path.name}"
 
 
+def test_a_scenario_number_belongs_to_one_identifier_in_its_area():
+    owners: dict[tuple[str, str], set[str]] = {}
+    for path in feature_files():
+        for identifier, _ in titled_scenarios(path):
+            area, *_, number = identifier.split("-")
+            owners.setdefault((area, number), set()).add(identifier)
+
+    shared = sorted(sorted(found) for found in owners.values() if len(found) > 1)
+
+    assert not shared, f"one number under two topics: {shared}"
+
+
 @pytest.mark.parametrize("path", feature_files(), ids=lambda path: path.name)
 def test_a_feature_file_carries_no_gherkin_tags(path: Path):
     """No BDD runner reads these files, so a `@tag` is a lowercase second copy of the

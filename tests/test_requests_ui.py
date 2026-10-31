@@ -118,7 +118,7 @@ async def test_the_requests_screen_lists_runs_and_comes_back(sessions) -> None:
 
 
 async def test_deleting_a_request_takes_it_off_every_surface(sessions) -> None:
-    """SR-DELETE-013 — tests/brd/saved_requests.feature"""
+    """SR-DELETE-015 — tests/brd/saved_requests.feature"""
     await seed_plan(sessions)
     async with sessions() as session:
         await (await session.connection()).run_sync(

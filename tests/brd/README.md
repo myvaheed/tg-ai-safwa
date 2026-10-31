@@ -12,6 +12,7 @@ What a scenario has to look like lives here, next to the scenarios themselves.
 ## Identifier
 
 `<AREA>-<TOPIC>-<NNN>`, zero-padded, never reused and never renumbered inside its own package.
+A new scenario takes its area's next free number.
 
 The **topic is the aspect the rule is about**, never the package's own name written twice:
 `DI-MOOD-004` and `DI-DELETE-005`, not `DI-DIARY-004`. An identifier that repeats its area says
@@ -24,7 +25,7 @@ other being noticed. That pairing is what `tests/test_brd_traceability.py` check
 checks: a file directly under `tests/brd/` is a Safwa feature package, in both directions.
 
 The four under `tests/brd/tg_agent_shell/` group that package's rules by area — agents and routing,
-proposals, screens, the conversation — and not by subpackage: the shell has seven subpackages, and no
+proposals, screens, the conversation — and not by subpackage: the shell has eleven subpackages, and no
 rule says each of them owns a file. They are in their own directory because the package is held to
 working without Safwa, and they are what a second bot built on it would inherit.
 
@@ -121,7 +122,8 @@ constant that moves away from its scenario is visible to whoever reads the two s
 `tests/test_brd_traceability.py` reads the `.feature` files and every test docstring, and
 fails on an approved scenario with no test, a scenario reference or test citation that does not
 exist, a Safwa package or scenario file without its pair, a docstring in any other shape, a prefix
-missing from the table above, and a repeated scenario title. Without it a renamed scenario or a
+missing from the table above, a repeated scenario title, and a number its area already gave
+another topic. Without it a renamed scenario or a
 deleted test stays green.
 
 A `.feature` file carries **no Gherkin tags**, and the same test fails on one. No BDD runner

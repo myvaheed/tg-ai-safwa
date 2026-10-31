@@ -51,6 +51,9 @@ answers to a spying program are the two under "Stronger protection".
 - Whatever Safwa sends to the AI provider is read by that provider, with the identifiers in it
   replaced by placeholders when the provider is not on this computer: see "What the AI provider
   reads".
+- With `SAFWA_PHOENIX_ENABLED`, every prompt and answer is also traced to the Phoenix endpoint, by
+  default a local server that keeps them unencrypted under `data/phoenix/`: see
+  [PHOENIX.md](PHOENIX.md).
 - `data/models/` is a public model download and holds nothing of yours.
 
 ## What the AI provider reads

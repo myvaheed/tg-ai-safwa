@@ -447,10 +447,8 @@ async def test_rm_unclear_028_words_that_count_answers_go_back_to_be_a_condition
 
 
 async def test_rm_unclear_028_words_that_meant_a_time_get_the_time_forms(e2e_harness):
-    """RM-SCHEDULE-002 — tests/brd/reminders.feature
-
-    The refusal also carries the time forms required by RM-UNCLEAR-028.
-    """
+    """RM-SCHEDULE-002 — tests/brd/reminders.feature"""
+    # The refusal also carries the time forms required by RM-UNCLEAR-028.
     advisor, provider = e2e_harness.advisor(
         unclear_script(
             turn(

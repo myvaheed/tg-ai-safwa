@@ -147,6 +147,7 @@ class ProposalMaterializer:
                     message,
                     request=agent.host_state.get(CUE_REQUEST),
                     forwarded=forwarded,
+                    reads=frozenset(agent.read_specs),
                 ),
             )
         )
@@ -185,7 +186,7 @@ class ProposalMaterializer:
         proposal_displays: dict[str, str] = {}
         # In the order the model made the calls, which is the order the owner reviews them in.
         prepared: list[tuple[str, ProposalChange]] = []
-        decided = _decided_calls(agent.messages)
+        decided = _decided_calls(agent.transcript)
         # A call's own short sessions read the conversation as the session that made it
         # read it (AG-SESSION-063).
         routed = self.adapters.subagents.get(agent.kind)
@@ -484,7 +485,7 @@ def _owner_request(dialogue: list[dict[str, Any]]) -> str:
 
 
 def _decided_calls(messages: list[dict[str, Any]]) -> dict[tuple[str, str], BatchDecision]:
-    """Each call of this session whose change the owner saved or discarded, by `call_key`.
+    """Each call of this request whose change the owner saved or discarded, by `call_key`.
 
     A failed or expired one is not here: the owner did not decide it, and the same call
     may be proposed again.

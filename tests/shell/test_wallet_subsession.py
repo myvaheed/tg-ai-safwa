@@ -247,6 +247,30 @@ async def test_a_subsession_s_proposal_is_decided_and_its_agent_finishes_after(
     assert len(running.provider.requests) == 5
 
 
+async def test_the_same_change_in_a_later_request_of_a_subsession_is_proposed_again(wallet_bot):
+    """PR-RESULT-011 — tests/brd/tg_agent_shell/proposals.feature"""
+    ids = await seeded(wallet_bot)
+    running = await started(
+        wallet_bot,
+        sub_turn("auditor"),
+        CompletionTurn(content="Which entry?"),
+        lunch(ids),
+        CompletionTurn(content="Lunch is written down."),
+        lunch(ids),
+        CompletionTurn(content="The second lunch is written down."),
+    )
+    await say(running, "Let us go through the ledger")
+    await say(running, "Add lunch, 12.50 from Cash")
+    await decide(running, "proposal_approve")
+
+    # A second lunch is a change of its own: the Save of the first was another request's.
+    await say(running, "Add another lunch, 12.50 from Cash")
+    assert "Ledger entry" in running.chat[-1]
+    await decide(running, "proposal_approve")
+
+    assert await entries(running) == [1250, 1250]
+
+
 async def test_words_over_a_subsession_s_review_end_its_request_and_the_subsession_goes_on(
     wallet_bot,
 ):

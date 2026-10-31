@@ -49,7 +49,7 @@ def scenarios() -> dict[str, str]:
 
 
 def citations() -> list[tuple[str, str]]:
-    """Each test citing a scenario, as (docstring first line, module path and test name)."""
+    """Each test citing a scenario, as (its whole docstring, module path and test name)."""
     out: list[tuple[str, str]] = []
     for path in sorted(TESTS.rglob("test_*.py")):
         tree = ast.parse(read(path), filename=str(path))
@@ -61,9 +61,8 @@ def citations() -> list[tuple[str, str]]:
             docstring = ast.get_docstring(node, clean=True)
             if not docstring:
                 continue
-            first = docstring.splitlines()[0].strip()
-            if SCENARIO_ID.match(first):
-                out.append((first, f"{path.relative_to(REPO).as_posix()}::{node.name}"))
+            if SCENARIO_ID.match(docstring):
+                out.append((docstring, f"{path.relative_to(REPO).as_posix()}::{node.name}"))
     return out
 
 

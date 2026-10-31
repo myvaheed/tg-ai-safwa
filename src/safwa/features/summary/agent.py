@@ -5,7 +5,8 @@ Summary routes to no subagent: this is the whole of what the model reads here.
 
 from __future__ import annotations
 
-from ...constants import SUMMARY_TOKEN_CEILING
+# The most a Summary may run to; with SUMMARY_TRIGGER_TOKENS of messages it fills the window.
+SUMMARY_TOKEN_CEILING = 2_000
 
 SUMMARY_PROMPT = f"""Rewrite the running summary of a Safwa dialogue, in the language the dialogue
 is in. You are given the previous summary, when there is one, and the dialogue since it. Return the

@@ -48,8 +48,8 @@ Repeating text there is a question.
 
 The Schedule prompt asks only when the text names no timing at all; otherwise it takes the
 closest form. A part of the day is not a clock: "every evening" is once a day. A clock alone
-is refused back to the model: it has to come with weekdays to repeat, a date for one time, or
-an interval, so "every evening at 20:00" can never become a one-time appointment.
+is refused back to the model: it has to come with weekdays or days of the month to repeat, a
+date for one time, or an interval, so "every evening at 20:00" can never become a one-time appointment.
 
 Small models often read such text twice over, as once a day and as every weekday at 20:00.
 Once a day beside weekdays or a clock is dropped in code, so the days are the reading and no
@@ -70,10 +70,12 @@ parameters as this one's does, so a refusal is a repair round there as well, and
 hears the last reason only once the model gives up.
 
 The sessions run with reasoning off, as `tests/test_timing_phrases_live.py` measures them, and
-ask for no reading in words before the call. What carries a small model instead is one example
-line per form, a repair round whose error names the fix, and the code above. Measured in
-October 2026 over 25 phrases, three runs each, 10 to 20 words of reading first took Qwen3.5 9B
-from 34 s to 49 s a run without lifting it, and made Qwen3.6 35B-A3B talk itself out of the
+write a plan of one to three short lines before the call (`PLAN_FIRST`, AG-SESSION-064); a call
+with no plan is sent back as a repair round. What carries a small model besides is one example
+line per form, a repair round whose error names the fix, and the code above. On 24 Schedule
+phrases, two runs on 35B-A3B, the plan read all 24 as before, in time within the runs' spread.
+Measured earlier, in October 2026 over 25 phrases, three runs each, 10 to 20 words of free
+reading first took Qwen3.5 9B from 34 s to 49 s a run without lifting it, and made Qwen3.6 35B-A3B talk itself out of the
 clock in "по понедельникам и средам в 9" in every run. With the last day, the total and the
 quota start, over 40 phrases, three runs each, 35B-A3B read all 40 every time and 9B 39, 38
 and 38: 9B reads "каждый день в 9 до 30 ноября" with 30 November as the start, and
@@ -168,7 +170,7 @@ flowchart TD
     Q -->|Later| K[Sprint]
     I -->|Yes| J{Next slot}
     J -->|Daily quota or appointment due today| T[Today]
-    J -->|Weekly or monthly quota, or date within Sprint| K
+    J -->|Weekly or monthly quota, or later date, within Sprint| K
     J -->|Beyond Sprint| B2
 ```
 
@@ -250,8 +252,8 @@ Ended plans have `next_at: null`.
 `range` and `sprint` each contain `planned`, `done` and `remaining`. `planned` uses the same
 prorated windows as the load; an appointment's fact counts on its date and any other fact when
 it happened. `total` contains lifetime `done` and `remaining`; the remainder is null for
-unlimited repetition, what the total has left for a limited one, and zero/one for an
-ended/open one-time appointment. For Checks, `done`
+open unlimited repetition, what the total has left for an open limited one, one for an open
+one-time appointment, and zero for any plan that has ended. For Checks, `done`
 means answered; each block also contains `passed` and `missed`.
 
 For example, one Check answered Missed today, with a daily quota of five and no active Sprint:
@@ -267,7 +269,7 @@ For example, one Check answered Missed today, with a daily quota of five and no 
 }
 ```
 
-Range/Sprint `remaining` means plan shortfall, not carried-over work. `next.remaining` is the
+Range/Sprint `remaining` means plan shortfall, not carried-over work. `next_at.remaining` is the
 quota still available in its next window. A rule change starts a new quota for that revision,
 while earlier facts and quotas keep their meaning in the summary. After-completion repetition
 has unknown `planned` and `remaining`.
@@ -365,7 +367,8 @@ deletes its Reminder with it (`drop_reminders`).
 ## Where it lives
 
 The `schedules` package owns the revisions, the period arithmetic in `rules.py`, the compiler,
-the Advisor read tool, Remind and one hook, `schedules.end` in `hooks.py`. Cards and Checks ask its `api.py` to change a
+the Advisor read tool, Remind and two hooks in `hooks.py`: `schedules.period`, which moves an open instance on to the
+period that has come, and `schedules.end`. Cards and Checks ask its `api.py` to change a
 source or calculate an occurrence, and its `use_cases.py` to keep Remind in step. Their
 proposal handlers read a proposed text through `read_proposed_schedule`, and check a proposed
 `remind` through `read_proposed_remind`, in its `agent.py`;

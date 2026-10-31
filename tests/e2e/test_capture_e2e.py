@@ -46,7 +46,7 @@ async def test_a_capture_request_reaches_save_with_only_the_thought(e2e_harness)
 
 
 async def test_manual_note_and_proposed_title_edits_keep_the_card_a_thought(e2e_harness):
-    """WS-CAPTURE-008 — tests/brd/workspace_mutator.feature"""
+    """WS-CAPTURE-015 — tests/brd/workspace_mutator.feature"""
     async with e2e_harness.sessions() as session:
         card = await create_card(session, kind="thought", title="Идея", note="Исходная мысль")
         await session.commit()

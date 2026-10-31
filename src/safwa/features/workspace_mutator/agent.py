@@ -13,9 +13,19 @@ from dataclasses import replace
 from tg_agent_shell.ai.subagents import RoutedSubagent
 from tg_agent_shell.telegram.manifest import AgentContext, AgentSpec
 
-from ...constants import PROPOSING_TURN, READING_THE_WORKSPACE
+from ...constants import PROPOSING_TURN
 from ..profile.api import thoughts_by_default_on
 from .state import close_items
+
+READING_THE_WORKSPACE = """# Read the data
+`query_data` runs one read-only `SELECT` or `WITH ... SELECT` over these views only.
+Every value listed under a view is the lowercase code stored in that column.
+Find an item the user describes in other words with `search`. Nothing close: call nothing_to_do and say so.
+
+{views}
+
+`created_at` and `updated_at` are UTC text: compare them with `datetime('now')`.
+IDs are small integers. Never ask the user for one you can find yourself."""
 
 MUTATOR_TOOLS = ("goal", "action", "thought", "check", "value", "tag", "request", "remove")
 

@@ -12,7 +12,7 @@ from sqlalchemy import select
 from conftest import ScriptedProvider
 from llm_gateway import CompletionTurn, ToolCall
 from safwa.features.cards.use_cases import create_card
-from safwa.features.memory.absorb import PatternReviewer
+from safwa.features.memory.pattern_review import PatternReviewer
 from safwa.features.memory.use_cases import AbsorbResult, absorb_due
 from safwa.features.planning.model import Sprint
 from safwa.features.planning.use_cases import finish_sprint, start_sprint

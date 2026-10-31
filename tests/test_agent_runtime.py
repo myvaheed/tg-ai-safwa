@@ -210,6 +210,22 @@ async def test_a_session_nobody_answered_is_ended_and_the_next_words_start_afres
     assert notebook.notes == ["Bread, milk, coffee"]
 
 
+async def test_a_session_nobody_answered_ends_what_its_turn_left_unfinished() -> None:
+    """A subagent the owner wrote over earlier in the turn ends with the review that expired."""
+    bot = _load_example()
+    provider = bot.ScriptedProvider([bot._call("write_note", text="Ask about the roast")])
+    notebook, store, runtime = _note_keeper(bot, provider)
+    proposed = await runtime.handle([{"role": "user", "content": "Note: ask about the roast"}])
+    reference = proposed.ref
+    assert reference is not None
+    left = await store.create(kind="workspace_mutator", parent_run_id=reference.run_id)
+    await store.leave_interrupted(left.id, {}, "the owner wrote instead")
+
+    await runtime.close(reference, {notebook.waiting_call: {"status": "expired"}})
+
+    assert store.status(left.id) is RunStatus.ABANDONED
+
+
 async def test_a_reference_no_one_minted_resumes_nothing() -> None:
     """A decision the session never stopped on changes it in no way at all."""
     bot = _load_example()

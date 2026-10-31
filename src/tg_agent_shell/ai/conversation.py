@@ -11,8 +11,9 @@ from typing import Any
 from agent_runtime import SYSTEM_CLOSE, SYSTEM_OPEN, routed_answers, system_text
 from llm_gateway import standard_message
 
-# The reads whose rows are stale by the next turn. The call stays in the conversation and the
-# rows go: the workspace state is read fresh every turn, and a read can be made again.
+# The shell's reads whose rows are stale by the next turn, beside the application's own read
+# tools. The call stays in the conversation and the rows go: the workspace state is read fresh
+# every turn, and a read can be made again.
 CLEARED_READS = frozenset({"query_data", "call_helper"})
 CLEARED_READ = {"status": "cleared", "note": "The rows were not kept: a new read shows them."}
 
@@ -47,6 +48,7 @@ def kept_turn(
     *,
     request: str | None = None,
     forwarded: str | None = None,
+    reads: frozenset[str] = frozenset(),
 ) -> tuple[dict[str, Any], ...]:
     """What a finished turn leaves in the conversation for the turns after it to read.
 
@@ -56,13 +58,14 @@ def kept_turn(
     Only the standard chat keys are kept: the reasoning between its calls, and anything
     else its provider added, stays behind, so the next turn reads the same whichever model
     answers it. Words the turn `forwarded` are its own words now, so they leave the receipt
-    that carried them and the conversation holds them once. No result keeps its
+    that carried them and the conversation holds them once. A read, the shell's or one of
+    the application's `reads`, keeps its call and loses its rows. No result keeps its
     `STEP_ORDERS`: they were for the step that got them.
     """
     turn: list[dict[str, Any]] = [{"role": "user", "content": request}] if request else []
     moved = routed_answers(transcript)[forwarded][0] if forwarded else None
     for index, message in enumerate(transcript):
-        if message.get("role") == "tool" and message.get("name") in CLEARED_READS:
+        if message.get("role") == "tool" and message.get("name") in CLEARED_READS | reads:
             message = {**message, "content": json.dumps(CLEARED_READ)}
         elif message.get("role") == "tool":
             message = _without_orders(message, ("text",) if index == moved else ())

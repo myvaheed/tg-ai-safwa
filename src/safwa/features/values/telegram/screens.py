@@ -395,7 +395,7 @@ def _validator(state: Mapping[str, Any]) -> TextValidator[str] | None:
     return required_text("Value name") if state["field"] == "name" else value_description
 
 
-# What Edit offers on a Value proposal: this screen's own fields (VL-EDIT-030).
+# What Edit offers on a Value proposal: this screen's own fields (VL-EDIT-031).
 VALUE_REVIEW_FIELDS = {
     "name": EditableField(
         "✏️ Name",

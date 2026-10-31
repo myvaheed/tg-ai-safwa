@@ -207,7 +207,7 @@ def test_a_request_query_is_never_allowlisted_for_autoapproval():
 
 
 async def test_a_request_is_deleted_not_archived(sessions):
-    """SR-DELETE-013 — tests/brd/saved_requests.feature"""
+    """SR-DELETE-015 — tests/brd/saved_requests.feature"""
     async with sessions() as session:
         request = await create_saved_request(
             session,

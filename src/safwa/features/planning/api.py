@@ -32,7 +32,7 @@ from ..cards.api import (
     planned_actions,
 )
 from ..cards.model import CardKind
-from ..checks.api import Check
+from ..checks.model import Check
 from ..profile.api import effort_tracking_on
 from ..schedules.api import checks_today, planned_executions, remaining_occurrences
 from ..values.api import CardValue, CheckValue, Value

@@ -270,10 +270,8 @@ async def test_ag_hook_038_switching_a_hook_off_drops_its_pending_request_for_go
 async def test_ps_ai_019_every_field_is_set_in_words_through_the_screens_check(
     sessions, name, sent, stored
 ):
-    """PS-REVISION-011 — tests/brd/profile.feature
-
-    PS-AI-019: each accepted field is saved through the proposal boundary.
-    """
+    """PS-REVISION-011 — tests/brd/profile.feature"""
+    # PS-AI-019: each accepted field is saved through the proposal boundary.
     handler = ProfileProposalHandler()
     change = PROPOSALS.change_from_tool("profile", {name: sent})
     async with sessions() as session:

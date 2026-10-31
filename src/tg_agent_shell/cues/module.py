@@ -1,4 +1,4 @@
-"""The two loops an application with hooks runs: the Cue poll and the hook tick poll.
+"""The two loops an application with proposals or hooks runs: the Cue poll and the hook tick poll.
 
 They belong to no feature, and a feature has no loop of its own: its work on a timer is a hook
 on a tick. The composition root starts them and cancels them with the polling loop.

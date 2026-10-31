@@ -69,7 +69,7 @@
 | M2 | Что запускает создание | **Решено 24.10:** как получится. После `finish` сам Advisor не ходит; следующее сообщение владельца получает Advisor, видит план в разговоре и сам решает, звать ли Mutator. Механизма не добавляется |
 | M3 | Имя и название | **Решено 24.10:** *blueprint*, «📐 Blueprint» — по результату, чертёж плана. «Mentor» звучит как поучение |
 | M4 | Где живёт | Новый пакет *features/blueprint* и префикс *BP* в таблице tests/brd/README.md. Compass судит дерево, Blueprint строит новое — это разные агенты |
-| M5 | Метод Tag | **Решено 24.10:** совет, не правило. `TAG` в `tags/api.py`, определение в `ITEMS` прежнее. Критерии и примеры получают Blueprint и onboarding через `get_more_about("tags")`. Хука Tag review нет |
+| M5 | Метод Tag | **Решено 24.10:** совет, не правило. `TAG` в `tags/api.py`, определение в `ITEMS` прежнее. Критерии и примеры onboarding получает через `get_more_about("tags")`; Blueprint с батча 2A — в своём промпте, через `explanation()` методов. Хука Tag review нет |
 | M6 | Persona агента подсессии | Своя вторая строка, остальное общее. `PERSONA` routed-агентов не меняется ни на байт |
 | M7 | Remind в плане | Нет. Экран Check с временем сам предлагает «🔔 Remind», а Reminder — дело сабагента reminder |
 | M8 | Номера версий | Свои не переписываю (это переписывание истории). Следующий коммит — v9.240 |
@@ -171,7 +171,9 @@
 
 ---
 
-## Тексты на согласование
+## Тексты, как предлагались
+
+Действующие тексты и регистрация — в коде; отличия записаны в батчах выше.
 
 ### 1. Метод Tag (`tags/api.py`) — сделан 24.10
 
@@ -332,7 +334,9 @@ BLUEPRINT_AGENT = AgentSpec(
 - Once the plan is agreed, the conversation leaves the chat and the plan comes back as one message. Say "Create", and the Advisor proposes each item on its own review screen.
 ```
 
-## Сценарии (черновик, нужен твой ок)
+## Сценарии, как предлагались
+
+Утверждённые — в tests/brd/blueprint.feature.
 
 Новый файл tests/brd/blueprint.feature:
 - *BP-ENTER-001* — A new item whose result, reason or steps are open is worked out with Blueprint.

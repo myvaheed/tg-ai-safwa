@@ -23,7 +23,7 @@ from safwa.features.memory.absorb import (
     matched,
     review_text,
 )
-from safwa.features.memory.agent import PATTERN_PROMPT, Pair, PatternReview
+from safwa.features.memory.agent import PATTERN_PROMPT
 from safwa.features.memory.hooks import MEMORY_RETRO_HOOK, MEMORY_RETRO_INTERVAL_SECONDS
 from safwa.features.memory.model import MemoryObservation, MemoryPattern
 from safwa.features.memory.render import NOTHING_YET, memory_text
@@ -83,21 +83,18 @@ def _sprint(number: str, analysis: dict | None = None, *, last: date | None = No
     )
 
 
-async def _match_none(patterns, found) -> PatternReview:
-    return PatternReview(verbose_analyse="", same=[])
+async def _match_none(patterns, found) -> list[tuple[int, int]]:
+    return []
 
 
-async def _match_same_text(patterns, found) -> PatternReview:
+async def _match_same_text(patterns, found) -> list[tuple[int, int]]:
     """The model with no judgement: the same words are the same thing."""
-    return PatternReview(
-        verbose_analyse="",
-        same=[
-            Pair(candidate=index + 1, pattern=position + 1)
-            for index, candidate in enumerate(found)
-            for position, pattern in enumerate(patterns)
-            if candidate.text == pattern.text
-        ],
-    )
+    return [
+        (index + 1, position + 1)
+        for index, candidate in enumerate(found)
+        for position, pattern in enumerate(patterns)
+        if candidate.text == pattern.text
+    ]
 
 
 def _written(observations: Sequence[Observation], start: int) -> list[Observation]:
@@ -131,12 +128,9 @@ async def test_mem_retro_013_a_pattern_is_what_the_sprints_observed_of_one_thing
     )
     shown: list[list[str]] = []
 
-    async def match(patterns, found) -> PatternReview:
+    async def match(patterns, found) -> list[tuple[int, int]]:
         shown.append([pattern.text for pattern in patterns])
-        return PatternReview(
-            verbose_analyse="",
-            same=[Pair(candidate=1, pattern=1), Pair(candidate=4, pattern=2), Pair(candidate=3, pattern=3)],
-        )
+        return [(1, 1), (4, 2), (3, 3)]
 
     ours = await absorb(held, this, [august, september], match)
 
@@ -171,12 +165,7 @@ async def test_mem_retro_016_the_model_matches_and_the_code_decides_what_a_match
     patterns = [Pattern(1, WALK, ("25.09-01",), ())]
     found = [Candidate("прогулка", False), Candidate(BLOCK, True)]
     # Numbers that are not there count for nothing; the first pair about a candidate counts.
-    pairs = [
-        Pair(candidate=2, pattern=9),
-        Pair(candidate=0, pattern=1),
-        Pair(candidate=1, pattern=1),
-        Pair(candidate=1, pattern=2),
-    ]
+    pairs = [(2, 9), (0, 1), (1, 1), (1, 2)]
     assert matched(pairs, patterns, found) == {0: 0}
     # What the model reads: both lists numbered from 1, the words alone.
     assert review_text(patterns, found) == "\n".join(
@@ -188,9 +177,9 @@ async def test_mem_retro_016_the_model_matches_and_the_code_decides_what_a_match
     # Asked once, only when there are patterns and new claims both.
     asked: list[int] = []
 
-    async def match(patterns, found) -> PatternReview:
+    async def match(patterns, found) -> list[tuple[int, int]]:
         asked.append(len(found))
-        return PatternReview(verbose_analyse="", same=[])
+        return []
 
     earlier = _sprint("25.09-01", last=date(2026, 9, 4))
     this = _sprint("25.09-02", _analysis(helped=["прогулка утром"], hurt=[MEETINGS]))
@@ -254,9 +243,9 @@ async def test_mem_retro_015_taking_a_sprint_in_again_gives_the_same_memory() ->
     held = [Observation(earlier.id, 1, WALK, True)]
     asked: list[tuple[int, int]] = []
 
-    async def match(patterns, found) -> PatternReview:
+    async def match(patterns, found) -> list[tuple[int, int]]:
         asked.append((len(patterns), len(found)))
-        return PatternReview(verbose_analyse="", same=[Pair(candidate=1, pattern=1)])
+        return [(1, 1)]
 
     once = _written(await absorb(held, this, [earlier], match), 2)
     assert once == [
@@ -495,7 +484,7 @@ async def test_mem_retro_015_a_corrected_analysis_gives_back_what_the_wrong_one_
     await _analysed(sessions, b, _analysis(hurt=[WALK]))
     asked: list[int] = []
 
-    async def match(patterns, found) -> PatternReview:
+    async def match(patterns, found) -> list[tuple[int, int]]:
         asked.append(len(found))
         return await _match_same_text(patterns, found)
 
@@ -537,7 +526,7 @@ async def test_mem_retro_012_absorbing_waits_its_turn_and_is_tried_until_it_is_d
     await _analysed(sessions, sprint_id, _analysis(helped=[WALK]))
     before = await _rows(sessions)
 
-    async def failing(patterns, found) -> PatternReview:
+    async def failing(patterns, found) -> list[tuple[int, int]]:
         raise RuntimeError("the network is down")
 
     async def owed() -> bool:
@@ -560,9 +549,9 @@ async def test_mem_retro_012_absorbing_waits_its_turn_and_is_tried_until_it_is_d
     assert await owed()
 
     # The owner arrives while the model is answering: nothing is written.
-    async def owner_arrives(patterns, found) -> PatternReview:
+    async def owner_arrives(patterns, found) -> list[tuple[int, int]]:
         turn.dialogue_revision += 1
-        return PatternReview(verbose_analyse="", same=[])
+        return []
 
     assert await absorb_due(owner_arrives, sessions, run_background=_runner(turn)) == AbsorbResult.BUSY
     assert await owed() and await _rows(sessions) == before

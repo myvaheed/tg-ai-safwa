@@ -83,8 +83,10 @@ the receipts and any shown block above the answer; the model reads the `route` r
 them. Words the turn sent with `forward` are its own words in the kept turn, and leave the `route`
 result that carried them, so the conversation holds them once.
 
-- **A read's rows are cleared.** The results of `query_data` and `call_helper` (`CLEARED_READS`)
-  are kept as `CLEARED_READ` — the call stays, the rows go, and a note says a new read shows them.
+- **A read's rows are cleared.** The results of the shell's reads, `query_data` and
+  `call_helper` (`CLEARED_READS`), and of the application's own read tools, such as Safwa's
+  `get_scheduled`, are kept as `CLEARED_READ` — the call stays, the rows go, and a note says a
+  new read shows them.
   Rows go stale by the next turn, the workspace state is read fresh every turn, and one read can
   return up to `DEFAULT_CHAR_BUDGET = 12000` characters. A `route` result — the receipt of what was
   done — and an `open` result are kept whole. Because the turn is written once, when its answer
@@ -332,7 +334,7 @@ Each lever is one number or one string, and none changes the shape of the histor
 | Lever | Where | What it trades |
 |---|---|---|
 | The window, and when a Summary is written — one number for both | `SUMMARY_TRIGGER_TOKENS = 6000` in [constants.py](../src/safwa/constants.py), overridden by the `summary_trigger_tokens` setting | more turns kept word for word, for a longer request; 8000 keeps the longest request under about 14000 tokens |
-| How long a Summary may be | `SUMMARY_TOKEN_CEILING = 2000`, the same file | how much of the older conversation survives, against room for recent turns |
+| How long a Summary may be | `SUMMARY_TOKEN_CEILING = 2000` in [summary/agent.py](../src/safwa/features/summary/agent.py) | how much of the older conversation survives, against room for recent turns |
 | The messages kept beside the Summary | `EDGE_CONTEXT_MESSAGE_LIMIT = 20` in [history.py](../src/tg_agent_shell/history.py) | continuity across a Summary, against its cost |
 | What a cleared read leaves | `CLEARED_READ` in [conversation.py](../src/tg_agent_shell/ai/conversation.py) | about 30 tokens per read; a bare cleared status is about 9, with one line in the Advisor prompt saying to read again |
 | What a `route` receipt carries | `route_receipt` | 55–86 tokens per request that routed; the words and the `did` lines are what the Advisor needs, the rest is framing |

@@ -7,11 +7,11 @@ itself is `tests/brd/`; this is the shape those scenarios add up to, in one plac
 
 **One package per `.feature` file**, so a rule and the code that keeps it are found together.
 
-- **The workspace** is what the owner keeps: Cards, Checks, Values, Tags, Requests and Reminders —
-  the set, not one entity. `workspace_mutator` is the subagent that proposes every change to it,
-  and [features/workspace_mutator](../src/safwa/features/workspace_mutator) is that subagent and
+- **The workspace** is what the owner keeps: Cards, Checks, Values, Tags and Requests — the set,
+  not one entity. `workspace_mutator` is the subagent that proposes every change to it, and
+  [features/workspace_mutator](../src/safwa/features/workspace_mutator) is that subagent and
   nothing else: the roster lets it declare mutation tools the features that own those entities
-  publish.
+  publish. Reminders, and the Remind on an item already made, have their own subagent, `reminder`.
 - **Planning** is the workspace mode without a running Sprint (`WorkspaceMode.PLANNING`), the Sprint
   itself, and the screen where the next one is planned.
   [features/planning](../src/safwa/features/planning) is exactly that and nothing else.
@@ -33,8 +33,8 @@ that owns each, as one `Method` on its `api.py`: Values and Value links in
 check reads it against, how to write one, and examples. The method for a Tag is advice: no check
 reads it, and a Tag the owner wants is kept. The feature's check on a new item reads
 its criteria and examples, the Advisor and every subagent that writes items read what each is
-and how to write one, and Compass reads the whole of one when asked: the onboarding subagent
-calls `get_more_about` for it. Blueprint's prompt carries the whole of every one.
+and how to write one, and the whole of one is read when asked: the onboarding and Compass subagents
+call `get_more_about` for it. Blueprint's prompt carries the whole of every one.
 
 The tree reads in two directions. Down it, a child moves its parent's result forward: that is
 how. Up to a Value, an item makes more of the Value in the owner's life: that is why. What a
@@ -247,7 +247,8 @@ Backlog Actions to build the next Sprint from, and what is still in the Sprint. 
 runs it looks at the next step: Today Actions, the rest of the Sprint and the Goals that work
 serves; other Goals and the Backlog wait for the next Planning.
 
-Each list comes in the focus order (CD-ORDER-066), cut to 10 (`CONTEXT_LIST_LIMIT`): what can be
+Each list comes in the focus order (CD-ORDER-066), cut to 10 (`CONTEXT_LIST_LIMIT`) but Today
+Actions, which are listed whole (WS-CONTEXT-010): what can be
 worked on now comes first, so a Goal with fewer levels under it leads, and while a Sprint runs
 Today leads the Sprint. A Card line carries its Priority unless it is Medium, its appointment or
 Deadline counted from today (today, tomorrow, in N days, overdue), the Values it serves by name
@@ -276,7 +277,7 @@ and the Goals it stands under. A count of zero is left out. Screens keep the com
 - **Everything is deleted; only a Card and a Check are also archived**, two Sprints after they
   closed (`ARCHIVE_AFTER_SPRINTS`). Archived is a matter of sight: it still counts everywhere it
   counted. A Value, a Tag and a Saved Request carry no `archived_at` at all.
-  Deleting a Value or an ordinary Tag removes its links and frees its name; creating that name later creates
+  Deleting a Value or a Tag removes its links and frees its name; creating that name later creates
   a new item. Their names are unique under Unicode case folding, for both create and rename.
   `DatabaseFile.connect` registers `UNICODE_NOCASE`, used by their name columns' unique indexes
   and by proposal reference lookups.

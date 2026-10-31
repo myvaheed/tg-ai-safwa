@@ -2,8 +2,8 @@
 
 Opt-in with ``--live-provider``, as `test_timing_phrases_live.py` is, and run from the folder
 that holds `.env`. Each case is one review session, run as its hook runs it, reasoning off.
-The cases are the pairs of the method's review (docs/REMINDERS_TRACKING_REVIEW.md §7.7), each
-in Russian and in English; what is compared is whether the review answered clear.
+The cases are pairs of one clear and one unclear item, each in Russian and in English; what is
+compared is whether the review answered clear.
 """
 
 from __future__ import annotations

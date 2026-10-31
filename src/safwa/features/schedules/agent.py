@@ -370,7 +370,7 @@ async def read_proposed_remind(
 class ScheduledQuery(ToolInput):
     start_date: str = Field(description="Inclusive local date YYYY-MM-DD.")
     end_date: str = Field(
-        description=f"Inclusive local date YYYY-MM-DD, at most {SCHEDULED_RANGE_DAYS_MAX} days after start_date."
+        description=f"Inclusive local date YYYY-MM-DD, at most {SCHEDULED_RANGE_DAYS_MAX - 1} days after start_date."
     )
     type: Literal["card", "check"]
     after_id: PositiveInt | None = Field(

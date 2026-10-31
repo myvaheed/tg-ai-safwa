@@ -49,13 +49,14 @@ async def test_ag_poll_030_a_poll_outlives_a_failing_round_and_ends_on_shutdown(
         await asyncio.gather(task, return_exceptions=True)
 
 
-async def test_startup_ends_the_session_a_crash_left_running(sessions):
+@pytest.mark.parametrize("status", ["running", "awaiting_approval", "interrupted"])
+async def test_startup_ends_the_session_a_crash_left_unfinished(sessions, status):
     """AG-SESSION-009 — tests/brd/tg_agent_shell/agents.feature"""
     async with sessions() as session:
         run = AgentRun(
             provider="test",
             model="test",
-            status="running",
+            status=status,
             claimed_at=datetime.now(UTC),
         )
         session.add(run)

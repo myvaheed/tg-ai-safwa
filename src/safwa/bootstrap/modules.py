@@ -186,10 +186,10 @@ HOOKS = (
     DAILY_SUMMARY_HOOK,
     SPRINT_END_HOOK,
     SPRINT_SUMMARY_HOOK,
+    # Close an expired Sprint before today's Actions can enter its scope.
     SPRINT_EXPIRY_HOOK,
     # Open instances move on to today's period before the Schedule plan looks for today's Actions.
     SCHEDULE_PERIOD_HOOK,
-    # Close an expired Sprint before today's Actions can enter its scope.
     SCHEDULE_PLAN_HOOK,
     KEY_ACTIONS_HOOK,
     KEY_WARNING_HOOK,

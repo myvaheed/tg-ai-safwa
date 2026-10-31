@@ -22,11 +22,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from llm_gateway import LlmProvider
-from tg_agent_shell.ai.mini import run_mini_session
-
 from ..retro.api import AnalysedSprint
-from .agent import PATTERN_PROMPT, PATTERN_TOOL, Pair, PatternReview
 
 # How many Sprints may be taken in after the one Sprint that observed a pattern before it
 # is left out of what memory shows.
@@ -69,7 +65,8 @@ class Candidate:
     raises: bool
 
 
-Matcher = Callable[[Sequence[Pattern], Sequence[Candidate]], Awaitable[PatternReview]]
+# The model's answer: (candidate number, pattern number) for each that name the same thing.
+Matcher = Callable[[Sequence[Pattern], Sequence[Candidate]], Awaitable[Sequence[tuple[int, int]]]]
 
 
 def candidates(analysis: dict[str, Any]) -> list[Candidate]:
@@ -118,13 +115,13 @@ def review_text(patterns: Sequence[Pattern], found: Sequence[Candidate]) -> str:
 
 
 def matched(
-    pairs: Sequence[Pair], patterns: Sequence[Pattern], found: Sequence[Candidate]
+    pairs: Sequence[tuple[int, int]], patterns: Sequence[Pattern], found: Sequence[Candidate]
 ) -> dict[int, int]:
     """Candidate index to pattern index, for the pairs that name numbers there are; the
     first pair about a candidate counts."""
     chosen: dict[int, int] = {}
-    for pair in pairs:
-        candidate, pattern = pair.candidate - 1, pair.pattern - 1
+    for number, named in pairs:
+        candidate, pattern = number - 1, named - 1
         if 0 <= candidate < len(found) and 0 <= pattern < len(patterns):
             chosen.setdefault(candidate, pattern)
     return chosen
@@ -152,9 +149,9 @@ async def absorb(
     new = [candidate for candidate in found if (candidate.text, candidate.raises) not in before]
     where: dict[Candidate, int] = {}
     if known and new:
-        review = await match(known, new)
+        pairs = await match(known, new)
         where = {
-            new[index]: known[pattern].id for index, pattern in matched(review.same, known, new).items()
+            new[index]: known[pattern].id for index, pattern in matched(pairs, known, new).items()
         }
     return [
         Observation(
@@ -165,22 +162,3 @@ async def absorb(
         )
         for candidate in found
     ]
-
-
-class PatternReviewer:
-    """The one question, on the one provider the application has."""
-
-    def __init__(self, provider: LlmProvider) -> None:
-        self.provider = provider
-
-    async def __call__(
-        self, patterns: Sequence[Pattern], found: Sequence[Candidate]
-    ) -> PatternReview:
-        result = await run_mini_session(
-            self.provider,
-            system_prompt=PATTERN_PROMPT,
-            context=review_text(patterns, found),
-            terminals=(PATTERN_TOOL,),
-            max_tool_calls=None,
-        )
-        return result.payload

@@ -23,13 +23,17 @@ from .telegram.model import CallbackToken, UiSession
 async def recover_startup(session: AsyncSession) -> None:
     """Reconcile the run machinery's interrupted work."""
     now = datetime.now(UTC)
-    # Both end the same way, so both are recorded the same way.  `interrupted` is the one
-    # a later turn may pick up, and nothing after a restart can be its caller.
+    # All three end the same way, so all are recorded the same way: only the turn that
+    # routed to a session adopts it, and nothing after a restart can be that turn.
     await session.execute(
         update(AgentRun)
         .where(
             AgentRun.status.in_(
-                (RunStatus.RUNNING.value, RunStatus.AWAITING_APPROVAL.value)
+                (
+                    RunStatus.RUNNING.value,
+                    RunStatus.AWAITING_APPROVAL.value,
+                    RunStatus.INTERRUPTED.value,
+                )
             )
         )
         .values(status=RunStatus.ABANDONED.value, claimed_at=None)

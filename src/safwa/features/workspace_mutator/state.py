@@ -1,6 +1,6 @@
 """The workspace's current state, as one block a session reads before its own steps.
 
-The workspace is what the owner keeps - Cards, Checks, Values, Tags, Requests and Reminders -
+The workspace is what the owner keeps - Cards, Checks, Values, Tags and Requests -
 so the block that describes it is the workspace's, not the reader's. `AgentSpec.workspace_state`
 is the flag that asks for it.
 

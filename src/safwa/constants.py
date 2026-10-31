@@ -7,7 +7,6 @@ both sides of a boundary, so it belongs to neither: this module imports nothing 
 
 from __future__ import annotations
 
-# The built-in Tag used by capture, its saved Request and the agents' instructions.
 # How long a Value's or a Tag's description may be. Their tools tell the model the same.
 DESCRIPTION_MAX_CHARS = 400
 
@@ -49,22 +48,12 @@ PROPOSING_TURN = _turn(
     *_PROPOSED,
 )
 PROPOSING_FROM_CONTEXT = _turn(*_PROPOSED)
-READING_THE_WORKSPACE = """# Read the data
-`query_data` runs one read-only `SELECT` or `WITH ... SELECT` over these views only.
-Every value listed under a view is the lowercase code stored in that column.
-Find an item the user describes in other words with `search`. Nothing close: call nothing_to_do and say so.
-
-{views}
-
-`created_at` and `updated_at` are UTC text: compare them with `datetime('now')`.
-IDs are small integers. Never ask the user for one you can find yourself."""
 # How many rows one page of a Card or a Check selector lists.
 SELECTOR_PAGE_SIZE = 10
 # The advisor window is a token budget rather than a message count: a Summary of at most
-# SUMMARY_TOKEN_CEILING plus the messages SUMMARY_TRIGGER_TOKENS pays for.  The trigger is
-# the message budget itself, so a Summary is written exactly when the window is full.
-# Summary writes it; the shell's history source sizes the window.
-SUMMARY_TOKEN_CEILING = 2_000
+# `SUMMARY_TOKEN_CEILING` (summary/agent.py) plus the messages SUMMARY_TRIGGER_TOKENS pays
+# for.  The trigger is the message budget itself, so a Summary is written exactly when the
+# window is full.
 SUMMARY_TRIGGER_TOKENS = 6_000
 # How often the Cue queue and the hook tick poll look, and how often Reminders are checked.
 SCHEDULER_POLL_SECONDS = 30.0

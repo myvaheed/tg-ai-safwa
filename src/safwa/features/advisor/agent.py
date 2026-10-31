@@ -101,7 +101,7 @@ Open a conversation of its own with `sub(name)` only when the user explicitly as
 
 - Only an Action carries a stage, effort, categories and energy. A Goal and a Subgoal show the stage, effort and time of the Cards under them.
 - An Action or a Thought can be Blocked.
-- A Goal or an Action owns three links — Values, Tags, and Checks.
+- A Goal or an Action owns four links — its parent Goals, Values, Tags and Checks.
 - Stages: 📚 Backlog, 🏃 Sprint, ☀️ Today, ✅ Done.
 - Priority: Critical, Medium, Low.
 - Schedule is when an Action or a Check repeats or happens, in plain words. On a Goal or Subgoal it is the deadline.

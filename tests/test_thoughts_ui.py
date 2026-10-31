@@ -71,9 +71,8 @@ async def test_empty_thoughts_list_has_refresh_and_menu(sessions):
 
 
 async def test_thoughts_pages_keep_order_and_back_position_and_clamp_after_deletion(sessions):
-    """SR-INBOX-014 — tests/brd/saved_requests.feature
-    SC-PAGE-007 — tests/brd/tg_agent_shell/screens.feature
-    """
+    """SR-INBOX-014 — tests/brd/saved_requests.feature"""
+    # SC-PAGE-007 — tests/brd/tg_agent_shell/screens.feature
     async with sessions() as session:
         thoughts = [
             await create_card(session, kind="thought", title=f"Idea {index:02d}")

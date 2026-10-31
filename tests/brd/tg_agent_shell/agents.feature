@@ -636,7 +636,7 @@ Feature: Agents — the session, the hand-over, and what comes back
     When a reader's SQL names the index
     Then the read is refused
 
-  Scenario: AG-PRIVACY-063 — The AI provider reads placeholders where the owner's identifiers were
+  Scenario: AG-PRIVACY-076 — The AI provider reads placeholders where the owner's identifiers were
     Given the AI provider is not on this computer
     When a request to it carries a person's name, a phone number, an email, a card or account
       number, a document or tax number, a street address, a username, a link, a password, a key,
@@ -645,7 +645,7 @@ Feature: Agents — the session, the hand-over, and what comes back
     And placeholders are numbered by kind in the order they first appear in the request
     And each spelling has its own placeholder: "Анне" and "Анны" are [PERSON_1] and [PERSON_2]
 
-  Scenario: AG-PRIVACY-064 — The owner and the tools get the real words back
+  Scenario: AG-PRIVACY-077 — The owner and the tools get the real words back
     Given the provider answers with placeholders it was sent
     When the answer arrives
     Then the owner reads the real words in place of each placeholder

@@ -92,7 +92,7 @@ _DECISION_NEXT_STEPS = {
 
 
 def already_decided(decision: BatchDecision) -> dict[str, Any]:
-    """What a call the owner already saved or discarded in this session gets when it is
+    """What a call the owner already saved or discarded in this request gets when it is
     sent again: it is not proposed again, so they never decide the same change twice."""
     return {
         "status": ToolResultStatus.ERROR.value,

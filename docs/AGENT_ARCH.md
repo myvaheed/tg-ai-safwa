@@ -81,12 +81,14 @@ the commands, the callbacks, the text inputs, the proposal capabilities, the sub
 the hooks, refusing each collision where it happens.
 
 `HOOKS` is the explicit list of automatic reactions, independent of the features themselves.
-A hook whose effect reaches the agent — `OfferTool`, `RefuseTool` or `Advise`, its
-`agent_related` — is the owner's to turn off in the Profile, and `HookRegistry` asks the
-application's policy — `hook_switched_on`, read live — before running its condition or wording
-its request; a hook that runs work of its own, `Run`, is always on, and so is a check on the
-model's own work, `ReturnProposals`, `ReviewTool`, `HoldAnswer` or `SaveProposal`, which Safwa registers or
-leaves out by `featuretoggles.py`. The tool adapter emits `BeforeTool` before a call and
+A hook whose effect hands the agent something of the owner's — `OfferTool`, `Advise`,
+`RunAndAdvise`, or a `RefuseTool` that names a helper, its `agent_related` — is the owner's to
+turn off in the Profile, and `HookRegistry` asks the application's policy — `hook_switched_on`,
+read live — before running its condition or wording its request. A hook with `switch=` has no
+switch of its own and follows the hook it names, whatever its effect. Any other hook is always
+on: a `Run`, and a check on the model's own work — `ReturnProposals`, `ReviewTool`, `HoldAnswer`,
+`SaveProposal` or a `RefuseTool` with no helper — which Safwa registers or leaves out by
+`featuretoggles.py`. The tool adapter emits `BeforeTool` before a call and
 `AfterTool` after it; the materializer emits `BeforeProposals` before a subagent response's calls
 are prepared, `BeforeReview` before a proposal's screen is drawn and `AfterRequest` before the
 answer to the owner's message; the dialogue adapter emits `BeforeTurn`
@@ -122,9 +124,9 @@ wallets and entries, with none of Safwa's nouns in it.
 | the container every handler reads | `Services`, filled from the registry | `bootstrap/main.py` |
 | the home screen | exactly one `ScreenCommand` with `nav=HOME_NAV` | the `home` feature |
 | a restart | `recover_startup(session)` | called once, before polling starts |
-| hooks, if it has any | `Registry.of(…, hooks=…)`; `bind_committed`; `hand_on_start(registry.hooks, …)` after `recover_startup`, where a `Run` on `OnStarted()` reconciles what a feature owns; and the Cue poll and the tick poll, `BACKGROUND_TASKS` in `cues/module.py` — whose import declares the `cues` table | `HOOKS`; `hand_on_start` once the commits are bound, so what the start ends is handed on: `planning.sprint_expiry` and `reminders.start` |
+| hooks, if it has any | `Registry.of(…, hooks=…)`; `bind_committed`; `hand_on_start(registry.hooks, …)` after `recover_startup`, where a `Run` on `OnStarted()` reconciles what a feature owns; and the Cue poll and the tick poll, `BACKGROUND_TASKS` in `cues/module.py` — whose import declares the `cues` table | `HOOKS`; `hand_on_start` once the commits are bound, so what the start ends is handed on: `planning.sprint_expiry`, `schedules.period`, `cards.schedule_plan` and `reminders.start` |
 | a quiet chat emptied, if it wants one | an `AccessManager` on `Services.access`, and a `Run` on `OnTick(every=…)` that publishes an empty request of kind `home`: the chat is cleared but for unanswered Cues, and the conversation starts with them (`TG-CLEAR-032`) | `home.dashboard`, after the Profile's quiet time |
-| photos, if it takes them | a `MediaLibrary` on `Services.media`, `AgentContext.media` and `root_session(media=…)`, and the media `MODULE` among its features | `MEDIA_FEATURE`, enabled by `image_input`; Diary entries can carry photos |
+| photos, if it takes them | a `MediaLibrary` on `Services.media`, `AgentContext.media` and `root_session(media=…)`, and the media `MODULE` among its features | `MEDIA_FEATURE`, always registered; the `MediaLibrary`, and so photos, only with `image_input`; Diary entries can carry photos |
 | pictures a read tool sends itself, if one does | `AgentContext.chat` and `AgentContext.bot`: the `ChatHost` is built before the root session, and the pictures go with no words or buttons of their own | Retro's `show_charts` |
 | a shutdown | cancel the loops it started, close the provider and the bot | the polling `finally` |
 
@@ -206,8 +208,8 @@ stateDiagram-v2
     running --> awaiting_approval: a screen is open
     awaiting_approval --> running: Save / Discard
     running --> completed: answered in words
-    awaiting_approval --> interrupted: the owner wrote instead of deciding
-    awaiting_approval --> abandoned: nobody answered in PROPOSAL_REVIEW_MINUTES
+    awaiting_approval --> interrupted: a subagent's owner wrote instead of deciding
+    awaiting_approval --> abandoned: the root's owner wrote instead, or nobody answered in PROPOSAL_REVIEW_MINUTES
     interrupted --> running: route back on the same turn
     interrupted --> abandoned: the turn ended without coming back
     running --> failed
@@ -224,8 +226,8 @@ Four things happen to a session that stops on a person, and `AgentManager` owns 
 |---|---|
 | suspend | checkpoint the session and hand back an `InteractionRef` — its run id and a minted token |
 | `resume(ref, value)` | claim by that reference, answer the calls it stopped on, run it on, hand its receipt up the chain |
-| `interrupt(ref, results, summary)` | leave it unfinished with those results and the note that the owner wrote instead of deciding |
-| `close(ref, results)` | answer the calls it stopped on and end it with every caller above it: nobody answered, and nothing comes back to it |
+| `interrupt(ref, results, summary)` | leave a subagent unfinished with those results and the note that the owner wrote instead of deciding; a root, which nothing routes back to, is ended `abandoned` |
+| `close(ref, results)` | answer the calls it stopped on and end it with every caller above it and whatever the root left unfinished below: nobody answered, and nothing comes back to it |
 
 The reference is opaque: the runtime never learns what the person was shown, and Safwa keeps the
 mapping — the approval batch carries the token, so a Save resolves the screen and names the session
@@ -390,7 +392,8 @@ turn resumes it holding its own plan, and a correction reaches the session that 
 proposal. Its transcript carries one note, `REFUSED_AND_WROTE`, saying the owner refused *and
 wrote instead*, and that words which only refuse it get no proposal; on "rejected" alone it would
 propose the same thing again. The turn that routed there is the outer
-bound: when it answers or fails, `_close_unfinished_children` ends what it left behind.
+bound: when it answers, fails or its review expires, `_close_unfinished_children` ends what it
+left behind.
 
 A review nobody answers with Save, Discard or a message ends the chain the other way. Process
 uptime does not limit Save; the displayed review's unanswered time does. After `PROPOSAL_REVIEW_MINUTES` on
@@ -663,8 +666,8 @@ flowchart LR
   left in the same transaction, within one proposal and across the queue. A presenter's `screen`
   gets every change of its review. A Discard ends the queue: the screens behind it are recorded
   discarded and never shown (`PR-SAVE-010`). The model resumes only after the queue ends, each
-  result handed back as a tool result. A call repeating one the owner saved or discarded comes back
-  `already_decided` (`PR-RESULT-011`).
+  result handed back as a tool result. A call repeating one the owner saved or discarded in the same
+  request comes back `already_decided` (`PR-RESULT-011`); a later request may propose it again.
 - A review and its approval batch are process state, not rows: `ProposalStore` holds both, they
   carry no status, and a batch is over when no screen is still waiting. Nothing
   survives a restart, so startup only clears what pointed at a review — the buttons, and the
@@ -846,9 +849,10 @@ hooks that name the same interval share its `Tick`. Its work that failed is not 
 next time is its next try. Every `Tick` a look hands on carries the owner's chat as that look saw
 it (`ChatState`: when the owner last acted, whether the chat is free, the kind and time of the
 newest message kept) — the Home dashboard's `home.dashboard` is the one that reads it.
-Safwa's are `reminders.fire` every 30 seconds, `home.dashboard` every 30 and `memory.retro`
-every 60. A look does the work of its ticks one after another in `HOOKS` order, so work that
-waits for the model holds the next look back: the Reminders come first in `HOOKS`.
+Safwa's are `schedules.period` and `reminders.fire` every 30 seconds, `home.dashboard` every 30
+and `memory.retro` every 60. A look does the work of its ticks one after another in `HOOKS`
+order, so work that waits for the model holds the next look back: the Schedule periods and the
+Reminders come before the model's work in `HOOKS`.
 
 ### A Sprint's end is a fact, and its summary is a hook's words
 
@@ -1049,7 +1053,9 @@ stateDiagram-v2
 
 Each is a `BackgroundTask` in `BACKGROUND_TASKS`, and both are the shell's: a feature has no loop
 of its own, and its work on a timer is a hook on a tick. The composition root starts them and
-cancels them in the polling `finally`; an application with no hook needs neither.
+cancels them in the polling `finally`. The Cue poll also closes a review nobody answered
+(`PR-EXPIRE-029`), so an application with proposals runs `cue-queue` even with no hook; one with
+no hook on a tick needs no `hook-ticks`.
 
 ## Recovery
 
@@ -1057,8 +1063,8 @@ cancels them in the polling `finally`; an application with no hook needs neither
 work on every boot — the run rows, the buttons and the screens it wrote — and `hand_on_start` then
 hands `Started` to the hooks, where a feature reconciles what it owns.
 
-**A restart ends every session.** One left `running` and one left `awaiting_approval` are both
-recorded `abandoned`, and their claims are released. Nothing picks either up: a screen is process
+**A restart ends every session.** One left `running`, `awaiting_approval` or `interrupted` is
+recorded `abandoned`, and its claim is released. Nothing picks either up: a screen is process
 state and died with the process, and an unfinished session is only ever adopted by the turn that
 routed to it, which died with it. What startup clears is what still pointed at a review — the
 buttons, and the `related_id` of the screens in the chat.

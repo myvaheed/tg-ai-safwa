@@ -26,7 +26,7 @@ from tg_agent_shell.foundation.days import day_words, today_line
 
 from ...foundation.workspace import require_workspace
 from ..cards.api import finished_actions, goal_tree, order_cards, served_values
-from ..checks.api import Check
+from ..checks.model import Check
 from ..diary.api import last_entries
 from ..planning.api import today_actions, values_in_focus
 from ..planning.model import Sprint
